@@ -94,6 +94,17 @@ struct ui_spool { int saved, reader; off_t off; };
 
 struct ui_log_entry;
 
+/*
+ * The end of a command span, while the log store gives its entry to the
+ * renderer of the model. The renderer calls back to show the entry once. A
+ * capture of the renderer runs inside it, so it is not a state of the span.
+ */
+enum ui_pane_span {
+	UI_SPAN_NONE,		/* no span is ending */
+	UI_SPAN_ENDING,		/* the entry of the span has not been shown */
+	UI_SPAN_PLACED,		/* the entry has been shown */
+};
+
 /* Where the shared tool band of a call is drawn. */
 enum ui_tool_mode {
 	UI_TOOL_IDLE,		/* no call is drawn */
@@ -167,7 +178,7 @@ struct fyai_ui {
 	 * rows the renderer makes from the log store, and how it is placed. */
 	struct fyai_buf pane_oracle;
 	enum fyai_error_type pane_level;
-	bool pane_ending, pane_shown;
+	enum ui_pane_span pane_span;
 	bool pane_show_output, pane_command;
 	char *pane_kept;		/* output drawn into the transcript */
 	bool pane_status;		/* the command output is a status */
@@ -3890,6 +3901,7 @@ static void ui_pane_end(struct fyai_ctx *ctx, const char *title, bool error,
 	struct fyai_buf out = {0};
 	struct fyai_ui *ui = ctx ? ctx->ui : NULL;
 	enum fyai_error_type level = FYAIET_INFO;
+	bool shown;
 
 	if (ui) {
 		/* The popup shows a diagnostic as its cause, with no module. */
@@ -3925,16 +3937,16 @@ static void ui_pane_end(struct fyai_ctx *ctx, const char *title, bool error,
 	ui->pane_level = level;
 	ui->pane_show_output = show_output;
 	ui->pane_command = command;
-	ui->pane_ending = true;
-	ui->pane_shown = false;
+	ui->pane_span = UI_SPAN_ENDING;
 	fyai_uilog_end(ctx, title, error);
-	ui->pane_ending = false;
+	shown = ui->pane_span == UI_SPAN_PLACED;
+	ui->pane_span = UI_SPAN_NONE;
 	/* No entry of the store: a command of a mirror runs here and writes no
 	 * store, so its capture is its output. */
-	if (!ui->pane_shown && fyai_uimodel_mirrored(ctx))
+	if (!shown && fyai_uimodel_mirrored(ctx))
 		ui_pane_place(ui, title, error, level, show_output, command,
 			      &ui->pane_oracle);
-	else if (!ui->pane_shown && ui->pane_oracle.len)
+	else if (!shown && ui->pane_oracle.len)
 		ui_log_check(ui, title, level, "", 0);
 	free(ui->pane_oracle.data);
 	memset(&ui->pane_oracle, 0, sizeof(ui->pane_oracle));
@@ -4004,8 +4016,8 @@ void fyai_ui_log_show(struct fyai_ctx *ctx, const char *title, bool error,
 	if (!ui)
 		return;
 	/* The entry of the span that ends: placed as the span says. */
-	if (ui->pane_ending && !ui->pane_shown) {
-		ui->pane_shown = true;
+	if (ui->pane_span == UI_SPAN_ENDING) {
+		ui->pane_span = UI_SPAN_PLACED;
 		show_output = ui->pane_show_output;
 		command = ui->pane_command;
 		ui_log_check(ui, title, level, rows, len);
