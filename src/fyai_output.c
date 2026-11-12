@@ -292,6 +292,7 @@ int fyai_output_add_tool_head_fragment(struct fyai_ctx *ctx, size_t start,
 {
 	struct fyai_display_output *output;
 	fy_generic fragment;
+	int rc;
 
 	if (!ctx || !ctx->display_output || end < start)
 		return -1;
@@ -308,7 +309,8 @@ int fyai_output_add_tool_head_fragment(struct fyai_ctx *ctx, size_t start,
 				      fragment);
 	fyai_error_check(ctx, fy_is_valid(output->fragments), err,
 			 "could not append tool head fragment");
-	fyai_error_check(ctx, !fyai_acp_worker_tool(ctx, tool, ok, cause), err,
+	rc = fyai_acp_worker_tool(ctx, tool, ok, cause);
+	fyai_error_check(ctx, !rc, err,
 			 "could not send ACP tool update");
 	return 0;
 err:

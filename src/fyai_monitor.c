@@ -188,10 +188,12 @@ static void monitor_finish(void *userdata)
 	fy_generic result = fy_invalid;
 	const char *text;
 	char status[32];
+	struct fy_generic_builder *gb;
 	bool ok = false;
 	int rc;
 
-	fyai_error_check(ctx, fyai_ctx_transient_gb(ctx), release,
+	gb = fyai_ctx_transient_gb(ctx);
+	fyai_error_check(ctx, gb, release,
 			 "monitor: could not collect the end of '%s'", run->name);
 	rc = fyai_tool_job_group_collect(run->group, 0, &result, &ok);
 	text = fy_is_string(result) ? fy_castp(&result, "") : "";

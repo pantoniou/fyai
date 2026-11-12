@@ -890,7 +890,7 @@ fyai_catalog_update_submit(struct fyai_ctx *ctx, const char *const *providers,
 	struct fyai_catalog_update_request *request;
 	struct fyai_buf line = {0};
 	const char *env_names[FYAI_CATALOG_ENV_KEEP_MAX + 1];
-	const char *tmp;
+	const char *tmp, *made;
 	int rc;
 
 	request = calloc(1, sizeof(*request));
@@ -908,7 +908,8 @@ fyai_catalog_update_submit(struct fyai_ctx *ctx, const char *const *providers,
 		tmp = "/tmp";
 	snprintf(request->dir, sizeof(request->dir), "%s/fyai-catalog-XXXXXX",
 		 tmp);
-	fyai_error_check(ctx, mkdtemp(request->dir), err_dir,
+	made = mkdtemp(request->dir);
+	fyai_error_check(ctx, made, err_dir,
 			 "could not create a directory for the catalogue: %s",
 			 strerror(errno));
 	snprintf(request->out, sizeof(request->out), "%s/catalog.yaml",

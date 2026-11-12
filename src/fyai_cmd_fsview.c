@@ -3459,7 +3459,7 @@ static int view_session_leave(struct fyai_ctx *ctx)
 	struct fyai_cfg *cfg = ctx->cfg;
 	const char **argv;
 	size_t argc = 0, i;
-	int saved;
+	int saved, env_rc;
 
 	while (cfg->argv[argc])
 		argc++;
@@ -3470,7 +3470,8 @@ static int view_session_leave(struct fyai_ctx *ctx)
 	argv[2] = fyai_ctx_branch(ctx);
 	for (i = 1; i < argc; i++)
 		argv[i + 2] = cfg->argv[i];
-	fyai_error_check(ctx, !setenv("FYAI_SESSION_RESTART", "1", 1), err_argv,
+	env_rc = setenv("FYAI_SESSION_RESTART", "1", 1);
+	fyai_error_check(ctx, !env_rc, err_argv,
 			 "view 'session': cannot mark the restart: %s", strerror(errno));
 	fyai_exec_self(argv);
 	saved = errno;

@@ -260,11 +260,13 @@ static int frames_display(struct fyai_ctx *ctx, fy_generic config)
 {
 	struct fyai_cfg *cfg = ctx->cfg;
 	fy_generic layer;
+	int rc;
 
 	if (!fy_is_mapping(config))
 		return 0;
 	layer = fy_mapping(cfg->gb, "display", fy_gb_internalize(cfg->gb, config));
-	fyai_error_check(ctx, !fyai_config_apply(cfg, layer), err,
+	rc = fyai_config_apply(cfg, layer);
+	fyai_error_check(ctx, !rc, err,
 			 "cannot take the display settings of the server");
 	if (cfg->markdown)
 		fyai_markdown_load_style(cfg);

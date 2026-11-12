@@ -5438,6 +5438,7 @@ static char *fyai_agent_input_tool(struct fyai_ctx *ctx, fy_generic args,
 	const char *text;
 	ssize_t n;
 	size_t off;
+	int rc;
 
 	*okp = false;
 	name_v = fy_get(args, "name", fy_invalid);
@@ -5455,12 +5456,15 @@ static char *fyai_agent_input_tool(struct fyai_ctx *ctx, fy_generic args,
 
 	input_v = fy_get(args, "input", fy_invalid);
 	text = fy_castp(&input_v, "");
-	fyai_error_check(ctx, !fyai_buf_append(&in, text), err,
+	rc = fyai_buf_append(&in, text);
+	fyai_error_check(ctx, !rc, err,
 			 "agent: could not retain input for '%s'", name);
 	/* Its terminal turns the return into the end of a line for it. */
-	if (fy_get(args, "enter", true))
-		fyai_error_check(ctx, !fyai_buf_append(&in, "\r"), err,
+	if (fy_get(args, "enter", true)) {
+		rc = fyai_buf_append(&in, "\r");
+		fyai_error_check(ctx, !rc, err,
 				 "agent: could not append return for '%s'", name);
+	}
 	for (off = 0; off < in.len; off += (size_t)n) {
 		n = write(job->pty, in.data + off, in.len - off);
 		if (n > 0)

@@ -115,9 +115,11 @@ err:
 int fyai_cmd_branch_attach(struct fyai_cmd_call *call, fy_generic *result)
 {
 	const char *name = fyai_cmd_arg_str(call, "name");
+	const char *zoomed;
 
 	(void)result;
-	fyai_error_check(call->ctx, fyai_agents_zoom(call->ctx, name, true),
+	zoomed = fyai_agents_zoom(call->ctx, name, true);
+	fyai_error_check(call->ctx, zoomed,
 			 err, "branch attach: '%s' is not a reachable live "
 			 "agent", name);
 	return 0;

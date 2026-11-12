@@ -1671,6 +1671,7 @@ static struct ui_question *ui_question_make(struct fyai_ctx *ctx,
 {
 	struct ui_question *q;
 	size_t nq;
+	bool copied;
 
 	nq = fy_is_sequence(questions) ? fy_len(questions) : 0;
 	fyai_error_check(ctx, nq && nq <= FYAI_ASK_QUESTIONS_MAX, err_out,
@@ -1678,7 +1679,8 @@ static struct ui_question *ui_question_make(struct fyai_ctx *ctx,
 	q = calloc(1, sizeof(*q));
 	fyai_error_check(ctx, q, err_out, "cannot allocate a question");
 	snprintf(q->qid, sizeof(q->qid), "%s", qid);
-	fyai_error_check(ctx, ui_question_copy(q, questions), err_free,
+	copied = ui_question_copy(q, questions);
+	fyai_error_check(ctx, copied, err_free,
 			 "cannot keep a question");
 	if (from && *from) {
 		q->from = strdup(from);
@@ -3465,7 +3467,7 @@ int fyai_ui_open(struct fyai_ctx *ctx)
 	struct fytim_cfg cfg;
 	struct fyai_ui *ui;
 	struct fyai_event_loop *el;
-	int ttyout = -1;
+	int ttyout = -1, rc;
 
 	if (!ctx || !ctx->cfg->interactive || !isatty(STDIN_FILENO) ||
 	    !isatty(STDOUT_FILENO))
@@ -3523,7 +3525,8 @@ int fyai_ui_open(struct fyai_ctx *ctx)
 	}
 	fyai_ui_config_reassert(ctx);
 	ui_page_configure(ui);
-	fyai_error_check(ctx, !fyai_ui_update_prompt_style(ctx), fail,
+	rc = fyai_ui_update_prompt_style(ctx);
+	fyai_error_check(ctx, !rc, fail,
 			 "failed to apply input bubble style");
 	el = fyai_ctx_loop(ctx);
 	if (!el || fyai_event_add_fd(el, fytim_poll_fd(ui->ft), FYAIEV_READ,
@@ -4055,13 +4058,15 @@ bool fyai_ui_fullscreen(const struct fyai_ctx *ctx)
 int fyai_ui_external_begin(struct fyai_ctx *ctx)
 {
 	struct fyai_ui *ui = ctx ? ctx->ui : NULL;
+	int rc;
 
 	if (!ui)
 		return 0;
 	fyai_error_check(ctx, !ui->external, err_out,
 			 "external editor is already active");
 	fyai_ui_drain_output(ctx);
-	fyai_error_check(ctx, fytim_suspend(ui->ft) == FYTIM_OK, err_out,
+	rc = fytim_suspend(ui->ft);
+	fyai_error_check(ctx, rc == FYTIM_OK, err_out,
 			 "could not suspend terminal UI");
 	spool_restore(&ui->out, STDOUT_FILENO);
 	spool_restore(&ui->err, STDERR_FILENO);

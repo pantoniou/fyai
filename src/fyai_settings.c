@@ -2498,7 +2498,7 @@ static const char *const settings_export_files[] = {
 
 static const char *settings_export_dir(struct fyai_ctx *ctx)
 {
-	const char *tmp;
+	const char *tmp, *made;
 	char tmpl[PATH_MAX];
 	int rc;
 
@@ -2512,7 +2512,8 @@ static const char *settings_export_dir(struct fyai_ctx *ctx)
 			 "settings: the temporary directory %s is too long",
 			 tmp);
 	/* mkdtemp makes the directory 0700: only this user reads the files. */
-	fyai_error_check(ctx, mkdtemp(tmpl), err_out,
+	made = mkdtemp(tmpl);
+	fyai_error_check(ctx, made, err_out,
 			 "settings: cannot make a directory in %s: %s", tmp,
 			 strerror(errno));
 	ctx->settings_export_dir = strdup(tmpl);

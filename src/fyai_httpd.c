@@ -905,14 +905,15 @@ int fyai_httpd_adopt(struct fyai_httpd *h, int fd, SSL_CTX *tls)
 {
 	struct fyai_ctx *ctx = h->ctx;
 	struct httpd_listener *listener;
-	int rc;
+	int rc, ref;
 
 	listener = calloc(1, sizeof(*listener));
 	fyai_error_check(ctx, listener, err, "cannot allocate the HTTP listener");
 	listener->h = h;
 	listener->fd = fd;
 	if (tls) {
-		fyai_error_check(ctx, SSL_CTX_up_ref(tls) == 1, err,
+		ref = SSL_CTX_up_ref(tls);
+		fyai_error_check(ctx, ref == 1, err,
 				 "cannot keep the TLS context");
 		listener->tls = tls;
 	}

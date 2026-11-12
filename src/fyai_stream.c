@@ -1133,12 +1133,14 @@ fyai_stream_request_submit(struct fyai_ctx *ctx,
 			   const struct fyai_stream_callbacks *callbacks)
 {
 	struct stream_response *stream;
+	int rc;
 
 	stream = calloc(1, sizeof(*stream));
 	fyai_error_check(ctx, stream, err_out, "out of memory");
 	if (callbacks)
 		stream->callbacks = *callbacks;
-	fyai_error_check(ctx, !stream_response_init(stream, ctx), err_free,
+	rc = stream_response_init(stream, ctx);
+	fyai_error_check(ctx, !rc, err_free,
 			 "could not initialize response stream");
 
 	stream_state_transition(stream, FYAISS_SUBMITTED);

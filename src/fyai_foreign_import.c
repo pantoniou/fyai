@@ -1297,6 +1297,7 @@ static int foreign_import_build(struct fyai_ctx *ctx, const char *path,
 	char component[FYAI_BRANCH_NAME_MAX + 1];
 	char branch[FYAI_BRANCH_NAME_MAX + 1];
 	unsigned int call_sequence, compactions;
+	int display_rc;
 	struct foreign_build build;
 	struct foreign_display display;
 	bool codex_has_context, codex_context;
@@ -1392,23 +1393,23 @@ static int foreign_import_build(struct fyai_ctx *ctx, const char *path,
 				head = foreign_display_finish(ctx, head, &display);
 			head = foreign_append_turn(ctx, head,
 				fy_sequence(gb, canonical), "codex");
-			if (fy_equal(fy_get(canonical, "role", fy_invalid), "user"))
+			if (fy_equal(fy_get(canonical, "role", fy_invalid), "user")) {
 				head = foreign_display_user(ctx, head,
 					fy_get(canonical, "content", fy_invalid), &display);
-			else if (fy_equal(fy_get(canonical, "role", fy_invalid),
-					 "assistant"))
+			} else if (fy_equal(fy_get(canonical, "role", fy_invalid),
+					 "assistant")) {
 				foreign_display_text(&display,
 					fy_get(canonical, "content", fy_invalid));
-			else if (fyai_item_type_is_call(
-					 fy_get(canonical, "type", fy_invalid)))
-				fyai_error_check(ctx,
-						 !foreign_display_call(ctx, &display,
-								       canonical),
-						 err_out,
+			} else if (fyai_item_type_is_call(
+					 fy_get(canonical, "type", fy_invalid))) {
+				display_rc = foreign_display_call(ctx, &display,
+								  canonical);
+				fyai_error_check(ctx, !display_rc, err_out,
 						 "foreign import: cannot build display");
-			else if (fyai_item_type_is_call_output(
-					 fy_get(canonical, "type", fy_invalid)))
+			} else if (fyai_item_type_is_call_output(
+					 fy_get(canonical, "type", fy_invalid))) {
 				foreign_display_result(&build, &display, canonical);
+			}
 			continue;
 		}
 		if (source != FYAI_FOREIGN_CLAUDE_CODE)

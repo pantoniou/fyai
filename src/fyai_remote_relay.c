@@ -86,20 +86,23 @@ static int relay_write_all(int fd, const void *data, size_t n)
 static int relay_messages(struct fyai_ctx *ctx, struct fyai_ws_client *ws, bool readable)
 {
 	struct fyai_ws_message msg;
-	int r;
+	int r, op_rc;
 
 	while ((r = fyai_ws_client_recv(ws, &msg, readable)) > 0) {
 		readable = false;
 		if (msg.opcode == FYAI_WS_CLOSE)
 			return 1;
 		if (msg.opcode == FYAI_WS_PING) {
-			fyai_error_check(ctx, !fyai_ws_client_send(ws, FYAI_WS_PONG, msg.data,
-								   msg.size), err,
+			op_rc = fyai_ws_client_send(ws, FYAI_WS_PONG, msg.data,
+						    msg.size);
+			fyai_error_check(ctx, !op_rc, err,
 					 "write: %s", strerror(errno));
 		} else if (msg.opcode == FYAI_WS_TEXT) {
-			fyai_error_check(ctx, !relay_write_all(STDOUT_FILENO, msg.data,
-							       msg.size) &&
-					 !relay_write_all(STDOUT_FILENO, "\n", 1), err,
+			op_rc = relay_write_all(STDOUT_FILENO, msg.data,
+						msg.size);
+			if (!op_rc)
+				op_rc = relay_write_all(STDOUT_FILENO, "\n", 1);
+			fyai_error_check(ctx, !op_rc, err,
 					 "write: %s", strerror(errno));
 		}
 	}
@@ -116,7 +119,7 @@ static int relay_pump(struct fyai_ctx *ctx, struct fyai_ws_client *ws)
 	unsigned char *in = NULL, chunk[65536];
 	size_t in_len = 0, in_cap = 0, start;
 	ssize_t got;
-	int rc = -1, r;
+	int rc = -1, r, op_rc;
 	unsigned char *nl, *grown;
 
 	for (;;) {
@@ -157,10 +160,11 @@ static int relay_pump(struct fyai_ctx *ctx, struct fyai_ws_client *ws)
 			memcpy(in + in_len, chunk, (size_t)got);
 			in_len += (size_t)got;
 			for (start = 0; (nl = memchr(in + start, '\n', in_len - start));) {
-				fyai_error_check(ctx, !fyai_ws_client_send(ws, FYAI_WS_TEXT,
-									   in + start,
-									   (size_t)(nl - (in + start))),
-						 out, "write: %s", strerror(errno));
+				op_rc = fyai_ws_client_send(ws, FYAI_WS_TEXT,
+							    in + start,
+							    (size_t)(nl - (in + start)));
+				fyai_error_check(ctx, !op_rc, out,
+						 "write: %s", strerror(errno));
 				start = (size_t)(nl - in) + 1;
 			}
 			in_len -= start;

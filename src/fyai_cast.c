@@ -352,7 +352,7 @@ struct fyai_cast *fyai_cast_open(struct fyai_ctx *ctx, const char *path,
 {
 	struct fy_emitter_cfg ecfg;
 	struct fyai_cast *c = calloc(1, sizeof(*c));
-	int fd = -1;
+	int fd = -1, op_rc;
 
 	fyai_error_check(ctx, c, err, "cast: out of memory");
 	c->ctx = ctx;
@@ -372,10 +372,12 @@ struct fyai_cast *fyai_cast_open(struct fyai_ctx *ctx, const char *path,
 	ecfg.userdata = c;
 	c->emit = fy_emitter_create(&ecfg);
 	fyai_error_check(ctx, c->emit, err, "cast: cannot make the emitter");
-	fyai_error_check(ctx, !fy_emit_eventf(c->emit, FYET_STREAM_START), err,
+	op_rc = fy_emit_eventf(c->emit, FYET_STREAM_START);
+	fyai_error_check(ctx, !op_rc, err,
 			 "cast: cannot start the stream");
 	c->t0 = fyai_monotonic_sec();
-	fyai_error_check(ctx, !header_write(c, cols, rows, command, props), err,
+	op_rc = header_write(c, cols, rows, command, props);
+	fyai_error_check(ctx, !op_rc, err,
 			 "cast: cannot write %s", path);
 	return c;
 err:

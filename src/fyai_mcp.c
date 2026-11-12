@@ -533,6 +533,7 @@ static int mcp_oauth_configure_client(struct fyai_ctx *ctx,
 	char *port;
 	long port_value;
 	char *endp;
+	CURLUcode url_rc;
 
 	client = fy_get(auth, "client", fy_invalid);
 	if (fy_is_invalid(client))
@@ -554,12 +555,13 @@ static int mcp_oauth_configure_client(struct fyai_ctx *ctx,
 	port = NULL;
 	fyai_error_check(ctx, url, err_out,
 			 "could not parse MCP OAuth redirect");
-	fyai_error_check(ctx,
-			 !curl_url_set(url, CURLUPART_URL,
-				       mcp->oauth_redirect_uri, 0) &&
-			 !curl_url_get(url, CURLUPART_SCHEME, &scheme, 0) &&
-			 !curl_url_get(url, CURLUPART_HOST, &host, 0),
-			 err_url, "invalid MCP OAuth redirect URI");
+	url_rc = curl_url_set(url, CURLUPART_URL, mcp->oauth_redirect_uri, 0);
+	if (url_rc == CURLUE_OK)
+		url_rc = curl_url_get(url, CURLUPART_SCHEME, &scheme, 0);
+	if (url_rc == CURLUE_OK)
+		url_rc = curl_url_get(url, CURLUPART_HOST, &host, 0);
+	fyai_error_check(ctx, url_rc == CURLUE_OK, err_url,
+			 "invalid MCP OAuth redirect URI");
 	fyai_error_check(ctx, !strcmp(scheme, "http") &&
 			 (!strcmp(host, "localhost") ||
 			  !strcmp(host, "127.0.0.1")),

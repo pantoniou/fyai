@@ -817,8 +817,8 @@ static char *tty_screen_text(struct fyai_terminal_view *view, int first,
 						   &cells[i]))
 				memset(&cells[i], 0, sizeof(cells[i]));
 		}
-		fyai_error_check(view->ctx,
-				 !tty_append_cells(&out, cells, cols), fail,
+		rc = tty_append_cells(&out, cells, cols);
+		fyai_error_check(view->ctx, !rc, fail,
 				 "terminal: could not append screen cells");
 	}
 	free(cells);

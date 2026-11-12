@@ -895,10 +895,12 @@ static void agent_bg_finish(void *userdata)
 	struct fyai_ctx *ctx = run->ctx;
 	fy_generic result = fy_invalid;
 	const char *report;
+	struct fy_generic_builder *gb;
 	bool ok = false;
 	int rc;
 
-	fyai_error_check(ctx, fyai_ctx_transient_gb(ctx), release,
+	gb = fyai_ctx_transient_gb(ctx);
+	fyai_error_check(ctx, gb, release,
 			 "agent: could not collect the report of '%s'",
 			 run->name);
 	rc = fyai_tool_job_group_collect(run->group, 0, &result, &ok);

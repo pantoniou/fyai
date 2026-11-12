@@ -133,7 +133,7 @@ static int player_load(struct player *p, const char *path)
 	struct player_ev *grown, *e;
 	const char *text, *kind;
 	size_t *marks;
-	int rc = -1;
+	int rc = -1, op_rc;
 
 	if (fyai_cast_file_open(p->ctx, &f, path, &header))
 		return -1;
@@ -160,7 +160,8 @@ static int player_load(struct player *p, const char *path)
 		e->t = fy_number(fy_get_at(ev, 0), 0.0);
 		e->kind = kind[0];
 		e->len = strlen(text);
-		fyai_error_check(p->ctx, !pool_add(p, text, e->len, &e->off), out,
+		op_rc = pool_add(p, text, e->len, &e->off);
+		fyai_error_check(p->ctx, !op_rc, out,
 				 "cast: out of memory");
 		if (e->kind == 'm') {
 			marks = realloc(p->marks, (p->nmarks + 1) * sizeof(*marks));
@@ -755,14 +756,15 @@ int fyai_cast_play_interactive(struct fyai_ctx *ctx, const char *path,
 	struct fytim_cfg cfg;
 	struct player *p = calloc(1, sizeof(*p));
 	struct pollfd pfd;
-	int rc = -1, w = 0, h = 0, fd;
+	int rc = -1, w = 0, h = 0, fd, op_rc;
 
 	fyai_error_check(ctx, p, out, "cast: out of memory");
 	p->ctx = ctx;
 	p->speed = speed > 0 ? speed : 1.0;
 	if (player_load(p, path))
 		goto out;
-	fyai_error_check(ctx, !player_view_reset(p), out,
+	op_rc = player_view_reset(p);
+	fyai_error_check(ctx, !op_rc, out,
 			 "cast: cannot make the replay terminal");
 	fytim_cfg_default(&cfg);
 	cfg.title = "fyai cast";
@@ -778,11 +780,13 @@ int fyai_cast_play_interactive(struct fyai_ctx *ctx, const char *path,
 	p->sf = fytim_surface_open(p->ft, p->h, p->w);
 	fyai_error_check(ctx, p->sf, out, "cast: cannot open the screen");
 	(void)fytim_surface_set_max_rows(p->sf, 0);
-	fyai_error_check(ctx, fytim_surface_bind(p->sf, "screen") == FYTIM_OK, out,
+	op_rc = fytim_surface_bind(p->sf, "screen");
+	fyai_error_check(ctx, op_rc == FYTIM_OK, out,
 			 "cast: cannot bind the screen");
 	p->grid = calloc((size_t)p->w * (size_t)p->h, sizeof(*p->grid));
 	fyai_error_check(ctx, p->grid, out, "cast: out of memory");
-	fyai_error_check(ctx, !player_keys(p), out, "cast: cannot bind the keys");
+	op_rc = player_keys(p);
+	fyai_error_check(ctx, !op_rc, out, "cast: cannot bind the keys");
 	p->playing = true;
 	p->ref_wall = fyai_monotonic_sec();
 	player_show_controls(p);

@@ -92,7 +92,7 @@ int fyai_tls_file_fingerprint(struct fyai_ctx *ctx, const char *path,
 	char text[256];
 	X509 *cert = NULL;
 	FILE *file;
-	int rc = -1;
+	int rc = -1, fp_rc;
 
 	file = fopen(path, "re");
 	fyai_error_check(ctx, file, out, "cannot open '%s': %s", path, strerror(errno));
@@ -100,7 +100,8 @@ int fyai_tls_file_fingerprint(struct fyai_ctx *ctx, const char *path,
 	fclose(file);
 	fyai_error_check(ctx, cert, out, "no certificate in '%s': %s", path,
 			 tls_error(text, sizeof(text)));
-	fyai_error_check(ctx, !tls_spki_fingerprint(cert, fp), out,
+	fp_rc = tls_spki_fingerprint(cert, fp);
+	fyai_error_check(ctx, !fp_rc, out,
 			 "cannot take the fingerprint of '%s'", path);
 	rc = 0;
 out:
@@ -369,11 +370,13 @@ SSL *fyai_tls_client_new(struct fyai_ctx *ctx, const char *host, const char *pin
 	unsigned char addr[16];
 	SSL_CTX *tls = NULL;
 	SSL *ssl = NULL, *made = NULL;
-	int ok;
+	int ok, pin_rc = 0;
 	bool is_ip;
 
 	tls_seen[0] = '\0';
-	fyai_error_check(ctx, !pin || !tls_pin_normal(pin, want), out,
+	if (pin)
+		pin_rc = tls_pin_normal(pin, want);
+	fyai_error_check(ctx, !pin_rc, out,
 			 "the pin must be sha256: and 64 hexadecimal digits");
 	tls = SSL_CTX_new(TLS_client_method());
 	fyai_error_check(ctx, tls, out, "cannot make the TLS context: %s",

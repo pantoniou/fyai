@@ -1099,7 +1099,7 @@ int fyai_cmd_remote_bridge(struct fyai_cmd_call *call, fy_generic *result)
 	struct pollfd pfd[2];
 	const char *nonce = fyai_cmd_arg_str(call, "nonce");
 	char buffer[65536], *path;
-	ssize_t got, put;
+	ssize_t got, put, written;
 	bool in_open = true;
 	int fd = -1, rc = -1;
 	size_t off;
@@ -1127,7 +1127,8 @@ int fyai_cmd_remote_bridge(struct fyai_cmd_call *call, fy_generic *result)
 		fyai_error_check(ctx, off, out, "the nonce is empty");
 		/* The first words on standard output: the client waits for them. */
 		put = snprintf(buffer, sizeof(buffer), "FYAI-BRIDGE %s\n", nonce);
-		fyai_error_check(ctx, write(STDOUT_FILENO, buffer, put) == put, out,
+		written = write(STDOUT_FILENO, buffer, put);
+		fyai_error_check(ctx, written == put, out,
 				 "write to the client: %s", strerror(errno));
 	}
 	signal(SIGPIPE, SIG_IGN);

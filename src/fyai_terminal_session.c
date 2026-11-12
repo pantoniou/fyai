@@ -318,12 +318,14 @@ int fyai_terminal_pipe_spawn(struct fyai_ctx *ctx, const char *command,
 	int status_pipe[2] = { -1, -1 };
 	int out_pipe[2] = { -1, -1 };
 	int in_pipe[2] = { -1, -1 };
-	int flags;
+	int flags, rc;
 	pid_t pid;
 
-	fyai_error_check(ctx, !pipe(out_pipe), fail,
+	rc = pipe(out_pipe);
+	fyai_error_check(ctx, !rc, fail,
 			 "pipe: %s", strerror(errno));
-	fyai_error_check(ctx, !pipe(in_pipe), fail,
+	rc = pipe(in_pipe);
+	fyai_error_check(ctx, !rc, fail,
 			 "pipe: %s", strerror(errno));
 
 	if (fyai_child_status_open(status_pipe)) {

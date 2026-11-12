@@ -875,6 +875,7 @@ int fyai_skill_import_claude(struct fyai_ctx *ctx,
 		.lenient = true,
 	};
 	char base[PATH_MAX], cwd[PATH_MAX], project[PATH_MAX];
+	const char *dir;
 	bool all;
 	int rc;
 
@@ -886,7 +887,8 @@ int fyai_skill_import_claude(struct fyai_ctx *ctx,
 	rc = 0;
 	/* The project goes first: its skills win over the user's, as in Claude Code. */
 	if (all || !strcmp(scope, "project")) {
-		fyai_error_check(ctx, getcwd(cwd, sizeof(cwd)), err,
+		dir = getcwd(cwd, sizeof(cwd));
+		fyai_error_check(ctx, dir, err,
 				 "cannot read the current directory: %s",
 				 strerror(errno));
 		rc = snprintf(project, sizeof(project), "%s/.claude", cwd);
@@ -896,7 +898,8 @@ int fyai_skill_import_claude(struct fyai_ctx *ctx,
 	}
 	if (!rc && (all || !strcmp(scope, "user") ||
 		    !strcmp(scope, "plugins"))) {
-		fyai_error_check(ctx, skill_claude_base(base, sizeof(base)),
+		dir = skill_claude_base(base, sizeof(base));
+		fyai_error_check(ctx, dir,
 				 err, "neither $CLAUDE_CONFIG_DIR nor $HOME "
 				 "names the Claude Code directory");
 		if (all || !strcmp(scope, "user")) {
@@ -1375,6 +1378,7 @@ int fyai_skill_export(struct fyai_ctx *ctx, const char *name, const char *dir)
 	struct fy_generic_builder *gb = fyai_ctx_transient_gb(ctx);
 	fy_generic skill, source, files, key, val;
 	const char *rel;
+	int dir_rc;
 
 	skill = fyai_skill_get(ctx, name);
 	fyai_error_check(ctx, fy_is_valid(skill), err,
@@ -1383,7 +1387,8 @@ int fyai_skill_export(struct fyai_ctx *ctx, const char *name, const char *dir)
 	source = fyai_skill_source(ctx, gb, skill);
 	fyai_error_check(ctx, fy_is_string(source), err,
 			 "cannot write the SKILL.md of '%s'", name);
-	fyai_error_check(ctx, !skill_mkdirs(dir), err,
+	dir_rc = skill_mkdirs(dir);
+	fyai_error_check(ctx, !dir_rc, err,
 			 "cannot create %s: %s", dir, strerror(errno));
 	if (skill_write_new(ctx, fy_sprintfa("%s/SKILL.md", dir),
 			    fy_castp(&source, ""), 0666, false))

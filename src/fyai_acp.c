@@ -350,7 +350,7 @@ static int acp_spawn_worker(struct acp_session *s, fy_generic content,
 	int input[2] = { -1, -1 }, output[2] = { -1, -1 };
 	int agent[2] = { -1, -1 }, ctl[2] = { -1, -1 };
 	int sync[2] = { -1, -1 };
-	int i, n, rc = -1, admit_rc;
+	int i, n, rc = -1, admit_rc, op_rc;
 	pid_t pid;
 	fy_generic params;
 
@@ -372,7 +372,10 @@ static int acp_spawn_worker(struct acp_session *s, fy_generic content,
 	args[n++] = "acp";
 	args[n++] = "--worker";
 	args[n] = NULL;
-	fyai_error_check(ctx, !pipe(input) && !pipe(output), out,
+	op_rc = pipe(input);
+	if (!op_rc)
+		op_rc = pipe(output);
+	fyai_error_check(ctx, !op_rc, out,
 			 "could not create ACP worker pipes: %s", strerror(errno));
 	if (ctx->tclient) {
 		admit_rc = socketpair(AF_UNIX, SOCK_SEQPACKET, 0, agent);
@@ -431,8 +434,8 @@ static int acp_spawn_worker(struct acp_session *s, fy_generic content,
 					0, "acp worker", NULL);
 	fyai_error_check(ctx, s->worker, out,
 			 "could not open ACP worker connection");
-	fyai_error_check(ctx,
-			 !jsonrpc_conn_serve(s->worker, acp_child_serve, s), out,
+	op_rc = jsonrpc_conn_serve(s->worker, acp_child_serve, s);
+	fyai_error_check(ctx, !op_rc, out,
 			 "could not serve ACP worker connection");
 	params = fy_mapping(fyai_ctx_transient_gb(ctx),
 		"text", text, "content", content,
@@ -976,7 +979,7 @@ static int acp_worker_run(struct fyai_ctx *ctx)
 	struct fyai_event_loop *el = fyai_ctx_loop(ctx);
 	struct fy_generic_builder *gb;
 	fy_generic reply, error;
-	int rc = -1, turn_rc;
+	int rc = -1, turn_rc, respond_rc;
 
 	if (!el)
 		return -1;
@@ -997,10 +1000,11 @@ static int acp_worker_run(struct fyai_ctx *ctx)
 			reply = turn_rc ? fy_invalid : fy_mapping(gb, "ok", true);
 			error = turn_rc ? acp_error(ctx, -32000,
 				"ACP turn failed") : fy_invalid;
-			fyai_error_check(ctx,
-				!jsonrpc_conn_respond(worker.conn, worker.run_id,
-						      reply, error),
-				out, "could not send ACP worker result");
+			respond_rc = jsonrpc_conn_respond(worker.conn,
+							  worker.run_id,
+							  reply, error);
+			fyai_error_check(ctx, !respond_rc, out,
+				"could not send ACP worker result");
 			worker.done = true;
 			continue;
 		}

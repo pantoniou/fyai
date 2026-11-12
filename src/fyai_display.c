@@ -2881,7 +2881,8 @@ int fyai_record_shell_screen(struct fyai_ctx *ctx, const char *description,
 				       "description",
 				       description ? description : ""),
 			    -1, &blocks);
-	fyai_error_check(ctx, !fclose(mf), err_closed,
+	rc = fclose(mf);
+	fyai_error_check(ctx, !rc, err_closed,
 			 "could not finish the session view");
 	mf = NULL;
 	rc = fyai_output_append_recorded(ctx, md, mdlen);
@@ -2919,7 +2920,8 @@ int fyai_record_shell_screen(struct fyai_ctx *ctx, const char *description,
 	inner_end = (size_t)ftell(mf);
 	/* Keep separator whitespace outside the fragment. */
 	fputc('\n', mf);
-	fyai_error_check(ctx, !fclose(mf), err_closed,
+	rc = fclose(mf);
+	fyai_error_check(ctx, !rc, err_closed,
 			 "could not finish the session output");
 	mf = NULL;
 	rc = fyai_output_append_recorded(ctx, md, mdlen);
@@ -2975,10 +2977,12 @@ int fyai_present_tool_diff(struct fyai_ctx *ctx, const char *diff)
 	fputs(diff, mf);
 	if (diff[length - 1] != '\n')
 		fputc('\n', mf);
-	fyai_error_check(ctx, !fflush(mf), err_closed, "could not format the tool diff");
+	rc = fflush(mf);
+	fyai_error_check(ctx, !rc, err_closed, "could not format the tool diff");
 	length = (size_t)ftell(mf);
 	fputc('\n', mf);
-	fyai_error_check(ctx, !fclose(mf), err_closed, "could not finish the tool diff");
+	rc = fclose(mf);
+	fyai_error_check(ctx, !rc, err_closed, "could not finish the tool diff");
 	mf = NULL;
 	rc = fyai_output_append_recorded(ctx, md, mdlen);
 	fyai_error_check(ctx, !rc, err_resume, "could not record the tool diff");
@@ -3107,7 +3111,8 @@ int fyai_record_tool_exchange(struct fyai_ctx *ctx, fy_generic tool_call,
 	fyai_emit_tool_call(ctx, mf, fyai_ctx_transient_gb(ctx), tv.name, tv.args,
 			    tv.preview_lines, &blocks);
 	/* Render the separator at presentation time only. */
-	fyai_error_check(ctx, !fclose(mf), err_closed,
+	rc = fclose(mf);
+	fyai_error_check(ctx, !rc, err_closed,
 			 "could not finish tool call display output");
 	mf = NULL;
 	rc = fyai_output_append_recorded(ctx, md, mdlen);
@@ -3144,17 +3149,18 @@ int fyai_record_tool_exchange(struct fyai_ctx *ctx, fy_generic tool_call,
 		fyai_emit_tool_result(mf, fy_castp(&tv.shown, ""), -1, tv.lang);
 	else
 		fyai_emit_shell_output(mf, tool_result, -1);
-	fyai_error_check(ctx, !fclose(mf), err_closed,
+	rc = fclose(mf);
+	fyai_error_check(ctx, !rc, err_closed,
 			 "could not finish tool display output");
 	mf = NULL;
 	rc = fyai_output_append_recorded(ctx, md, mdlen);
 	fyai_error_check(ctx, !rc, err,
 			 "could not append tool display output");
 	end = start + mdlen;
-	fyai_error_check(ctx,
-		!fyai_output_add_fragment(ctx, "tool_result", start, end,
-					  tv.lang, tv.name), err,
-		"could not record tool result fragment");
+	rc = fyai_output_add_fragment(ctx, "tool_result", start, end,
+				      tv.lang, tv.name);
+	fyai_error_check(ctx, !rc, err,
+			 "could not record tool result fragment");
 	free(md);
 	free(cause);
 	fyai_tool_view_cleanup(&tv);
