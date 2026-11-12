@@ -39,46 +39,59 @@ the code before a change.
 
 ## High priority
 
-### 1. Tool job lifecycle
+### 1. Tool job lifecycle (done)
 
-`struct fyai_tool_job`, `fyai_tools.c`.
+`struct fyai_tool_job`, `fyai_tool_job.c`, `fyai_tools_int.h`.
 
-- Fields: `out_open`, `have_result`, `reaped`, `failed`, `result_ok`, `done`,
-  `terminating`, `timed_out`, `overdue`, `wants_input`; the kind booleans
-  `agent`, `exec`, `btw`, `native_shell`; the pointers `csrc`, `deadline`,
-  `hang_deadline`, `waiter`, `session`.
-- States: SPAWNED, RUNNING, RESULT_IN (the child is alive), CANCELLING, REAPED,
-  and DONE with the outcome ok, failed or timed out.
-- Transitions: `fyai_tool_job_attach`, `_run_done`, `_child`, `_cancel`,
-  `_deadline`, `_hang_deadline`. `fyai_tool_job_update_done()` is the only
-  writer of `done`.
-- Illegal combinations: `failed` with `result_ok`; `terminating` with
-  `reaped`; `timed_out` after `done`; `agent` with `native_shell`.
-- Defects: `done` means `reaped && !out_open` for a job with no session and
-  `!out_open` for a job with one, and at least seven sites test `session` for
-  this. `result_ok` has four or more writers, and the last one wins.
-- Change: a state enum and an outcome enum (ok, failed, timed out, cancelled),
-  and a job-kind enum.
+- Done: `enum fyai_tool_job_phase` (SPAWNED, RUNNING, ANSWERED, DONE) replaces
+  `out_open` and `done`. It only moves forward. `fyai_tool_job_settle()` is
+  the one place that completes a job: a session job completes at its answer,
+  every other job also waits for its child. `enum fyai_tool_job_verdict`
+  (UNDECIDED, OK, NOT_OK, CHANNEL_FAILED) replaces `result_ok` and `failed`.
+  A failed control channel is final, as `failed` was; the old last writer
+  wins rule for `result_ok` stays inside `fyai_tool_job_verdict_set()`.
+- `is_agent` copied `agent` and is gone.
+- Stay booleans: `reaped` is a process fact that is independent of the
+  request (a session job is done before its child is reaped), so the phase
+  joins with it and does not hold it. `have_result` says that an answer
+  came; the exit status can decide the verdict without one. `terminating`,
+  `timed_out` and `overdue` are latches that are set before the outcome is
+  known. `timed_out` forces a failure only at collection, and a result that
+  arrives before the stop is still genuine. `exec`, `btw` and `native_shell`
+  qualify a job and do not exclude each other. Only the test for an agent
+  is made anywhere, so a kind enum would carry unused values.
+- Survey corrections: `failed` with `result_ok` was reachable (a child that
+  exits before its channel fails). `done` never went back to false, and
+  `done` has no writer but the settle function. `agent` with `native_shell`
+  never meets, since only a shell call is native.
+- Left: `inline_block` and the surface pointer record the display mode
+  together. That is a display mode, not a lifecycle state.
 
-### 2. Shell session lifecycle
+### 2. Shell session lifecycle (partly done)
 
-`struct fyai_shell_session`, `fyai_tools.c`.
+`struct fyai_shell_session`, `fyai_shell_session.c`.
 
-- Fields: `exited`, `closing`, `timed_out`, `pinned`, `recorded`, `keep_tile`,
-  `close_on_exit`, `takes_pane`, `user_owned`, `pipes`, `wants_input`,
-  `feeding`, `drew`, `inline_block`; the pointers `job`, `remote`, `waiter`,
-  `idle`, `surface`.
-- States: STARTING, RUNNING, WAITING_INPUT, CLOSING, EXITED with the tile kept,
-  EXITED with the tile dismissed. Each has a local and a remote form.
-- Illegal combinations: `closing` with `exited`; `keep_tile` with
-  `close_on_exit`; `exited` with `job`, `waiter`, `pinned` or `wants_input`
-  set; `remote` with `job`.
-- Defects: `fyai_shell_session_exited()` has one guard, `sess->exited`, against
-  a second call. The clearing of the fields is a sequence by hand, so a missed
-  field leaves a scope pin or a waiter. The restore path rebuilds `closing` and
-  `timed_out` from a mapping, so the booleans are also a storage format.
-- Change: change items 1 and 2 together. They share the `wants_input`, `done`
-  and `exited` handshake.
+- Done: `enum fyai_session_stop` (NONE, CLOSE, IDLE) replaces `closing` and
+  `timed_out`. An idle stop is a close, so the pair could not hold
+  `timed_out` alone. The reason stays after the program ends: the cause of
+  the end reads it. The wire members `closing` and `timed_out` of a mirror
+  stay and are derived. A test covers the round trip.
+- Left as booleans: `exited` is awaited by `fyai_event_sleep_until()`, which
+  takes a `bool *`, so the end is a latch with its own flag and a state enum
+  cannot replace it. `wants_input` toggles while the program runs and
+  neither orders nor excludes anything else. `keep_tile` and `close_on_exit`
+  are independent requests: the check `keep_tile && close_on_exit` is a
+  live combination (a bang tile the user closed), and a close can come
+  before a mirror learns `keep`. `pinned` is the ownership of a scope pin.
+  `recorded` is the guard that stores the exchange one time. `feeding` is a
+  guard for the span of a call. `drew`, `pipes`, `user_owned` and
+  `takes_pane` are not states.
+- Survey corrections: `closing` with `exited` is the normal end of a closed
+  session, not an illegal combination. A dismissed session no longer exists,
+  so it needs no state. After the end `job` can stay set and `wants_input`
+  can stay stale; `waiter` and `pinned` are cleared by `exited()`.
+- Still open: the clearing sequence of `fyai_shell_session_exited()`, and
+  the display mode (`inline_block` or `surface`).
 
 ### 3. Retry and authentication retry
 
