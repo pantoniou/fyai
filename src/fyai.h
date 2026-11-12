@@ -964,7 +964,11 @@ struct fyai_ctx {
 	fy_generic structured_output;
 	/* Stop before a model request once usage_cost reaches this; 0 for none. */
 	double turn_cost_limit;
-	/* A tool asks the turn to end before its next model request. */
+	/*
+	 * A tool asks the turn to end before its next model request. A request
+	 * that the turn consumes, not a phase: turn_stop records why a turn
+	 * stopped, and the two do not describe the same event.
+	 */
 	bool turn_end_requested;
 	/* The tool gate of the turns of this context, and its open round. */
 	const struct fyai_tool_gate_ops *tool_gate;

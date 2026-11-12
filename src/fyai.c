@@ -1136,6 +1136,17 @@ enum fyai_turn_run_state {
 	FYAITRS_FAILED,
 };
 
+/*
+ * The round of the tool gate that a turn holds in FYAITRS_GATE. The round
+ * moves IDLE -> ASKING or AFTER on open and back to IDLE on clear. Compare
+ * the values for equality only.
+ */
+enum fyai_gate_phase {
+	FYAI_GATE_IDLE,		/* no round is open */
+	FYAI_GATE_ASKING,	/* the calls of a response wait to be allowed */
+	FYAI_GATE_AFTER,	/* the results of a group wait for context */
+};
+
 struct fyai_turn_run {
 	struct fyai_ctx *ctx;
 	fy_generic turn;
@@ -1158,15 +1169,16 @@ struct fyai_turn_run {
 	/*
 	 * The open round of the tool gate: its ID, its calls, what each came
 	 * to, and the answers that it waits for. An after round resumes the
-	 * exclusive calls at @gate_next.
+	 * exclusive calls at @gate_next. @gate_pending counts the answers still
+	 * missing; it is not a phase.
 	 */
+	enum fyai_gate_phase gate_phase;
 	uint64_t gate_id;
 	fy_generic gate_items;
 	struct fyai_gate_answer *gate;
 	size_t gate_count;
 	size_t gate_pending;
 	size_t gate_next;
-	bool gate_after;
 };
 
 /* The answer of the tool gate for one call of a round. */
@@ -1235,6 +1247,24 @@ static void fyai_turn_run_observe(struct fyai_turn_run *run)
 		ctx->turn_observe(ctx, run->turn, ctx->turn_observe_data);
 }
 
+/*
+ * The turn owns ctx->tool_diff_tracking, which the display reads: it is set
+ * only by diff_begin and cleared only by diff_end, which every end of the run
+ * reaches.
+ */
+static void fyai_turn_run_diff_begin(struct fyai_turn_run *run)
+{
+	int rc;
+
+	rc = fyai_project_state_capture(run->ctx, &run->diff_before);
+	run->ctx->tool_diff_tracking = !rc && fy_is_mapping(run->diff_before);
+}
+
+static void fyai_turn_run_diff_end(struct fyai_turn_run *run)
+{
+	run->ctx->tool_diff_tracking = false;
+}
+
 static int
 fyai_turn_run_transition(struct fyai_turn_run *run,
 			 enum fyai_turn_run_state state)
@@ -1245,7 +1275,7 @@ fyai_turn_run_transition(struct fyai_turn_run *run,
 			   fyai_turn_run_state_name(state));
 		if (!fyai_turn_run_done(run))
 			run->state = FYAITRS_FAILED;
-		run->ctx->tool_diff_tracking = false;
+		fyai_turn_run_diff_end(run);
 		return -1;
 	}
 	if (run->ctx->cfg->debug)
@@ -1254,7 +1284,7 @@ fyai_turn_run_transition(struct fyai_turn_run *run,
 			   fyai_turn_run_state_name(state));
 	run->state = state;
 	if (state == FYAITRS_DONE || state == FYAITRS_FAILED)
-		run->ctx->tool_diff_tracking = false;
+		fyai_turn_run_diff_end(run);
 	if (state == FYAITRS_MODEL)
 		fyai_agents_activity(run->ctx, "running");
 	return 0;
@@ -1607,7 +1637,7 @@ static void fyai_turn_run_tool_diff(struct fyai_turn_run *run)
 
 	rc = fyai_project_state_capture(ctx, &after);
 	if (rc || !fy_is_mapping(after)) {
-		ctx->tool_diff_tracking = false;
+		fyai_turn_run_diff_end(run);
 		return;
 	}
 	if (!fyai_project_state_diff(ctx, ctx->transient_gb, run->diff_before, after,
@@ -1633,6 +1663,7 @@ static void fyai_turn_run_gate_clear(struct fyai_turn_run *run)
 	run->gate = NULL;
 	run->gate_count = 0;
 	run->gate_pending = 0;
+	run->gate_phase = FYAI_GATE_IDLE;
 	run->gate_items = fy_invalid;
 	if (run->ctx->tool_gate_run == run)
 		run->ctx->tool_gate_run = NULL;
@@ -1662,7 +1693,7 @@ static int fyai_turn_run_gate_open(struct fyai_turn_run *run, fy_generic items,
 	run->gate_items = items;
 	run->gate_count = n;
 	run->gate_pending = n;
-	run->gate_after = after;
+	run->gate_phase = after ? FYAI_GATE_AFTER : FYAI_GATE_ASKING;
 	run->gate_next = next;
 	id = ++ctx->tool_gate_seq;
 	run->gate_id = id;
@@ -1824,7 +1855,7 @@ void fyai_tool_gate_allow(struct fyai_ctx *ctx, uint64_t id, size_t index,
 		return;
 	}
 	a = fyai_tool_gate_slot(ctx, id, index, &run);
-	if (!a || run->gate_after)
+	if (!a || run->gate_phase == FYAI_GATE_AFTER)
 		return;
 	a->allowed = true;
 	if (fy_is_mapping(args))
@@ -1849,7 +1880,7 @@ void fyai_tool_gate_deny(struct fyai_ctx *ctx, uint64_t id, size_t index,
 		return;
 	}
 	a = fyai_tool_gate_slot(ctx, id, index, &run);
-	if (!a || run->gate_after)
+	if (!a || run->gate_phase == FYAI_GATE_AFTER)
 		return;
 	fyai_tool_gate_answered(run, a, message, stop);
 }
@@ -1869,7 +1900,7 @@ void fyai_tool_gate_done(struct fyai_ctx *ctx, uint64_t id, size_t index,
 		return;
 	}
 	a = fyai_tool_gate_slot(ctx, id, index, &run);
-	if (!a || !run->gate_after)
+	if (!a || run->gate_phase != FYAI_GATE_AFTER)
 		return;
 	fyai_tool_gate_answered(run, a, context, stop);
 }
@@ -1881,7 +1912,8 @@ static int fyai_turn_run_gate_refuse(struct fyai_turn_run *run,
 	struct fyai_ctx *ctx = run->ctx;
 	size_t i;
 
-	for (i = 0; i < run->gate_count && !run->gate_after; i++) {
+	for (i = 0; i < run->gate_count &&
+	     run->gate_phase == FYAI_GATE_ASKING; i++) {
 		if (run->gate[i].answered && !run->gate[i].allowed)
 			continue;
 		run->turn = fyai_finish_tool_call(ctx, run->turn,
@@ -1930,7 +1962,7 @@ static int fyai_turn_run_gate_resolve(struct fyai_turn_run *run)
 			stop = true;
 			cause = a->text ? strdup(a->text) : NULL;
 		}
-		if (run->gate_after) {
+		if (run->gate_phase == FYAI_GATE_AFTER) {
 			if (!a->text || a->stop)
 				continue;
 			/* Context enters as pending input does: between documents. */
@@ -1981,7 +2013,7 @@ static int fyai_turn_run_gate_resolve(struct fyai_turn_run *run)
 		fyai_error_check(ctx, !rc, err,
 				 "could not resume assistant output");
 	}
-	after = run->gate_after;
+	after = run->gate_phase == FYAI_GATE_AFTER;
 	next = run->gate_next;
 	fyai_turn_run_gate_clear(run);
 	if (after)
@@ -2282,8 +2314,7 @@ fyai_turn_run_submit(struct fyai_ctx *ctx, fy_generic turn)
 	fyai_interrupt_check(ctx);
 	/* What the user or another program changed between turns is not the turn's. */
 	if (fyai_tool_diff_enabled(ctx)) {
-		rc = fyai_project_state_capture(ctx, &run->diff_before);
-		ctx->tool_diff_tracking = !rc && fy_is_mapping(run->diff_before);
+		fyai_turn_run_diff_begin(run);
 	}
 	rc = fyai_turn_run_submit_model(run);
 	fyai_error_check(ctx, !rc, err_free,
@@ -2291,7 +2322,7 @@ fyai_turn_run_submit(struct fyai_ctx *ctx, fy_generic turn)
 	return run;
 
 err_free:
-	ctx->tool_diff_tracking = false;
+	fyai_turn_run_diff_end(run);
 	free(run);
 err:
 	return NULL;
@@ -2361,7 +2392,7 @@ static void fyai_turn_run_destroy(struct fyai_turn_run *run)
 	fyai_model_step_destroy(run->model_step);
 	fyai_turn_run_drop_tool_group(run);
 	fyai_turn_run_gate_clear(run);
-	run->ctx->tool_diff_tracking = false;
+	fyai_turn_run_diff_end(run);
 	fyai_diag_tracef("turn", "end, %s, %d rounds",
 			 fyai_turn_run_state_name(run->state), run->iteration);
 	fyai_scope_exchange(run->ctx, false);
