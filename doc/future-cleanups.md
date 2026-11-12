@@ -669,10 +669,13 @@ is a series. Check an item again before work on it.
 
 ### Dead code and compatibility
 
-13. `fyai_curl_perform` (`fyai_curl.c`) is a wrapper for callers that have
-    not moved. Its only caller is `auth_http_request` (`fyai_auth.c`), which
-    the synchronous login flow runs. Move that flow to the loop and remove
-    the wrapper (M).
+13. Done. `fyai_curl_perform` is removed. Its callers were `revoke_token`
+    and `fyai_auth_models` through `auth_http_request` (`fyai_auth.c`), not
+    the login flow, which was on the loop already. `auth logout` and `list
+    models` are now async commands that run a request on the loop
+    (`fyai_auth_logout_submit()`, `fyai_auth_models_submit()`). Open:
+    `fyai_auth_models_submit()` still calls `fyai_auth_resolve()`, which can
+    refresh the token with `fyai_auth_refresh()` and its stepped loop.
 
 ### Large files and functions
 
