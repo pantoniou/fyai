@@ -194,16 +194,11 @@ error text too.
 
 ### 12. Browser action protocol
 
-`struct fyai_browser`: `action`, `pending`, `field`, `filtering`, `closing`,
-`picked`, `navigated`, `dirty`, `details`, `input`.
-
-- States: BROWSING, FILTERING, COLLECTING_ARGS (one or two fields), CONFIRM,
-  PENDING (executed by the main loop), DETAILS, CLOSING.
-- Escape follows a priority chain: `action`, then `filtering`, then `details`,
-  then `closing`.
-- Illegal combinations: `action` with `filtering` (the `/` key sets `filtering`
-  and does not clear `action`); `pending` with `action`; `details` with either.
-- Change: a mode enum and a separate pending command.
+Done for the input: `enum browser_input` (none, filter, action). The details
+overlay stays a layer under it, and `pending` is a command for the loop. The
+Escape of `browser_key()` for an input is not reached while an input is open:
+`fyai_browser_cancel_input()` takes it. `closing`, `picked` and `navigated`
+are unchanged.
 
 ### 13. Remote peer, run and session
 
