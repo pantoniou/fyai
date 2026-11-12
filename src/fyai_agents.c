@@ -112,6 +112,20 @@ struct agent_question {
 	struct fyai_ask_reply replies[FYAI_ASK_QUESTIONS_MAX];
 };
 
+/*
+ * The acknowledgement of a message only moves forward, so a state before
+ * SETTLED means that the message is outstanding. WAITING holds a message for a
+ * branch that no agent has taken yet and has no request. SENT and CANCELLING
+ * have one. CANCELLED settled without a report to the model.
+ */
+enum agent_ack_state {
+	AGENT_ACK_WAITING,
+	AGENT_ACK_SENT,
+	AGENT_ACK_CANCELLING,
+	AGENT_ACK_SETTLED,
+	AGENT_ACK_CANCELLED,
+};
+
 struct agent_message_ack {
 	struct agent_message_ack *next;
 	struct fyai_ctx *ctx;
@@ -119,9 +133,8 @@ struct agent_message_ack {
 	char *name;
 	char *agent;
 	char *branch, *from, *text, *reply_to;
-	bool pending;
-	bool cancelled;
-	bool ask_parent;
+	enum agent_ack_state state;
+	bool ask_parent;	/* the kind of message: a question to the parent */
 };
 
 struct agent_parent_ask {
@@ -1390,10 +1403,11 @@ static void agents_message_done(struct jsonrpc_request *request, void *userdata)
 		fy_get(result, "ok", false);
 	struct agent_parent_ask *ask;
 	const char *reason = fy_get(result, "reason", "");
+	bool cancelled = ack->state == AGENT_ACK_CANCELLING;
 
-	ack->pending = false;
+	ack->state = cancelled ? AGENT_ACK_CANCELLED : AGENT_ACK_SETTLED;
 	ack->request = NULL;
-	if (!ack->ask_parent && !ack->ctx->agents->closing && !ack->cancelled)
+	if (!ack->ask_parent && !ack->ctx->agents->closing && !cancelled)
 		fyai_event_injectf(ack->ctx, "[agent_message '%s' %s]", ack->name,
 			queued ? "queued" : "not queued");
 	if (ack->ask_parent && !queued && !ack->ctx->agents->closing) {
@@ -1410,8 +1424,8 @@ static void agents_message_done(struct jsonrpc_request *request, void *userdata)
 
 static void agents_message_settle(struct agent_message_ack *ack, bool queued)
 {
-	ack->pending = false;
-	if (!ack->ctx->agents->closing && !ack->cancelled)
+	ack->state = AGENT_ACK_SETTLED;
+	if (!ack->ctx->agents->closing)
 		fyai_event_injectf(ack->ctx, "[agent_message '%s' %s]",
 			ack->name, queued ? "queued" : "not queued");
 }
@@ -1435,7 +1449,10 @@ static int agents_message_submit(struct agent_message_ack *ack,
 			"ask_parent", ack->ask_parent),
 		jsonrpc_conn_next_id(route), false,
 		agents_message_done, ack);
-	return ack->request ? 0 : -1;
+	if (!ack->request)
+		return -1;
+	ack->state = AGENT_ACK_SENT;
+	return 0;
 }
 
 static void agents_messages_admitted(struct fyai_agents *a,
@@ -1444,7 +1461,7 @@ static void agents_messages_admitted(struct fyai_agents *a,
 	struct agent_message_ack *ack;
 
 	for (ack = a->messages; ack; ack = ack->next) {
-		if (!ack->pending || ack->request || !ack->branch ||
+		if (ack->state != AGENT_ACK_WAITING ||
 		    strcmp(ack->branch, r->branch))
 			continue;
 		if (agents_message_submit(ack, r))
@@ -1459,7 +1476,7 @@ bool fyai_agents_message_pending(struct fyai_ctx *ctx, const char *name)
 	for (ack = ctx->agents ? ctx->agents->messages : NULL; ack;
 	     ack = ack->next)
 		if (!ack->ask_parent && !strcmp(ack->name, name))
-			return ack->pending;
+			return ack->state < AGENT_ACK_SETTLED;
 	return false;
 }
 
@@ -1471,7 +1488,7 @@ fy_generic fyai_agents_message_rows(struct fyai_ctx *ctx,
 
 	for (ack = ctx->agents ? ctx->agents->messages : NULL; ack;
 	     ack = ack->next)
-		if (ack->pending && !ack->ask_parent)
+		if (ack->state < AGENT_ACK_SETTLED && !ack->ask_parent)
 			rows = fy_append(gb, rows, fy_mapping(gb,
 				"name", ack->name, "agent", ack->agent));
 	return rows;
@@ -1483,13 +1500,14 @@ bool fyai_agents_message_cancel(struct fyai_ctx *ctx, const char *name)
 
 	for (ack = ctx->agents ? ctx->agents->messages : NULL; ack;
 	     ack = ack->next) {
-		if (strcmp(ack->name, name) || !ack->pending)
+		if (strcmp(ack->name, name) || ack->state >= AGENT_ACK_SETTLED)
 			continue;
-		ack->cancelled = true;
-		if (ack->request)
+		if (ack->request) {
+			ack->state = AGENT_ACK_CANCELLING;
 			jsonrpc_request_cancel(ack->request);
-		else
-			ack->pending = false;
+		} else {
+			ack->state = AGENT_ACK_CANCELLED;
+		}
 		return true;
 	}
 	return false;
@@ -1542,7 +1560,7 @@ static int agents_message_new(struct fyai_ctx *ctx, const char *name,
 	    !ack->from || !ack->text || !ack->reply_to)
 		goto err_ack;
 	ack->ctx = ctx;
-	ack->pending = true;
+	ack->state = AGENT_ACK_WAITING;
 	ack->ask_parent = ask_parent;
 	if (!branch && agents_message_submit(ack, r))
 		goto err_ack;
@@ -1635,7 +1653,7 @@ void fyai_agents_message_branch_closed(struct fyai_ctx *ctx, const char *branch)
 
 	for (ack = ctx->agents ? ctx->agents->messages : NULL; ack;
 	     ack = ack->next)
-		if (ack->pending && !ack->request && ack->branch &&
+		if (ack->state == AGENT_ACK_WAITING &&
 		    !strcmp(ack->branch, branch))
 			agents_message_settle(ack, false);
 }
