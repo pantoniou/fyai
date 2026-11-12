@@ -11,6 +11,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "fyai_buf.h"
+
 enum fyai_ws_opcode {
 	FYAI_WS_CONTINUATION = 0x0,
 	FYAI_WS_TEXT = 0x1,
@@ -97,8 +99,7 @@ struct fyai_ws {
 	uint64_t length, got;
 	/* The message in progress. */
 	int message;		/* TEXT or BINARY, or 0 between messages */
-	unsigned char *data;
-	size_t size, cap;
+	struct fyai_buf buf;
 	unsigned char control[125];
 };
 

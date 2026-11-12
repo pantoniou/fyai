@@ -162,9 +162,7 @@ void fyai_ws_init(struct fyai_ws *ws, bool server, size_t max)
 
 void fyai_ws_release(struct fyai_ws *ws)
 {
-	free(ws->data);
-	ws->data = NULL;
-	ws->size = ws->cap = 0;
+	fyai_buf_free(&ws->buf);
 }
 
 static bool ws_opcode_valid(int op)
@@ -195,24 +193,6 @@ static int ws_head_decode(struct fyai_ws *ws)
 	if (ws->masked)
 		need += 4;
 	ws->head_need = need;
-	return 0;
-}
-
-static int ws_reserve(struct fyai_ws *ws, size_t more)
-{
-	unsigned char *grown;
-	size_t cap;
-
-	if (ws->size + more <= ws->cap)
-		return 0;
-	cap = ws->cap ? ws->cap : 4096;
-	while (cap < ws->size + more)
-		cap *= 2;
-	grown = realloc(ws->data, cap);
-	if (!grown)
-		return -1;
-	ws->data = grown;
-	ws->cap = cap;
 	return 0;
 }
 
@@ -251,8 +231,8 @@ static int ws_head_finish(struct fyai_ws *ws)
 			return -1;
 		if (ws->opcode != FYAI_WS_CONTINUATION && ws->message)
 			return -1;
-		if (len > ws->max || ws->size + len > ws->max ||
-		    ws_reserve(ws, (size_t)len))
+		if (len > ws->max || ws->buf.len + len > ws->max ||
+		    fyai_buf_reserve(&ws->buf, ws->buf.len + (size_t)len + 1))
 			return -1;
 	}
 	ws->length = len;
@@ -268,8 +248,8 @@ int fyai_ws_feed(struct fyai_ws *ws, const unsigned char *in, size_t n,
 
 	*usedp = 0;
 	/* A message that was returned ends the buffer that held it. */
-	if (!ws->message && ws->size)
-		ws->size = 0;
+	if (!ws->message && ws->buf.len)
+		fyai_buf_consume(&ws->buf, ws->buf.len);
 	while (used < n) {
 		if (ws->head_have < ws->head_need) {
 			ws->head[ws->head_have++] = in[used++];
@@ -289,7 +269,8 @@ int fyai_ws_feed(struct fyai_ws *ws, const unsigned char *in, size_t n,
 			if (ws->opcode >= FYAI_WS_CLOSE) {
 				dst = ws->control + ws->got;
 			} else {
-				dst = ws->data + ws->size + ws->got;
+				dst = (unsigned char *)ws->buf.data + ws->buf.len +
+				      ws->got;
 			}
 			memcpy(dst, in + used, take);
 			if (ws->masked)
@@ -312,11 +293,12 @@ int fyai_ws_feed(struct fyai_ws *ws, const unsigned char *in, size_t n,
 		}
 		if (ws->opcode != FYAI_WS_CONTINUATION)
 			ws->message = ws->opcode;
-		ws->size += (size_t)ws->length;
+		ws->buf.len += (size_t)ws->length;
+		ws->buf.data[ws->buf.len] = '\0';
 		if (ws->fin) {
 			msg->opcode = ws->message;
-			msg->data = ws->data;
-			msg->size = ws->size;
+			msg->data = (const unsigned char *)ws->buf.data;
+			msg->size = ws->buf.len;
 			ws->message = 0;
 			return 1;
 		}

@@ -17,6 +17,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "fyai_buf.h"
 #include "fyai.h"
 #include "fyai_uimodel.h"
 #include "fyai_display.h"
@@ -227,34 +228,6 @@ static void view_span(size_t stored, size_t live, int offset, int height,
 	*shownp = shown;
 }
 
-/* A growing string: always NUL terminated once it holds anything. */
-struct view_text {
-	char *data;
-	size_t len;
-	size_t alloc;
-};
-
-static int view_text_append(struct view_text *t, const char *s, size_t n)
-{
-	char *data;
-	size_t alloc;
-
-	if (t->len + n + 1 > t->alloc) {
-		alloc = t->alloc ? t->alloc : 128;
-		while (alloc < t->len + n + 1)
-			alloc *= 2;
-		data = realloc(t->data, alloc);
-		if (!data)
-			return -1;
-		t->data = data;
-		t->alloc = alloc;
-	}
-	memcpy(t->data + t->len, s, n);
-	t->len += n;
-	t->data[t->len] = '\0';
-	return 0;
-}
-
 /* The bytes of the escape sequence at @p, which ends before @end. */
 static size_t view_escape_len(const char *p, const char *end)
 {
@@ -284,7 +257,7 @@ static size_t view_escape_len(const char *p, const char *end)
  * Append to @t the text of @line that stands in the columns @from to @to,
  * inclusive. A mark that has no width goes with the character before it.
  */
-static int view_line_columns(struct view_text *t, const char *line, int from,
+static int view_line_columns(struct fyai_buf *t, const char *line, int from,
 			     int to)
 {
 	const char *p = line, *end = line + strlen(line);
@@ -303,7 +276,7 @@ static int view_line_columns(struct view_text *t, const char *line, int from,
 			break;
 		width = fymd_cp_width(cp);
 		if (width == 0 ? took : (col >= from && col <= to)) {
-			if (view_text_append(t, p, n))
+			if (fyai_buf_append_data(t, p, n))
 				return -1;
 			took = true;
 		} else if (width) {
@@ -318,7 +291,7 @@ static int view_line_columns(struct view_text *t, const char *line, int from,
 char *fyai_transcript_view_copy(struct fyai_transcript_view *v, int height,
 				int row0, int col0, int row1, int col1)
 {
-	struct view_text t = {0};
+	struct fyai_buf t = {0};
 	const char *const *window;
 	const char *line;
 	size_t start;
@@ -332,21 +305,23 @@ char *fyai_transcript_view_copy(struct fyai_transcript_view *v, int height,
 	}
 	window = fyai_transcript_view_window(v, height, &count);
 	for (row = row0; row <= row1; row++) {
-		if (row > row0 && view_text_append(&t, "\n", 1))
+		if (row > row0 && fyai_buf_append_data(&t, "\n", 1))
 			goto fail;
 		start = t.len;
 		line = window && row >= 0 && row < count ? window[row] : "";
 		if (view_line_columns(&t, line, row == row0 ? col0 : 0,
 				      row == row1 ? col1 : INT_MAX))
 			goto fail;
-		while (t.len > start && t.data[t.len - 1] == ' ')
-			t.data[--t.len] = '\0';
+		while (t.len > start && t.data[t.len - 1] == ' ') {
+			t.len--;
+			t.data[t.len] = '\0';
+		}
 	}
 	if (!t.data)
 		return strdup("");
 	return t.data;
 fail:
-	free(t.data);
+	fyai_buf_free(&t);
 	return NULL;
 }
 

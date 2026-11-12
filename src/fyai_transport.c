@@ -24,6 +24,7 @@
 
 #include <libfyaml/libfyaml-endian.h>
 
+#include "fyai_buf.h"
 #include "fyai_host_backend.h"
 #include "fyai_transport.h"
 #include "fyai_transport_sock.h"
@@ -44,9 +45,7 @@ struct fyai_transport_exec {
 	size_t nallow;
 
 	/* Reassembly of a fragmented message. */
-	uint8_t *asm_buf;
-	size_t asm_len;
-	size_t asm_cap;
+	struct fyai_buf asm_buf;
 	bool asm_active;
 	uint16_t asm_kind;
 	uint64_t asm_request;
@@ -703,7 +702,7 @@ static void exec_free(struct fyai_transport_exec *e)
 		close(e->pidfd);
 	if (e->channel >= 0)
 		close(e->channel);
-	free(e->asm_buf);
+	fyai_buf_free(&e->asm_buf);
 	free(e);
 }
 
@@ -918,33 +917,18 @@ int fyai_transport_retire(struct fyai_transport_registry *reg, uint64_t id)
 
 static void asm_reset(struct fyai_transport_exec *e)
 {
-	e->asm_len = 0;
+	fyai_buf_consume(&e->asm_buf, e->asm_buf.len);
 	e->asm_active = false;
 }
 
 static int asm_append(struct fyai_transport_exec *e, const uint8_t *data,
 		      size_t len)
 {
-	size_t need = e->asm_len + len;
-	size_t cap;
-	uint8_t *nb;
-
-	if (need > FYAI_TRANSPORT_MAX_MESSAGE)
+	if (len > FYAI_TRANSPORT_MAX_MESSAGE ||
+	    e->asm_buf.len + len > FYAI_TRANSPORT_MAX_MESSAGE)
 		return -EFBIG;
-	if (need > e->asm_cap) {
-		cap = e->asm_cap ? e->asm_cap : 4096;
-
-		while (cap < need)
-			cap *= 2;
-		nb = realloc(e->asm_buf, cap);
-		if (!nb)
-			return -ENOMEM;
-		e->asm_buf = nb;
-		e->asm_cap = cap;
-	}
-	if (len)
-		memcpy(e->asm_buf + e->asm_len, data, len);
-	e->asm_len = need;
+	if (fyai_buf_append_data(&e->asm_buf, data, len))
+		return -ENOMEM;
 	return 0;
 }
 
@@ -1085,10 +1069,10 @@ fyai_transport_recv(struct fyai_transport_registry *reg, int channel,
 	e->asm_active = false;
 	msg->exec = e;
 	msg->hdr = hdr;
-	msg->hdr.len = e->asm_len;
+	msg->hdr.len = e->asm_buf.len;
 	msg->hdr.flags = 0;
-	msg->payload = e->asm_buf;
-	msg->len = e->asm_len;
+	msg->payload = (const uint8_t *)e->asm_buf.data;
+	msg->len = e->asm_buf.len;
 	return FYAI_TV_OK;
 
 err_out:

@@ -40,6 +40,7 @@
 #include <unistd.h>
 
 #include "fyai.h"
+#include "fyai_buf.h"
 #include "fyai_cast.h"
 #include "fyai_ptydrv.h"
 #include "fyai_ptyscr.h"
@@ -189,9 +190,7 @@ struct driver {
 	bool reaped;
 	bool eof;
 	double session_end;
-	unsigned char *data;	/* what the program sent */
-	size_t len;
-	size_t cap;
+	struct fyai_buf buf;	/* what the program sent */
 	struct fyai_ptyscr term;
 	struct fyai_ptyscr view;
 	size_t view_at;
@@ -256,11 +255,16 @@ static char *repr_bytes(const unsigned char *p, size_t n)
 	return out;
 }
 
+static const unsigned char *dbytes(const struct driver *d)
+{
+	return (const unsigned char *)d->buf.data;
+}
+
 static char *tail_repr(const struct driver *d)
 {
-	size_t n = d->len > TAIL_BYTES ? TAIL_BYTES : d->len;
+	size_t n = d->buf.len > TAIL_BYTES ? TAIL_BYTES : d->buf.len;
 
-	return repr_bytes(d->data + d->len - n, n);
+	return repr_bytes(dbytes(d) + d->buf.len - n, n);
 }
 
 /* The rows of the view that hold text, for a message. */
@@ -294,22 +298,7 @@ static char *screen_repr(const struct driver *d)
 
 static int append(struct driver *d, const unsigned char *p, size_t n)
 {
-	unsigned char *grown;
-	size_t cap;
-
-	if (d->len + n > d->cap) {
-		cap = d->cap ? d->cap : 1 << 16;
-		while (cap < d->len + n)
-			cap *= 2;
-		grown = realloc(d->data, cap);
-		if (!grown)
-			return -1;
-		d->data = grown;
-		d->cap = cap;
-	}
-	memcpy(d->data + d->len, p, n);
-	d->len += n;
-	return 0;
+	return fyai_buf_append_data(&d->buf, p, n);
 }
 
 static void set_size(int fd, int rows, int cols)
@@ -486,9 +475,9 @@ static size_t count_of(const unsigned char *p, size_t len, const char *text)
 static const unsigned char *find_from(const struct driver *d, size_t from,
 				      const char *text, size_t tl)
 {
-	if (from >= d->len)
+	if (from >= d->buf.len)
 		return NULL;
-	return memmem(d->data + from, d->len - from, text, tl);
+	return memmem(dbytes(d) + from, d->buf.len - from, text, tl);
 }
 
 /* Make the view show the window as of the last complete frame. */
@@ -496,14 +485,14 @@ static void view_sync(struct driver *d)
 {
 	size_t end = 0, i;
 
-	for (i = d->len; i >= FRAME_END_LEN; i--)
-		if (!memcmp(d->data + i - FRAME_END_LEN, FRAME_END,
+	for (i = d->buf.len; i >= FRAME_END_LEN; i--)
+		if (!memcmp(dbytes(d) + i - FRAME_END_LEN, FRAME_END,
 			    FRAME_END_LEN)) {
 			end = i;
 			break;
 		}
 	if (end > d->view_at) {
-		fyai_ptyscr_feed(&d->view, d->data + d->view_at,
+		fyai_ptyscr_feed(&d->view, dbytes(d) + d->view_at,
 				 end - d->view_at);
 		d->view_at = end;
 	}
@@ -511,7 +500,7 @@ static void view_sync(struct driver *d)
 
 static void mark(struct driver *d)
 {
-	d->action_start = d->len;
+	d->action_start = d->buf.len;
 	d->copies_start = d->term.clipboard.n;
 	view_sync(d);
 	d->scrolled_start = d->view.scrollback.n;
@@ -568,13 +557,13 @@ static bool p_frame_text(struct driver *d, struct step_wait *w)
 
 	hit = find_from(d, w->st->from_start ? 0 : d->action_start,
 			w->st->text, w->st->len);
-	return hit && find_from(d, (size_t)(hit - d->data), FRAME_END,
+	return hit && find_from(d, (size_t)(hit - dbytes(d)), FRAME_END,
 				FRAME_END_LEN);
 }
 
 static bool p_count(struct driver *d, struct step_wait *w)
 {
-	return (long)count_of(d->data, d->len, w->st->text) >= w->target;
+	return (long)count_of(dbytes(d), d->buf.len, w->st->text) >= w->target;
 }
 
 static bool p_frames(struct driver *d, struct step_wait *w)
@@ -582,10 +571,10 @@ static bool p_frames(struct driver *d, struct step_wait *w)
 	size_t n = 0, from = d->action_start;
 	const unsigned char *hit;
 
-	while (from <= d->len &&
+	while (from <= d->buf.len &&
 	       (hit = find_from(d, from, FRAME_END, FRAME_END_LEN))) {
 		n++;
-		from = (size_t)(hit - d->data) + FRAME_END_LEN;
+		from = (size_t)(hit - dbytes(d)) + FRAME_END_LEN;
 	}
 	return (long)n >= w->st->n;
 }
@@ -675,9 +664,9 @@ static bool p_input(struct driver *d, struct step_wait *w)
 	bool held = false;
 	int r;
 
-	if (w->checked == d->len + 1)
+	if (w->checked == d->buf.len + 1)
 		return w->held;
-	w->checked = d->len + 1;
+	w->checked = d->buf.len + 1;
 	w->held = false;
 	row = NULL;
 	if (fyai_ptyscr_init(&s, d->rows, d->cols, false))
@@ -687,7 +676,7 @@ static bool p_input(struct driver *d, struct step_wait *w)
 		fyai_ptyscr_destroy(&s);
 		return false;
 	}
-	fyai_ptyscr_feed(&s, d->data, d->len);
+	fyai_ptyscr_feed(&s, dbytes(d), d->buf.len);
 	for (r = 0; r < s.rows; r++) {
 		fyai_ptyscr_row(&s, r, row);
 		at = strstr(row, marker);
@@ -926,7 +915,7 @@ static int run_step(struct driver *d, const struct step *st)
 					d->resize_cols);
 		fyai_error_check(d->ctx, !rc, err,
 				 "step %zu: out of memory", st->index);
-		d->view_at = d->len;
+		d->view_at = d->buf.len;
 		d->scrolled_start = 0;
 		d->erased_start = 0;
 		d->erases_start = 0;
@@ -944,7 +933,7 @@ static int run_step(struct driver *d, const struct step *st)
 				 strerror(errno));
 		return 0;
 	case STEP_SNAPSHOT:
-		rc = write_file(st->text, d->data, d->len);
+		rc = write_file(st->text, dbytes(d), d->buf.len);
 		fyai_error_check(d->ctx, !rc, err,
 				 "step %zu: cannot write %s: %s", st->index,
 				 st->text, strerror(errno));
@@ -977,7 +966,7 @@ static int run_step(struct driver *d, const struct step *st)
 		again.text = st->extra;
 		again.len = strlen(st->extra);
 		gate.extra = PROMPT_MARKER;
-		wc.target = (long)count_of(d->data, d->len, st->extra) + 1;
+		wc.target = (long)count_of(dbytes(d), d->buf.len, st->extra) + 1;
 		for (;;) {
 			rc = (int)send_keys(d, "\n", 1);
 			fyai_error_check(d->ctx, !rc, err,
@@ -1028,7 +1017,7 @@ static int run_step(struct driver *d, const struct step *st)
 	case STEP_WAIT_COUNT:
 		pred = p_count;
 		w.target = st->more ?
-			   (long)count_of(d->data, d->action_start, st->text) +
+			   (long)count_of(dbytes(d), d->action_start, st->text) +
 			   st->n : st->n;
 		break;
 	case STEP_WAIT_FILE:
@@ -1059,7 +1048,7 @@ static int run_step(struct driver *d, const struct step *st)
 	case STEP_WAIT_COUNT:
 		fyai_error(d->ctx, "step %zu: the output showed '%s' %zu of %ld times; tail=%s",
 			   st->index, st->text,
-			   count_of(d->data, d->len, st->text), w.target,
+			   count_of(dbytes(d), d->buf.len, st->text), w.target,
 			   tail ? tail : "");
 		break;
 	case STEP_WAIT_FILE:
@@ -1787,7 +1776,7 @@ static int session_run(struct driver *d)
 	if (rc)
 		return -1;
 	if (d->snapshot && !d->snapshot_taken)
-		if (write_file(d->snapshot, d->data, d->len)) {
+		if (write_file(d->snapshot, dbytes(d), d->buf.len)) {
 			fyai_error(d->ctx, "cannot write %s: %s", d->snapshot,
 				   strerror(errno));
 			return -1;
@@ -1807,7 +1796,7 @@ static void driver_free(struct driver *d)
 		regfree(&d->masks[i]);
 	free(d->masks);
 	free(d->steps);
-	free(d->data);
+	fyai_buf_free(&d->buf);
 	free(d->held);
 	fyai_ptyscr_destroy(&d->term);
 	fyai_ptyscr_destroy(&d->view);
@@ -1842,7 +1831,7 @@ int fyai_ptydrv_run(struct fyai_ctx *ctx, struct fy_generic_builder *gb,
 	if (session_start(&d, argv, env))
 		goto out;
 	failed = session_run(&d);
-	if (write_file(output, d.data, d.len)) {
+	if (write_file(output, dbytes(&d), d.buf.len)) {
 		fyai_error(ctx, "cannot write %s: %s", output, strerror(errno));
 		failed = -1;
 	}
