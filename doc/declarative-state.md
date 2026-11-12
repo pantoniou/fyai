@@ -512,8 +512,8 @@ store/config_proposals: [{name: pN, ...the same members}]
 - `changes` is the change set as the model presented it; `before` and
   `after` map each path to its value in the layer it writes, or null;
   `diff` is the whole unified diff that fyai made.
-- `persistent` marks changes that store all paths in the branch. Older
-  entries without it retain their schema-scoped revert behavior.
+- `persistent` marks changes that store all paths in the branch. A trial
+  writes the session layer only.
 - `origin` is the branch of the agent that made the change.
 - `status` of a change is `applied`, or `session` for one that wrote only
   the session layer, then `reverted` or `kept`; of a proposal `pending`,
