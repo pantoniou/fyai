@@ -14,6 +14,9 @@
 #include "fyai_markdown.h"
 #include "fyai_workpane.h"
 
+#define FYAI_SHELL_NO_COMMAND \
+	"tool error: the shell tool needs a string argument \"command\""
+
 /*
  * Per-call sandbox spec plus the owned backing storage its pointers reference.
  * The spec must outlive the fork inside run_shell_command_capture_cb, so this
@@ -225,8 +228,22 @@ struct fyai_tool_job_group {
 };
 
 /* fyai_tools.c */
+bool fyai_shell_args_lack_command(const char *name, fy_generic args);
+fy_generic fyai_tool_call_effective(struct fyai_ctx *ctx,
+				    fy_generic tool_call);
+bool fyai_shell_named_call(struct fyai_ctx *ctx, fy_generic tool_call);
 bool fyai_shell_session_call(struct fyai_ctx *ctx, fy_generic tool_call);
+char *fyai_format_tool_header(struct fyai_ctx *ctx, const char *tool,
+			      fy_generic args, int preview_lines);
+int fyai_shell_view(struct fyai_ctx *ctx, const char *command,
+		    fy_generic args, char **title,
+		    struct fyai_buf *body);
+void fyai_print_tool_view(struct fyai_ctx *ctx, const char *title,
+			  struct fyai_buf *body);
 char *fyai_format_shell_label(fy_generic args);
+void fyai_tool_progress_flush(struct fyai_ctx *ctx);
+unsigned int fyai_shell_timeout_ms(struct fyai_ctx *ctx, fy_generic call,
+				   bool native);
 size_t fyai_shell_output_bytes(struct fyai_ctx *ctx, fy_generic call);
 void fyai_shell_tty_size(struct fyai_ctx *ctx, fy_generic call,
 			 int *rowsp, int *colsp);
@@ -235,13 +252,13 @@ const char *fyai_shell_shell_requested(struct fyai_ctx *ctx,
 				       fy_generic call);
 bool fyai_shell_login_requested(struct fyai_ctx *ctx, fy_generic call);
 char *fyai_shell_bound_alloc(const char *text, size_t max_bytes);
+fy_generic fyai_ask_declined(struct fyai_ctx *ctx);
+fy_generic fyai_ask_user_from(struct fyai_ctx *ctx, fy_generic args,
+			      const char *from);
 int fyai_tool_apply_sandbox(struct fyai_ctx *ctx);
 fy_generic fyai_tool_result_note(struct fyai_ctx *ctx, bool agent_call,
 				 fy_generic result);
-const char *fyai_agent_job_name(const struct fyai_tool_job *job);
-struct fyai_tool_job *fyai_agent_job_named(struct fyai_ctx *ctx,
-					   const char *name);
-void fyai_tool_job_discard(struct fyai_tool_job *job);
+bool fyai_tool_call_instant(struct fyai_ctx *ctx, fy_generic tool_call);
 
 /* fyai_shell_sandbox.c */
 int fyai_shell_sandbox_build(struct fyai_ctx *ctx,
@@ -327,5 +344,12 @@ int fyai_agent_view_begin(struct fyai_ctx *ctx, const char *agent,
 			  struct fyai_view_run **run);
 void fyai_agent_view_finish(struct fyai_ctx *ctx, struct fyai_tool_job *job,
 			    fy_generic *result);
+
+/* fyai_tool_job.c */
+void fyai_tool_jobs_abandon(struct fyai_ctx *ctx);
+const char *fyai_agent_job_name(const struct fyai_tool_job *job);
+struct fyai_tool_job *fyai_agent_job_named(struct fyai_ctx *ctx,
+					   const char *name);
+void fyai_tool_job_discard(struct fyai_tool_job *job);
 
 #endif /* FYAI_TOOLS_INT_H */
