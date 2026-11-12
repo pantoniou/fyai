@@ -1515,17 +1515,16 @@ static void test_stop_preserves_batch(void)
 	FYAI_TCHECK(el);
 
 	/* All three are ready before the first wait, so they arrive in one
-	 * batch; the stopper is earliest, so it is dispatched first. */
-	rc = fyai_event_add_timer(el, 1, 0, cb_stop, &early, NULL);
+	 * batch; the stopper is created first, so it is dispatched first. */
+	rc = fyai_event_add_timer(el, 0, 0, cb_stop, &early, NULL);
 	FYAI_TCHECK(!rc);
-	rc = fyai_event_add_timer(el, 2, 0, cb_count, &timer, NULL);
+	rc = fyai_event_add_timer(el, 0, 0, cb_count, &timer, NULL);
 	FYAI_TCHECK(!rc);
 	rc = fyai_event_add_signal(el, SIGUSR2, cb_count, &sig, NULL);
 	FYAI_TCHECK(!rc);
 
 	rc = kill(getpid(), SIGUSR2);
 	FYAI_TCHECK(!rc);
-	usleep(20000);
 
 	rc = fyai_event_loop_run_until(el, NULL, TEST_BOUND_MS);
 	FYAI_TCHECK(!rc);
