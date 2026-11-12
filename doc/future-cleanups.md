@@ -92,14 +92,14 @@ the code before a change.
   printed. The decision is three booleans, a counter and a timer pointer.
 - `retry_band` is a three-valued "band is open" that `stream_request_resubmit()`
   carries by hand across a `memset()`.
-- `ctx->auth_retry_done` is a latch on the context and not on the request.
-  Only `fyai.c` resets it. A second 401 in a later request of the same context
-  may not refresh. Verify this before it is treated as a defect.
+- The latch `auth_retry_done` was on the context. A model step reset it, so
+  a second model request refreshed. A buffered request did not reset it, so
+  one after a refresh could not. It is now `auth_refreshed` on each request.
 - Illegal combinations: `retry_hint` without `retry_cause`; `retry_timer` while
   the state is not a retry; `auth_refresh` with `retry_timer`.
-- Change: split the retry state into RETRY_WAIT and AUTH_REFRESH, move the
-  latch into the request, and share one retry structure between the stream and
-  the buffered request.
+- Change: split the retry state into RETRY_WAIT and AUTH_REFRESH, and share
+  one retry structure between the stream and the buffered request. The latch
+  is done.
 
 ### 4. Turn run beside its enum
 
