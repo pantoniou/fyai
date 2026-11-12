@@ -219,6 +219,13 @@ enum fyai_api_mode {
 
 struct fypal_ctx;
 
+/* How long the processes of a sandboxed tool live (`sandbox_scope`). */
+enum fyai_scope_kind {
+	FYAI_SCOPE_EXCHANGE,		/* until the exchange ends: the default */
+	FYAI_SCOPE_SESSION,		/* until the interactive session ends */
+	FYAI_SCOPE_CALL,		/* until the call ends */
+};
+
 struct fyai_cfg {
 	int exit_status; /* Exit status of a successfully executed CLI child. */
 	struct fy_allocator *allocator;
@@ -424,6 +431,7 @@ struct fyai_cfg {
 	const char *sandbox_cover;	/* how a tool hides the arena: auto, userns, bwrap, none */
 	long long sandbox_grace_ms;	/* time that a process of a scope has to stop after SIGTERM */
 	const char *sandbox_scope;	/* how long its processes live: exchange, session, call */
+	enum fyai_scope_kind sandbox_scope_kind; /* the same, derived from sandbox_scope */
 	const char *cast_path;		/* --cast: the file that records the screen, or NULL */
 	bool cast_compat;		/* --cast-compat: write plain asciicast, nothing of ours */
 	bool interactive;

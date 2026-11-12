@@ -40,7 +40,7 @@
 struct fyai_monitor_run {
 	struct fyai_monitor_run *next;
 	struct fyai_ctx *ctx;
-	bool pinned;		/* it holds the scope of its exchange */
+	struct fyai_scope_pin pin;	/* it holds the scope of its exchange */
 	long long limit_ms;	/* the time limit that the monitor was started with */
 	struct fyai_tool_job_group *group;
 	char *name;
@@ -75,8 +75,7 @@ static void monitor_unlink(struct fyai_monitor_run *run)
 static void monitor_free(struct fyai_monitor_run *run)
 {
 	fyai_tool_job_group_destroy(run->group);
-	if (run->pinned)
-		fyai_scope_unpin(run->ctx);
+	fyai_scope_unpin(run->ctx, &run->pin);
 	free(run->partial);
 	free(run->name);
 	free(run);
@@ -326,8 +325,7 @@ static fy_generic monitor_start(struct fyai_ctx *ctx, fy_generic args,
 	run->next = ctx->monitors;
 	ctx->monitors = run;
 	/* The command runs until the monitor ends, past the exchange that started it. */
-	run->pinned = true;
-	fyai_scope_pin(ctx);
+	fyai_scope_pin(ctx, &run->pin);
 	rc = fyai_tool_job_group_add(run->group, call);
 	fyai_error_check(ctx, !rc, err_linked,
 			 "monitor: could not add the command");

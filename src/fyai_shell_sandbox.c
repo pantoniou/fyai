@@ -211,7 +211,7 @@ int fyai_shell_sandbox_build(struct fyai_ctx *ctx,
 	 * The invocation starts the holder of the scope of the exchange, and each tool
 	 * child joins it. A scope of one call is made by the tool itself.
 	 */
-	if (!strcmp(ctx->cfg->sandbox_scope, "call"))
+	if (ctx->cfg->sandbox_scope_kind == FYAI_SCOPE_CALL)
 		start = FYAI_COVER_START_CALL;
 	else
 		start = ctx->cfg->tool_child ? FYAI_COVER_JOIN_ONLY :

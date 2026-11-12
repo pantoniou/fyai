@@ -797,16 +797,11 @@ fyai_tool_job_band_delay(const struct fyai_event *ev)
 	return FYAIEA_CONTINUE;
 }
 
-/* Whether a scope lasts as long as the interactive session. */
-static bool fyai_scope_session(const struct fyai_ctx *ctx)
-{
-	return !strcmp(ctx->cfg->sandbox_scope, "session");
-}
-
 /* End the scope when no exchange runs and no object keeps it. */
 static void fyai_scope_settle(struct fyai_ctx *ctx)
 {
-	if (ctx->scope_open || ctx->scope_pins > 0 || fyai_scope_session(ctx))
+	if (ctx->scope_open || ctx->scope_pins > 0 ||
+	    ctx->cfg->sandbox_scope_kind == FYAI_SCOPE_SESSION)
 		return;
 	/* A process that did not start the holder does not end it. */
 	if (ctx->cover.owner) {
@@ -826,13 +821,20 @@ void fyai_scope_exchange(struct fyai_ctx *ctx, bool begin)
 		fyai_scope_settle(ctx);
 }
 
-void fyai_scope_pin(struct fyai_ctx *ctx)
+void fyai_scope_pin(struct fyai_ctx *ctx, struct fyai_scope_pin *pin)
 {
+	if (pin->held)
+		return;
+	pin->held = true;
 	ctx->scope_pins++;
 }
 
-void fyai_scope_unpin(struct fyai_ctx *ctx)
+void fyai_scope_unpin(struct fyai_ctx *ctx, struct fyai_scope_pin *pin)
 {
+	if (!pin->held)
+		return;
+	pin->held = false;
+	/* A forked child resets the count and drops the objects of its parent. */
 	if (ctx->scope_pins > 0)
 		ctx->scope_pins--;
 	fyai_scope_settle(ctx);
@@ -850,7 +852,7 @@ static void fyai_scope_ensure(struct fyai_ctx *ctx)
 	pid_t holder;
 
 	if (ctx->cfg->tool_child || !ctx->cfg->enable_sandbox ||
-	    ctx->sandbox_applied || !strcmp(ctx->cfg->sandbox_scope, "call"))
+	    ctx->sandbox_applied || ctx->cfg->sandbox_scope_kind == FYAI_SCOPE_CALL)
 		return;
 	holder = ctx->cover.holder;
 	if (fyai_shell_sandbox_begin(ctx, &sb, &spec))
@@ -1389,7 +1391,7 @@ static void fyai_tool_job_run_done(struct jsonrpc_request *req, void *userdata)
 		job->diag = fy_get(r, "diag", fy_invalid);
 		/* The scope keeps what the call left running. */
 		fyai_orphan_track(job->ctx, fy_get(r, "detached", fy_invalid));
-		if (!strcmp(job->ctx->cfg->sandbox_scope, "call"))
+		if (job->ctx->cfg->sandbox_scope_kind == FYAI_SCOPE_CALL)
 			fyai_orphan_sweep(job->ctx);
 		/*
 		 * The reply is in the transient builder, which the turn

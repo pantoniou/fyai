@@ -267,8 +267,18 @@ int fyai_tools_confine_native_view(struct fyai_ctx *ctx, const struct fyai_fsvie
  * background sub-agent pin the scope from the time they start until they go.
  */
 void fyai_scope_exchange(struct fyai_ctx *ctx, bool begin);
-void fyai_scope_pin(struct fyai_ctx *ctx);
-void fyai_scope_unpin(struct fyai_ctx *ctx);
+
+/*
+ * A pin handle owns the one count that its object adds to the scope. A zeroed
+ * handle holds nothing. Pinning a held handle and unpinning a free one change
+ * nothing, so every pair is balanced by the handle and not by a clamp.
+ */
+struct fyai_scope_pin {
+	bool held;
+};
+
+void fyai_scope_pin(struct fyai_ctx *ctx, struct fyai_scope_pin *pin);
+void fyai_scope_unpin(struct fyai_ctx *ctx, struct fyai_scope_pin *pin);
 
 /* The processes of the scope as rows of pid, name and how the scope holds them. */
 fy_generic fyai_scope_rows(struct fyai_ctx *ctx, struct fy_generic_builder *gb);

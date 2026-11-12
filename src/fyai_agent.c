@@ -871,7 +871,7 @@ struct fyai_agent_bg_run {
 	char *name;
 	char handle[FYAI_BRANCH_COMPONENT_MAX + 1];
 	bool finished;
-	bool pinned;		/* it holds the scope of its exchange */
+	struct fyai_scope_pin pin;	/* it holds the scope of its exchange */
 };
 
 bool fyai_agent_background_requested(fy_generic args)
@@ -882,8 +882,7 @@ bool fyai_agent_background_requested(fy_generic args)
 static void agent_bg_free(struct fyai_agent_bg_run *run)
 {
 	fyai_tool_job_group_destroy(run->group);
-	if (run->pinned)
-		fyai_scope_unpin(run->ctx);
+	fyai_scope_unpin(run->ctx, &run->pin);
 	free(run->name);
 	free(run);
 }
@@ -980,8 +979,7 @@ fy_generic fyai_agent_background(struct fyai_ctx *ctx, fy_generic args,
 	run->next = ctx->agent_bg_runs;
 	ctx->agent_bg_runs = run;
 	/* Its tools join the scope for as long as it runs. */
-	run->pinned = true;
-	fyai_scope_pin(ctx);
+	fyai_scope_pin(ctx, &run->pin);
 	*okp = true;
 	return fy_stringf(gb, "[agent '%s' started in the background]\n"
 			  "It does not hold your turn. Keep working; its "

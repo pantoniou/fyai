@@ -2126,14 +2126,14 @@ out:
 fy_generic fyai_tool_result_note(struct fyai_ctx *ctx, bool agent_call,
 				 fy_generic result)
 {
-	const char *scope = ctx->cfg->sandbox_scope;
+	enum fyai_scope_kind scope = ctx->cfg->sandbox_scope_kind;
 	struct fy_generic_builder *gb;
 	fy_generic note;
 
-	if (!fy_is_string(result) || !strcmp(scope, "call") || agent_call)
+	if (!fy_is_string(result) || scope == FYAI_SCOPE_CALL || agent_call)
 		return result;
 	gb = fyai_ctx_transient_gb(ctx);
-	note = fyai_orphan_note(gb, !strcmp(scope, "session") ?
+	note = fyai_orphan_note(gb, scope == FYAI_SCOPE_SESSION ?
 				"They end with this session." :
 				"They end with this exchange.");
 	if (!fy_is_string(note))

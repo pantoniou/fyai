@@ -160,7 +160,7 @@ enum fyai_session_stop {
 struct fyai_shell_session {
 	struct fyai_shell_session *next;
 	struct fyai_ctx *ctx;
-	bool pinned;			/* it holds the scope of its exchange */
+	struct fyai_scope_pin pin;	/* it holds the scope of its exchange */
 	/* The bytes of the terminal, a text of the UI model for its consumer. */
 	long long model_text;
 	char *name;

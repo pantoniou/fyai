@@ -576,6 +576,12 @@ int fyai_config_apply(struct fyai_cfg *cfg, fy_generic root)
 	v = fy_get(root, "sandbox_scope", fy_invalid);
 	cfg->sandbox_scope = fy_gb_intern_string(cfg->gb,
 			fy_is_string(v) ? fy_castp(&v, "") : "exchange");
+	if (!strcmp(cfg->sandbox_scope, "session"))
+		cfg->sandbox_scope_kind = FYAI_SCOPE_SESSION;
+	else if (!strcmp(cfg->sandbox_scope, "call"))
+		cfg->sandbox_scope_kind = FYAI_SCOPE_CALL;
+	else
+		cfg->sandbox_scope_kind = FYAI_SCOPE_EXCHANGE;
 	cfg->sandbox_grace_ms = fy_get(root, "sandbox_grace_ms", 5000LL);
 	if (cfg->sandbox_profile) {
 		cfg->sandbox = fyai_sandbox_profile_policy(cfg, root,

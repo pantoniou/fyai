@@ -542,8 +542,7 @@ fyai_shell_session_create(struct fyai_ctx *ctx, const char *name,
 	/* The program of the session outlives the exchange that started it.
 	 * The program of a mirror is in the scope of its worker. */
 	if (!remote) {
-		sess->pinned = true;
-		fyai_scope_pin(ctx);
+		fyai_scope_pin(ctx, &sess->pin);
 	}
 	fyai_shell_session_idle_arm(sess);
 	return sess;
@@ -1058,10 +1057,7 @@ void fyai_shell_session_exited(struct fyai_shell_session *sess,
 	sess->signal = signal;
 	fyai_tools_work_update(sess->ctx);
 	/* The program has gone, so the session no longer needs the scope. */
-	if (sess->pinned) {
-		sess->pinned = false;
-		fyai_scope_unpin(sess->ctx);
-	}
+	fyai_scope_unpin(sess->ctx, &sess->pin);
 	fyai_shell_session_display_finish(sess);
 	if (sess->idle) {
 		fyai_event_source_remove(sess->idle);
@@ -1131,8 +1127,7 @@ static void fyai_shell_session_destroy(struct fyai_shell_session *sess)
 	if (sess->model_text)
 		fyai_uimodel_text_close(sess->ctx, sess->model_text);
 	fyai_terminal_view_destroy(sess->view);
-	if (sess->pinned)
-		fyai_scope_unpin(sess->ctx);
+	fyai_scope_unpin(sess->ctx, &sess->pin);
 	free(sess->name);
 	free(sess->command);
 	free(sess->branch);
