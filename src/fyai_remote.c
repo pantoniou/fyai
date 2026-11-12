@@ -192,6 +192,21 @@ out:
 
 /* ---- the client of the SDK framing ------------------------------------- */
 
+/*
+ * The exchange of the client with the server. A control request goes from
+ * IDLE or ANSWERED to WAITING, and its answer makes it ANSWERED, so the phase
+ * returns to WAITING for each later request. The run of a command at the
+ * server follows its request: RUNNING, then ENDED. No frame arrives for a
+ * command while a request waits, so one phase says how a frame is read.
+ */
+enum remote_phase {
+	REMOTE_IDLE,
+	REMOTE_WAITING,
+	REMOTE_ANSWERED,
+	REMOTE_RUNNING,
+	REMOTE_ENDED,
+};
+
 struct remote_client {
 	struct fyai_ctx *ctx;
 	struct fy_generic_builder *gb;	/* the answers are copied here */
@@ -200,15 +215,14 @@ struct remote_client {
 	int fd;
 	pid_t ssh;			/* the ssh child of an ssh:// target, or -1 */
 	bool failed;
-	/* The control request in flight, and its answer when it came. */
-	const char *waiting;
-	bool answered;
+	enum remote_phase phase;
+	/* The id of the control request in flight, and its answer when it came. */
+	const char *request_id;
 	fy_generic answer;
 	const char *refusal;
 	/* A client that ends its input waits for the result of each message. */
 	unsigned long long messages, results;
-	/* A command that runs at the server, and its exit status when it ended. */
-	bool running, ended;
+	/* The exit status of a command that ended at the server. */
 	int status;
 	struct fyai_event_source *input;
 };
@@ -225,7 +239,7 @@ static void remote_run_output(struct remote_client *client, fy_generic frame)
 	}
 	if (!strcmp(subtype, "exit")) {
 		client->status = fy_get(frame, "status", 1);
-		client->ended = true;
+		client->phase = REMOTE_ENDED;
 		return;
 	}
 	if (!strcmp(subtype, "stderr")) {
@@ -245,15 +259,15 @@ static void remote_output(struct jsonrpc_conn *conn, fy_generic frame,
 	fy_generic response, feature, features;
 
 	/* While a control request waits, only its answer can come. */
-	if (client->waiting) {
+	if (client->phase == REMOTE_WAITING) {
 		response = fy_get(frame, "response", fy_invalid);
 		if (!fy_equal(fy_get(frame, "type", ""), "control_response") ||
-		    !fy_equal(fy_get(response, "request_id", ""), client->waiting)) {
+		    !fy_equal(fy_get(response, "request_id", ""),
+			      client->request_id)) {
 			client->failed = true;
 			return;
 		}
-		client->waiting = NULL;
-		client->answered = true;
+		client->phase = REMOTE_ANSWERED;
 		if (fy_equal(fy_get(response, "subtype", ""), "success")) {
 			client->answer = fy_gb_internalize(client->gb,
 				fy_get(response, "response", fy_map_empty));
@@ -274,7 +288,7 @@ static void remote_output(struct jsonrpc_conn *conn, fy_generic frame,
 		fyai_remote_ui_receive(client->view, frame);
 		return;
 	}
-	if (client->running) {
+	if (client->phase == REMOTE_RUNNING) {
 		remote_run_output(client, frame);
 		return;
 	}
@@ -322,14 +336,16 @@ err:
 	return -1;
 }
 
-/* Serve the loop until @done is set, the peer goes, or the time is over. */
-static int remote_wait(struct remote_client *client, const bool *done)
+/* Serve the loop until the request is answered, the peer goes, or the time is
+ * over. */
+static int remote_wait(struct remote_client *client)
 {
 	struct fyai_ctx *ctx = client->ctx;
 	fyai_event_ms_t deadline = fyai_event_now_ms() + REMOTE_ADMIT_MS;
 	int rc;
 
-	while (!*done && !client->failed && !jsonrpc_conn_closed(client->peer) &&
+	while (client->phase == REMOTE_WAITING && !client->failed &&
+	       !jsonrpc_conn_closed(client->peer) &&
 	       fyai_event_now_ms() < deadline && !ctx->terminate_pending &&
 	       !fyai_interrupt_check(ctx)) {
 		fyai_event_interrupt_ack(ctx);
@@ -337,7 +353,7 @@ static int remote_wait(struct remote_client *client, const bool *done)
 		if (rc < 0)
 			return -1;
 	}
-	return *done && !client->failed ? 0 : -1;
+	return client->phase == REMOTE_ANSWERED && !client->failed ? 0 : -1;
 }
 
 /*
@@ -350,20 +366,20 @@ static int remote_request(struct remote_client *client, const char *id,
 	struct fyai_ctx *ctx = client->ctx;
 	int rc;
 
-	client->answered = false;
+	client->phase = REMOTE_WAITING;
 	client->answer = fy_invalid;
 	client->refusal = NULL;
-	client->waiting = id;
+	client->request_id = id;
 	rc = fyai_remote_send(client->peer, fy_mapping(client->gb,
 		"type", "control_request", "request_id", id, "request", request));
 	fyai_error_check(ctx, !rc, err, "cannot send the request '%s'", id);
-	rc = remote_wait(client, &client->answered);
+	rc = remote_wait(client);
 	fyai_error_check(ctx, !rc, err, "the endpoint did not answer the request '%s'",
 			 id);
 	fyai_error_check(ctx, !client->refusal, err, "%s", client->refusal);
 	return 0;
 err:
-	client->waiting = NULL;
+	client->phase = REMOTE_IDLE;
 	return -1;
 }
 
@@ -929,7 +945,7 @@ static int remote_command_run(struct remote_client *client)
 		"cols", (long long)(ctx->stdout_tty ? ctx->tty_cols : 0)));
 	if (rc)
 		return -1;
-	client->running = true;
+	client->phase = REMOTE_RUNNING;
 	if (stream) {
 		rc = fyai_event_add_fd(fyai_ctx_loop(ctx), STDIN_FILENO, FYAIEV_READ,
 				       remote_run_stdin, client, &client->input);
@@ -938,7 +954,7 @@ static int remote_command_run(struct remote_client *client)
 		rc = remote_run_file(client);
 		fyai_error_check(ctx, !rc, err, "cannot send standard input");
 	}
-	while (!client->ended && !client->failed &&
+	while (client->phase != REMOTE_ENDED && !client->failed &&
 	       !jsonrpc_conn_closed(client->peer) && !ctx->terminate_pending) {
 		if (fyai_interrupt_check(ctx)) {
 			fyai_event_interrupt_ack(ctx);
@@ -954,7 +970,7 @@ static int remote_command_run(struct remote_client *client)
 	fyai_event_source_remove(client->input);
 	client->input = NULL;
 	fyai_sink_flush(ctx->sink);
-	fyai_error_check(ctx, client->ended, err, "the server ended the command "
+	fyai_error_check(ctx, client->phase == REMOTE_ENDED, err, "the server ended the command "
 			 "without its exit status");
 	cfg->exit_status = client->status;
 	return 0;
