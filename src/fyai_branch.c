@@ -1548,6 +1548,9 @@ int fyai_branch_adopt(struct fyai_ctx *ctx, const char *name, bool keep_head)
 	fyai_error_check(ctx, !rc, err_out,
 			 "could not adopt branch '%s'", name);
 
+	/* A stored branch ends the session that no publish stored. */
+	free(ctx->session_unstored);
+	ctx->session_unstored = NULL;
 	ctx->last_message = b.head;
 	ctx->arena_config = b.config;
 	ctx->arena_catalog = b.catalog;
