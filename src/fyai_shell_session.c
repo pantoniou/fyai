@@ -103,8 +103,10 @@ void fyai_tools_work_update(struct fyai_ctx *ctx)
 					(_Bool)!(sess->signal || sess->exit_code),
 					"exit_code", (long long)sess->exit_code,
 					"signal", (long long)sess->signal,
-					"closing", sess->closing,
-					"timed_out", sess->timed_out);
+					"closing", (_Bool)(sess->stop !=
+						   FYAI_SESSION_STOP_NONE),
+					"timed_out", (_Bool)(sess->stop ==
+						   FYAI_SESSION_STOP_IDLE));
 			if (sess->model_text && sess->view) {
 				fyai_terminal_view_size(sess->view, &rows,
 							&cols);
@@ -376,7 +378,7 @@ fyai_shell_session_idle(const struct fyai_event *ev)
 	sess->idle = NULL;
 	if (sess->exited)
 		return FYAIEA_CONTINUE;
-	sess->timed_out = true;
+	sess->stop = FYAI_SESSION_STOP_IDLE;
 	fyai_shell_session_close(sess, false);
 	return FYAIEA_CONTINUE;
 }
@@ -733,7 +735,8 @@ bool fyai_event_session_live(struct fyai_ctx *ctx, const char *name)
 	struct fyai_shell_session *sess;
 
 	sess = fyai_shell_session_find(ctx, name);
-	return sess && !sess->exited && !sess->closing && sess->job;
+	return sess && !sess->exited &&
+	       sess->stop == FYAI_SESSION_STOP_NONE && sess->job;
 }
 
 /* Queue the session's input request and visible prompt for the model. */
@@ -771,7 +774,7 @@ static enum fyai_event_action fyai_shell_session_wait_poll(
 	struct fyai_shell_session *sess = ev->userdata;
 	bool wants;
 
-	if (sess->exited || sess->closing)
+	if (sess->exited || sess->stop != FYAI_SESSION_STOP_NONE)
 		return FYAIEA_CONTINUE;
 	/*
 	 * A program held at a gate is one that is being typed at: its answer
@@ -821,12 +824,12 @@ static char *fyai_shell_session_cause(const struct fyai_shell_session *sess,
 	char buf[64];
 
 	*okp = true;
-	if (sess->timed_out) {
+	if (sess->stop == FYAI_SESSION_STOP_IDLE) {
 		*okp = false;
 		return strdup("timed out");
 	}
 	/* An expected close signal is not a failure. */
-	if (sess->closing)
+	if (sess->stop != FYAI_SESSION_STOP_NONE)
 		return NULL;
 	if (sess->signal) {
 		*okp = false;
@@ -1084,7 +1087,8 @@ static void fyai_shell_session_close(struct fyai_shell_session *sess,
 	struct fy_generic_builder *gb;
 
 	if (sess && !sess->exited && sess->remote) {
-		sess->closing = true;
+		if (sess->stop == FYAI_SESSION_STOP_NONE)
+			sess->stop = FYAI_SESSION_STOP_CLOSE;
 		sess->remote->close(sess->remote_data, sess->name, force);
 		return;
 	}
@@ -1093,7 +1097,8 @@ static void fyai_shell_session_close(struct fyai_shell_session *sess,
 	gb = fyai_ctx_transient_gb(sess->ctx);
 	if (!gb)
 		return;
-	sess->closing = true;
+	if (sess->stop == FYAI_SESSION_STOP_NONE)
+		sess->stop = FYAI_SESSION_STOP_CLOSE;
 	(void)jsonrpc_notify(sess->job->conn, "shell/close",
 			     fy_mapping("force", force));
 	if (force && sess->job->pid > 0)
@@ -1334,7 +1339,9 @@ static char *fyai_shell_session_result(struct fyai_ctx *ctx,
 			rc = fyai_buf_append(&buf,
 				fy_sprintfa("\n[shell '%s' ended: signal %d%s]\n",
 					    sess->name, sess->signal,
-					    sess->timed_out ? ", idle limit" : ""));
+					    sess->stop ==
+					    FYAI_SESSION_STOP_IDLE ?
+					    ", idle limit" : ""));
 		else
 			rc = fyai_buf_append(&buf,
 				fy_sprintfa("\n[shell '%s' ended: status %d]\n",
@@ -2234,7 +2241,8 @@ fy_generic fyai_tools_sessions_data(struct fyai_ctx *ctx,
 		rows = fy_append(gb, rows, fy_mapping(gb,
 			"name", sess->name,
 			"kind", "shell",
-			"state", sess->closing ? "stopping" :
+			"state", sess->stop != FYAI_SESSION_STOP_NONE ?
+				"stopping" :
 				fyai_workpane_focused(ctx->workpane) ==
 					sess->surface ? "focused" :
 				"running"));
@@ -2569,8 +2577,12 @@ bool fyai_tools_mirror_update(struct fyai_shell_session *sess, fy_generic item)
 	}
 	if (sess->exited || !fy_get(item, "exited", false))
 		return resized;
-	sess->closing = fy_get(item, "closing", false);
-	sess->timed_out = fy_get(item, "timed_out", false);
+	if (fy_get(item, "timed_out", false))
+		sess->stop = FYAI_SESSION_STOP_IDLE;
+	else if (fy_get(item, "closing", false))
+		sess->stop = FYAI_SESSION_STOP_CLOSE;
+	else
+		sess->stop = FYAI_SESSION_STOP_NONE;
 	fyai_shell_session_exited(sess, fy_get(item, "exit_code", 0),
 				  fy_get(item, "signal", 0));
 	/* A tile that the user closed is not kept to read. */

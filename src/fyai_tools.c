@@ -2461,7 +2461,9 @@ static fy_generic fyai_list_shells(struct fyai_ctx *ctx, struct fy_generic_build
 			continue;
 		rows = fy_append(gb, rows, fy_mapping(gb, "name", sess->name,
 			"command", sess->command ? sess->command : "",
-			"state", sess->closing ? "stopping" : sess->wants_input ? "waiting" : "running"));
+			"state", sess->stop != FYAI_SESSION_STOP_NONE ?
+				"stopping" : sess->wants_input ?
+				"waiting" : "running"));
 	}
 	return rows;
 }

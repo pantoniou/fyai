@@ -144,6 +144,18 @@ struct fyai_tool_job {
 	bool view_entry_failed;		/* the child could not enter that view */
 };
 
+/*
+ * Why a session was asked to end. A request is never withdrawn, and it stays
+ * after the program ends, because the cause of the end reads it. A stop for
+ * idleness is a close too, so the reasons order: a later one replaces an
+ * earlier one only by raising it.
+ */
+enum fyai_session_stop {
+	FYAI_SESSION_STOP_NONE,
+	FYAI_SESSION_STOP_CLOSE,	/* closed by the model or the user */
+	FYAI_SESSION_STOP_IDLE,		/* the idle limit expired */
+};
+
 /* A named job whose terminal view remains readable after exit. */
 struct fyai_shell_session {
 	struct fyai_shell_session *next;
@@ -179,9 +191,14 @@ struct fyai_shell_session {
 	int rows;			/* the size the session was opened with */
 	int exit_code;
 	int signal;
+	/*
+	 * The end of the program is a one-way latch of its own: a close waits
+	 * on it, and nothing but the exit handshake sets it. `wants_input`
+	 * toggles while the program runs, `keep_tile` and `close_on_exit`
+	 * are independent requests, and none of them orders with the stop.
+	 */
 	bool exited;
-	bool closing;
-	bool timed_out;
+	enum fyai_session_stop stop;
 	bool user_owned;
 	/* Told when the program ends, for a program the user runs through fyai. */
 	fyai_tools_exit_fn on_exit;
