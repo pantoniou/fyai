@@ -118,10 +118,14 @@ jobs:
       run: |
         sudo apt-get install --no-install-recommends -y bubblewrap apparmor-profiles
         build/fyai sandbox apparmor | sudo tee /etc/apparmor.d/fyai >/dev/null
-        sudo install -m 644 /usr/share/apparmor/extra-profiles/bwrap-userns-restrict \
-          /etc/apparmor.d/
-        sudo apparmor_parser -r /etc/apparmor.d/fyai \
-          /etc/apparmor.d/bwrap-userns-restrict
+        # A newer image ships the profile of bubblewrap in its own package, and
+        # apparmor-profiles no longer has it: install it only where it exists.
+        profile=/usr/share/apparmor/extra-profiles/bwrap-userns-restrict
+        sudo apparmor_parser -r /etc/apparmor.d/fyai
+        if [ -f "$profile" ]; then
+          sudo install -m 644 "$profile" /etc/apparmor.d/
+          sudo apparmor_parser -r /etc/apparmor.d/bwrap-userns-restrict
+        fi
         bwrap --version
 
     - name: "Scan McCabe complexity"
