@@ -95,6 +95,13 @@ Use the short generic API. It says the same thing with less text:
   are `fy_gb_internalize()` and `fy_gb_intern_string()`, which have none.
   Without a builder, these forms use stack storage: do not return such a value
   from a function.
+- Do not nest `fy_mapping()`, `fy_sequence()`, `fy_assoc()` or `fy_get()`
+  calls more than one level deep. Each level multiplies the expansion of the
+  macro: a statement with three levels of `fy_mapping()` made 80 MB of
+  preprocessed text and 2 GB of memory in the compiler, and killed a CI runner.
+  Build each inner value into a local variable, and pass the variable. To check
+  a file, preprocess it with `-E` and look for a source line that expands to
+  more than a megabyte.
 
 ### Returned generics
 

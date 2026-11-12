@@ -420,19 +420,23 @@ static fy_generic chat_stream_finish(struct fyai_stream_parse *p)
 	struct chat_stream *cs = chat_stream(p);
 	struct fy_generic_builder *gb = p->gb;
 	struct fyai_cfg *cfg = p->ctx->cfg;
-	fy_generic message, choice, doc, tool_calls, tool_call, function;
+	fy_generic message, choice, doc, tool_calls, tool_call, function, fn, call;
 
 	tool_calls = fy_seq_empty;
 	fy_foreach(tool_call, p->tool_calls) {
 		function = fy_get(tool_call, "function");
-		tool_calls = fy_append(gb, tool_calls, fy_mapping(gb,
+		/* Each level is built apart: a nested builder call expands to
+		 * megabytes. */
+		fn = fy_mapping(gb,
+			"name", fyai_join_strings(gb,
+				fy_get(function, "name_chunks", fy_seq_empty)),
+			"arguments", fyai_join_strings(gb,
+				fy_get(function, "argument_chunks", fy_seq_empty)));
+		call = fy_mapping(gb,
 			"id", fy_get(tool_call, "id", ""),
 			"type", fy_get(tool_call, "type", "function"),
-			"function", fy_mapping(gb,
-				"name", fyai_join_strings(gb,
-					fy_get(function, "name_chunks", fy_seq_empty)),
-				"arguments", fyai_join_strings(gb,
-					fy_get(function, "argument_chunks", fy_seq_empty)))));
+			"function", fn);
+		tool_calls = fy_append(gb, tool_calls, call);
 	}
 
 	message = fy_mapping("role", "assistant");

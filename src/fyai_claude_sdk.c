@@ -1388,25 +1388,28 @@ static int sdk_permission_question(struct sdk_server *srv,
 	struct fy_generic_builder *gb = fyai_ctx_transient_gb(srv->ctx);
 	struct sdk_permission_ask *ask;
 	const char *json = emit_json_string(gb, input);
-	fy_generic questions;
+	fy_generic questions, question, options, allow, deny;
 
 	ask = calloc(1, sizeof(*ask));
 	if (!ask)
 		return -1;
 	ask->srv = srv;
 	ask->d = d;
-	questions = fy_sequence(gb, fy_mapping(gb,
+	/* Build each level apart: a nested builder call expands to megabytes. */
+	allow = fy_mapping(gb, "id", "allow", "label", "Allow",
+			   "description", "Run this call.",
+			   "preview", fy_stringf(gb, "```json\n%s\n```\n",
+						 json ? json : "{}"));
+	deny = fy_mapping(gb, "id", "deny", "label", "Deny",
+			  "description", "Decline this call.",
+			  "preview", "");
+	options = fy_sequence(gb, allow, deny);
+	question = fy_mapping(gb,
 		"id", "permission", "header", "Permission",
 		"question", fy_stringf(gb, "Allow %s?", d->claude_name),
 		"multi_select", false,
-		"options", fy_sequence(gb,
-			fy_mapping(gb, "id", "allow", "label", "Allow",
-				"description", "Run this call.",
-				"preview", fy_stringf(gb, "```json\n%s\n```\n",
-						      json ? json : "{}")),
-			fy_mapping(gb, "id", "deny", "label", "Deny",
-				"description", "Decline this call.",
-				"preview", ""))));
+		"options", options);
+	questions = fy_sequence(gb, question);
 	d->waiting++;
 	if (fyai_ask_open(srv->ctx, questions, NULL, sdk_permission_answered,
 			  ask)) {

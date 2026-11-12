@@ -1774,19 +1774,23 @@ static void mcp_startup_collect(struct fyai_mcp_ctx *mcp, fy_generic result)
 {
 	struct fyai_ctx *ctx = mcp->ctx;
 	fy_generic tools = fy_get(result, "tools", fy_seq_empty), tool;
+	fy_generic dflt, fn, entry;
 	const char *tool_name;
 
 	fy_foreach(tool, tools) {
 		tool_name = fy_get(tool, "name", "");
 		if (!*tool_name)
 			continue;
-		mcp->tools = fy_append(ctx->gb, mcp->tools, fy_mapping(ctx->gb,
-			"type", "function", "function", fy_mapping(
-				"name", fy_sprintfa(MCP_PREFIX "%s__%s",
-						    mcp->name, tool_name),
-				"description", fy_get(tool, "description", ""),
-				"parameters", fy_get(tool, "inputSchema",
-						fy_mapping("type", "object")))));
+		/* Each level is built apart: a nested builder call expands to
+		 * megabytes. */
+		dflt = fy_mapping("type", "object");
+		fn = fy_mapping(ctx->gb,
+			"name", fy_sprintfa(MCP_PREFIX "%s__%s", mcp->name,
+					    tool_name),
+			"description", fy_get(tool, "description", ""),
+			"parameters", fy_get(tool, "inputSchema", dflt));
+		entry = fy_mapping(ctx->gb, "type", "function", "function", fn);
+		mcp->tools = fy_append(ctx->gb, mcp->tools, entry);
 	}
 }
 

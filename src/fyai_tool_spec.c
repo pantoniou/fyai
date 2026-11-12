@@ -71,17 +71,17 @@ static fy_generic tools_describe_personas(struct fyai_ctx *ctx, fy_generic tool)
 			"Optional named persona for the sub-agent. Available:%s",
 			list));
 	props = fy_assoc(gb, props, fy_value(gb, "persona"), prop);
-	return fy_mapping(gb,
-		"type", fy_get(tool, "type"),
-		"function", fy_mapping(gb,
-			"name", fy_get(fn, "name"),
-			"description", fy_get(fn, "description"),
-			"parameters", fy_mapping(gb,
-				"type", fy_get(params, "type"),
-				"properties", props,
-				"required", fy_get(params, "required"),
-				"additionalProperties",
-					fy_get(params, "additionalProperties"))));
+	/* Each level is built apart: a nested builder call expands to megabytes. */
+	params = fy_mapping(gb,
+		"type", fy_get(params, "type"),
+		"properties", props,
+		"required", fy_get(params, "required"),
+		"additionalProperties", fy_get(params, "additionalProperties"));
+	fn = fy_mapping(gb,
+		"name", fy_get(fn, "name"),
+		"description", fy_get(fn, "description"),
+		"parameters", params);
+	return fy_mapping(gb, "type", fy_get(tool, "type"), "function", fn);
 }
 
 /* A run that cannot isolate a sub-agent does not offer the parameter that asks for it. */

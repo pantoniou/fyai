@@ -462,7 +462,7 @@ int cmd_complete_view(void)
 	struct cmd_test t;
 	struct fyai_ctx ctx = { 0 };
 	struct cands c;
-	fy_generic views;
+	fy_generic views, team, tviews, store;
 	const char *commands[] = { "show", "update", "diff", "remove",
 				   "sync", "mount", "unmount", "enter" };
 	const char *words[] = { "view", NULL, "te" };
@@ -490,11 +490,10 @@ int cmd_complete_view(void)
 	memset(&c, 0, sizeof(c));
 	fyai_cmd_complete(NULL, FYAI_CMD_CLI, 3, words, cands_add, &c);
 	FYAI_TCHECK(!c.len);
-	ctx.branch_prev = fy_mapping(
-		t.gb, "store",
-		fy_mapping(t.gb, "views",
-			   fy_mapping(t.gb, "team-view",
-				      fy_mapping(t.gb, "project", "/team"))));
+	team = fy_mapping(t.gb, "project", "/team");
+	tviews = fy_mapping(t.gb, "team-view", team);
+	store = fy_mapping(t.gb, "views", tviews);
+	ctx.branch_prev = fy_mapping(t.gb, "store", store);
 	memset(&c, 0, sizeof(c));
 	fyai_cmd_complete(&ctx, FYAI_CMD_CLI, 3, words, cands_add, &c);
 	FYAI_TCHECK(!strcmp(c.buf, "team-view\n"));

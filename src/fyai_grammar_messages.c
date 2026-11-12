@@ -344,25 +344,29 @@ static fy_generic messages_build_request(struct fyai_ctx *ctx,
 {
 	struct fy_generic_builder *gb = ctx->transient_gb;
 	struct fyai_cfg *cfg = ctx->cfg;
-	fy_generic request;
+	fy_generic request, cache, block, system, choice;
 
+	/* Each level is built apart: a nested builder call expands to megabytes. */
+	cache = fy_mapping(gb, "type", "ephemeral");
+	block = fy_mapping(gb, "type", "text", "text", req->instructions,
+			   "cache_control", cache);
+	system = fy_sequence(gb, block);
 	request = fy_mapping(gb,
 		"model", cfg->model,
 		"max_tokens", req->max_tokens,
-		"system", fy_sequence(gb,
-				fy_mapping(gb, "type", "text",
-					   "text", req->instructions,
-					   "cache_control", fy_mapping(gb, "type", "ephemeral"))),
+		"system", system,
 		"messages", fy_is_valid(req->input) ? req->input :
 			    messages_input(ctx, req->messages));
 	/* Messages spells tool_choice as an object, not a string. */
 	if (fyai_grammar_tools_wanted(ctx) ||
-	    fyai_provider_native_web_search(cfg))
+	    fyai_provider_native_web_search(cfg)) {
+		choice = fy_mapping(gb,
+			"type", "auto",
+			"disable_parallel_tool_use",
+			cfg->parallel_tool_calls ? fy_false : fy_true);
 		request = fy_assoc(gb, request, "tools", ctx->tools,
-			"tool_choice", fy_mapping(gb,
-				"type", "auto",
-				"disable_parallel_tool_use",
-				cfg->parallel_tool_calls ? fy_false : fy_true));
+				   "tool_choice", choice);
+	}
 	return fyai_grammar_add_stream(ctx, request, fy_map_empty);
 }
 

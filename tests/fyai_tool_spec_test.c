@@ -81,6 +81,35 @@ static fy_generic tool_by_name(fy_generic tools, const char *name)
 	return fy_invalid;
 }
 
+/*
+ * The schema of property @prop of the parameters of tool @name. One call for
+ * each step: a deep nest of fy_get() expands to megabytes.
+ */
+static fy_generic param_prop(fy_generic tools, const char *name, const char *prop)
+{
+	fy_generic v = tool_by_name(tools, name);
+
+	v = fy_get(v, "function");
+	v = fy_get(v, "parameters");
+	v = fy_get(v, "properties");
+	return fy_get(v, prop);
+}
+
+static fy_generic param_type(fy_generic tools, const char *name, const char *prop)
+{
+	return fy_get(param_prop(tools, name, prop), "type");
+}
+
+/* The configuration with one persona, built a level at a time. */
+static fy_generic personas_doc(struct fy_generic_builder *gb)
+{
+	fy_generic triage, personas;
+
+	triage = fy_mapping(gb, "description", "Triage persona");
+	personas = fy_mapping(gb, "triage", triage);
+	return fy_mapping(gb, "agent", fy_mapping(gb, "personas", personas));
+}
+
 static fy_generic persona_description(fy_generic tools)
 {
 	fy_generic tool = tool_by_name(tools, "agent");
@@ -107,7 +136,7 @@ static void require(bool cond, const char *msg)
 static void test_descriptions(void)
 {
 	fy_generic tools = make_tools(&test_ctx);
-	fy_generic tool, fn, params, props, prop, desc;
+	fy_generic tool, fn, params, props, prop, desc, items;
 	size_t i, n;
 
 	fy_foreach(tool, tools) {
@@ -131,27 +160,14 @@ static void test_descriptions(void)
 	}
 
 	/* property schema types */
-	require(fy_equal(
-		fy_get(fy_get(fy_get(fy_get(fy_get(
-			tool_by_name(tools, "exec_command"), "function"),
-			"parameters"), "properties"), "timeout"), "type"),
-		"integer"), "shell.timeout type");
-	require(fy_equal(
-		fy_get(fy_get(fy_get(fy_get(fy_get(
-			tool_by_name(tools, "agent"), "function"),
-			"parameters"), "properties"), "timeout"), "type"),
-		"integer"), "agent.timeout type");
-	require(fy_equal(
-		fy_get(fy_get(fy_get(fy_get(fy_get(
-			tool_by_name(tools, "ask_user"), "function"),
-			"parameters"), "properties"), "questions"), "type"),
-		"array"), "ask_user.questions type");
-	require(fy_equal(
-		fy_get(fy_get(fy_get(fy_get(fy_get(fy_get(
-			tool_by_name(tools, "ask_user"), "function"),
-			"parameters"), "properties"), "questions"), "items"),
-		"type"),
-		"object"),
+	require(fy_equal(param_type(tools, "exec_command", "timeout"), "integer"),
+		"shell.timeout type");
+	require(fy_equal(param_type(tools, "agent", "timeout"), "integer"),
+		"agent.timeout type");
+	require(fy_equal(param_type(tools, "ask_user", "questions"), "array"),
+		"ask_user.questions type");
+	items = fy_get(param_prop(tools, "ask_user", "questions"), "items");
+	require(fy_equal(fy_get(items, "type"), "object"),
 		"ask_user.questions items");
 }
 
@@ -229,11 +245,7 @@ static void test_filtered(void)
 
 static void test_personas(void)
 {
-	fy_generic config_doc = fy_mapping(test_ctx.gb,
-		"agent", fy_mapping(test_ctx.gb,
-			"personas", fy_mapping(test_ctx.gb,
-				"triage", fy_mapping(test_ctx.gb,
-					"description", "Triage persona"))));
+	fy_generic config_doc = personas_doc(test_ctx.gb);
 	fy_generic tools, tool, fn, params, props, persona, desc;
 	const char *want =
 		"Optional named persona for the sub-agent. Available:\n"
@@ -262,11 +274,7 @@ static void test_cache(void)
 	require(fy_equal(first, test_ctx.tools_spec),
 		"the context must keep the cached tool set");
 
-	personas = fy_mapping(test_ctx.gb,
-		"agent", fy_mapping(test_ctx.gb,
-			"personas", fy_mapping(test_ctx.gb,
-				"triage", fy_mapping(test_ctx.gb,
-					"description", "Triage persona"))));
+	personas = personas_doc(test_ctx.gb);
 	test_cfg.config_doc = personas;
 	test_cfg.config_generation++;
 	second = make_tools_filtered(&test_ctx);

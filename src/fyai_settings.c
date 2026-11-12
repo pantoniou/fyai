@@ -1136,28 +1136,34 @@ static fy_generic settings_review_questions(struct fy_generic_builder *gb,
 					    const struct settings_change *c,
 					    const char *explanation)
 {
-	return fy_sequence(gb, fy_mapping(gb,
+	fy_generic reject, accept, options, question;
+	const char *text;
+
+	text = fy_sprintfa("The model presents a change of %zu %s%s (%s). Apply it?",
+			   fy_len(c->paths), c->catalog ? "catalogue field" : "key",
+			   fy_len(c->paths) == 1 ? "" : "s",
+			   fyai_model_access_name(c->access));
+	/* Reject comes first and is under the cursor: a stray Enter, or one
+	 * pasted with a reply, must not apply a change. Each level is built
+	 * apart: a nested builder call expands to megabytes. */
+	reject = fy_mapping(gb, "id", "reject", "label", "Reject",
+			    "description", c->catalog ?
+			    "Leave the catalogue as it is." :
+			    "Leave the configuration as it is.",
+			    "preview", "");
+	accept = fy_mapping(gb, "id", "accept", "label", "Accept",
+			    "description", "Apply the change that the diff shows.",
+			    "preview", "");
+	options = fy_sequence(gb, reject, accept);
+	question = fy_mapping(gb,
 		"id", "settings",
 		"header", c->catalog ? "Catalogue" : "Settings",
-		"question", fy_sprintfa("The model presents a change of %zu "
-			"%s%s (%s). Apply it?", fy_len(c->paths),
-			c->catalog ? "catalogue field" : "key",
-			fy_len(c->paths) == 1 ? "" : "s",
-			fyai_model_access_name(c->access)),
+		"question", text,
 		"multi_select", false,
-		/* Reject comes first and is under the cursor: a stray Enter,
-		 * or one pasted with a reply, must not apply a change. */
-		"options", fy_sequence(gb,
-			fy_mapping(gb, "id", "reject", "label", "Reject",
-				   "description", c->catalog ?
-				   "Leave the catalogue as it is." :
-				   "Leave the configuration as it is.",
-				   "preview", ""),
-			fy_mapping(gb, "id", "accept", "label", "Accept",
-				   "description", "Apply the change that the "
-				   "diff shows.", "preview", "")),
+		"options", options,
 		"proposal", explanation,
-		"diff", c->unified));
+		"diff", c->unified);
+	return fy_sequence(gb, question);
 }
 
 /*

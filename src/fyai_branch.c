@@ -1148,24 +1148,24 @@ fy_generic fyai_branch_list_data(struct fyai_ctx *ctx,
 int fyai_branch_list(struct fyai_ctx *ctx, const char *under, bool all)
 {
 	struct fy_generic_builder *gb = ctx->transient_gb;
-	fy_generic opts;
+	fy_generic opts, keys, columns, c_current, c_branch, c_turns, c_model;
+	fy_generic c_updated, c_desc;
 
-	opts = fy_mapping(gb,
-		"title", "Branches",
-		"empty", "no branches",
-		"keys", fy_sequence(gb, "current", "branch", "turns", "model",
-				    "updated", "description"),
-		"columns", fy_mapping(gb,
-			"current", fy_mapping(gb, "name", "*", "format", "mark"),
-			"branch", fy_mapping(gb, "name", "Branch",
-					     "align", "left"),
-			"turns", fy_mapping(gb, "name", "Turns"),
-			"model", fy_mapping(gb, "name", "Model", "align", "left"),
-			"updated", fy_mapping(gb, "name", "Updated",
-					      "align", "left",
-					      "format", "time"),
-			"description", fy_mapping(gb, "name", "Description",
-						  "align", "left")));
+	/* Each level is built apart: a nested builder call expands to megabytes. */
+	keys = fy_sequence(gb, "current", "branch", "turns", "model", "updated",
+			   "description");
+	c_current = fy_mapping(gb, "name", "*", "format", "mark");
+	c_branch = fy_mapping(gb, "name", "Branch", "align", "left");
+	c_turns = fy_mapping(gb, "name", "Turns");
+	c_model = fy_mapping(gb, "name", "Model", "align", "left");
+	c_updated = fy_mapping(gb, "name", "Updated", "align", "left",
+			       "format", "time");
+	c_desc = fy_mapping(gb, "name", "Description", "align", "left");
+	columns = fy_mapping(gb, "current", c_current, "branch", c_branch,
+			     "turns", c_turns, "model", c_model,
+			     "updated", c_updated, "description", c_desc);
+	opts = fy_mapping(gb, "title", "Branches", "empty", "no branches",
+			  "keys", keys, "columns", columns);
 	return fyai_generic_to_markdown(ctx, opts,
 			fyai_branch_list_data(ctx, gb, under, all));
 }

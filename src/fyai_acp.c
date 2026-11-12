@@ -853,6 +853,7 @@ int fyai_acp_worker_tool(struct fyai_ctx *ctx, const char *tool, bool ok,
 			 const char *cause)
 {
 	struct fy_generic_builder *gb;
+	fy_generic content, text, item, update;
 	char id[64];
 
 	if (!ctx || !ctx->acp_rpc || !tool)
@@ -862,14 +863,19 @@ int fyai_acp_worker_tool(struct fyai_ctx *ctx, const char *tool, bool ok,
 	gb = fyai_ctx_transient_gb(ctx);
 	if (!gb)
 		return -1;
-	return acp_worker_update(ctx, fy_mapping(gb,
+	/* Each level is built apart: a nested builder call expands to megabytes. */
+	content = fy_seq_empty;
+	if (cause && *cause) {
+		text = fy_mapping(gb, "type", "text", "text", cause);
+		item = fy_mapping(gb, "type", "content", "content", text);
+		content = fy_sequence(gb, item);
+	}
+	update = fy_mapping(gb,
 		"sessionUpdate", "tool_call_update", "toolCallId", id,
 		"name", tool, "title", tool,
 		"status", ok ? "completed" : "failed",
-		"content", cause && *cause ?
-			fy_sequence(gb, fy_mapping(gb, "type", "content",
-				"content", fy_mapping(gb, "type", "text", "text", cause))) :
-			fy_seq_empty));
+		"content", content);
+	return acp_worker_update(ctx, update);
 }
 
 static fy_generic acp_worker_serve(struct jsonrpc_conn *conn,

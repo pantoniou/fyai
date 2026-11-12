@@ -50,6 +50,7 @@ static void fixture_open(struct token_fixture *f)
 	EVP_PKEY_CTX *keyctx;
 	BIGNUM *n = NULL, *e = NULL;
 	char *modulus, *exponent;
+	fy_generic key;
 	int rc;
 
 	memset(f, 0, sizeof(*f));
@@ -71,9 +72,10 @@ static void fixture_open(struct token_fixture *f)
 	modulus = bn_encoded(n);
 	exponent = bn_encoded(e);
 	FYAI_TCHECK(modulus && exponent);
-	f->jwks = fy_mapping(f->gb, "keys", fy_sequence(f->gb,
-		fy_mapping(f->gb, "kty", "RSA", "kid", "test-key", "alg", "RS256",
-			"use", "sig", "n", fy_value(f->gb, modulus), "e", fy_value(f->gb, exponent))));
+	key = fy_mapping(f->gb, "kty", "RSA", "kid", "test-key", "alg", "RS256",
+			 "use", "sig", "n", fy_value(f->gb, modulus),
+			 "e", fy_value(f->gb, exponent));
+	f->jwks = fy_mapping(f->gb, "keys", fy_sequence(f->gb, key));
 	free(modulus);
 	free(exponent);
 	BN_free(n);
@@ -251,17 +253,21 @@ int auth_subscription_request(void)
 {
 	struct fy_generic_builder_cfg cfg = { .flags = FYGBCF_SCOPE_LEADER };
 	struct fy_generic_builder *gb;
-	fy_generic request, result, tool, input, fields, key;
+	fy_generic request, result, tool, input, fields, key, items, tools;
+	fy_generic i_message, i_call, i_output, t_shell, t_search;
 
 	gb = fy_generic_builder_create(&cfg);
+	/* Each level is built apart: a nested builder call expands to megabytes. */
+	i_message = fy_mapping(gb, "type", "message", "role", "system", "content", "prompt");
+	i_call = fy_mapping(gb, "type", "function_call", "name", "shell", "call_id", "call-1");
+	i_output = fy_mapping(gb, "type", "function_call_output", "call_id", "call-1",
+			      "output", "done");
+	items = fy_sequence(gb, i_message, i_call, i_output);
+	t_shell = fy_mapping(gb, "type", "function", "name", "shell", "parameters", fy_map_empty);
+	t_search = fy_mapping(gb, "type", "web_search");
+	tools = fy_sequence(gb, t_shell, t_search);
 	request = fy_mapping(gb, "model", "test-model", "store", true, "stream", false,
-		"input", fy_sequence(gb,
-			fy_mapping(gb, "type", "message", "role", "system", "content", "prompt"),
-			fy_mapping(gb, "type", "function_call", "name", "shell", "call_id", "call-1"),
-			fy_mapping(gb, "type", "function_call_output", "call_id", "call-1", "output", "done")),
-		"tools", fy_sequence(gb,
-			fy_mapping(gb, "type", "function", "name", "shell", "parameters", fy_map_empty),
-			fy_mapping(gb, "type", "web_search")));
+		"input", items, "tools", tools);
 	fields = fy_sequence(gb, "background", "conversation", "max_output_tokens",
 		"max_tool_calls", "metadata", "moderation", "multi_agent", "prompt",
 		"prompt_cache_retention", "safety_identifier", "temperature", "top_logprobs",
@@ -396,18 +402,18 @@ int auth_recorded_usage(void)
 	struct fy_generic_builder_cfg gbcfg = { .flags = FYGBCF_SCOPE_LEADER };
 	struct fy_generic_builder *gb = fy_generic_builder_create(&gbcfg);
 	struct fyai_ctx ctx = { .last_message = fy_invalid };
-	fy_generic result;
+	fy_generic result, usage, meta, prev;
 
 	FYAI_TCHECK(gb != NULL);
 	FYAI_TCHECK(!fyai_auth_usage(&ctx, gb, true, &result));
 	FYAI_TCHECK(fy_get(result, "total_tokens", -1LL) == 0);
 	FYAI_TCHECK(fy_equal(fy_get(result, "scope"), "Selected conversation"));
 	FYAI_TCHECK(fy_is_string(fy_get(result, "plan_remaining")));
-	ctx.last_message = fy_mapping(gb, "metadata", fy_mapping(gb,
-		"usage", fy_mapping(gb, "input", 120, "output", 30, "total", 150)),
-		"previous", fy_mapping(gb, "metadata", fy_mapping(gb,
-			"usage", fy_mapping(gb, "input", 80, "cached", 40,
-				"output", 20, "total", 100))));
+	usage = fy_mapping(gb, "input", 120, "output", 30, "total", 150);
+	meta = fy_mapping(gb, "usage", usage);
+	usage = fy_mapping(gb, "input", 80, "cached", 40, "output", 20, "total", 100);
+	prev = fy_mapping(gb, "metadata", fy_mapping(gb, "usage", usage));
+	ctx.last_message = fy_mapping(gb, "metadata", meta, "previous", prev);
 	FYAI_TCHECK(!fyai_auth_usage(&ctx, gb, true, &result));
 	FYAI_TCHECK(fy_get(result, "calls", -1LL) == 2);
 	FYAI_TCHECK(fy_get(result, "input_tokens", -1LL) == 200);

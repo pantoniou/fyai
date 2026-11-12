@@ -80,22 +80,22 @@ int branch_select_order(void)
 int branch_select_directory(void)
 {
 	struct fy_generic_builder *gb;
-	fy_generic branches, rows;
+	fy_generic branches, rows, store, helper;
 
 	gb = builder_new();
 	FYAI_TCHECK(gb);
+	/* Each level is built apart: a nested builder call expands to megabytes. */
+	store = fy_mapping(gb, "created", fy_value(gb, 10LL), "cwd", fy_value(gb, "/w"),
+			   "agent", fy_mapping(gb, "persona", "helper"));
+	helper = fy_mapping(gb, "head", fy_null,
+		"updated", fy_value(gb, 300LL),
+		"op", fy_value(gb, FYAI_BRANCH_OP_TURN),
+		"from", fy_null, "prev", fy_null, "store", store);
 	branches = fy_mapping(gb,
 		"here", entry_new(gb, 10, 100, "/w"),
 		"there", entry_new(gb, 10, 200, "/elsewhere"),
 		/* A sub-agent branch is work of a turn, never a session. */
-		"here/agent:helper", fy_mapping(gb, "head", fy_null,
-			"updated", fy_value(gb, 300LL),
-			"op", fy_value(gb, FYAI_BRANCH_OP_TURN),
-			"from", fy_null, "prev", fy_null,
-			"store", fy_mapping(gb,
-				"created", fy_value(gb, 10LL),
-				"cwd", fy_value(gb, "/w"),
-				"agent", fy_mapping(gb, "persona", "helper"))));
+		"here/agent:helper", helper);
 
 	rows = fyai_branch_select_rows(NULL, gb, branches, "/w", false);
 	FYAI_TCHECK(fy_generic_sequence_get_item_count(rows) == 1);
