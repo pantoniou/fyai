@@ -390,15 +390,21 @@ struct fyai_wait_for_item {
  * removing it, and the events that waiters have read leave the queue when no
  * waiter is active. The model thus gets an event once for each waiter.
  */
+/* What ends a waiter. Only the target kinds have items. */
+enum fyai_waiter_kind {
+	FYAI_WAITER_ANY,		/* the first target to end */
+	FYAI_WAITER_ALL,		/* every target */
+	FYAI_WAITER_POLL,		/* report what has ended and return at once */
+	FYAI_WAITER_SLEEP,		/* no target: ends at the deadline or earlier */
+	FYAI_WAITER_SLEEP_EVENT,	/* a sleep that also ends on a queued event */
+};
+
 struct fyai_waiter {
 	struct fyai_waiter *next;
 	struct fyai_ctx *ctx;
 	struct fyai_wait_for_item items[FYAI_WAIT_FOR_MAX];
 	size_t n;
-	bool all;
-	bool poll;		/* report what has ended and return at once */
-	bool sleep;		/* no target: ends at the deadline or earlier */
-	bool on_event;		/* a sleep also ends when an event is queued */
+	enum fyai_waiter_kind kind;
 	bool done;
 	double seconds;
 	fyai_event_ms_t deadline;
@@ -540,7 +546,7 @@ static char *fyai_waiter_report(const struct fyai_waiter *w)
 	}
 	if (pending.len) {
 		if (fyai_buf_append(&out, sep) ||
-		    fyai_buf_append(&out, w->poll ?
+		    fyai_buf_append(&out, w->kind == FYAI_WAITER_POLL ?
 				fy_sprintfa("[still running: %s]", pending.data) :
 				fy_sprintfa("[still waiting for %s after %.3g seconds]",
 					    pending.data, w->seconds)))
@@ -569,7 +575,8 @@ static void fyai_waiter_poll_sleep(struct fyai_waiter *w)
 		text = fy_sprintfa("[wait interrupted after less than %.3g "
 				   "seconds]", w->seconds);
 		w->ok = false;
-	} else if (w->on_event && fyai_event_pending_prefix(ctx, "[")) {
+	} else if (w->kind == FYAI_WAITER_SLEEP_EVENT &&
+		   fyai_event_pending_prefix(ctx, "[")) {
 		text = "[wait ended early: an event arrived]";
 	} else if (fyai_event_now_ms() >= w->deadline) {
 		text = fy_sprintfa("[waited %.3g seconds]", w->seconds);
@@ -591,7 +598,7 @@ static void fyai_waiter_poll(struct fyai_waiter *w)
 
 	if (w->done)
 		return;
-	if (w->sleep) {
+	if (w->kind == FYAI_WAITER_SLEEP || w->kind == FYAI_WAITER_SLEEP_EVENT) {
 		fyai_waiter_poll_sleep(w);
 		return;
 	}
@@ -605,7 +612,7 @@ static void fyai_waiter_poll(struct fyai_waiter *w)
 				"[%s ended without a report]", it->name));
 		ended += it->text != NULL;
 	}
-	if (!(w->all ? ended == w->n : ended > 0) &&
+	if (!(w->kind == FYAI_WAITER_ALL ? ended == w->n : ended > 0) &&
 	    fyai_event_now_ms() < w->deadline && !fyai_interrupt_pending(ctx))
 		return;
 	w->result = fyai_waiter_report(w);
@@ -816,9 +823,10 @@ static int fyai_waiter_parse(struct fyai_waiter *w, fy_generic args,
 		return fyai_waiter_refuse(ctx, errp,
 					  "tool error: for names nothing");
 	/* A poll looks once: what has ended is reported, the rest is running. */
-	w->poll = fy_get(args, "poll", false);
+	w->kind = fy_get(args, "poll", false) ? FYAI_WAITER_POLL :
+		FYAI_WAITER_ANY;
 	/* The time is a limit here, and is optional. */
-	if (w->poll) {
+	if (w->kind == FYAI_WAITER_POLL) {
 		w->seconds = 0;
 	} else if (fy_is_valid(fy_get(args, "seconds", fy_invalid)) ||
 	    fy_is_valid(fy_get(args, "until", fy_invalid))) {
@@ -837,7 +845,8 @@ static int fyai_waiter_parse(struct fyai_waiter *w, fy_generic args,
 	if (fy_is_string(mode) && !fy_any_equal(mode, "any", "all"))
 		return fyai_waiter_refuse(ctx, errp,
 					  "tool error: mode is any or all");
-	w->all = fy_equal(mode, "all");
+	if (w->kind != FYAI_WAITER_POLL && fy_equal(mode, "all"))
+		w->kind = FYAI_WAITER_ALL;
 	return 0;
 oom:
 	return fyai_waiter_refuse(ctx, errp, "tool error: out of memory");
@@ -926,8 +935,7 @@ static struct fyai_waiter *fyai_waiter_start_sleep(struct fyai_ctx *ctx,
 	w->ctx = ctx;
 	w->complete = complete;
 	w->userdata = userdata;
-	w->sleep = true;
-	w->on_event = on_event;
+	w->kind = on_event ? FYAI_WAITER_SLEEP_EVENT : FYAI_WAITER_SLEEP;
 	w->seconds = seconds;
 	w->deadline = fyai_event_now_ms() + (fyai_event_ms_t)(seconds * 1000.0);
 	w->next = ctx->waiters;
