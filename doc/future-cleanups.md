@@ -180,17 +180,10 @@ error text too.
 
 ### 11. Pane command capture
 
-`struct fyai_ui`: `capture`, `capture_out`, `capture_err`, `pane_ending`,
-`pane_shown`, `pane_show_output`, `pane_command`, `pane_status`, `pane_kept`,
-`pane_oracle`, `pane_level`.
-
-- States: NOT_CAPTURING, CAPTURING, ENDING_UNPLACED, ENDING_PLACED.
-- `ui_pane_end()` sets `pane_ending`, and `fyai_uilog_end()` calls back into
-  `fyai_ui_log_show()` to place the entry. This is a hidden re-entrant
-  protocol.
-- Defects: `pane_shown` is not reset when the span ends, only at the next
-  `ui_pane_end()`. `pane_status` can pass from one span to the next.
-- Change: a span structure with a state enum.
+Done for the end of a span: `enum ui_pane_span` (none, ending, placed) replaces
+`pane_ending` and `pane_shown`, and the phase is reset when the span ends.
+`capture` stays a bool because the renderer of the model nests its own capture
+inside the end. `pane_status` is set and cleared by its caller in `fyai.c`.
 
 ### 12. Browser action protocol
 
