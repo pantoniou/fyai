@@ -70,14 +70,15 @@ static bool ignore_rule_match(const struct fyai_ignore_rule *rule, const char *r
 {
 	const char *names[IGNORE_NAMES_MAX];
 	char copy[PATH_MAX], *p;
+	const char *slash;
 	size_t count = 0;
 
 	if (rule->dir_only && !is_dir)
 		return false;
 	/* A pattern with no slash names a file or a directory at any depth. */
 	if (!rule->anchored) {
-		p = strrchr(rel, '/');
-		return !fnmatch(rule->segments[0], p ? p + 1 : rel, 0);
+		slash = strrchr(rel, '/');
+		return !fnmatch(rule->segments[0], slash ? slash + 1 : rel, 0);
 	}
 	if (strlen(rel) >= sizeof(copy))
 		return false;
