@@ -1584,10 +1584,10 @@ int fyai_auth_chatgpt_eligible(const struct fyai_cfg *cfg, const char **why)
 	return 0;
 }
 
-bool fyai_auth_should_retry(struct fyai_ctx *ctx, long status)
+bool fyai_auth_should_retry(struct fyai_ctx *ctx, long status, bool refreshed)
 {
 	return status == 401 && ctx->cfg->chatgpt_auth &&
-	       !fyai_auth_uses_transport(ctx->cfg) && !ctx->auth_retry_done;
+	       !fyai_auth_uses_transport(ctx->cfg) && !refreshed;
 }
 
 int fyai_auth_resolve(struct fyai_ctx *ctx)

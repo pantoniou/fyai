@@ -115,7 +115,12 @@ int fyai_auth_chatgpt_eligible(const struct fyai_cfg *cfg, const char **why);
 
 /* The Responses endpoint of the subscription. */
 const char *fyai_auth_chatgpt_url(void);
-bool fyai_auth_should_retry(struct fyai_ctx *ctx, long status);
+/*
+ * Whether a request that got @status is sent again after a refresh of the
+ * credentials. @refreshed is true when that request has refreshed them
+ * already: a request refreshes once.
+ */
+bool fyai_auth_should_retry(struct fyai_ctx *ctx, long status, bool refreshed);
 fy_generic fyai_auth_models(struct fyai_ctx *ctx,
 			    struct fy_generic_builder *gb, bool full);
 void fyai_auth_cleanup(struct fyai_ctx *ctx);

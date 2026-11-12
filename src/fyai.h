@@ -885,7 +885,6 @@ struct fyai_ctx {
 	bool mcp_invocation;
 	struct fyai_credentials auth;
 	struct fy_generic_builder *auth_gb;
-	bool auth_retry_done;
 	bool stdout_tty;			/* stdout is a terminal (cached) */
 	/* The size of the real terminal, recorded by the parent and kept up to
 	 * date by SIGWINCH. A forked tool child inherits it, because it calls

@@ -51,6 +51,7 @@ struct stream_response {
 	bool retry_hint;
 	char *retry_cause;
 	bool retry_band;		/* the shared band is ours, across resubmits */
+	bool auth_refreshed;		/* credentials refreshed once, across resubmits */
 	struct fyai_stream_callbacks callbacks;
 	fy_generic result;
 	enum fyai_stream_state state;
@@ -864,7 +865,7 @@ static int stream_request_resubmit(struct stream_response *stream)
 {
 	struct fyai_ctx *ctx;
 	struct fyai_stream_callbacks callbacks;
-	bool band;
+	bool band, refreshed;
 	int attempt;
 	int rc;
 
@@ -872,6 +873,7 @@ static int stream_request_resubmit(struct stream_response *stream)
 	callbacks = stream->callbacks;
 	attempt = stream->attempt;
 	band = stream->retry_band;
+	refreshed = stream->auth_refreshed;
 	if (stream->state != FYAISS_RETRYING)
 		return -1;
 	stream_response_cleanup(stream);
@@ -879,6 +881,7 @@ static int stream_request_resubmit(struct stream_response *stream)
 	stream->callbacks = callbacks;
 	stream->attempt = attempt;
 	stream->retry_band = band;
+	stream->auth_refreshed = refreshed;
 	rc = stream_response_init(stream, ctx);
 	if (rc)
 		return -1;
@@ -1062,8 +1065,8 @@ static void stream_request_complete(struct fyai_xfer *transfer, void *userdata)
 			stream_state_transition(stream, FYAISS_FAILED);
 			goto done;
 		}
-		if (fyai_auth_should_retry(ctx, status)) {
-			ctx->auth_retry_done = true;
+		if (fyai_auth_should_retry(ctx, status, stream->auth_refreshed)) {
+			stream->auth_refreshed = true;
 			stream_state_transition(stream, FYAISS_RETRYING);
 			stream->auth_refresh = fyai_auth_refresh_submit(
 					ctx, true, stream_auth_complete,
@@ -1226,6 +1229,7 @@ struct fyai_buffered_request {
 	struct fyai_event_source *retry_timer;
 	int attempt;			/* attempts made for this request */
 	bool retry_band;		/* the shared band is ours */
+	bool auth_refreshed;		/* credentials refreshed once for this request */
 	fyai_buffered_complete_fn complete;
 	void *userdata;
 	struct fyai_buf response;
@@ -1390,11 +1394,11 @@ static void buffered_request_complete(struct fyai_xfer *transfer, void *userdata
 			return;
 		if (retry_rc < 0)
 			goto done;
-		if (fyai_auth_should_retry(ctx, status)) {
+		if (fyai_auth_should_retry(ctx, status, request->auth_refreshed)) {
 			free(request->response.data);
 			memset(&request->response, 0,
 			       sizeof(request->response));
-			ctx->auth_retry_done = true;
+			request->auth_refreshed = true;
 			request->auth_refresh = fyai_auth_refresh_submit(
 					ctx, true, buffered_auth_complete,
 					request);

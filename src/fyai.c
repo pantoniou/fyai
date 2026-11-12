@@ -694,7 +694,6 @@ static int fyai_model_step_submit_request(struct fyai_model_step *step,
 	fyai_prof_once_from_base("start_to_first_send");
 	fyai_prof_stamp(&step->send_started);
 
-	ctx->auth_retry_done = false;
 	ctx->response_chain_linked = response_linked;
 	ctx->response_chain_miss = false;
 	step->response_linked = response_linked;
