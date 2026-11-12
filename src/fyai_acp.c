@@ -159,16 +159,12 @@ static struct acp_session *acp_session_add(struct acp_server *server,
 {
 	struct acp_session *s = calloc(1, sizeof(*s));
 
-	if (!s)
-		return NULL;
+	fyai_error_check(server->ctx, s, err,
+			 "acp: cannot allocate the session");
 	s->id = strdup(id);
 	s->cwd = strdup(cwd);
-	if (!s->id || !s->cwd) {
-		free(s->id);
-		free(s->cwd);
-		free(s);
-		return NULL;
-	}
+	fyai_error_check(server->ctx, s->id && s->cwd, err_free,
+			 "acp: cannot copy the id and directory of the session");
 	s->server = server;
 	s->worker_in = -1;
 	s->worker_out = -1;
@@ -177,6 +173,12 @@ static struct acp_session *acp_session_add(struct acp_server *server,
 	s->next = server->sessions;
 	server->sessions = s;
 	return s;
+err_free:
+	free(s->id);
+	free(s->cwd);
+	free(s);
+err:
+	return NULL;
 }
 
 static bool acp_cwd_valid(const char *cwd)

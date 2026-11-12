@@ -1653,6 +1653,7 @@ static int view_exec(struct fyai_ctx *ctx, struct fyai_fsview *view, char *const
 	const char *shell = getenv("SHELL");
 	pid_t child, foreground = -1;
 	int status_pipe[2], gate[2], status, rc, saved, cancelled = 0, waited;
+	int armed;
 	char ready;
 	bool tty = isatty(STDIN_FILENO), term_saved = false;
 
@@ -1772,10 +1773,16 @@ static int view_exec(struct fyai_ctx *ctx, struct fyai_fsview *view, char *const
 		tp->announce[0] = -1;
 	}
 	/* The requests of the session are served while the loop waits for it. */
-	if (link && fyai_ctx_loop(ctx) &&
-	    fyai_event_add_fd(fyai_ctx_loop(ctx), link->fd[0], FYAIEV_READ, view_session_request,
-			      link, &link->source))
-		link->source = NULL;
+	if (link) {
+		armed = fyai_ctx_loop(ctx) ?
+			fyai_event_add_fd(fyai_ctx_loop(ctx), link->fd[0],
+					  FYAIEV_READ, view_session_request,
+					  link, &link->source) : -1;
+		if (armed) {
+			link->source = NULL;
+			fyai_error(ctx, "view: cannot serve the requests of the session");
+		}
+	}
 	waited = view_wait_child(ctx, child, &status, &cancelled);
 	if (tp)
 		fyai_transport_ctl_reclaim(ctx);
