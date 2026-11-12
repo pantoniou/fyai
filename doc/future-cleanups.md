@@ -174,17 +174,9 @@ Done for `struct fyai_sink_band`: `enum sink_band_kind` and
 
 ### 10. Tool band of the UI
 
-`struct fyai_ui`: `tool_band`, `tool_inline`, `tool_title`, `tool_command`,
-`tool_error`, `tool_body`, `tool_body_len`, `activity_phase`.
-
-- States: IDLE, RUNNING_BAND, RUNNING_INLINE, and an unnamed ended state.
-  Idle is `!tool_band && !tool_inline`.
-- Defect: when `ui_band_open()` fails in `fyai_ui_tool_begin()`, the function
-  returns with neither flag set and `tool_title` still allocated.
-- Illegal combinations: `tool_band` with `tool_inline`; `tool_body_len` with no
-  `tool_body`; `tool_error` while the tool runs.
-- Change: a state enum, and the strings in a sub-structure that one function
-  frees.
+Done: `enum ui_tool_mode` (idle, band, inline) and `ui_tool_text_free()`. A band
+that does not open frees the text of the call, and a closing UI frees the
+error text too.
 
 ### 11. Pane command capture
 
