@@ -54,3 +54,9 @@ src/fyai_jsonrpc.c
 # mid-render, in a forked child, or before any context exists - so it writes
 # to its preserved descriptor with write(2) and cannot go through the sink.
 src/fyai_crash.c
+
+# The bridge and the relay carry the frames of a remote session between a
+# socket and standard input and output. The bytes are protocol that the
+# client on the other side parses, not presentation.
+src/fyai_remote.c
+src/fyai_remote_relay.c

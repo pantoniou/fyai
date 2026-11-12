@@ -35,11 +35,15 @@ pattern='\b(printf|puts|putchar)[[:space:]]*\(|\b(fprintf|fputs|fputc|fwrite|vfp
 # cannot see it, so naming stdout or stderr in any call argument counts too.
 pattern_indirect='[a-z_][a-z0-9_]*[[:space:]]*\(([^;]*,)?[[:space:]]*(stdout|stderr)[[:space:]]*[,)]'
 
+# A write to descriptor 1 or 2 reaches the user without a stream. The
+# descriptor is named by its constant or by its number.
+pattern_fd='\b(write|writev|send|[a-z_]*write_all)[[:space:]]*\([[:space:]]*(STDOUT_FILENO|STDERR_FILENO|1|2)[[:space:]]*,'
+
 status=0
 while IFS= read -r file; do
 	rel="${file#"$src_dir"/}"
 	is_allowed "$rel" && continue
-	hits=$(grep -nE "$pattern|$pattern_indirect" "$file" |
+	hits=$(grep -nE "$pattern|$pattern_indirect|$pattern_fd" "$file" |
 		grep -vE '\b(snprintf|asprintf|vsnprintf|vasprintf)\b' |
 		grep -vE '^[0-9]+:[[:space:]]*(\*|//|/\*)' |
 		grep -vE '\b(fileno|isatty|terminal_is_tty|clearerr|fflush|setvbuf|dup|dup2|freopen)[[:space:]]*\(' ||
