@@ -256,6 +256,16 @@ err:
 	return -1;
 }
 
+/*
+ * The one request of a tool child. It only moves forward, so a second
+ * tool/run is refused from REQUESTED on.
+ */
+enum fyai_tool_child_phase {
+	FYAI_TC_IDLE,		/* no tool/run yet */
+	FYAI_TC_REQUESTED,	/* tool/run came and the loop has not taken it */
+	FYAI_TC_TAKEN,		/* the loop took it: the work runs or has run */
+};
+
 struct fyai_tool_child {
 	struct fyai_ctx *ctx;
 	struct jsonrpc_conn *conn;
@@ -263,8 +273,8 @@ struct fyai_tool_child {
 	fy_generic id;
 	fy_generic args;
 	fy_generic branch;	/* sub-agent branch named by the parent */
-	bool pending;
-	bool done;
+	enum fyai_tool_child_phase phase;
+	/* Outcomes of independent steps of the request, not phases. */
 	bool session_started;	/* the session this child was asked for opened */
 	bool spawn_failed;	/* the parent state could not be adopted */
 	/* The size of the tile the session starts at, or 0. */
@@ -285,7 +295,7 @@ static fy_generic fyai_tool_child_serve(struct jsonrpc_conn *conn,
 	if (fyai_agents_serve(tc->ctx, conn, method, params, id, &result, errorp))
 		return result;
 	if (!strcmp(method, "tool/run")) {
-		if (!fy_is_valid(id) || tc->pending || tc->done) {
+		if (!fy_is_valid(id) || tc->phase >= FYAI_TC_REQUESTED) {
 			*errorp = fy_gb_mapping(gb, "code", -32600LL,
 						"message", "unexpected tool/run");
 			return fy_invalid;
@@ -303,7 +313,7 @@ static fy_generic fyai_tool_child_serve(struct jsonrpc_conn *conn,
 			tc->spawn_failed = fyai_tool_child_spawn_take(tc->ctx,
 					fy_get(params, "spawn", fy_invalid));
 		tc->id = id;
-		tc->pending = true;
+		tc->phase = FYAI_TC_REQUESTED;
 		jsonrpc_conn_defer(conn);
 		return fy_invalid;
 	}
@@ -610,10 +620,9 @@ void fyai_tool_child_serve_loop(struct fyai_ctx *ctx)
 		_exit(1);
 	ctx->tool_rpc = conn;
 
-	while (!tc.done) {
-		if (tc.pending) {
-			tc.pending = false;
-			tc.done = true;
+	while (tc.phase != FYAI_TC_TAKEN) {
+		if (tc.phase == FYAI_TC_REQUESTED) {
+			tc.phase = FYAI_TC_TAKEN;
 			if (fy_is_invalid(tc.args)) {
 				jsonrpc_conn_respond(conn, tc.id, fy_invalid,
 					fy_gb_mapping(fyai_ctx_transient_gb(ctx),
