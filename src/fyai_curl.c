@@ -46,6 +46,13 @@ static void fyai_curl_notify(void *userdata);
 static void fyai_curl_kick(void *userdata);
 static void fyai_curl_timeout(void *userdata);
 
+/* The phase of a submitted transfer. It only moves forward. */
+enum fyai_curl_phase {
+	FYAI_CURL_ACTIVE,	/* in the multi handle */
+	FYAI_CURL_DONE,		/* it has a result; the owner is not told yet */
+	FYAI_CURL_NOTIFIED,	/* the owner has been told */
+};
+
 struct fyai_curl_transfer {
 	struct fyai_curl_transfer *next;
 	struct fyai_curl_state *state;
@@ -53,10 +60,8 @@ struct fyai_curl_transfer {
 	fyai_curl_complete_fn complete;
 	void *userdata;
 	CURLcode result;
-	bool active;
-	bool done;
-	bool notified;
-	bool cancel_pending;
+	enum fyai_curl_phase phase;
+	bool cancel_pending;	/* a cancel that came while a callback ran */
 };
 
 /* Per-invocation curl plumbing. */
@@ -117,15 +122,13 @@ static void fyai_curl_transfer_finish(struct fyai_curl_transfer *transfer,
 {
 	struct fyai_curl_state *state;
 
-	if (!transfer || transfer->done)
+	if (!transfer || transfer->phase != FYAI_CURL_ACTIVE)
 		return;
 	state = transfer->state;
-	if (transfer->active && state) {
+	if (state)
 		(void)curl_multi_remove_handle(state->multi, transfer->easy);
-		transfer->active = false;
-	}
 	transfer->result = result;
-	transfer->done = true;
+	transfer->phase = FYAI_CURL_DONE;
 	if (state)
 		(void)fyai_event_defer(state->el, fyai_curl_notify, state);
 }
@@ -257,11 +260,11 @@ static void fyai_curl_notify(void *userdata)
 	for (;;) {
 		for (transfer = state->transfers; transfer;
 		     transfer = transfer->next)
-			if (transfer->done && !transfer->notified)
+			if (transfer->phase == FYAI_CURL_DONE)
 				break;
 		if (!transfer)
 			break;
-		transfer->notified = true;
+		transfer->phase = FYAI_CURL_NOTIFIED;
 		complete = transfer->complete;
 		cb_userdata = transfer->userdata;
 		if (complete)
@@ -486,7 +489,7 @@ fyai_curl_submit(struct fyai_ctx *ctx, CURL *easy,
 	fyai_error_check(ctx, mc == CURLM_OK, err_unlink,
 			 "curl multi failed: %s",
 			 curl_multi_strerror(mc));
-	transfer->active = true;
+	transfer->phase = FYAI_CURL_ACTIVE;
 
 	/*
 	 * Never enter curl from submit(). Apart from making submission truly
@@ -515,12 +518,12 @@ void fyai_curl_cancel(struct fyai_curl_transfer *transfer)
 
 bool fyai_curl_done(const struct fyai_curl_transfer *transfer)
 {
-	return transfer && transfer->done;
+	return transfer && transfer->phase != FYAI_CURL_ACTIVE;
 }
 
 CURLcode fyai_curl_collect(const struct fyai_curl_transfer *transfer)
 {
-	if (!transfer || !transfer->done)
+	if (!transfer || transfer->phase == FYAI_CURL_ACTIVE)
 		return CURLE_FAILED_INIT;
 	return transfer->result;
 }
@@ -529,7 +532,7 @@ void fyai_curl_transfer_destroy(struct fyai_curl_transfer *transfer)
 {
 	if (!transfer)
 		return;
-	if (!transfer->done)
+	if (transfer->phase == FYAI_CURL_ACTIVE)
 		fyai_curl_cancel(transfer);
 	/*
 	 * Explicit destruction withdraws the owner's interest in completion.
