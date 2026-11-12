@@ -28,11 +28,24 @@ struct uiwork_band {
 	/* The source of a tool view, {text, blocks, preview}, in @view_gb. */
 	struct fy_generic_builder *view_gb;
 	fy_generic view;
-	/* How it ended: committed, destroyed or closed, with its outcome. */
-	const char *state;		/* a static string, or NULL */
+	/* How it ended, with its outcome; set only while it is dropped. */
+	bool ended;
+	enum fyai_uiwork_end end;
 	bool ok;
 	char *cause;
 };
+
+/* The name of an end in the model. */
+static const char *uiwork_end_name(enum fyai_uiwork_end end)
+{
+	static const char *const names[] = {
+		[FYAI_UIWORK_COMMITTED] = "committed",
+		[FYAI_UIWORK_DESTROYED] = "destroyed",
+		[FYAI_UIWORK_CLOSED] = "closed",
+	};
+
+	return names[end];
+}
 
 struct fyai_uiwork {
 	struct uiwork_band *bands;	/* oldest first */
@@ -130,8 +143,9 @@ static void uiwork_publish(struct fyai_ctx *ctx)
 				item = fy_assoc(gb, item, "text",
 						fy_value(gb, b->rows));
 			}
-			if (b->state)
-				item = fy_assoc(gb, item, "state", b->state,
+			if (b->ended)
+				item = fy_assoc(gb, item, "state",
+					uiwork_end_name(b->end),
 					"ok", b->ok, "cause",
 					b->cause ? fy_value(gb, b->cause) :
 						   fy_null);
@@ -258,7 +272,7 @@ err:
 }
 
 void fyai_uiwork_band_end(struct fyai_ctx *ctx, struct fyai_sink_band *band,
-			  const char *state, bool ok, const char *cause)
+			  enum fyai_uiwork_end end, bool ok, const char *cause)
 {
 	struct fyai_uiwork *w = ctx ? ctx->uiwork : NULL;
 	struct uiwork_band **bp, *b;
@@ -267,7 +281,8 @@ void fyai_uiwork_band_end(struct fyai_ctx *ctx, struct fyai_sink_band *band,
 		return;
 	b = *bp;
 	/* A consumer sees how the band ended before it goes. */
-	b->state = state;
+	b->ended = true;
+	b->end = end;
 	b->ok = ok;
 	if (cause)
 		(void)uiwork_keep(ctx, &b->cause, cause, strlen(cause));

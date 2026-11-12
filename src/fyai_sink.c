@@ -1733,7 +1733,8 @@ void fyai_sink_band_paint(struct fyai_sink_band *b, const char *title,
 void fyai_sink_band_close(struct fyai_sink *s, bool ok, const char *cause)
 {
 	if (s && s == s->ctx->sink && !s->drawing)
-		fyai_uiwork_band_end(s->ctx, NULL, "closed", ok, cause);
+		fyai_uiwork_band_end(s->ctx, NULL, FYAI_UIWORK_CLOSED, ok,
+				     cause);
 	if (s && s->ops->band_close)
 		s->ops->band_close(s, ok, cause);
 }
@@ -1768,7 +1769,8 @@ void fyai_sink_band_set_repaint(struct fyai_sink_band *b,
 void fyai_sink_band_commit(struct fyai_sink_band *b)
 {
 	if (b && b->ctx)
-		fyai_uiwork_band_end(b->ctx, b, "committed", true, NULL);
+		fyai_uiwork_band_end(b->ctx, b, FYAI_UIWORK_COMMITTED, true,
+				     NULL);
 	if (b && b->ctx && b->ctx->sink && b->ctx->sink->ops->band_commit)
 		b->ctx->sink->ops->band_commit(b);
 }
@@ -1776,7 +1778,8 @@ void fyai_sink_band_commit(struct fyai_sink_band *b)
 void fyai_sink_band_destroy(struct fyai_sink_band *b)
 {
 	if (b && b->ctx)
-		fyai_uiwork_band_end(b->ctx, b, "destroyed", true, NULL);
+		fyai_uiwork_band_end(b->ctx, b, FYAI_UIWORK_DESTROYED, true,
+				     NULL);
 	if (b && b->ctx && b->ctx->sink && b->ctx->sink->ops->band_destroy)
 		b->ctx->sink->ops->band_destroy(b);
 }

@@ -350,9 +350,9 @@ int uimodel_bands(void)
 	/* A consumer sees how a band ended, then the band goes. */
 	rc = fyai_uimodel_subscribe(&ctx, uimodel_band_state, state);
 	FYAI_TCHECK(!rc);
-	fyai_uiwork_band_end(&ctx, NULL, "closed", false, "failed");
+	fyai_uiwork_band_end(&ctx, NULL, FYAI_UIWORK_CLOSED, false, "failed");
 	FYAI_TCHECK(!strcmp(state, "closed failed"));
-	fyai_uiwork_band_end(&ctx, b, "committed", true, NULL);
+	fyai_uiwork_band_end(&ctx, b, FYAI_UIWORK_COMMITTED, true, NULL);
 	FYAI_TCHECK(!strcmp(state, "committed -"));
 	FYAI_TCHECK(fy_is_invalid(uimodel_band(&ctx, 0)));
 	fyai_uiwork_release(&ctx);

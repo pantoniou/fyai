@@ -51,14 +51,20 @@ void fyai_uiwork_band_source(struct fyai_ctx *ctx, struct fyai_sink_band *band,
 void fyai_uiwork_band_view(struct fyai_ctx *ctx, struct fyai_sink_band *band,
 			   fy_generic view);
 
+/* How a band ended. The model publishes it as committed, destroyed or closed. */
+enum fyai_uiwork_end {
+	FYAI_UIWORK_COMMITTED,
+	FYAI_UIWORK_DESTROYED,
+	FYAI_UIWORK_CLOSED,
+};
+
 /*
- * A band ended: @state is "committed", "destroyed" or "closed", the shared
- * band (NULL) with its outcome, @ok and @cause. The store holds the band with
- * its state for one write, so a consumer ends its band the same way, and then
- * drops it.
+ * A band ended as @end: the shared band (NULL) with its outcome, @ok and
+ * @cause. The store holds the band with its end for one write, so a consumer
+ * ends its band the same way, and then drops it.
  */
 void fyai_uiwork_band_end(struct fyai_ctx *ctx, struct fyai_sink_band *band,
-			  const char *state, bool ok, const char *cause);
+			  enum fyai_uiwork_end end, bool ok, const char *cause);
 
 /* The band of the sink that the store names @id, or NULL. */
 struct fyai_sink_band *fyai_uiwork_band(struct fyai_ctx *ctx, long long id);
