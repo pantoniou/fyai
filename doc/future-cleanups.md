@@ -702,26 +702,10 @@ is a series. Check an item again before work on it.
    serves the `user/ask` request of a child. Another step loop is at
    `src/fyai_tools.c:1613` (unverified: callback or not). Answer the request
    from the callback of `fyai_ask_open()` instead.
-2. Operation in an error-check condition (M, mechanical). Examples: `pipe` in
-   `fyai_acp.c:373` and `fyai_terminal_session.c:324`; `mkdtemp` in
-   `fyai_catalog.c:911`; `setenv` in `fyai_cmd_fsview.c:3466`; `write` and
-   `ws_client_send` in `fyai_remote.c:1130` and `fyai_remote_relay.c:96-160`;
-   `fclose` and `fflush` in `fyai_display.c` (six sites); `fyai_config_apply`
-   in `fyai_sink_frames.c:267`. The agent searched the first line of each
-   call, so multi-line calls are missing from the list.
-3. Output that bypasses the sink check (S). `tests/sink-only.sh` matches
-   stdio calls and misses `write(STDOUT_FILENO, ...)`. Sites:
-   `fyai_remote.c:1130` and `:1169`, `fyai_remote_relay.c:100`. They may be
-   protocol bytes. Put them on the allow list and widen the pattern.
-4. A fallible call under `(void)` on a content path (S). `fyai.c:2110`
-   drops the text of a non-stream reply. `fyai_cmd.c:1561`,
-   `fyai_cmd_complete.c:1236` and `:1340`, and `fyai_cmd_config.c:973` drop
-   the failure of a machine write. `utils.c:1320` returns without a report when
-   `fy_emit` fails, and its name says stdout while it writes through the sink.
-5. Silent resource failures (S). `acp_session_new` (`fyai_acp.c:160`) returns
-   NULL with no diagnostic. The source of the session request in
-   `fyai_cmd_fsview.c:1776` is made inside an `if`, and a failure leaves
-   `link->source` NULL with no report, so no request is ever served.
+2. Done. No error-check condition holds an operation that does work.
+3. Done. `tests/sink-only.sh` also matches `write` on descriptors 1 and 2.
+4. Done. A failed write of machine output stops the command with a cause.
+5. Done. `acp_session_add()` and the request source of a view session report.
 
 ### Second owners
 
@@ -754,19 +738,10 @@ is a series. Check an item again before work on it.
 
 ### Dead code and compatibility
 
-12. About 40 exported functions have no caller in `src/` or `tests/` (M). The
-    largest groups: `fyai_print_markdown*` (they write to stdout, so they also
-    bypass the sink), `fyai_config_show`, `fyai_config_get`, `fyai_list_turns`,
-    `fyai_spawn_editor`, `fyai_tool_job_group_create`, the unused
-    `fyai_workpane_tile_*` getters, and `fyai_cfg_uses_storage`. Keep one only
-    if a person uses it to debug.
-13. `fyai_curl_perform` (`fyai_curl.c:564`) is a wrapper for callers that
-    have not moved. Its only caller is `auth_http_request`
-    (`fyai_auth.c:547`). Move it to the loop and remove the wrapper (S).
-    There, `NOSIGNAL` is set before the NULL check of the handle, and the NULL
-    return has no diagnostic.
-14. `legacy_scope` in `fyai_settings.c` (S). It treats an entry with no
-    `persistent` member as old. No compatibility is kept now, so remove it.
+13. `fyai_curl_perform` (`fyai_curl.c`) is a wrapper for callers that have
+    not moved. Its only caller is `auth_http_request` (`fyai_auth.c`), which
+    the synchronous login flow runs. Move that flow to the loop and remove
+    the wrapper (M).
 
 ### Large files and functions
 
@@ -789,20 +764,18 @@ is a series. Check an item again before work on it.
 
 ### Documentation and tests
 
-18. Names that no longer exist (S). `CLAUDE.md` names `fyai_ui_ask_withdraw()`
-    (the code has `fyai_ask_close()`) and `fyai_ui_surface_set_head_frame()`.
-    `src/fyai_settings.h:58` names `fyai_ui_ask()`. `doc/exchange-scope.md:82`
-    cites `src/fyai_cover.c`. Other plans in `doc/` name functions that the
-    agent did not find (`remote-sessions-sdd.md`, `markdown-ui-plan.md`,
-    `transport-isolation-review.md`, `state-sync-sdd.md`,
-    `command-schema-plan.md`, `macos-transport-isolation-sdd.md`,
-    `web-fetch-plan.md`). They may be plans, not errors.
-19. Timing in tests (S). `fyai_event_test.c:1528` sleeps 20 ms so that timers
-    expire: use an expired deadline. The watchdog sleeps at `:1286` and
-    `:1318` test a timer and stay. `tests/fyai_shell_test.c` (lines 99, 356,
-    365) and some cases (`shell_tty.sh:126`, `transport_bootstrap.sh:36`,
-    `retry_interrupt.sh:26`) poll with a sleep. Replace each with a wait on
-    state.
+18. Done for `CLAUDE.md`, `src/fyai_settings.h`, `doc/exchange-scope.md`,
+    `doc/declarative-state.md` and `doc/remote-sessions-sdd.md`. Other plans in
+    `doc/` name functions that the survey did not find
+    (`markdown-ui-plan.md`, `transport-isolation-review.md`,
+    `state-sync-sdd.md`, `command-schema-plan.md`,
+    `macos-transport-isolation-sdd.md`, `web-fetch-plan.md`). They may be
+    plans, not errors.
+19. Timing in tests (S). The sleep of `fyai_event_test.c` is removed. The
+    watchdog sleeps in that file test a timer and stay. These sites poll with
+    a sleep and need a wake source: `tests/fyai_shell_test.c` (a process that
+    exits, a process that reads), `shell_tty.sh`, `transport_bootstrap.sh`
+    and `retry_interrupt.sh`.
 
 The agent found no hand-built JSON outside `fyai_mock.c`, no second transcript
 renderer, and no event source registered with a discarded handle. Whether each
@@ -810,9 +783,10 @@ of the 475 cases has a positive control is unverified.
 
 ### Suggested order
 
-First the cheap rule fixes (items 3, 4, 5, 18, 19), then the error-check
-sweep (2) and the dead code (12, 13, 14). Item 9 and items 1, 10 and 15 go
-with the state-machine and TUI work, because they touch the same code.
+First the second owners (items 6, 7), then item 13. The remaining timing
+sites of item 19 need a wake source and not a poll interval. Item 9 and
+items 1, 10 and 15 go with the state-machine and TUI work, because they touch
+the same code.
 
 Done: the mock provider now serves on `fyai_httpd`, which takes request
 bodies, keeps a connection and lets a handler write its own answer.
