@@ -49,6 +49,20 @@ enum browser_input {
 	BROWSER_INPUT_ACTION,	/* the form of the action named by @action */
 };
 
+/*
+ * The listing of the foreign sessions. OFF hides them. Each scan reads one
+ * source: CLAUDE and CODEX name the source that the next scan reads, and
+ * LOADED says that both were read. The phase moves forward from CLAUDE to
+ * LOADED. Showing the sessions or a refresh starts it again at CLAUDE, and
+ * hiding them sets OFF.
+ */
+enum browser_foreign {
+	BROWSER_FOREIGN_OFF,
+	BROWSER_FOREIGN_CLAUDE,
+	BROWSER_FOREIGN_CODEX,
+	BROWSER_FOREIGN_LOADED,
+};
+
 struct fyai_browser {
 	struct fyai_ctx *ctx;
 	struct fytim_surface *surface;
@@ -66,9 +80,9 @@ struct fyai_browser {
 	 * behind it (@quit_on_cancel). In a session, Escape returns to it. */
 	bool resume, resume_all, picked, quit_on_cancel;
 	bool navigated;
-	bool foreign_visible;
+	enum browser_foreign foreign;
+	/* A deferred scan is queued on the event loop. */
 	bool foreign_scheduled;
-	unsigned int foreign_phase;
 	char filter[256], input[1024], target[FYAI_BRANCH_NAME_MAX + 1];
 	char reference[1024];
 	char action;	/* the letter of the form; set in the action mode only */
@@ -362,12 +376,21 @@ static void browser_foreign_scan(void *userdata)
 	char *selected;
 	size_t i, n;
 
-	if (!b->resume || !b->foreign_visible || b->closing ||
-	    b->foreign_phase > 2)
+	if (!b->resume || b->closing)
 		return;
+	switch (b->foreign) {
+	case BROWSER_FOREIGN_CLAUDE:
+		requested = FYAI_FOREIGN_CLAUDE_CODE;
+		b->foreign = BROWSER_FOREIGN_CODEX;
+		break;
+	case BROWSER_FOREIGN_CODEX:
+		requested = FYAI_FOREIGN_CODEX;
+		b->foreign = BROWSER_FOREIGN_LOADED;
+		break;
+	default:
+		return;
+	}
 	b->foreign_scheduled = false;
-	requested = b->foreign_phase++ == 1 ? FYAI_FOREIGN_CLAUDE_CODE :
-		FYAI_FOREIGN_CODEX;
 	gb = fy_generic_builder_create(&gbcfg);
 	if (!gb)
 		return;
@@ -411,11 +434,11 @@ static void browser_foreign_scan(void *userdata)
 	fy_generic_builder_destroy(gb);
 	b->dirty = true;
 	fyai_ui_wake(b->ctx);
-	if (b->foreign_phase <= 2 &&
-	    !fyai_event_defer(fyai_ctx_loop(b->ctx), browser_foreign_scan, b))
-		b->foreign_scheduled = true;
-	else if (b->foreign_phase > 2 && b->message &&
-		 !strcmp(b->message, "Loading foreign sessions.")) {
+	if (b->foreign == BROWSER_FOREIGN_CODEX) {
+		if (!fyai_event_defer(fyai_ctx_loop(b->ctx), browser_foreign_scan, b))
+			b->foreign_scheduled = true;
+	} else if (b->message &&
+		   !strcmp(b->message, "Loading foreign sessions.")) {
 		free(b->message);
 		b->message = NULL;
 	}
@@ -1339,8 +1362,9 @@ void fyai_browser_service(struct fyai_ctx *ctx)
 	if (b->pending && strchr("itlczAK", b->pending))
 		fyai_browser_step(ctx);
 	browser_paint(b);
-	if (b->resume && b->foreign_visible && b->foreign_phase &&
-	    b->foreign_phase <= 2 &&
+	if (b->resume &&
+	    (b->foreign == BROWSER_FOREIGN_CLAUDE ||
+	     b->foreign == BROWSER_FOREIGN_CODEX) &&
 	    !b->foreign_scheduled &&
 	    !fyai_event_defer(fyai_ctx_loop(ctx), browser_foreign_scan, b))
 		b->foreign_scheduled = true;
@@ -1483,14 +1507,12 @@ static void browser_key(struct fyai_browser *b, unsigned char c)
 		return;
 	}
 	if (c == 'f' && b->resume) {
-		if (!b->foreign_visible) {
-			b->foreign_visible = true;
-			b->foreign_phase = 1;
+		if (b->foreign == BROWSER_FOREIGN_OFF) {
+			b->foreign = BROWSER_FOREIGN_CLAUDE;
 			b->foreign_scheduled = false;
 			browser_message(b, "Loading foreign sessions.");
 		} else {
-			b->foreign_visible = false;
-			b->foreign_phase = 0;
+			b->foreign = BROWSER_FOREIGN_OFF;
 			b->foreign_scheduled = false;
 			fyai_event_defer_cancel(fyai_ctx_loop(b->ctx),
 					      browser_foreign_scan, b);
@@ -1517,9 +1539,10 @@ static void browser_key(struct fyai_browser *b, unsigned char c)
 		b->root = fy_invalid;
 		browser_refresh(b);
 		if (b->resume) {
-			b->foreign_phase = b->foreign_visible ? 1 : 0;
+			if (b->foreign != BROWSER_FOREIGN_OFF)
+				b->foreign = BROWSER_FOREIGN_CLAUDE;
 			b->foreign_scheduled = false;
-			if (b->foreign_visible)
+			if (b->foreign != BROWSER_FOREIGN_OFF)
 				browser_message(b, "Loading foreign sessions.");
 		}
 		return;
