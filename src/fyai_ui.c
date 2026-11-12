@@ -94,6 +94,13 @@ struct ui_spool { int saved, reader; off_t off; };
 
 struct ui_log_entry;
 
+/* Where the shared tool band of a call is drawn. */
+enum ui_tool_mode {
+	UI_TOOL_IDLE,		/* no call is drawn */
+	UI_TOOL_BAND,		/* in a band of the work pane: tool_band */
+	UI_TOOL_INLINE,		/* in a block of the transcript */
+};
+
 struct fyai_ui {
 	struct fyai_ctx *ctx;
 	struct fytim *ft;
@@ -118,8 +125,8 @@ struct fyai_ui {
 	long long busy_shown_s;
 	bool activity_paused;
 	bool external;
-	struct fytim_workband *tool_band;
-	bool tool_inline;		/* the shared band is a transcript block */
+	struct fytim_workband *tool_band;	/* set in the band mode only */
+	enum ui_tool_mode tool_mode;
 	struct fytim_workband *pending_band;
 	struct fytim_workband *message_band;
 	/* The surface holding the keys, and where its bytes go. */
@@ -342,6 +349,20 @@ static int ui_inline_set(struct fyai_ui *ui, uintptr_t key, const char *head,
 			 size_t hlen, const char *body, size_t blen,
 			 int max_rows, bool commit, bool fenced);
 
+/* The text of the call that the shared band shows. */
+static void ui_tool_text_free(struct fyai_ui *ui)
+{
+	free(ui->tool_title);
+	ui->tool_title = NULL;
+	free(ui->tool_command);
+	ui->tool_command = NULL;
+	free(ui->tool_error);
+	ui->tool_error = NULL;
+	free(ui->tool_body);
+	ui->tool_body = NULL;
+	ui->tool_body_len = 0;
+}
+
 static int ui_tool_render(struct fyai_ui *ui, const char *first_margin,
 			  bool commit)
 {
@@ -354,7 +375,7 @@ static int ui_tool_render(struct fyai_ui *ui, const char *first_margin,
 	int trc;
 	int rc = -1;
 
-	if (!ui->tool_band && !ui->tool_inline)
+	if (ui->tool_mode == UI_TOOL_IDLE)
 		return 0;
 	title = ui->tool_title && *ui->tool_title ? ui->tool_title : "tool";
 	title_len = strlen(title);
@@ -367,7 +388,7 @@ static int ui_tool_render(struct fyai_ui *ui, const char *first_margin,
 	    fyai_ui_append_shell_command(ui->ctx->cfg, &head, ui->tool_command))
 		goto out;
 	fyai_buf_trim(&head);
-	if (ui->tool_inline) {
+	if (ui->tool_mode == UI_TOOL_INLINE) {
 		body = ui->tool_body;
 		body_len = ui->tool_body_len;
 		while (body_len && (*body == '\n' || *body == '\r')) {
@@ -440,7 +461,7 @@ static int ui_activity_refresh(struct fyai_ui *ui)
 	int rc = -1;
 
 	if (ui->activity_paused ||
-	    (!ui->busy && !ui->tool_band && !ui->tool_inline))
+	    (!ui->busy && ui->tool_mode == UI_TOOL_IDLE))
 		return 0;
 	if (clock_gettime(CLOCK_MONOTONIC, &ts))
 		return -1;
@@ -473,7 +494,7 @@ static int ui_activity_refresh(struct fyai_ui *ui)
 				(size_t)phase, NULL);
 	if (!activity)
 		return -1;
-	if ((ui->tool_band || ui->tool_inline) &&
+	if (ui->tool_mode != UI_TOOL_IDLE &&
 	    ui_tool_render(ui, activity, false))
 		goto out;
 	rc = 0;
@@ -1335,7 +1356,7 @@ static void ui_rearm(struct fyai_ui *ui)
 	if (!ui->timer_src)
 		return;
 	if (!ui->activity_paused &&
-	    (ui->busy || ui->tool_band || ui->tool_inline) &&
+	    (ui->busy || ui->tool_mode != UI_TOOL_IDLE) &&
 	    ui->activity_interval_ms &&
 	    (ms < 1 || ui->activity_interval_ms < (unsigned int)ms))
 		ms = (int)ui->activity_interval_ms;
@@ -3667,10 +3688,7 @@ void fyai_ui_close(struct fyai_ctx *ctx)
 	fymd_renderer_destroy(ui->chrome_renderer);
 	if (ui->tty_fd >= 0)
 		close(ui->tty_fd);
-	free(ui->tool_title);
-	free(ui->tool_command);
-	ui->tool_command = NULL;
-	free(ui->tool_body);
+	ui_tool_text_free(ui);
 	free(ui->status_bottom);
 	free(ui->status_top);
 	free(ui->status_top_source);
@@ -5407,29 +5425,26 @@ void fyai_ui_tool_begin(struct fyai_ctx *ctx, const char *title)
 	(void)ui_flow_fence(ctx, FYAI_FLOW_TOOL_HEAD);
 	ui = ctx->ui;
 	ui_band_close(ui, &ui->tool_band);
-	if (ui->tool_inline)
+	if (ui->tool_mode == UI_TOOL_INLINE)
 		fyai_transcript_view_block_drop(ui_blocks(ui, false),
 						(uintptr_t)&ui->tool_band);
-	ui->tool_inline = false;
-	free(ui->tool_title);
-	free(ui->tool_command);
-	ui->tool_command = NULL;
-	free(ui->tool_error);
-	ui->tool_error = NULL;
-	free(ui->tool_body);
-	ui->tool_body = NULL;
-	ui->tool_body_len = 0;
+	ui->tool_mode = UI_TOOL_IDLE;
+	ui_tool_text_free(ui);
 	ui->tool_title = strdup(title ? title : "tool");
 	/* A call drawn in the transcript stands where it was called. */
 	if (fyai_ui_tools_inline(ctx)) {
-		ui->tool_inline = true;
+		ui->tool_mode = UI_TOOL_INLINE;
 		ui->activity_phase = -1;
 		(void)ui_activity_refresh(ui);
 		return;
 	}
 	ui->tool_band = ui_band_open(ui, FYAI_WORKPANE_TILE_TEXT,
 				     ctx->cfg->tool_preview_lines + 2);
-	if (!ui->tool_band) return;
+	if (!ui->tool_band) {
+		ui_tool_text_free(ui);
+		return;
+	}
+	ui->tool_mode = UI_TOOL_BAND;
 	ui->activity_phase = -1;
 	(void)ui_activity_refresh(ui);
 }
@@ -5438,8 +5453,7 @@ void fyai_ui_tool_update(struct fyai_ctx *ctx, const char *body, size_t len)
 {
 	struct fyai_ui *ui;
 	char *margin;
-	if (!fyai_ui_active(ctx) ||
-	    (!ctx->ui->tool_band && !ctx->ui->tool_inline))
+	if (!fyai_ui_active(ctx) || ctx->ui->tool_mode == UI_TOOL_IDLE)
 		return;
 	ui = ctx->ui;
 	free(ui->tool_body);
@@ -5459,8 +5473,7 @@ void fyai_ui_tool_end(struct fyai_ctx *ctx, bool ok, const char *cause)
 {
 	struct fyai_ui *ui;
 	char *margin;
-	if (!fyai_ui_active(ctx) ||
-	    (!ctx->ui->tool_band && !ctx->ui->tool_inline))
+	if (!fyai_ui_active(ctx) || ctx->ui->tool_mode == UI_TOOL_IDLE)
 		return;
 	ui = ctx->ui;
 	free(ui->tool_error);
@@ -5478,12 +5491,9 @@ void fyai_ui_tool_end(struct fyai_ctx *ctx, bool ok, const char *cause)
 		ui->tool_band = NULL;
 		fyai_workpane_release(ui->ctx->workpane);
 	}
-	ui->tool_inline = false;
+	ui->tool_mode = UI_TOOL_IDLE;
 	/* The flow keeps the tool unit. The next prose commit fences it. */
-	free(ui->tool_title); ui->tool_title = NULL;
-	free(ui->tool_command); ui->tool_command = NULL;
-	free(ui->tool_error); ui->tool_error = NULL;
-	free(ui->tool_body); ui->tool_body = NULL; ui->tool_body_len = 0;
+	ui_tool_text_free(ui);
 }
 
 /* ---- surfaces ----------------------------------------------------------- */
