@@ -513,6 +513,21 @@ int fyai_sink_page_split(struct fyai_sink *s, struct fytim_surface *surface,
 }
 
 /* The only progressive Markdown renderer in the process. */
+/*
+ * How the terminal backend presents the open document. A document starts as
+ * one of skip, passthrough or oneshot; oneshot becomes live when a renderer
+ * starts. A pause ends the renderer and keeps the document open until it
+ * resumes or ends. The document has no presentation when it is closed.
+ */
+enum sink_doc_mode {
+	SINK_DOC_CLOSED,
+	SINK_DOC_SKIP,		/* open, and it does not reach the user */
+	SINK_DOC_PASSTHROUGH,	/* no renderer: write bytes as they come */
+	SINK_DOC_ONESHOT,	/* accumulate, render when it closes */
+	SINK_DOC_LIVE,		/* the progressive renderer draws it */
+	SINK_DOC_PAUSED,	/* a live document between a pause and a resume */
+};
+
 struct sink_term {
 	struct markdown_renderer renderer;
 	struct fyai_buf source;	/* the document as given so far */
@@ -526,11 +541,7 @@ struct sink_term {
 	struct fyai_sink_band *shadow_shared;
 	struct fyai_sink_band *inline_bands;	/* blocks of the transcript */
 	enum fyai_sink_doc_kind kind;
-	bool render_live;
-	bool doc_open;
-	bool present;			/* this document may reach the user */
-	bool passthrough;		/* no renderer: write bytes as they come */
-	bool oneshot;			/* accumulate, render when it closes */
+	enum sink_doc_mode mode;
 	bool wrote;			/* the passthrough path wrote something */
 	bool write_failed;		/* a write failed; report it once */
 	FILE *out;			/* NULL presents on standard output */
@@ -572,7 +583,8 @@ static bool sink_term_wants_live(const struct fyai_sink *s,
 	struct fyai_ctx *ctx = s->ctx;
 	const struct sink_term *t = s->state;
 
-	return t->present && !t->out && kind == FYAI_SINK_DOC_ASSISTANT &&
+	return (t->mode == SINK_DOC_ONESHOT || t->mode == SINK_DOC_PAUSED) &&
+	       !t->out && kind == FYAI_SINK_DOC_ASSISTANT &&
 	       ctx->cfg->markdown && ctx->stdout_tty &&
 	       markdown_available(ctx->cfg) &&
 	       strcmp(ctx->cfg->markdown_mode, "oneshot");
@@ -591,7 +603,7 @@ static int sink_term_renderer_start(struct fyai_sink *s)
 			ctx->cfg->theme_variant);
 	fyai_error_check(ctx, !rc, err,
 		"could not start the display renderer");
-	t->render_live = true;
+	t->mode = SINK_DOC_LIVE;
 	t->render_cols = markdown_effective_width(ctx->cfg);
 	return 0;
 err:
@@ -634,7 +646,7 @@ static int sink_term_push_pending(struct fyai_sink *s)
 	struct sink_term *t = sink_term_state(s);
 	struct markdown_update update;
 
-	if (!t->render_live || !t->pending.len)
+	if (t->mode != SINK_DOC_LIVE || !t->pending.len)
 		return 0;
 	if (markdown_renderer_push(&t->renderer, t->pending.data,
 				   t->pending.len, &update))
@@ -653,7 +665,7 @@ static int sink_term_render_finish(struct fyai_sink *s)
 	size_t end;
 	bool line_start;
 
-	if (!t->render_live)
+	if (t->mode != SINK_DOC_LIVE)
 		return 0;
 	if (sink_term_push_pending(s) ||
 	    markdown_renderer_finish(&t->renderer, &rendered)) {
@@ -679,7 +691,7 @@ static int sink_term_render_finish(struct fyai_sink *s)
 		fflush(sink_term_out(t));
 	}
 	t->active_rows = 0;
-	t->render_live = false;
+	t->mode = SINK_DOC_PAUSED;
 	/* The finished rows are presented. A reflow of the resumed renderer
 	 * renders only the source that follows them. */
 	t->source.len = 0;
@@ -706,21 +718,23 @@ static int sink_term_doc_begin(struct fyai_sink *s,
 	t->last_draw_ms = 0;
 	/* The display path presents user and system cards; an offscreen render
 	 * has no display, so it presents every document itself. */
-	t->present = sink_may_present(s) &&
-		     (t->out || doc->kind == FYAI_SINK_DOC_ASSISTANT);
+	t->wrote = false;
+	if (!sink_may_present(s) ||
+	    (!t->out && doc->kind != FYAI_SINK_DOC_ASSISTANT)) {
+		t->mode = SINK_DOC_SKIP;
+		return 0;
+	}
 	/*
 	 * With no Markdown to render, the source is the presentation: write it
 	 * through as it arrives so the reader still sees the model type.
 	 */
-	t->passthrough = t->present && (!ctx->cfg->markdown ||
-					!markdown_available(ctx->cfg));
-	t->wrote = false;
-	t->doc_open = true;
-	if (sink_term_renderer_start(s))
-		return -1;
+	if (!ctx->cfg->markdown || !markdown_available(ctx->cfg)) {
+		t->mode = SINK_DOC_PASSTHROUGH;
+		return 0;
+	}
 	/* Retain a document only when closing it is the first presentation. */
-	t->oneshot = t->present && !t->passthrough && !t->render_live;
-	return 0;
+	t->mode = SINK_DOC_ONESHOT;
+	return sink_term_renderer_start(s) ? -1 : 0;
 }
 
 /* Apply the configured line or timed stream redraw cadence. */
@@ -748,19 +762,19 @@ static int sink_term_doc_append(struct fyai_sink *s, const char *text,
 	struct fyai_ctx *ctx = s->ctx;
 	int rc;
 
-	if (!t->present || !len)
+	if (!len)
 		return 0;
-	if (t->passthrough) {
+	if (t->mode == SINK_DOC_PASSTHROUGH) {
 		t->wrote = true;
 		return sink_term_put(s, FYAI_SINK_TRANSCRIPT, text, len);
 	}
-	if (t->oneshot) {
+	if (t->mode == SINK_DOC_ONESHOT) {
 		rc = fyai_buf_append_data(&t->source, text, len);
 		fyai_error_check(ctx, !rc, err,
 			"could not grow the display buffer");
 		return 0;
 	}
-	if (!t->render_live)
+	if (t->mode != SINK_DOC_LIVE)
 		return 0;
 	/* Retain live source for width reflow. */
 	rc = fyai_buf_append_data(&t->source, text, len);
@@ -788,13 +802,13 @@ static void sink_term_present_oneshot(struct fyai_sink *s)
 	struct sink_term *t = sink_term_state(s);
 	struct fyai_cfg *cfg = s->ctx->cfg;
 
-	if (t->passthrough) {
+	if (t->mode == SINK_DOC_PASSTHROUGH) {
 		/* Close the row the passthrough text was written on. */
 		if (t->wrote)
 			(void)sink_term_put(s, FYAI_SINK_TRANSCRIPT, "\n", 1);
 		return;
 	}
-	if (!t->oneshot || !t->source.len)
+	if (t->mode != SINK_DOC_ONESHOT || !t->source.len)
 		return;
 	/* Only an assistant document is presented here, unless this sink is
 	 * the whole presentation. */
@@ -815,14 +829,14 @@ static int sink_term_doc_end(struct fyai_sink *s, bool aborted)
 	int rc;
 
 	(void)aborted;
-	if (t->render_live)
+	if (t->mode == SINK_DOC_LIVE)
 		rc = sink_term_render_finish(s);
 	else {
 		sink_term_present_oneshot(s);
 		rc = 0;
 	}
 	markdown_renderer_destroy(&t->renderer);
-	t->doc_open = false;
+	t->mode = SINK_DOC_CLOSED;
 	return rc;
 }
 
@@ -840,8 +854,7 @@ static void sink_term_doc_discard(struct fyai_sink *s)
 	markdown_renderer_destroy(&t->renderer);
 	t->pending.len = 0;
 	t->active_rows = 0;
-	t->render_live = false;
-	t->doc_open = false;
+	t->mode = SINK_DOC_CLOSED;
 }
 
 /* Rerender the live region at the current width. */
@@ -854,7 +867,7 @@ static void sink_term_reflow(struct fyai_sink *s)
 	struct markdown_update repaint;
 	int cols;
 
-	if (!t || !t->render_live || !t->source.len)
+	if (!t || t->mode != SINK_DOC_LIVE || !t->source.len)
 		return;
 	cols = markdown_effective_width(ctx->cfg);
 	if (cols <= 0 || cols == t->render_cols)
@@ -888,7 +901,7 @@ static int sink_term_doc_pause(struct fyai_sink *s)
 	struct fyai_ctx *ctx = s->ctx;
 	int rc;
 
-	if (!t->render_live)
+	if (t->mode != SINK_DOC_LIVE)
 		return 0;
 	rc = sink_term_render_finish(s);
 	fyai_error_check(ctx, !rc, err,
@@ -905,7 +918,7 @@ static int sink_term_doc_resume(struct fyai_sink *s)
 	struct fyai_ctx *ctx = s->ctx;
 	int rc;
 
-	if (!t->doc_open || t->render_live)
+	if (t->mode != SINK_DOC_PAUSED)
 		return 0;
 	rc = sink_term_renderer_start(s);
 	fyai_error_check(ctx, !rc, err,
@@ -919,7 +932,7 @@ static bool sink_term_doc_is_live(const struct fyai_sink *s)
 {
 	const struct sink_term *t = sink_term_state(s);
 
-	return t && t->render_live;
+	return t && t->mode == SINK_DOC_LIVE;
 }
 
 static void sink_term_destroy(struct fyai_sink *s)
