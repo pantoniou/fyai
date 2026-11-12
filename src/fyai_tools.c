@@ -9002,6 +9002,18 @@ fyai_tool_job_group_mcp_complete(struct fyai_mcp_call_request *request,
 	fyai_tool_job_group_service(group);
 }
 
+/*
+ * Where a group is in its life. Calls are added while it builds; it runs
+ * when it is submitted, and takes no more calls once it is sealed. A cancel
+ * seals it. The phase only moves forward.
+ */
+enum fyai_tool_group_phase {
+	FYAITGP_BUILDING,	/* not submitted: nothing runs yet */
+	FYAITGP_OPEN,		/* submitted: runs, and takes calls */
+	FYAITGP_SEALED,		/* takes no more calls */
+	FYAITGP_CANCELLED,	/* sealed, and nothing new starts */
+};
+
 struct fyai_tool_job_group {
 	struct fyai_ctx *ctx;
 	struct fyai_tool_group_entry *entries;
@@ -9012,9 +9024,7 @@ struct fyai_tool_job_group {
 	size_t active;
 	size_t parked;
 	size_t max_parallel;
-	bool submitted;
-	bool sealed;
-	bool cancelled;
+	enum fyai_tool_group_phase phase;
 	bool exclusive;
 	bool notified;
 	fyai_tool_group_complete_fn complete;
@@ -9125,7 +9135,7 @@ fyai_tool_job_group_create_open(struct fyai_ctx *ctx,
 	group = fyai_tool_job_group_create_notify(ctx, complete, userdata);
 	if (!group)
 		return NULL;
-	group->submitted = true;
+	group->phase = FYAITGP_OPEN;
 	return group;
 }
 
@@ -9138,14 +9148,14 @@ int fyai_tool_job_group_add(struct fyai_tool_job_group *group,
 	int rc;
 	size_t i;
 
-	if (!group || group->sealed)
+	if (!group || group->phase >= FYAITGP_SEALED)
 		return -1;
 	rc = fyai_tool_job_group_reserve(group);
 	if (rc)
 		return -1;
 	parallel = fyai_tool_call_parallel_eligible(group->ctx, tool_call);
 	instant = fyai_tool_call_instant(group->ctx, tool_call);
-	if (group->submitted && !parallel)
+	if (group->phase == FYAITGP_OPEN && !parallel)
 		return 1;
 	if (group->count && (group->exclusive || !parallel))
 		return -1;
@@ -9169,7 +9179,7 @@ int fyai_tool_job_group_add(struct fyai_tool_job_group *group,
 		group->max_parallel = 1;
 	}
 	group->count++;
-	if (group->submitted)
+	if (group->phase == FYAITGP_OPEN)
 		fyai_tool_job_group_service(group);
 	return 0;
 }
@@ -9190,7 +9200,7 @@ static void fyai_tool_job_group_dispatch(struct fyai_tool_job_group *group)
 	const char *text;
 	char *why;
 
-	while (!group->cancelled && group->next < group->count &&
+	while (group->phase != FYAITGP_CANCELLED && group->next < group->count &&
 	       group->active < group->max_parallel) {
 		entry = &group->entries[group->next++];
 		call = parse_json_string(group->ctx->transient_gb,
@@ -9295,7 +9305,7 @@ static void fyai_tool_job_group_notify(struct fyai_tool_job_group *group)
 	fyai_tool_group_complete_fn complete;
 	void *userdata;
 
-	if (!group->sealed || group->parked != group->count ||
+	if (group->phase < FYAITGP_SEALED || group->parked != group->count ||
 	    group->notified)
 		return;
 	group->notified = true;
@@ -9311,7 +9321,7 @@ void fyai_tool_job_group_service(struct fyai_tool_job_group *group)
 	fyai_event_ms_t now;
 	size_t i;
 
-	if (!group || !group->submitted)
+	if (!group || group->phase == FYAITGP_BUILDING)
 		return;
 	now = fyai_event_now_ms();
 	for (i = 0; i < group->next; i++) {
@@ -9352,10 +9362,9 @@ void fyai_tool_job_group_service(struct fyai_tool_job_group *group)
 
 int fyai_tool_job_group_submit(struct fyai_tool_job_group *group)
 {
-	if (!group || group->submitted || !group->count)
+	if (!group || group->phase != FYAITGP_BUILDING || !group->count)
 		return -1;
-	group->submitted = true;
-	group->sealed = true;
+	group->phase = FYAITGP_SEALED;
 	fyai_tool_job_group_dispatch(group);
 	fyai_tool_job_group_animation_sync(group);
 	fyai_tool_job_group_notify(group);
@@ -9364,16 +9373,16 @@ int fyai_tool_job_group_submit(struct fyai_tool_job_group *group)
 
 int fyai_tool_job_group_seal(struct fyai_tool_job_group *group)
 {
-	if (!group || !group->submitted || group->sealed)
+	if (!group || group->phase != FYAITGP_OPEN)
 		return -1;
-	group->sealed = true;
+	group->phase = FYAITGP_SEALED;
 	fyai_tool_job_group_service(group);
 	return 0;
 }
 
 bool fyai_tool_job_group_done(const struct fyai_tool_job_group *group)
 {
-	return group && group->submitted && group->sealed &&
+	return group && group->phase >= FYAITGP_SEALED &&
 	       group->parked == group->count;
 }
 
@@ -9387,10 +9396,9 @@ void fyai_tool_job_group_cancel(struct fyai_tool_job_group *group)
 	struct fyai_tool_group_entry *entry;
 	size_t i;
 
-	if (!group || group->cancelled)
+	if (!group || group->phase == FYAITGP_CANCELLED)
 		return;
-	group->cancelled = true;
-	group->sealed = true;
+	group->phase = FYAITGP_CANCELLED;
 	for (i = 0; i < group->count; i++) {
 		entry = &group->entries[i];
 		if (entry->state == FYAITGS_RUNNING && entry->waiter) {
@@ -9462,7 +9470,7 @@ int fyai_tool_job_group_collect(struct fyai_tool_job_group *group,
 		*result = parse_json_string(group->ctx->transient_gb,
 					    entry->result_text);
 		*okp = entry->result_ok;
-	} else if (group->cancelled) {
+	} else if (group->phase == FYAITGP_CANCELLED) {
 		*result = fyai_tool_job_group_cancelled_result(group, entry);
 		*okp = false;
 	} else {
