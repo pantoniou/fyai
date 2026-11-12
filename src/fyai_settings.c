@@ -471,7 +471,6 @@ struct settings_change {
 	bool catalog;		/* a change of the catalogue */
 	const char *source;	/* evidence for catalogue values */
 	bool trial;		/* the session layer only, for every scope */
-	bool legacy_scope;	/* an older change used schema scope */
 	const char *diff;	/* Markdown that fyai made, in the builder */
 	const char *unified;	/* the unified diff alone */
 	/* The entry of the change log that this change reverts or keeps,
@@ -720,8 +719,7 @@ static int settings_change_diff(struct settings_walk *w,
 		value = fy_get(item, "value", fy_invalid);
 		if (fy_is_valid(value))
 			value = settings_redact(w, path, value, 0);
-		if (c->trial || (c->legacy_scope &&
-				 fyai_config_session_scoped(path)))
+		if (c->trial)
 			session = settings_doc_set(w->gb, session, path, value);
 		else
 			stored = settings_doc_set(w->gb, stored, path, value);
@@ -838,8 +836,7 @@ static int settings_change_build(struct settings_walk *w,
 	fy_foreach(item, c->changes) {
 		path = fy_get(item, "path", "");
 		value = fy_get(item, "value", fy_invalid);
-		in_session = c->trial || (c->legacy_scope &&
-					    fyai_config_session_scoped(path));
+		in_session = c->trial;
 		c->before = fy_assoc(w->gb, c->before, path, settings_doc_get(
 			w->gb, in_session ? session0 : stored0, path));
 		if (in_session) {
@@ -882,8 +879,7 @@ static int settings_change_build(struct settings_walk *w,
 	}
 	fy_foreach(item, c->changes) {
 		path = fy_get(item, "path", "");
-		in_session = c->trial || (c->legacy_scope &&
-					    fyai_config_session_scoped(path));
+		in_session = c->trial;
 		c->after = fy_assoc(w->gb, c->after, path, settings_doc_get(
 			w->gb, in_session ? session : stored, path));
 	}
@@ -997,7 +993,7 @@ static fy_generic settings_entry(struct fyai_ctx *ctx,
 		"paths", c->paths,
 		"changes", c->changes,
 		"trial", c->trial,
-		"persistent", !c->trial && !c->legacy_scope,
+		"persistent", !c->trial,
 		"before", c->before,
 		"after", c->after,
 		"diff", c->unified ? c->unified : "",
@@ -1446,7 +1442,6 @@ static int settings_revert_build(struct settings_walk *w, fy_generic entry,
 
 	memset(c, 0, sizeof(*c));
 	c->trial = fy_get(entry, "trial", false);
-	c->legacy_scope = !fy_get(entry, "persistent", false);
 	before = fy_get(entry, "before", fy_invalid);
 	after = fy_get(entry, "after", fy_invalid);
 	out = fy_sequence(w->gb);
@@ -1454,8 +1449,7 @@ static int settings_revert_build(struct settings_walk *w, fy_generic entry,
 	conflicts = fy_sequence(w->gb);
 	fy_foreach(item, fy_get(entry, "paths", fy_invalid)) {
 		path = fy_gb_intern_string(w->gb, fy_castp(&item, ""));
-		in_session = c->trial || (c->legacy_scope &&
-					    fyai_config_session_scoped(path));
+		in_session = c->trial;
 		cur = settings_doc_get(w->gb, in_session ?
 				       ctx->cfg->config_session :
 				       ctx->arena_config, path);
@@ -1602,11 +1596,8 @@ int fyai_settings_keep(struct fyai_ctx *ctx, struct fy_generic_builder *gb,
 	entry = settings_change_entry(ctx, id);
 	if (!fy_is_mapping(entry))
 		return -1;
-	fyai_error_check(ctx, fy_get(entry, "trial", false) ||
-			 (fy_equal(fy_get(entry, "status", fy_invalid),
-				   "session") &&
-			  !fy_get(entry, "persistent", false)), err_out,
-			 "change '%s' is not a trial or session-only change", id);
+	fyai_error_check(ctx, fy_get(entry, "trial", false), err_out,
+			 "change '%s' is not a trial", id);
 	/* Store each trial key in the branch and remove its session override. */
 	after = fy_get(entry, "after", fy_invalid);
 	out = fy_sequence(gb);
