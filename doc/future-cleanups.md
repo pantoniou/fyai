@@ -169,17 +169,8 @@ oneshot, live, paused). `write_failed` and `wrote` stay separate facts.
 
 ### 9. Sink band kind
 
-`struct fyai_sink_band`, `fyai_sink.c`.
-
-- Fields: `headless`, `shadow`, `shared`, `tile`, `inline_block`, `wb`,
-  `painted`, `held`, `repaint`.
-- Kinds: HEADLESS (with a shadow bit), SHARED, INLINE, TILE.
-  `sink_term_band_open()` chooses the kind. A band is a tile exactly when `wb`
-  is set, so `tile` repeats the pointer.
-- Paint states: NONE, HELD (the tile has no width yet), SHOWN.
-- Illegal combinations: `shadow` without `headless`; `tile` with
-  `inline_block`; `shared` with `tile`; `held` without `painted`.
-- Change: a kind enum and a paint enum.
+Done for `struct fyai_sink_band`: `enum sink_band_kind` and
+`enum sink_band_paint`.
 
 ### 10. Tool band of the UI
 
