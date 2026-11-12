@@ -4228,6 +4228,13 @@ static void fyai_shell_session_inline_follow(struct fyai_shell_session *sess)
 		return;
 	fyai_terminal_view_size(sess->view, &rows, &cols);
 	want = fyai_shell_inline_cols(sess->ctx);
+	/* The block has the rows of the setting. The view of a mirror still
+	 * has its old rows while a resize is on its way to the worker, and
+	 * those rows would undo it. */
+	/* The view of a mirror still has its old rows while a resize is on its
+	 * way to the worker, and those rows would undo it. */
+	if (sess->remote && sess->resize_rows > 0)
+		rows = sess->resize_rows;
 	if (want != cols)
 		fyai_shell_session_apply_grant(sess, rows, want);
 }
@@ -8486,13 +8493,14 @@ void fyai_tools_mirror_feed(struct fyai_shell_session *sess,
 	fyai_shell_session_refresh(sess);
 }
 
-void fyai_tools_mirror_update(struct fyai_shell_session *sess, fy_generic item)
+bool fyai_tools_mirror_update(struct fyai_shell_session *sess, fy_generic item)
 {
 	fy_generic term = fy_get(item, "terminal", fy_invalid);
 	int rows = 0, cols = 0;
+	bool resized = false;
 
 	if (!sess)
-		return;
+		return false;
 	/* A command of the user is kept to read, and takes the keys, as a
 	 * typed bang takes them. */
 	if (!sess->keep_tile && fy_get(item, "keep", false)) {
@@ -8514,11 +8522,13 @@ void fyai_tools_mirror_update(struct fyai_shell_session *sess, fy_generic item)
 	fyai_terminal_view_size(sess->view, &rows, &cols);
 	if (fy_is_mapping(term) &&
 	    (fy_get(term, "rows", rows) != rows ||
-	     fy_get(term, "cols", cols) != cols))
+	     fy_get(term, "cols", cols) != cols)) {
 		fyai_shell_session_resized(sess, fy_get(term, "rows", 0),
 					   fy_get(term, "cols", 0));
+		resized = true;
+	}
 	if (sess->exited || !fy_get(item, "exited", false))
-		return;
+		return resized;
 	sess->closing = fy_get(item, "closing", false);
 	sess->timed_out = fy_get(item, "timed_out", false);
 	fyai_shell_session_exited(sess, fy_get(item, "exit_code", 0),
@@ -8526,6 +8536,7 @@ void fyai_tools_mirror_update(struct fyai_shell_session *sess, fy_generic item)
 	/* A tile that the user closed is not kept to read. */
 	if (sess->close_on_exit && sess->keep_tile)
 		fyai_shell_session_dismiss(sess);
+	return resized;
 }
 
 void fyai_tools_mirror_drop(struct fyai_shell_session *sess)

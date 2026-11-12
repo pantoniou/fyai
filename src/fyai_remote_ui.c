@@ -366,10 +366,11 @@ static int remote_ui_terms(struct fyai_remote_ui *view, fy_generic root)
 			t->shown = 0;
 		}
 		if (t && t->mirror) {
-			if (!t->dismissed)
-				fyai_tools_mirror_update(
+			if (!t->dismissed &&
+			    fyai_tools_mirror_update(
 					fyai_shell_session_find(ctx, name),
-					item);
+					item))
+				t->shown = 0;
 			if (remote_ui_term_feed(view, t))
 				return -1;
 			continue;

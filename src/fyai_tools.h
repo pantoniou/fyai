@@ -242,8 +242,12 @@ struct fyai_shell_session *fyai_tools_mirror_open(struct fyai_ctx *ctx,
 /* Give the mirror the bytes that the program of the worker wrote. */
 void fyai_tools_mirror_feed(struct fyai_shell_session *sess,
 			    const char *data, size_t len);
-/* Take the size and the end of the program from a new @item of the worker. */
-void fyai_tools_mirror_update(struct fyai_shell_session *sess, fy_generic item);
+/*
+ * Take the size and the end of the program from a new @item of the worker.
+ * True when the size changed: a resize drops what the program drew once, so
+ * the caller replays the text of the worker over the view.
+ */
+bool fyai_tools_mirror_update(struct fyai_shell_session *sess, fy_generic item);
 /* The worker dropped the session: drop the mirror. */
 void fyai_tools_mirror_drop(struct fyai_shell_session *sess);
 /*
