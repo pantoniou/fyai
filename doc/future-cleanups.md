@@ -679,11 +679,17 @@ is a series. Check an item again before work on it.
 
 ### Large files and functions
 
-15. `src/fyai_tools.c` is 9557 lines (L). Seams: the shell sandbox
-    (lines 718-1087), shell sessions and tiles (3527-4900), the child serve
-    and exec path (2555-3265), the agent view and inline code (5037-5650), and
-    the job lifecycle (5644 to the end). Do this with items 1 and 2 of part 1,
-    so the enums land in the new files.
+15. Done. `src/fyai_tools.c` was 9585 lines. It is now 2619 lines, the
+    dispatch of tool calls, the tool implementations and the glue. The seams
+    moved to `src/fyai_tool_job.c` (2340 lines, the job lifecycle and the
+    job groups), `src/fyai_shell_session.c` (2655, the sessions, their tiles,
+    zoom, focus and bang commands), `src/fyai_agent_view.c` (848, the screen
+    of a sub-agent and the inline terminal), `src/fyai_tool_child.c` (821, the
+    child serve, spawn and exec path) and `src/fyai_shell_sandbox.c` (436).
+    `src/fyai_tools_int.h` (355 lines) holds the structures and the
+    prototypes that cross the files. Open: `fyai_shell_session.c` still holds
+    the focus and zoom code (about 1000 lines) that could be a file of its
+    own.
 16. `src/utils.c` holds shell capture (490-1277, which overlaps
     `fyai_tools.c`), the editor pane, and JSON helpers (M). Move shell capture
     and the editor into files of their own, and correct the one-line entry in

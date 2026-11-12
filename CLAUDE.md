@@ -190,6 +190,18 @@ initialize each generic field explicitly.
 - `src/fyai_output.c`: transcript document source and fragments.
 - `src/fyai_session.c`: interactive input and slash commands.
 - `src/fyai_agent.c`: sub-agent execution and agent RPC.
+- `src/fyai_tools.c`: the dispatch of tool calls, the tool implementations
+  and the glue. `src/fyai_tools_int.h` is the interface that the tool files
+  share; keep a function there only when another tool file calls it.
+- `src/fyai_tool_job.c`: the lifecycle of a tool job and of a job group:
+  spawn, submit, gate, collect and the exchange scope.
+- `src/fyai_tool_child.c`: the tool child process: its fork and exec, its
+  JSON-RPC serve loop and its dispatch.
+- `src/fyai_shell_sandbox.c`: the confinement policy of a shell command.
+- `src/fyai_shell_session.c`: shell sessions and their tiles, zoom and focus,
+  bang commands, user programs and mirrors.
+- `src/fyai_agent_view.c`: the screen of a sub-agent, its inline terminal and
+  the btw panels.
 - `src/fyai_claude_sdk.c`: the Claude Agent SDK protocol
   (`doc/claude-sdk-compat.md`).
 - `src/fyai_event*.c`: the portable event loop and signal handling.
