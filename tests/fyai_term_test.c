@@ -27,6 +27,7 @@ FYAI_TEST_ENTRY(term, view_screen_resize, term_view_screen_resize)
 FYAI_TEST_ENTRY(term, view_altscreen_resize, term_view_altscreen_resize)
 FYAI_TEST_ENTRY(term, view_scroll, term_view_scroll)
 FYAI_TEST_ENTRY(term, view_rows_sgr, term_view_rows_sgr)
+FYAI_TEST_ENTRY(term, view_screen_phase, term_view_screen_phase)
 
 static void feed(struct fyai_terminal_view *view, const char *bytes)
 {
@@ -442,5 +443,33 @@ int term_view_rows_sgr(void)
 		    !memcmp(out.data, cursor, out.len));
 	fyai_terminal_view_destroy(view);
 	free(out.data);
+	return 0;
+}
+
+/*
+ * Plain text keeps the view in line mode. A leave of the alternate buffer
+ * that no entry preceded draws a screen but is not a full-screen program, and
+ * only an entry says that the program used the buffer.
+ */
+int term_view_screen_phase(void)
+{
+	struct fyai_terminal_view *view;
+
+	view = fyai_terminal_view_create(NULL, 4, 20, 0);
+	FYAI_TCHECK(view != NULL);
+	if (!view)
+		return 0;
+	feed(view, "text\r\n");
+	FYAI_TCHECK(!fyai_terminal_view_screen_mode(view));
+	FYAI_TCHECK(!fyai_terminal_view_used_alt_screen(view));
+	feed(view, "\033[?1049l");
+	FYAI_TCHECK(fyai_terminal_view_screen_mode(view));
+	FYAI_TCHECK(!fyai_terminal_view_used_alt_screen(view));
+	feed(view, "\033[?1049h");
+	FYAI_TCHECK(fyai_terminal_view_used_alt_screen(view));
+	feed(view, "\033[?1049l");
+	FYAI_TCHECK(fyai_terminal_view_screen_mode(view));
+	FYAI_TCHECK(fyai_terminal_view_used_alt_screen(view));
+	fyai_terminal_view_destroy(view);
 	return 0;
 }
