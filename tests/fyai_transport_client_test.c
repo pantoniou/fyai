@@ -21,6 +21,7 @@
 #include "fyai_curl.h"
 #include "fyai_event.h"
 #include "fyai_test.h"
+#include "fyai_transport_boot.h"
 #include "fyai_transport_cfg.h"
 #include "fyai_transport_client.h"
 #include "fyai_transport_server.h"
@@ -39,6 +40,7 @@ FYAI_TEST_ENTRY(transport_client, lost_transport, transport_client_lost_transpor
 FYAI_TEST_ENTRY(transport_client, concurrent_calls, transport_client_concurrent_calls)
 FYAI_TEST_ENTRY(transport_client, xfer_backend, transport_client_xfer_backend)
 FYAI_TEST_ENTRY(transport_client, xfer_maps_failures, transport_client_xfer_maps_failures)
+FYAI_TEST_ENTRY(transport_client, role_follows_attach, transport_client_role_follows_attach)
 
 #define BOUND_MS tmock_bound_ms()
 
@@ -527,4 +529,54 @@ int transport_client_xfer_maps_failures(void)
 	rig_close(&r);
 	tmock_stop(&m);
 	return 0;
+}
+
+/* Attach to a transport that the environment names, and read the role. */
+static enum fyai_transport_role attach_role(const char *owner)
+{
+	enum fyai_transport_role role;
+	char fd[16];
+	int sv[2];
+
+	FYAI_TCHECK(!socketpair(AF_UNIX, SOCK_SEQPACKET | SOCK_CLOEXEC, 0, sv));
+	snprintf(fd, sizeof(fd), "%d", sv[0]);
+	setenv(FYAI_TRANSPORT_FD_ENV, fd, 1);
+	setenv(FYAI_TRANSPORT_EXEC_ENV, "7", 1);
+	if (owner)
+		setenv(FYAI_TRANSPORT_OWNER_ENV, owner, 1);
+	else
+		unsetenv(FYAI_TRANSPORT_OWNER_ENV);
+	FYAI_TCHECK(!fyai_transport_attach(&test_ctx));
+	FYAI_TCHECK(test_ctx.transport.client);
+	role = test_ctx.transport.role;
+	fyai_transport_detach(&test_ctx);
+	/* A detached transport has no client and no role. */
+	FYAI_TCHECK(!test_ctx.transport.client);
+	FYAI_TCHECK(test_ctx.transport.role == FYAI_TRANSPORT_NONE);
+	close(sv[0]);
+	close(sv[1]);
+	return role;
+}
+
+void transport_client_role_follows_attach(void)
+{
+	char self[16];
+
+	test_cfg.no_auth = true;
+	snprintf(self, sizeof(self), "%ld", (long)getpid());
+	FYAI_TCHECK(test_ctx.transport.role == FYAI_TRANSPORT_NONE);
+	FYAI_TCHECK(attach_role(self) == FYAI_TRANSPORT_OWNER);
+	FYAI_TCHECK(attach_role("0") == FYAI_TRANSPORT_SUPERVISOR);
+	/* The owner names another process, or none. */
+	FYAI_TCHECK(attach_role("1") == FYAI_TRANSPORT_SECONDARY);
+	FYAI_TCHECK(attach_role(NULL) == FYAI_TRANSPORT_SECONDARY);
+	unsetenv(FYAI_TRANSPORT_FD_ENV);
+	unsetenv(FYAI_TRANSPORT_EXEC_ENV);
+	unsetenv(FYAI_TRANSPORT_OWNER_ENV);
+	fyai_curl_cleanup(&test_ctx);
+	if (test_ctx.el) {
+		fyai_event_loop_destroy(test_ctx.el);
+		test_ctx.el = NULL;
+	}
+	fyai_event_pool_drain(&test_ctx);
 }
