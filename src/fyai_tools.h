@@ -23,6 +23,12 @@ typedef void (*fyai_tool_group_complete_fn)(
 typedef void (*fyai_mcp_call_complete_fn)(
 		struct fyai_mcp_call_request *request, void *userdata);
 
+/*
+ * Drop the state that a forked child copied from its parent and must not use:
+ * the display, the sessions, the jobs and the connections. Ends nothing.
+ */
+void fyai_ctx_fork_disown(struct fyai_ctx *ctx);
+
 /* Map the exec_command wire name to the internal shell tool name. */
 #define FYAI_TOOL_EXEC_WIRE_NAME "exec_command"
 const char *fyai_tool_name_canonical(const char *name);

@@ -5917,8 +5917,10 @@ void fyai_tool_agent_title_refresh(struct fyai_ctx *ctx, const char *branch)
 }
 
 /* Clear live parent-owned state after fork. */
-static void fyai_ctx_fork_disown(struct fyai_ctx *ctx)
+void fyai_ctx_fork_disown(struct fyai_ctx *ctx)
 {
+	size_t i;
+
 	if (!ctx)
 		return;
 	/* First: a release below closes texts of the model, and a consumer of
@@ -5943,6 +5945,7 @@ static void fyai_ctx_fork_disown(struct fyai_ctx *ctx)
 	fyai_output_cleanup(ctx);		/* the document it has open */
 	fyai_diag_reset(&ctx->cfg->diag);	/* what the parent has not drained yet */
 	fyai_cover_abandon(&ctx->cover);	/* the holder that it does not own */
+	fyai_session_btw_abandon(ctx);		/* its side questions */
 	fyai_orphan_abandon(ctx);		/* and the processes that the scope keeps */
 	ctx->scope_pins = 0;
 	ctx->scope_open = false;
@@ -5950,6 +5953,7 @@ static void fyai_ctx_fork_disown(struct fyai_ctx *ctx)
 	fyai_settings_abandon(ctx);		/* and the exports */
 	fyai_diag_trace_tap(NULL, NULL);	/* the recording of the parent */
 	ctx->ui = NULL;				/* its display */
+	ctx->workpane = NULL;			/* and the tiles that it drew */
 	ctx->browser = NULL;
 	ctx->agents = NULL;
 	ctx->agent_parent = ctx->agent_execution;
@@ -5957,6 +5961,12 @@ static void fyai_ctx_fork_disown(struct fyai_ctx *ctx)
 	ctx->shell_stream = NULL;
 	ctx->tty_session = NULL;		/* the terminal it runs in */
 	ctx->winch_src = NULL;			/* a source on the loop it owns */
+	for (i = 0; i < ARRAY_SIZE(ctx->signal_src); i++)
+		ctx->signal_src[i] = NULL;
+	ctx->transport_src = NULL;
+	ctx->cmd_call = NULL;			/* the command that it runs */
+	ctx->catalog_update = NULL;		/* and the update that it started */
+	ctx->acp_rpc = NULL;			/* its connection to a client */
 	ctx->config_edit = NULL;
 	ctx->mcp = NULL;			/* its connections to the servers */
 	ctx->mcp_tools = fy_invalid;

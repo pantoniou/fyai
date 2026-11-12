@@ -13,6 +13,8 @@
 
 /* Cancel and release side questions before the interactive loop closes. */
 void fyai_session_btw_close(struct fyai_ctx *ctx);
+/* Forget the side questions of a parent in a forked child, without ending them. */
+void fyai_session_btw_abandon(struct fyai_ctx *ctx);
 /* Ask @question on a side branch, in a tile of the work pane. */
 int fyai_session_btw(struct fyai_ctx *ctx, const char *question);
 

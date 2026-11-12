@@ -2155,6 +2155,23 @@ void fyai_session_btw_close(struct fyai_ctx *ctx)
 	fyai_tools_btw_panels_close(ctx);
 }
 
+/*
+ * A forked child drops the side questions of its parent. The groups run the
+ * jobs of the parent, and their timers are sources of a loop that the child
+ * abandoned, so the child does not destroy them.
+ */
+void fyai_session_btw_abandon(struct fyai_ctx *ctx)
+{
+	struct fyai_btw_run *run, *next;
+
+	for (run = ctx->btw_runs; run; run = next) {
+		next = run->next;
+		free(run->branch);
+		free(run);
+	}
+	ctx->btw_runs = NULL;
+}
+
 /* Reserve a name absent from stored branches and running side questions. */
 static int session_btw_branch_name(struct fyai_ctx *ctx, char *name,
 				   size_t name_size, char *branch,
