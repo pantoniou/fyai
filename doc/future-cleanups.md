@@ -347,8 +347,6 @@ is rejected with a warning.
   documentation.
 - `fyai_agent_bg_run.finished` repeats `group == NULL`. In
   `fyai_monitor_run`, `stopped` repeats `events >= FYAI_MONITOR_MAX_EVENTS`.
-- `struct uiwork_band.state` is a static string (`"committed"`, `"destroyed"`,
-  `"closed"`) that the code compares by pointer.
 - Question phases ANSWERING and REVIEW are derived in `fyai_ui` and in the
   page.
 - `fyai_flow` (`at_line_start` against `blank_rows`), `fyai_workpane_manager`
