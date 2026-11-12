@@ -386,18 +386,77 @@ static fy_generic list_live(struct fyai_ctx *ctx, struct fy_generic_builder *gb,
 	return rows;
 }
 
+/* Present @rows as the result of a list call; -1 with the cause raised. */
+static int list_finish(struct fyai_cmd_call *call, fy_generic rows,
+		       fy_generic *result)
+{
+	const char *what = fyai_cmd_arg_str(call, "what");
+	bool full = fyai_cmd_arg_bool(call, "full");
+
+	fyai_error_check(call->ctx, fy_is_valid(rows), err, "list: cannot "
+			 "build the %s", what);
+	call->renderopts = list_renderopts(call->gb, what, full);
+	if (fyai_cmd_arg_bool(call, "raw"))
+		call->renderopts = fy_assoc(call->gb, call->renderopts, "raw",
+					    true);
+	if (call->format == FYAI_CMD_OUT_MARKDOWN &&
+	    (!strcmp(what, "models") || !strcmp(what, "providers")))
+		rows = list_decorate(call, rows, what);
+	*result = rows;
+	return 0;
+err:
+	return -1;
+}
+
+static void list_models_complete(struct fyai_auth_models_request *request,
+				 void *userdata)
+{
+	struct fyai_cmd_call *call = userdata;
+	fy_generic rows, result = fy_invalid;
+	int rc;
+
+	if (!fyai_auth_models_done(request))
+		return;
+	rows = fyai_auth_models_collect(request, call->gb,
+					fyai_cmd_arg_bool(call, "full"));
+	rc = list_finish(call, rows, &result);
+	fyai_cmd_done(call, rc ? -1 : 0, result);
+}
+
+static void list_models_cancel(struct fyai_cmd_call *call)
+{
+	fyai_auth_models_cancel(call->priv);
+}
+
+/* The request outlives its completion callback; release it with the call. */
+static void list_models_cleanup(struct fyai_cmd_call *call)
+{
+	fyai_auth_models_destroy(call->priv);
+	call->priv = NULL;
+}
+
 int fyai_cmd_list(struct fyai_cmd_call *call, fy_generic *result)
 {
 	struct fyai_ctx *ctx = call->ctx;
 	const char *what = fyai_cmd_arg_str(call, "what");
 	bool full = fyai_cmd_arg_bool(call, "full");
+	struct fyai_auth_models_request *request;
 	fy_generic rows, live;
 
 	live = list_live(ctx, call->gb, what);
+	if (!strcmp(what, "models") &&
+	    ctx->cfg->auth_mode == FYAI_AUTH_CHATGPT) {
+		request = fyai_auth_models_submit(ctx, list_models_complete,
+						  call);
+		fyai_error_check(ctx, request, err, "list: cannot fetch the "
+				 "models");
+		call->priv = request;
+		call->cleanup = list_models_cleanup;
+		call->cancel = list_models_cancel;
+		return FYAI_CMD_PENDING;
+	}
 	if (!strcmp(what, "models"))
-		rows = ctx->cfg->auth_mode == FYAI_AUTH_CHATGPT ?
-		       fyai_auth_models(ctx, call->gb, full) :
-		       list_models(call, full);
+		rows = list_models(call, full);
 	else if (!strcmp(what, "turns"))
 		rows = fyai_list_turns_data(ctx, call->gb);
 	else if (!strcmp(what, "exchanges"))
@@ -408,17 +467,7 @@ int fyai_cmd_list(struct fyai_cmd_call *call, fy_generic *result)
 		rows = live;
 	else
 		rows = list_providers(call);
-	fyai_error_check(ctx, fy_is_valid(rows), err, "list: cannot build "
-			 "the %s", what);
-	call->renderopts = list_renderopts(call->gb, what, full);
-	if (fyai_cmd_arg_bool(call, "raw"))
-		call->renderopts = fy_assoc(call->gb, call->renderopts, "raw",
-					    true);
-	if (call->format == FYAI_CMD_OUT_MARKDOWN &&
-	    (!strcmp(what, "models") || !strcmp(what, "providers")))
-		rows = list_decorate(call, rows, what);
-	*result = rows;
-	return 0;
+	return list_finish(call, rows, result);
 err:
 	return -1;
 }

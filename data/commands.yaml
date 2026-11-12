@@ -916,6 +916,7 @@ commands:
       `messages` list one kind of live work. A verb has no live work and lists none.
     surfaces: [cli, session]
     handler: list
+    mode: async
     flags: [transient, model-state]
     view: true
     while_busy: run
@@ -2820,6 +2821,7 @@ commands:
           tokens. Keep the client registration and host ID for later sign-in.
         flags: [no-storage, transient]
         handler: auth_logout
+        mode: async
         render:
           message: "auth: logged out"
 

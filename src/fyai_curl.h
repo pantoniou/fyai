@@ -36,9 +36,6 @@ void fyai_curl_transfer_destroy(struct fyai_curl_transfer *transfer);
 /* Return true when a later request can succeed without a configuration change. */
 bool fyai_http_transient(CURLcode rc, long status);
 
-/* Synchronous compatibility wrapper over the submitted transfer lifecycle. */
-CURLcode fyai_curl_perform(struct fyai_ctx *ctx, CURL *easy);
-
 /* Release the invocation's curl plumbing: the multi handle with its connection
  * pool, and the loop whose sources describe curl's sockets. */
 void fyai_curl_cleanup(struct fyai_ctx *ctx);

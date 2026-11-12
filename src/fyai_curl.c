@@ -20,8 +20,7 @@
  *    registered them. A per-transfer loop recycles them underneath curl and
  *    hands the next transfer a source belonging to a destroyed loop.
  *
- * Transfers are submitted asynchronously. fyai_curl_perform() remains as a
- * compatibility wrapper for callers that have not moved to callbacks yet.
+ * Transfers are submitted asynchronously and complete through a callback.
  */
 
 #define FYAI_MODULE FYAIEM_STREAM
@@ -544,16 +543,6 @@ void fyai_curl_transfer_destroy(struct fyai_curl_transfer *transfer)
 	free(transfer);
 }
 
-static void fyai_curl_sync_complete(struct fyai_curl_transfer *transfer,
-				    void *userdata)
-{
-	volatile bool *done;
-
-	(void)transfer;
-	done = userdata;
-	*done = true;
-}
-
 bool fyai_http_transient(CURLcode rc, long status)
 {
 	return rc == CURLE_COULDNT_CONNECT ||
@@ -562,32 +551,4 @@ bool fyai_http_transient(CURLcode rc, long status)
 		rc == CURLE_OPERATION_TIMEDOUT ||
 		status == 408 || status == 429 || status == 500 ||
 		status == 502 || status == 503 || status == 504;
-}
-
-CURLcode fyai_curl_perform(struct fyai_ctx *ctx, CURL *easy)
-{
-	struct fyai_curl_transfer *transfer;
-	struct fyai_event_loop *el;
-	CURLcode result;
-	volatile bool done;
-	int rc;
-
-	done = false;
-	result = CURLE_FAILED_INIT;
-	transfer = fyai_curl_submit(ctx, easy, fyai_curl_sync_complete,
-				    (void *)&done);
-	fyai_error_check(ctx, transfer, out, "could not submit curl transfer");
-	el = fyai_ctx_loop(ctx);
-	fyai_error_check(ctx, el, out_destroy,
-			 "curl transfer requires an event loop");
-	if (!done) {
-		rc = fyai_event_loop_run_until(el, &done, -1);
-		if (rc)
-			fyai_curl_cancel(transfer);
-	}
-	result = fyai_curl_collect(transfer);
-out_destroy:
-	fyai_curl_transfer_destroy(transfer);
-out:
-	return result;
 }

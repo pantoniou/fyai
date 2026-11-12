@@ -521,33 +521,85 @@ static size_t auth_write(void *ptr, size_t size, size_t nmemb, void *arg)
 	return n;
 }
 
-static int auth_http_request(struct fyai_ctx *ctx,
-			     const char *url, const char *body,
-			     struct curl_slist *headers, struct auth_http *out)
-{
+/*
+ * One HTTP exchange on the event loop. The fetch owns its handle, headers,
+ * body and response; auth_fetch_start() replaces them, so one fetch serves a
+ * chain of requests. @done runs from the transfer completion, after the
+ * transfer is released, with the outcome in @code and @response.status.
+ */
+struct auth_fetch {
+	struct fyai_ctx *ctx;
+	struct fyai_curl_transfer *transfer;
 	CURL *curl;
+	struct curl_slist *headers;
+	struct auth_http response;
+	char *body;
 	CURLcode code;
+	void (*done)(void *owner);
+	void *owner;
+};
 
-	memset(out, 0, sizeof(*out));
-	curl = curl_easy_init();
-	fyai_error_check(ctx, curl, err, "auth: could not make a curl handle");
+static void auth_fetch_reset(struct auth_fetch *f)
+{
+	curl_easy_cleanup(f->curl);
+	f->curl = NULL;
+	curl_slist_free_all(f->headers);
+	f->headers = NULL;
+	free(f->response.data);
+	memset(&f->response, 0, sizeof(f->response));
+	free(f->body);
+	f->body = NULL;
+}
+
+static void auth_fetch_destroy(struct auth_fetch *f)
+{
+	fyai_curl_transfer_destroy(f->transfer);
+	f->transfer = NULL;
+	auth_fetch_reset(f);
+}
+
+static void auth_fetch_complete(struct fyai_curl_transfer *transfer,
+				void *userdata)
+{
+	struct auth_fetch *f = userdata;
+
+	f->code = fyai_curl_collect(transfer);
+	fyai_curl_transfer_destroy(transfer);
+	f->transfer = NULL;
+	if (f->code == CURLE_OK)
+		curl_easy_getinfo(f->curl, CURLINFO_RESPONSE_CODE,
+				  &f->response.status);
+	f->done(f->owner);
+}
+
+/* Take @headers and @body; they are released with the fetch even on failure. */
+static int auth_fetch_start(struct auth_fetch *f, const char *url, char *body,
+			    struct curl_slist *headers)
+{
+	struct fyai_ctx *ctx = f->ctx;
+
+	auth_fetch_reset(f);
+	f->headers = headers;
+	f->body = body;
+	f->curl = curl_easy_init();
+	fyai_error_check(ctx, f->curl, err_out,
+			 "auth: could not make a curl handle");
 	/* Reserve SIGALRM for the watchdog. */
-	curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1L);
-	curl_easy_setopt(curl, CURLOPT_URL, url);
-	curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, auth_write);
-	curl_easy_setopt(curl, CURLOPT_WRITEDATA, out);
-	curl_easy_setopt(curl, CURLOPT_TIMEOUT, 120L);
-	curl_easy_setopt(curl, CURLOPT_USERAGENT, "fyai/" VERSION);
+	curl_easy_setopt(f->curl, CURLOPT_NOSIGNAL, 1L);
+	curl_easy_setopt(f->curl, CURLOPT_URL, url);
+	curl_easy_setopt(f->curl, CURLOPT_WRITEFUNCTION, auth_write);
+	curl_easy_setopt(f->curl, CURLOPT_WRITEDATA, &f->response);
+	curl_easy_setopt(f->curl, CURLOPT_TIMEOUT, 120L);
+	curl_easy_setopt(f->curl, CURLOPT_USERAGENT, "fyai/" VERSION);
 	if (body)
-		curl_easy_setopt(curl, CURLOPT_POSTFIELDS, body);
+		curl_easy_setopt(f->curl, CURLOPT_POSTFIELDS, body);
 	if (headers)
-		curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
-	code = fyai_curl_perform(ctx, curl);
-	if (code == CURLE_OK)
-		curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &out->status);
-	curl_easy_cleanup(curl);
-	return code == CURLE_OK ? 0 : -1;
-err:
+		curl_easy_setopt(f->curl, CURLOPT_HTTPHEADER, headers);
+	f->transfer = fyai_curl_submit(ctx, f->curl, auth_fetch_complete, f);
+	fyai_error_check(ctx, f->transfer, err_out,
+			 "auth: could not submit the request");
+	return 0;
+err_out:
 	return -1;
 }
 
@@ -1435,41 +1487,185 @@ void fyai_auth_refresh_destroy(struct fyai_auth_refresh_request *request)
 	free(request);
 }
 
-static void revoke_token(struct fyai_ctx *ctx, struct fyai_credentials *c)
+enum fyai_auth_logout_state {
+	FYAILOS_DISCOVERY,
+	FYAILOS_REVOKE,
+	FYAILOS_COMPLETED,
+	FYAILOS_CANCELLED,
+	FYAILOS_FAILED,
+};
+
+/*
+ * Logout holds the credential store lock from submit to completion. The
+ * remote revocation is best effort: an unconfirmed one is reported and the
+ * local tokens are cleared all the same. A cancelled logout changes nothing.
+ */
+struct fyai_auth_logout_request {
+	struct fyai_ctx *ctx;
+	struct auth_fetch fetch;
+	fyai_auth_logout_complete_fn complete;
+	void *userdata;
+	struct fyai_credentials credentials;
+	int lockfd;
+	int result;
+	enum fyai_auth_logout_state state;
+	bool loaded;
+};
+
+static bool auth_logout_state_final(enum fyai_auth_logout_state state)
 {
-	struct curl_slist *headers = NULL;
-	struct auth_http r = {};
+	return state == FYAILOS_COMPLETED || state == FYAILOS_CANCELLED ||
+	       state == FYAILOS_FAILED;
+}
+
+static void auth_logout_finish(struct fyai_auth_logout_request *request,
+			       enum fyai_auth_logout_state state)
+{
+	struct fyai_ctx *ctx = request->ctx;
+	struct fyai_credentials *c = &request->credentials;
+	int rc = 0;
+
+	if (auth_logout_state_final(request->state))
+		return;
+	if (state == FYAILOS_COMPLETED && request->loaded) {
+		c->access_token = c->refresh_token = c->id_token = c->scope = "";
+		c->expires_at = 0;
+		rc = auth_save(ctx, c);
+		if (rc)
+			state = FYAILOS_FAILED;
+	}
+	auth_unlock(ctx, request->lockfd);
+	request->lockfd = -1;
+	if (state != FYAILOS_CANCELLED) {
+		credentials_clear(&ctx->auth);
+		ctx->cfg->chatgpt_auth = false;
+	}
+	request->state = state;
+	request->result = state == FYAILOS_COMPLETED ? 0 : -1;
+	if (request->complete)
+		request->complete(request, request->userdata);
+}
+
+static void auth_logout_unconfirmed(struct fyai_auth_logout_request *request)
+{
+	fyai_notice(request->ctx, "remote revocation was not confirmed; disconnect fyai in ChatGPT Settings");
+	auth_logout_finish(request, FYAILOS_COMPLETED);
+}
+
+static void auth_logout_fetched(void *owner)
+{
+	struct fyai_auth_logout_request *request = owner;
+	struct auth_fetch *f = &request->fetch;
+	struct fyai_ctx *ctx = request->ctx;
+	struct curl_slist *headers;
 	fy_generic discovery;
 	const char *endpoint;
 	char *body;
 	int rc;
 
-	if (fy_str_empty(c->refresh_token) || fy_str_empty(c->client_id))
+	if (f->code == CURLE_ABORTED_BY_CALLBACK) {
+		auth_logout_finish(request, FYAILOS_CANCELLED);
 		return;
-	rc = auth_http_request(ctx, AUTH_ISSUER "/.well-known/openid-configuration", NULL, NULL, &r);
-	if (rc || r.status != 200)
+	}
+	if (request->state == FYAILOS_REVOKE) {
+		if (f->code == CURLE_OK && f->response.status == 200)
+			auth_logout_finish(request, FYAILOS_COMPLETED);
+		else
+			auth_logout_unconfirmed(request);
+		return;
+	}
+	if (f->code != CURLE_OK || f->response.status != 200)
 		goto unconfirmed;
-	discovery = parse_json_string(ctx->transient_gb, r.data);
-	free(r.data);
-	r.data = NULL;
+	discovery = parse_json_string(ctx->transient_gb, f->response.data);
 	endpoint = fy_get(discovery, "revocation_endpoint", "");
 	if (strncmp(endpoint, AUTH_ISSUER "/", strlen(AUTH_ISSUER "/")))
 		goto unconfirmed;
-	body = auth_form(ctx, fy_mapping("token", c->refresh_token,
-		"token_type_hint", "refresh_token", "client_id", c->client_id));
+	body = auth_form(ctx, fy_mapping("token", request->credentials.refresh_token,
+		"token_type_hint", "refresh_token",
+		"client_id", request->credentials.client_id));
 	if (!body)
 		goto unconfirmed;
 	headers = curl_slist_append(NULL, "Content-Type: application/x-www-form-urlencoded");
-	rc = auth_http_request(ctx, endpoint, body, headers, &r);
-	free(body);
-	curl_slist_free_all(headers);
-	if (!rc && r.status == 200) {
-		free(r.data);
-		return;
-	}
+	request->state = FYAILOS_REVOKE;
+	rc = auth_fetch_start(f, endpoint, body, headers);
+	if (rc)
+		goto unconfirmed;
+	return;
 unconfirmed:
-	free(r.data);
-	fyai_notice(ctx, "remote revocation was not confirmed; disconnect fyai in ChatGPT Settings");
+	auth_logout_unconfirmed(request);
+}
+
+struct fyai_auth_logout_request *
+fyai_auth_logout_submit(struct fyai_ctx *ctx,
+			fyai_auth_logout_complete_fn complete, void *userdata)
+{
+	struct fyai_auth_logout_request *request;
+	struct fyai_credentials *c;
+	int rc;
+
+	request = calloc(1, sizeof(*request));
+	fyai_error_check(ctx, request, err_out, "out of memory");
+	request->ctx = ctx;
+	request->complete = complete;
+	request->userdata = userdata;
+	request->state = FYAILOS_DISCOVERY;
+	request->result = -1;
+	request->fetch.ctx = ctx;
+	request->fetch.done = auth_logout_fetched;
+	request->fetch.owner = request;
+	c = &request->credentials;
+	c->registrations = fy_invalid;
+	request->lockfd = auth_lock_try(ctx);
+	fyai_error_check(ctx, request->lockfd >= 0, err_lock,
+			 "cannot lock credential store; retry logout");
+	request->loaded = !auth_load(ctx, c);
+	if (!request->loaded || fy_str_empty(c->refresh_token) ||
+	    fy_str_empty(c->client_id)) {
+		auth_logout_finish(request, FYAILOS_COMPLETED);
+		return request;
+	}
+	rc = auth_fetch_start(&request->fetch,
+			      AUTH_ISSUER "/.well-known/openid-configuration",
+			      NULL, NULL);
+	fyai_error_check(ctx, !rc, err_destroy, "could not start logout");
+	return request;
+
+err_destroy:
+	fyai_auth_logout_destroy(request);
+	return NULL;
+err_lock:
+	free(request);
+err_out:
+	return NULL;
+}
+
+void fyai_auth_logout_cancel(struct fyai_auth_logout_request *request)
+{
+	if (!request || auth_logout_state_final(request->state))
+		return;
+	if (request->fetch.transfer)
+		fyai_curl_cancel(request->fetch.transfer);
+	else
+		auth_logout_finish(request, FYAILOS_CANCELLED);
+}
+
+bool fyai_auth_logout_done(const struct fyai_auth_logout_request *request)
+{
+	return request && auth_logout_state_final(request->state);
+}
+
+int fyai_auth_logout_collect(const struct fyai_auth_logout_request *request)
+{
+	return fyai_auth_logout_done(request) ? request->result : -1;
+}
+
+void fyai_auth_logout_destroy(struct fyai_auth_logout_request *request)
+{
+	if (!request)
+		return;
+	auth_fetch_destroy(&request->fetch);
+	auth_unlock(request->ctx, request->lockfd);
+	free(request);
 }
 
 int fyai_auth_refresh(struct fyai_ctx *ctx, bool force)
@@ -1666,45 +1862,112 @@ int fyai_auth_resolve(struct fyai_ctx *ctx)
 	return 0;
 }
 
-fy_generic fyai_auth_models(struct fyai_ctx *ctx,
-			    struct fy_generic_builder *gb, bool full)
+enum fyai_auth_models_state {
+	FYAIMS_PENDING,
+	FYAIMS_COMPLETED,
+	FYAIMS_CANCELLED,
+	FYAIMS_FAILED,
+};
+
+struct fyai_auth_models_request {
+	struct fyai_ctx *ctx;
+	struct auth_fetch fetch;
+	fyai_auth_models_complete_fn complete;
+	void *userdata;
+	enum fyai_auth_models_state state;
+};
+
+static void auth_models_fetched(void *owner)
 {
-	struct auth_http r;
+	struct fyai_auth_models_request *request = owner;
+	struct auth_fetch *f = &request->fetch;
+	struct fyai_ctx *ctx = request->ctx;
+
+	if (f->code == CURLE_ABORTED_BY_CALLBACK) {
+		request->state = FYAIMS_CANCELLED;
+	} else if (f->code == CURLE_OK && f->response.status / 100 == 2) {
+		request->state = FYAIMS_COMPLETED;
+	} else {
+		if (f->response.status)
+			fyai_error(ctx, "model discovery failed (HTTP %ld)",
+				   f->response.status);
+		else
+			fyai_error(ctx, "model discovery failed");
+		request->state = FYAIMS_FAILED;
+	}
+	if (request->complete)
+		request->complete(request, request->userdata);
+}
+
+struct fyai_auth_models_request *
+fyai_auth_models_submit(struct fyai_ctx *ctx,
+			fyai_auth_models_complete_fn complete, void *userdata)
+{
+	struct fyai_auth_models_request *request;
 	struct curl_slist *headers = NULL;
-	const char *url;
-	fy_generic doc, models, m, out = fy_seq_empty, providers, item;
-	const char *slug;
-	bool active;
+	int rc;
 
 	if (fyai_auth_uses_transport(ctx->cfg)) {
 		fyai_error(ctx, "model discovery is not available with "
 			   "credential isolation");
-		return fy_invalid;
+		return NULL;
 	}
-	if (fyai_auth_resolve(ctx) || !ctx->cfg->chatgpt_auth)
+	rc = fyai_auth_resolve(ctx);
+	if (rc || !ctx->cfg->chatgpt_auth)
+		return NULL;
+	rc = fyai_auth_apply_headers(ctx, &headers);
+	fyai_error_check(ctx, !rc, err_headers,
+			 "model discovery: no usable credentials");
+	request = calloc(1, sizeof(*request));
+	fyai_error_check(ctx, request, err_headers, "out of memory");
+	request->ctx = ctx;
+	request->complete = complete;
+	request->userdata = userdata;
+	request->state = FYAIMS_PENDING;
+	request->fetch.ctx = ctx;
+	request->fetch.done = auth_models_fetched;
+	request->fetch.owner = request;
+	rc = auth_fetch_start(&request->fetch, AUTH_RESOURCE "/models", NULL,
+			      headers);
+	fyai_error_check(ctx, !rc, err_destroy,
+			 "could not start model discovery");
+	return request;
+
+err_destroy:
+	fyai_auth_models_destroy(request);
+	return NULL;
+err_headers:
+	curl_slist_free_all(headers);
+	return NULL;
+}
+
+void fyai_auth_models_cancel(struct fyai_auth_models_request *request)
+{
+	if (!request || request->state != FYAIMS_PENDING)
+		return;
+	fyai_curl_cancel(request->fetch.transfer);
+}
+
+bool fyai_auth_models_done(const struct fyai_auth_models_request *request)
+{
+	return request && request->state != FYAIMS_PENDING;
+}
+
+fy_generic fyai_auth_models_collect(const struct fyai_auth_models_request *request,
+				    struct fy_generic_builder *gb, bool full)
+{
+	fy_generic doc, models, m, out = fy_seq_empty, providers, item;
+	const char *slug;
+	bool active;
+
+	if (!request || request->state != FYAIMS_COMPLETED)
 		return fy_invalid;
-
-	url = AUTH_RESOURCE "/models";
-	if (fyai_auth_apply_headers(ctx, &headers))
-		goto err;
-
-	if (auth_http_request(ctx, url, NULL, headers, &r) || r.status / 100 != 2) {
-		if (r.status)
-			fyai_error(ctx, "model discovery failed (HTTP %ld)",
-				   r.status);
-		else
-			fyai_error(ctx, "model discovery failed");
-		free(r.data);
-		goto err;
-	}
-
-	doc = parse_json_string(gb, r.data);
-	free(r.data);
+	doc = parse_json_string(gb, request->fetch.response.data);
 	if (fy_is_invalid(doc))
-		goto err;
+		return fy_invalid;
 	models = fy_get(doc, "models");
 	if (!fy_is_sequence(models))
-		goto err;
+		return fy_invalid;
 	providers = fy_sequence(gb, fy_value(gb, "chatgpt"));
 	fy_foreach(m, models) {
 		slug = fy_get(m, "slug", "");
@@ -1714,7 +1977,8 @@ fy_generic fyai_auth_models(struct fyai_ctx *ctx,
 			continue;
 		if (fy_not_equal(fy_get(m, "visibility", ""), "list"))
 			continue;
-		active = ctx->cfg->model && fy_equal(ctx->cfg->model, slug);
+		active = request->ctx->cfg->model &&
+			 fy_equal(request->ctx->cfg->model, slug);
 		item = fy_null_filtered_mapping(gb,
 			"name", fy_value(gb, slug),
 			"active", active,
@@ -1727,11 +1991,15 @@ fy_generic fyai_auth_models(struct fyai_ctx *ctx,
 			"capabilities", full ? fy_get(m, "supported_reasoning_levels", fy_seq_empty) : fy_null);
 		out = fy_append(gb, out, item);
 	}
-	curl_slist_free_all(headers);
 	return out;
-err:
-	curl_slist_free_all(headers);
-	return fy_invalid;
+}
+
+void fyai_auth_models_destroy(struct fyai_auth_models_request *request)
+{
+	if (!request)
+		return;
+	auth_fetch_destroy(&request->fetch);
+	free(request);
 }
 
 fy_generic fyai_auth_accounts_data(struct fyai_ctx *ctx, struct fy_generic_builder *gb)
@@ -1839,29 +2107,6 @@ int fyai_auth_usage(struct fyai_ctx *ctx, struct fy_generic_builder *out_gb,
 		"usage", "https://chatgpt.com/settings/usage",
 		"message", "Review account-wide app limits and credit permissions in ChatGPT Settings");
 	return fy_is_valid(*datap) ? 0 : -1;
-}
-
-int fyai_auth_logout(struct fyai_ctx *ctx)
-{
-	struct fyai_credentials c = { .registrations = fy_invalid };
-	int lockfd;
-	int rc = 0;
-
-	lockfd = auth_lock_try(ctx);
-	if (lockfd < 0) {
-		fyai_error(ctx, "cannot lock credential store; retry logout");
-		return -1;
-	}
-	if (!auth_load(ctx, &c)) {
-		revoke_token(ctx, &c);
-		c.access_token = c.refresh_token = c.id_token = c.scope = "";
-		c.expires_at = 0;
-		rc = auth_save(ctx, &c);
-	}
-	auth_unlock(ctx, lockfd);
-	credentials_clear(&ctx->auth);
-	ctx->cfg->chatgpt_auth = false;
-	return rc;
 }
 
 struct auth_login_sync {

@@ -89,8 +89,35 @@ int fyai_cmd_auth_usage(struct fyai_cmd_call *call, fy_generic *result)
 			       call->format != FYAI_CMD_OUT_MARKDOWN, result);
 }
 
+static void auth_logout_complete(struct fyai_auth_logout_request *request,
+				 void *userdata)
+{
+	struct fyai_cmd_call *call = userdata;
+	int rc;
+
+	if (!fyai_auth_logout_done(request))
+		return;
+	rc = fyai_auth_logout_collect(request);
+	fyai_cmd_done(call, rc ? -1 : 0,
+		      rc ? fy_invalid : fy_mapping(call->gb, "logged_out", true));
+}
+
+static void auth_logout_cancel(struct fyai_cmd_call *call)
+{
+	fyai_auth_logout_cancel(call->priv);
+}
+
+/* The request outlives its completion callback; release it with the call. */
+static void auth_logout_cleanup(struct fyai_cmd_call *call)
+{
+	fyai_auth_logout_destroy(call->priv);
+	call->priv = NULL;
+}
+
 int fyai_cmd_auth_logout(struct fyai_cmd_call *call, fy_generic *result)
 {
+	struct fyai_auth_logout_request *request;
+
 	if (auth_provider(call))
 		return -1;
 	if (call->ctx->tclient) {
@@ -98,10 +125,22 @@ int fyai_cmd_auth_logout(struct fyai_cmd_call *call, fy_generic *result)
 
 		if (auth_forward(call, "logout", &data))
 			return -1;
-	} else if (fyai_auth_logout(call->ctx))
+		*result = fy_mapping(call->gb, "logged_out", true);
+		return 0;
+	}
+	request = fyai_auth_logout_submit(call->ctx, auth_logout_complete,
+					  call);
+	if (!request)
 		return -1;
-	*result = fy_mapping(call->gb, "logged_out", true);
-	return 0;
+	call->priv = request;
+	call->cleanup = auth_logout_cleanup;
+	/* A logout with nothing to revoke has completed already. */
+	if (call->done) {
+		*result = call->result;
+		return call->rc;
+	}
+	call->cancel = auth_logout_cancel;
+	return FYAI_CMD_PENDING;
 }
 
 static void auth_login_complete(struct fyai_auth_login_request *request,

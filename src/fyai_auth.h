@@ -57,7 +57,24 @@ int fyai_auth_login(struct fyai_ctx *ctx, bool device_code,
 		    bool no_browser, bool manual, const char *account, bool new_account);
 fy_generic fyai_auth_accounts_data(struct fyai_ctx *ctx,
 				   struct fy_generic_builder *gb);
-int fyai_auth_logout(struct fyai_ctx *ctx);
+
+struct fyai_auth_logout_request;
+typedef void (*fyai_auth_logout_complete_fn)(
+		struct fyai_auth_logout_request *request, void *userdata);
+
+/*
+ * Revoke the refresh token at the issuer and clear the local tokens, on the
+ * event loop. The request holds the credential store lock until it completes;
+ * @complete runs once, possibly before submit returns. A cancelled request
+ * changes nothing. Returns NULL with the cause raised.
+ */
+struct fyai_auth_logout_request *
+fyai_auth_logout_submit(struct fyai_ctx *ctx,
+			fyai_auth_logout_complete_fn complete, void *userdata);
+void fyai_auth_logout_cancel(struct fyai_auth_logout_request *request);
+bool fyai_auth_logout_done(const struct fyai_auth_logout_request *request);
+int fyai_auth_logout_collect(const struct fyai_auth_logout_request *request);
+void fyai_auth_logout_destroy(struct fyai_auth_logout_request *request);
 /* Return recorded conversation usage and the plan-settings link in out_gb. */
 int fyai_auth_usage(struct fyai_ctx *ctx, struct fy_generic_builder *out_gb,
 		    bool raw, fy_generic *datap);
@@ -121,8 +138,24 @@ const char *fyai_auth_chatgpt_url(void);
  * already: a request refreshes once.
  */
 bool fyai_auth_should_retry(struct fyai_ctx *ctx, long status, bool refreshed);
-fy_generic fyai_auth_models(struct fyai_ctx *ctx,
-			    struct fy_generic_builder *gb, bool full);
+
+struct fyai_auth_models_request;
+typedef void (*fyai_auth_models_complete_fn)(
+		struct fyai_auth_models_request *request, void *userdata);
+
+/*
+ * Fetch the model list of the ChatGPT account on the event loop. @complete
+ * runs once from the loop. Returns NULL with the cause raised.
+ */
+struct fyai_auth_models_request *
+fyai_auth_models_submit(struct fyai_ctx *ctx,
+			fyai_auth_models_complete_fn complete, void *userdata);
+void fyai_auth_models_cancel(struct fyai_auth_models_request *request);
+bool fyai_auth_models_done(const struct fyai_auth_models_request *request);
+/* Build the rows in @gb; fy_invalid when the request did not complete. */
+fy_generic fyai_auth_models_collect(const struct fyai_auth_models_request *request,
+				    struct fy_generic_builder *gb, bool full);
+void fyai_auth_models_destroy(struct fyai_auth_models_request *request);
 void fyai_auth_cleanup(struct fyai_ctx *ctx);
 
 #endif
