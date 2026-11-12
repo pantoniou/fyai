@@ -2654,7 +2654,7 @@ int fyai_request_state_apply(struct fyai_ctx *ctx)
 	ctx->tools = fy_invalid;
 
 	/* A local server without authentication gets no API-key header. */
-	if (!cfg->chatgpt_auth && !cfg->no_auth && !ctx->tclient &&
+	if (!cfg->chatgpt_auth && !cfg->no_auth && !ctx->transport.client &&
 	    (!cfg->interactive || (cfg->api_key && *cfg->api_key))) {
 		ctx->auth_header = grammar->key_header ?
 			make_header(fy_sprintfa("%s: ", grammar->key_header),

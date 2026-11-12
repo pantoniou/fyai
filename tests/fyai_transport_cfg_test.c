@@ -334,7 +334,7 @@ int transport_cfg_isolation_change_restarts(void)
 	FYAI_TCHECK(fyai_transport_config_changed(&ctx, &why) == 0);
 
 	/* A transport is running: it is the `none` that restarts. */
-	ctx.tclient = (struct fyai_tclient *)&ctx;
+	ctx.transport.client = (struct fyai_tclient *)&ctx;
 	FYAI_TCHECK(fyai_transport_config_changed(&ctx, &why) == 1);
 	cfg.agent_transport_isolation = "level-b";
 	FYAI_TCHECK(fyai_transport_config_changed(&ctx, &why) == 0);

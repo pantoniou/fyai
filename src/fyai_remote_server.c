@@ -491,7 +491,7 @@ static int remote_spawn(struct fyai_remote_peer *peer, const char *branch,
 	rc = fyai_remote_socketpair(SOCK_STREAM, channel);
 	fyai_error_check(ctx, !rc, out, "cannot make the channel of a "
 			 "worker: %s", strerror(errno));
-	if (ctx->tclient) {
+	if (ctx->transport.client) {
 		rc = fyai_remote_socketpair(SOCK_SEQPACKET, agent);
 		if (!rc)
 			rc = fyai_remote_socketpair(SOCK_SEQPACKET, ctl);
@@ -509,7 +509,7 @@ static int remote_spawn(struct fyai_remote_peer *peer, const char *branch,
 	if (!pid)
 		remote_worker_exec(ctx, args[0], args, peer->dir, channel[1],
 				   agent[0], ctl[0], sync[0]);
-	if (ctx->tclient) {
+	if (ctx->transport.client) {
 		rc = fyai_transport_worker_admit(ctx, pid, agent[1], ctl[1],
 						 sync[1]);
 		fyai_error_check(ctx, !rc, out,

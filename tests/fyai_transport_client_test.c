@@ -87,7 +87,7 @@ static void rig_open(struct rig *r, int port)
 
 static void rig_close(struct rig *r)
 {
-	test_ctx.tclient = NULL;
+	test_ctx.transport.client = NULL;
 	fyai_tclient_close(r->client);
 	free((char *)test_cfg.api_url);
 	test_cfg.api_url = NULL;
@@ -436,7 +436,7 @@ static bool xf_finished(void *ud)
 
 static void xf_run(struct rig *r, struct xf *f, const char *profile)
 {
-	test_ctx.tclient = r->client;
+	test_ctx.transport.client = r->client;
 	fyai_xfer_set_endpoint(&test_ctx, NULL, profile);
 	fyai_xfer_set_body(&test_ctx, "{}");
 	f->x = fyai_xfer_submit(&test_ctx, xf_write, f, xf_done, f);

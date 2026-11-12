@@ -377,7 +377,7 @@ static int acp_spawn_worker(struct acp_session *s, fy_generic content,
 		op_rc = pipe(output);
 	fyai_error_check(ctx, !op_rc, out,
 			 "could not create ACP worker pipes: %s", strerror(errno));
-	if (ctx->tclient) {
+	if (ctx->transport.client) {
 		admit_rc = socketpair(AF_UNIX, SOCK_SEQPACKET, 0, agent);
 		if (!admit_rc)
 			admit_rc = socketpair(AF_UNIX, SOCK_SEQPACKET, 0, ctl);
@@ -393,7 +393,7 @@ static int acp_spawn_worker(struct acp_session *s, fy_generic content,
 	if (!pid) {
 		acp_close_fd(&input[1]);
 		acp_close_fd(&output[0]);
-		if (ctx->tclient) {
+		if (ctx->transport.client) {
 			acp_close_fd(&agent[1]);
 			acp_close_fd(&ctl[1]);
 			acp_close_fd(&sync[1]);
@@ -415,7 +415,7 @@ static int acp_spawn_worker(struct acp_session *s, fy_generic content,
 	acp_close_fd(&input[0]);
 	acp_close_fd(&output[1]);
 	s->pid = pid;
-	if (ctx->tclient) {
+	if (ctx->transport.client) {
 		acp_close_fd(&agent[0]);
 		acp_close_fd(&ctl[0]);
 		acp_close_fd(&sync[0]);

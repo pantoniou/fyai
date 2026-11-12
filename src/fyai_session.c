@@ -1622,10 +1622,10 @@ static int session_banner_legacy(struct fyai_ctx *ctx, char **topp,
 	vars[13] = (struct fyai_tmpl_var){ "layout", fyai_ui_page_layout(ctx) };
 	/* Empty unless credentials are isolated, like the other optional fields. */
 	isolation[0] = '\0';
-	if (ctx->tclient)
+	if (ctx->transport.client)
 		snprintf(isolation, sizeof(isolation), " · isolated %s%s",
 			 fyai_transport_effective_level(ctx),
-			 fyai_tclient_alive(ctx->tclient) ? "" : " (down)");
+			 fyai_tclient_alive(ctx->transport.client) ? "" : " (down)");
 	vars[14] = (struct fyai_tmpl_var){ "isolation", isolation };
 	/* Empty unless the session itself runs in a view. */
 	view[0] = '\0';
@@ -1796,10 +1796,10 @@ fy_generic fyai_session_values(struct fyai_ctx *ctx,
 	v = session_put_str(gb, v, "attached", attached);
 	state = attached ? fyai_agents_state(ctx, attached) : NULL;
 	v = session_put_str(gb, v, "attached_state", state);
-	if (ctx->tclient)
+	if (ctx->transport.client)
 		v = session_put(gb, v, "isolation", fy_mapping(gb,
 			"level", fyai_transport_effective_level(ctx),
-			"alive", fyai_tclient_alive(ctx->tclient)));
+			"alive", fyai_tclient_alive(ctx->transport.client)));
 	else
 		v = session_drop(gb, v, "isolation");
 	v = session_put_str(gb, v, "view", fyai_view_session_name(ctx));

@@ -222,7 +222,7 @@ int fyai_cmd_profiles(struct fyai_cmd_call *call, fy_generic *result)
 	uint64_t id = 0;
 	fy_generic reply;
 
-	if (!call->ctx->tclient) {
+	if (!call->ctx->transport.client) {
 		fyai_error(call->ctx, "profiles: credential isolation is not "
 			   "active in this run");
 		return -1;

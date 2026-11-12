@@ -1819,7 +1819,7 @@ int fyai_auth_resolve(struct fyai_ctx *ctx)
 	want_chatgpt = cfg->auth_mode == FYAI_AUTH_CHATGPT ||
 		(cfg->auth_mode == FYAI_AUTH_AUTO && (!cfg->api_key || !*cfg->api_key) &&
 		 /* The key is at the transport, which this image cannot see. */
-		 !ctx->tclient);
+		 !ctx->transport.client);
 
 	if (!want_chatgpt)
 		return 0;
@@ -2030,7 +2030,7 @@ static const char *auth_effective_method(struct fyai_ctx *ctx, bool logged_in)
 		return logged_in ? "chatgpt" : "unavailable";
 	/* A key is at the transport, unless the transport holds the login. */
 	if ((cfg->api_key && *cfg->api_key) ||
-	    (ctx->tclient && !fyai_auth_uses_transport(cfg)))
+	    (ctx->transport.client && !fyai_auth_uses_transport(cfg)))
 		return "api-key";
 	return logged_in ? "chatgpt" : "unavailable";
 }

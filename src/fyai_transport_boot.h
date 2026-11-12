@@ -176,7 +176,7 @@ bool fyai_transport_have_credential(struct fyai_ctx *ctx, const struct fyai_cfg 
  * Have the transport send the value of the named credentials into a socket,
  * for one command that the user configured, such as the catalogue scraper.
  * The process reads only the command child: this process never holds a value.
- * Only the root supervisor may ask. The read end is in ctx->transport_envfd
+ * Only the root supervisor may ask. The read end is in ctx->transport.envfd
  * until fyai_transport_env_release(). With no transport this does nothing: the
  * environment already has the credentials. Return 0, or -1 with a diagnostic.
  */

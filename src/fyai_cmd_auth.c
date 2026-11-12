@@ -63,7 +63,7 @@ int fyai_cmd_auth_status(struct fyai_cmd_call *call, fy_generic *result)
 		return -1;
 	detail = fy_equal(fy_get(call->def, "command", fy_invalid), "info") ||
 		 call->format != FYAI_CMD_OUT_MARKDOWN;
-	if (call->ctx->tclient) {
+	if (call->ctx->transport.client) {
 		fy_generic data;
 
 		if (auth_forward(call, detail ? "info" : "status", &data))
@@ -120,7 +120,7 @@ int fyai_cmd_auth_logout(struct fyai_cmd_call *call, fy_generic *result)
 
 	if (auth_provider(call))
 		return -1;
-	if (call->ctx->tclient) {
+	if (call->ctx->transport.client) {
 		fy_generic data;
 
 		if (auth_forward(call, "logout", &data))
@@ -280,7 +280,7 @@ int fyai_cmd_auth_login(struct fyai_cmd_call *call, fy_generic *result)
 
 	if (auth_provider(call))
 		return -1;
-	if (call->ctx->tclient && call->surface == FYAI_CMD_SESSION)
+	if (call->ctx->transport.client && call->surface == FYAI_CMD_SESSION)
 		return auth_login_child(call);
 	if (fyai_cmd_arg_bool(call, "manual") && call->surface == FYAI_CMD_CLI) {
 		*result = fy_invalid;
@@ -317,7 +317,7 @@ int fyai_cmd_auth_accounts(struct fyai_cmd_call *call, fy_generic *result)
 {
 	if (auth_provider(call))
 		return -1;
-	if (call->ctx->tclient)
+	if (call->ctx->transport.client)
 		return auth_forward(call, "accounts", result);
 	*result = fyai_auth_accounts_data(call->ctx, call->gb);
 	return fy_is_valid(*result) ? 0 : -1;

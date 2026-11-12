@@ -30,7 +30,7 @@ int fork_disown_drops_parent_state(void)
 	ctx.cmd_call = (struct fyai_cmd_call *)&parent;
 	ctx.catalog_update = (struct fyai_catalog_update_request *)&parent;
 	ctx.acp_rpc = (struct jsonrpc_conn *)&parent;
-	ctx.transport_src = (struct fyai_event_source *)&parent;
+	ctx.transport.src = (struct fyai_event_source *)&parent;
 	for (i = 0; i < ARRAY_SIZE(ctx.signal_src); i++)
 		ctx.signal_src[i] = (struct fyai_event_source *)&parent;
 
@@ -40,7 +40,7 @@ int fork_disown_drops_parent_state(void)
 	FYAI_TCHECK(!ctx.cmd_call);
 	FYAI_TCHECK(!ctx.catalog_update);
 	FYAI_TCHECK(!ctx.acp_rpc);
-	FYAI_TCHECK(!ctx.transport_src);
+	FYAI_TCHECK(!ctx.transport.src);
 	for (i = 0; i < ARRAY_SIZE(ctx.signal_src); i++)
 		FYAI_TCHECK(!ctx.signal_src[i]);
 	printf("ok - a forked child drops the pointers of its parent\n");

@@ -2326,7 +2326,7 @@ void fyai_ctx_fork_disown(struct fyai_ctx *ctx)
 	ctx->winch_src = NULL;			/* a source on the loop it owns */
 	for (i = 0; i < ARRAY_SIZE(ctx->signal_src); i++)
 		ctx->signal_src[i] = NULL;
-	ctx->transport_src = NULL;
+	ctx->transport.src = NULL;
 	ctx->cmd_call = NULL;			/* the command that it runs */
 	ctx->catalog_update = NULL;		/* and the update that it started */
 	ctx->acp_rpc = NULL;			/* its connection to a client */

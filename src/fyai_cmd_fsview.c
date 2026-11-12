@@ -1712,7 +1712,7 @@ static int view_exec(struct fyai_ctx *ctx, struct fyai_fsview *view, char *const
 			 */
 			spec.pass_fd[spec.pass_n] = tp->agent_child;
 			spec.pass_as[spec.pass_n++] = VIEW_SESSION_AGENT_FD;
-			spec.pass_fd[spec.pass_n] = ctx->transport_ctl;
+			spec.pass_fd[spec.pass_n] = ctx->transport.ctl;
 			spec.pass_as[spec.pass_n++] = VIEW_SESSION_CTL_FD;
 			spec.pass_fd[spec.pass_n] = tp->announce[1];
 			spec.pass_as[spec.pass_n++] = VIEW_SESSION_ANNOUNCE_FD;
@@ -3593,7 +3593,7 @@ restart:
 	 * supervisor admits it when it has entered the view. The session keeps its
 	 * PID namespace: the transport names it by a pidfd.
 	 */
-	if (ctx->tclient) {
+	if (ctx->transport.client) {
 		tp.agent_child = tp.agent_transport = tp.announce[0] = tp.announce[1] = -1;
 		if (fyai_transport_socketpair(agent) ||
 		    fyai_host_seqpacket_pair(tp.announce)) {

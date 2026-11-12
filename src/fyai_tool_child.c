@@ -723,7 +723,7 @@ bool fyai_agent_spawn_exec(struct fyai_ctx *ctx)
 	 * forked child would keep the address space of its parent and could not
 	 * be told from it. `agent/spawn: fork` then means exec.
 	 */
-	bool want_exec = ctx->tclient ||
+	bool want_exec = ctx->transport.client ||
 		(!fy_str_empty(cfg->agent_spawn) && !strcmp(cfg->agent_spawn, "exec"));
 
 	return fyai_exec_self_available() && want_exec &&

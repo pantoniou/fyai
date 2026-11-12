@@ -1266,7 +1266,7 @@ static bool catalog_provider_keyed(struct fyai_ctx *ctx, const char *name)
 	size_t len = 0;
 	int rc;
 
-	if (ctx->tclient)
+	if (ctx->transport.client)
 		return true;
 	if (cfg->provider && !strcmp(cfg->provider, name) &&
 	    (cfg->chatgpt_auth || cfg->no_auth))

@@ -707,6 +707,41 @@ struct fyai_skill_dir;
 
 struct fyai_request_cache;
 
+/* The part this process has in the credential transport. */
+enum fyai_transport_role {
+	FYAI_TRANSPORT_NONE,		/* the process talks to the provider itself */
+	FYAI_TRANSPORT_OWNER,		/* started the transport; holds the primary connection */
+	FYAI_TRANSPORT_SUPERVISOR,	/* the supervisor outside a view; holds the primary connection */
+	FYAI_TRANSPORT_SECONDARY,	/* an image of the run without the primary connection */
+	FYAI_TRANSPORT_CHILD,		/* a sub-agent with the grant of its parent */
+};
+
+/*
+ * The client of the credential transport and its control channel (see
+ * fyai_xfer.h). role is NONE while client is NULL. A role of OWNER or
+ * SUPERVISOR states the profiles; only the OWNER ends the transport.
+ */
+struct fyai_transport_state {
+	struct fyai_tclient *client;
+	enum fyai_transport_role role;
+	int ctl;			/* control channel; -1 if none */
+	pid_t pid;
+	struct fyai_event_source *src;	/* drains the control channel */
+	uint64_t exec;			/* the execution the transport knows us as */
+	long long seq;
+	char why[160];			/* the cause of a failed control request */
+	/* Profile names that this execution has stated and been granted. */
+	char names[64][64];
+	unsigned int nnames;
+	/*
+	 * The configuration generation the supervisor last stated. stated is
+	 * a latch that tells whether gen is meaningful; it is not a phase.
+	 */
+	unsigned int gen;
+	bool stated;
+	int envfd;			/* read end of a credential grant; <= 2: none */
+};
+
 struct fyai_ctx {
 	struct fyai_cfg *cfg;
 	struct fy_allocator *durable_allocator;
@@ -728,24 +763,7 @@ struct fyai_ctx {
 	/* The body of the last request, kept for the next (fyai_reqcache.c). */
 	struct fyai_request_cache *request_cache;
 	CURL *curl;
-	/* Channel to the credential transport; NULL when this process talks to
-	 * the provider itself. See fyai_xfer.h. */
-	struct fyai_tclient *tclient;
-	int transport_ctl;		/* control channel; -1 if none */
-	pid_t transport_pid;
-	bool transport_owner;		/* this process started the transport */
-	/* This process holds the primary control connection and states the profiles. */
-	bool transport_primary;
-	struct fyai_event_source *transport_src;	/* drains the control channel */
-	uint64_t transport_exec;	/* the execution the transport knows us as */
-	long long transport_seq;
-	char transport_why[160];	/* the cause of a failed control request */
-	/* Profile names that this execution has stated and been granted. */
-	char transport_names[64][64];
-	unsigned int transport_nnames;
-	unsigned int transport_gen;	/* the configuration the supervisor last stated */
-	bool transport_stated;
-	int transport_envfd;		/* read end of a credential grant; <= 2: none */
+	struct fyai_transport_state transport;
 	/* The model transfer in progress. */
 	const char *xfer_body;
 	const char *xfer_url;		/* NULL: the endpoint of the configuration */
@@ -1252,7 +1270,7 @@ static inline bool fyai_credential_available(const struct fyai_ctx *ctx)
 	const struct fyai_cfg *cfg = ctx->cfg;
 
 	return (cfg->api_key && *cfg->api_key) || cfg->chatgpt_auth ||
-	       cfg->no_auth || ctx->tclient;
+	       cfg->no_auth || ctx->transport.client;
 }
 
 #endif

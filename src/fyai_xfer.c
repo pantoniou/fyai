@@ -180,7 +180,7 @@ static struct fyai_xfer *xfer_tp_submit(struct fyai_ctx *ctx, struct fyai_xfer *
 		free(x);
 		return NULL;
 	}
-	x->call = fyai_tclient_submit(ctx->tclient, &rq, &cb);
+	x->call = fyai_tclient_submit(ctx->transport.client, &rq, &cb);
 	if (!x->call) {
 		free(x);
 		return NULL;
@@ -204,7 +204,7 @@ struct fyai_xfer *fyai_xfer_submit(struct fyai_ctx *ctx, fyai_xfer_write_fn writ
 	x->done = done;
 	x->done_ud = done_userdata;
 
-	if (ctx->tclient)
+	if (ctx->transport.client)
 		return xfer_tp_submit(ctx, x);
 	curl_easy_setopt(ctx->curl, CURLOPT_WRITEFUNCTION, write);
 	curl_easy_setopt(ctx->curl, CURLOPT_WRITEDATA, write_userdata);

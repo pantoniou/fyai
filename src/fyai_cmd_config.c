@@ -1241,9 +1241,9 @@ static int preset_relax(struct fyai_cmd_call *call, fy_generic *result,
 		rc = preset_set(call, "view/isolate_session", "false");
 	if (!rc)
 		rc = preset_set(call, "agent/transport_isolation", "none");
-	if (rc || preset_commit(call, in_view || ctx->tclient))
+	if (rc || preset_commit(call, in_view || ctx->transport.client))
 		return -1;
-	if (ctx->tclient)
+	if (ctx->transport.client)
 		note = "the credential transport of this session ends when fyai starts "
 		       "again: start it with the key, from the environment or `fyai auth`";
 	else if (in_view)
