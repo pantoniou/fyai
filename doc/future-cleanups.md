@@ -163,17 +163,9 @@ cancel that comes while a callback runs. `struct fyai_xfer` still has a
 
 ### 8. Sink document mode
 
-`struct sink_term`, `fyai_sink.c`; `struct sink_capture.doc_open` repeats it.
-
-- Fields: `render_live`, `doc_open`, `present`, `passthrough`, `oneshot`,
-  `wrote`, `write_failed`.
-- States: CLOSED, SKIP, PASSTHROUGH, ONESHOT, LIVE.
-  `sink_term_doc_begin()` derives `present`, `passthrough`, `oneshot` and
-  `doc_open` together. Every consumer derives the mode again.
-- Illegal combinations: `render_live` with `passthrough`; `oneshot` with
-  `render_live`; `render_live` without `doc_open`; `passthrough` without
-  `present`.
-- Change: a mode enum and a separate `write_failed`.
+Done for `struct sink_term`: `enum sink_doc_mode` (closed, skip, passthrough,
+oneshot, live, paused). `write_failed` and `wrote` stay separate facts.
+`struct sink_capture.doc_open` is an open and closed bit, and stays.
 
 ### 9. Sink band kind
 
