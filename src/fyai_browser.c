@@ -39,6 +39,16 @@ struct browser_row {
 	bool collapsed;
 };
 
+/*
+ * What the prompt collects. The keys of the tree are read only while it is
+ * none, and the filter and an action form are never open together.
+ */
+enum browser_input {
+	BROWSER_INPUT_NONE,
+	BROWSER_INPUT_FILTER,	/* the text that selects the rows */
+	BROWSER_INPUT_ACTION,	/* the form of the action named by @action */
+};
+
 struct fyai_browser {
 	struct fyai_ctx *ctx;
 	struct fytim_surface *surface;
@@ -47,7 +57,8 @@ struct fyai_browser {
 	fy_generic root, branches;
 	int64_t refreshed;
 	unsigned long generation;
-	bool dirty, closing, filtering;
+	bool dirty, closing;
+	enum browser_input input_mode;
 	unsigned int view, configured_view;
 	/* The resume picker. At the start of an invocation the session to
 	 * continue is the only thing being chosen, so Escape ends the
@@ -60,7 +71,8 @@ struct fyai_browser {
 	unsigned int foreign_phase;
 	char filter[256], input[1024], target[FYAI_BRANCH_NAME_MAX + 1];
 	char reference[1024];
-	char action, pending;
+	char action;	/* the letter of the form; set in the action mode only */
+	char pending;	/* a command that the loop runs next */
 	unsigned int field;
 	char escape[16];
 	size_t escape_len;
@@ -799,7 +811,7 @@ static void browser_build(struct fyai_browser *b, size_t limit,
 		input = fyai_prompt_literal(b->filter);
 		fprintf(fp, "**Branches** · %s · / filter%s%s",
 			b->view == 1 ? "gitgraph overview" : "tree",
-			*b->filter || b->filtering ? ": " : "",
+			*b->filter || b->input_mode == BROWSER_INPUT_FILTER ? ": " : "",
 			input ? input : "");
 		free(input);
 	}
@@ -1110,12 +1122,12 @@ static void browser_paint(struct fyai_browser *b)
 	if (!b->dirty || !b->surface)
 		return;
 	b->dirty = false;
-	if (b->details && !b->action && !b->filtering) {
+	if (b->details && b->input_mode == BROWSER_INPUT_NONE) {
 		rc = browser_present(b, b->details, NULL, NULL, 0, b->offset);
 		browser_warn_check(b, !rc, out, "the branch details did not render");
 		return;
 	}
-	if (b->action) {
+	if (b->input_mode == BROWSER_INPUT_ACTION) {
 		fp = open_memstream(&md, &len);
 		browser_warn_check(b, fp, out, "cannot build the branch action form");
 		name = fyai_prompt_literal(b->target);
@@ -1355,6 +1367,7 @@ static void browser_accept(struct fyai_browser *b)
 	} else {
 		b->pending = b->action;
 		b->action = 0;
+		b->input_mode = BROWSER_INPUT_NONE;
 	}
 }
 
@@ -1363,7 +1376,8 @@ static void browser_edit(struct fyai_browser *b)
 	free(b->draft);
 	b->draft = fyai_ui_input_copy(b->ctx);
 	fyai_workpane_clear_focus(b->ctx->workpane);
-	fyai_ui_input_set(b->ctx, b->filtering ? b->filter : "");
+	fyai_ui_input_set(b->ctx, b->input_mode == BROWSER_INPUT_FILTER ?
+			  b->filter : "");
 }
 
 static void browser_edit_end(struct fyai_browser *b)
@@ -1380,10 +1394,10 @@ bool fyai_browser_cancel_input(struct fyai_ctx *ctx)
 {
 	struct fyai_browser *b = ctx->browser;
 
-	if (!b || (!b->action && !b->filtering))
+	if (!b || b->input_mode == BROWSER_INPUT_NONE)
 		return false;
 	b->action = 0;
-	b->filtering = false;
+	b->input_mode = BROWSER_INPUT_NONE;
 	browser_edit_end(b);
 	return true;
 }
@@ -1393,16 +1407,17 @@ bool fyai_browser_input(struct fyai_ctx *ctx, const char *line)
 	struct fyai_browser *b = ctx->browser;
 	size_t len = strlen(line);
 
-	if (!b || (!b->action && !b->filtering))
+	if (!b || b->input_mode == BROWSER_INPUT_NONE)
 		return false;
-	if (len >= (b->filtering ? sizeof(b->filter) : sizeof(b->input))) {
+	if (len >= (b->input_mode == BROWSER_INPUT_FILTER ? sizeof(b->filter) :
+		    sizeof(b->input))) {
 		browser_message(b, "The value is too long. Enter a shorter value.");
 		fyai_ui_input_set(ctx, line);
 		return true;
 	}
-	if (b->filtering) {
+	if (b->input_mode == BROWSER_INPUT_FILTER) {
 		memcpy(b->filter, line, len + 1);
-		b->filtering = false;
+		b->input_mode = BROWSER_INPUT_NONE;
 		b->selected = b->top = 0;
 		if (b->count && !browser_visible(b, 0))
 			browser_move(b, 1);
@@ -1410,7 +1425,7 @@ bool fyai_browser_input(struct fyai_ctx *ctx, const char *line)
 		memcpy(b->input, line, len + 1);
 		browser_accept(b);
 	}
-	if (!b->action)
+	if (b->input_mode == BROWSER_INPUT_NONE)
 		browser_edit_end(b);
 	else
 		fyai_ui_input_set(ctx, "");
@@ -1423,11 +1438,10 @@ static void browser_key(struct fyai_browser *b, unsigned char c)
 {
 	b->dirty = true;
 	if (c == 27 || c == 3) {
-		if (b->action)
+		if (b->input_mode != BROWSER_INPUT_NONE) {
 			b->action = 0;
-		else if (b->filtering)
-			b->filtering = false;
-		else if (b->details) {
+			b->input_mode = BROWSER_INPUT_NONE;
+		} else if (b->details) {
 			free(b->details);
 			b->details = NULL;
 		} else
@@ -1445,7 +1459,7 @@ static void browser_key(struct fyai_browser *b, unsigned char c)
 		return;
 	}
 	if (c == '/') {
-		b->filtering = true;
+		b->input_mode = BROWSER_INPUT_FILTER;
 		browser_edit(b);
 		return;
 	}
@@ -1524,6 +1538,7 @@ static void browser_key(struct fyai_browser *b, unsigned char c)
 	if (b->rows[b->selected].foreign && c != '\r' && c != '\n' && c != 'i')
 		return;
 	if (strchr("nNredmbx", c)) {
+		b->input_mode = BROWSER_INPUT_ACTION;
 		b->action = c;
 		b->field = 0;
 		b->input[0] = '\0';
@@ -1581,7 +1596,7 @@ bool fyai_browser_keys(struct fyai_ctx *ctx, const char *data, size_t len)
 				(void)fyai_ui_keys_return(ctx, data + i + 1, len - i - 1);
 			return true;
 		}
-		if (b->action || b->filtering) {
+		if (b->input_mode != BROWSER_INPUT_NONE) {
 			if (i + 1 < len)
 				(void)fyai_ui_keys_return(ctx, data + i + 1, len - i - 1);
 			break;
