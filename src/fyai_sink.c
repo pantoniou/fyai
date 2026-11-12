@@ -953,20 +953,31 @@ static void sink_term_destroy(struct fyai_sink *s)
 }
 
 /* A shared sequential band or an independently owned parallel band. */
-struct fyai_sink_band {
-	struct fyai_ctx *ctx;
-	/* The band has no tile and presents nothing. A process with no
-	 * display has such bands, which a remote client reads from the work
-	 * store. */
-	bool headless;
+/* Where a band is drawn. The terminal backend chooses it when the band opens. */
+enum sink_band_kind {
+	/* No tile, and nothing is presented. A process with no display has such
+	 * bands, which a remote client reads from the work store. */
+	SINK_BAND_HEADLESS,
 	/* The band of a producer while the renderer draws the work bands. It
 	 * keeps its last paint, which is compared with the band that the
 	 * renderer drew. */
-	bool shadow;
-	struct fytim_workband *wb;	/* NULL for the shared band */
-	bool shared;
-	bool tile;			/* independent work-pane tile */
-	bool inline_block;		/* a block of the transcript view */
+	SINK_BAND_SHADOW,
+	SINK_BAND_SHARED,	/* the shared tool band of the UI */
+	SINK_BAND_INLINE,	/* a block of the transcript view */
+	SINK_BAND_TILE,		/* independent work-pane tile */
+};
+
+/* The kept paint of a tile or a block. */
+enum sink_band_paint {
+	SINK_PAINT_NONE,	/* nothing is kept */
+	SINK_PAINT_HELD,	/* kept, and not presented: the tile has no width */
+	SINK_PAINT_SHOWN,	/* kept and presented */
+};
+
+struct fyai_sink_band {
+	struct fyai_ctx *ctx;
+	enum sink_band_kind kind;
+	struct fytim_workband *wb;	/* set for a tile only */
 	struct fyai_sink_band *inline_next;	/* the next of the sink */
 
 	/*
@@ -978,8 +989,7 @@ struct fyai_sink_band {
 	char *command;
 	char *margin;
 	struct fyai_buf body;
-	bool painted;			/* a paint was kept */
-	bool held;			/* the kept paint is not presented */
+	enum sink_band_paint paint;
 
 	/* Renders the rows again at a new width. NULL presents the kept
 	 * paint again. */
@@ -1030,10 +1040,8 @@ static struct fyai_sink_band *sink_term_band_open(struct fyai_sink *s,
 	if (!b)
 		return NULL;
 	b->ctx = s->ctx;
-	b->shared = shared;
 	if (!fyai_ui_active(s->ctx) || s->band_shadow) {
-		b->headless = true;
-		b->shadow = s->band_shadow;
+		b->kind = s->band_shadow ? SINK_BAND_SHADOW : SINK_BAND_HEADLESS;
 		if (shared)
 			*slot = b;
 		return b;
@@ -1043,13 +1051,14 @@ static struct fyai_sink_band *sink_term_band_open(struct fyai_sink *s,
 			fyai_ui_shell_begin(s->ctx, title, command);
 		else
 			fyai_ui_tool_begin(s->ctx, title);
+		b->kind = SINK_BAND_SHARED;
 		t->shared_band = b;
 		return b;
 	}
 	/* Draw independent work at its call in the transcript, or in a tile
 	 * of the work pane. */
 	if (fyai_ui_tools_inline(s->ctx)) {
-		b->inline_block = true;
+		b->kind = SINK_BAND_INLINE;
 		b->inline_next = t->inline_bands;
 		t->inline_bands = b;
 		return b;
@@ -1059,7 +1068,7 @@ static struct fyai_sink_band *sink_term_band_open(struct fyai_sink *s,
 		free(b);
 		return NULL;
 	}
-	b->tile = true;
+	b->kind = SINK_BAND_TILE;
 	fyai_workpane_band_set_ops(s->ctx->workpane, b->wb,
 				   &sink_term_band_ops, b);
 	return b;
@@ -1068,8 +1077,8 @@ static struct fyai_sink_band *sink_term_band_open(struct fyai_sink *s,
 /* Present the kept paint of a tile at the width it has now. */
 static void sink_term_band_present(struct fyai_sink_band *b)
 {
-	b->held = false;
-	if (b->inline_block) {
+	b->paint = SINK_PAINT_SHOWN;
+	if (b->kind == SINK_BAND_INLINE) {
 		if (fyai_ui_inline_update(b->ctx, (uintptr_t)b, false, b->title,
 					  b->command, b->body.data,
 					  b->body.len, b->margin))
@@ -1109,10 +1118,10 @@ static void sink_term_band_paint(struct fyai_sink_band *b, const char *title,
 {
 	int rc;
 
-	if (!b || (b->headless && !b->shadow))
+	if (!b || b->kind == SINK_BAND_HEADLESS)
 		return;
 	/* The shared band keeps the title it opened with; only the body moves. */
-	if (b->shared || b->shadow) {
+	if (b->kind == SINK_BAND_SHARED || b->kind == SINK_BAND_SHADOW) {
 		rc = fyai_buf_reserve(&b->body, len + 1);
 		fyai_error_check(b->ctx, !rc, err_out,
 				 "cannot keep the body of a work band");
@@ -1120,7 +1129,7 @@ static void sink_term_band_paint(struct fyai_sink_band *b, const char *title,
 			memcpy(b->body.data, body, len);
 		b->body.len = len;
 		b->body.data[len] = '\0';
-		if (!b->shadow && len)
+		if (b->kind == SINK_BAND_SHARED && len)
 			fyai_ui_tool_update(b->ctx, body, len);
 		return;
 	}
@@ -1141,17 +1150,16 @@ static void sink_term_band_paint(struct fyai_sink_band *b, const char *title,
 		memcpy(b->body.data, body, len);
 	b->body.len = len;
 	b->body.data[len] = '\0';
-	b->painted = true;
 	/* Hold the paint until the first grant gives the width. */
-	if (!b->inline_block && fyai_ui_work_tile_cols(b->ctx, b->wb) <= 0) {
-		b->held = true;
+	if (b->kind == SINK_BAND_TILE &&
+	    fyai_ui_work_tile_cols(b->ctx, b->wb) <= 0) {
+		b->paint = SINK_PAINT_HELD;
 		return;
 	}
 	sink_term_band_present(b);
 	return;
 err_out:
-	b->painted = false;
-	b->held = false;
+	b->paint = SINK_PAINT_NONE;
 }
 
 /* Render the band again at the new width of its tile. */
@@ -1159,7 +1167,7 @@ static void sink_term_band_repaint(void *owner)
 {
 	struct fyai_sink_band *b = owner;
 
-	if (!b->painted)
+	if (b->paint == SINK_PAINT_NONE)
 		return;
 	if (b->repaint && b->repaint(b->repaint_arg))
 		return;
@@ -1171,7 +1179,8 @@ static void sink_term_band_free(struct fyai_sink_band *b)
 	struct sink_term *t = sink_term_state(b->ctx->sink);
 	struct fyai_sink_band **pp;
 
-	for (pp = t ? &t->inline_bands : NULL; b->inline_block && pp && *pp;
+	for (pp = t ? &t->inline_bands : NULL;
+	     b->kind == SINK_BAND_INLINE && pp && *pp;
 	     pp = &(*pp)->inline_next)
 		if (*pp == b) {
 			*pp = b->inline_next;
@@ -1197,7 +1206,8 @@ static void sink_term_band_close(struct fyai_sink *s, bool ok,
 		return;
 	}
 	if (!fyai_ui_active(s->ctx)) {
-		if (t->shared_band && t->shared_band->headless) {
+		if (t->shared_band &&
+		    t->shared_band->kind == SINK_BAND_HEADLESS) {
 			sink_term_band_free(t->shared_band);
 			t->shared_band = NULL;
 		}
@@ -1231,22 +1241,22 @@ static void sink_term_band_commit(struct fyai_sink_band *b)
 {
 	if (!b)
 		return;
-	if (b->headless) {
+	if (b->kind == SINK_BAND_HEADLESS || b->kind == SINK_BAND_SHADOW) {
 		sink_term_band_free(b);
 		return;
 	}
 	/* A held paint is the content of the band. Present it before the
 	 * commit. */
-	if (b->wb && b->held)
+	if (b->paint == SINK_PAINT_HELD)
 		sink_term_band_present(b);
 	/* The block gives its place to the rows of the whole band. */
-	if (b->inline_block && b->painted &&
+	if (b->kind == SINK_BAND_INLINE && b->paint != SINK_PAINT_NONE &&
 	    fyai_ui_inline_update(b->ctx, (uintptr_t)b, true, b->title,
 				  b->command, b->body.data, b->body.len,
 				  b->margin))
 		fyai_warning(b->ctx,
 			     "cannot commit the output of a call to the transcript");
-	if (b->inline_block)
+	if (b->kind == SINK_BAND_INLINE)
 		fyai_ui_inline_drop(b->ctx, (uintptr_t)b);
 	if (b->wb)
 		fyai_ui_work_tile_destroy(b->ctx, b->wb, true);
@@ -1259,7 +1269,7 @@ static void sink_term_band_destroy(struct fyai_sink_band *b)
 		return;
 	if (b->wb)
 		fyai_ui_work_tile_destroy(b->ctx, b->wb, false);
-	if (b->inline_block)
+	if (b->kind == SINK_BAND_INLINE)
 		fyai_ui_inline_drop(b->ctx, (uintptr_t)b);
 	sink_term_band_free(b);
 }
@@ -1763,9 +1773,9 @@ int fyai_sink_band_cols(const struct fyai_sink_band *b)
 {
 	/* A shadow renders at the width of the band that the renderer of the
 	 * UI model draws for it. */
-	if (b && b->shadow)
+	if (b && b->kind == SINK_BAND_SHADOW)
 		return fyai_uidraw_band_cols(b->ctx, b);
-	if (!b || !b->tile || !b->wb)
+	if (!b || b->kind != SINK_BAND_TILE || !b->wb)
 		return 0;
 	return fyai_ui_work_tile_cols(b->ctx, b->wb);
 }
@@ -1773,7 +1783,7 @@ int fyai_sink_band_cols(const struct fyai_sink_band *b)
 void fyai_sink_band_set_repaint(struct fyai_sink_band *b,
 				bool (*repaint)(void *arg), void *arg)
 {
-	if (!b || (!b->tile && !b->inline_block))
+	if (!b || (b->kind != SINK_BAND_TILE && b->kind != SINK_BAND_INLINE))
 		return;
 	b->repaint = repaint;
 	b->repaint_arg = arg;
