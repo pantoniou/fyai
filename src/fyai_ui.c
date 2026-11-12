@@ -1357,6 +1357,26 @@ err_out:
 /* Repeat at a low rate to recover from a missed UI timer event. */
 #define UI_HEAL_MS 500
 
+/* Ask for a frame at once. */
+static void ui_frame_now(struct fyai_ui *ui)
+{
+	ui->frame_pending = true;
+	ui->next_frame_ms = fyai_event_now_ms();
+}
+
+/*
+ * Ask for a frame at the update interval of a tool. A deadline that is still
+ * in the future stays, so a burst of updates paints one time for each interval.
+ */
+static void ui_frame_throttled(struct fyai_ui *ui)
+{
+	fyai_event_ms_t now = fyai_event_now_ms();
+
+	ui->frame_pending = true;
+	if (!ui->ctx->cfg->tool_update_interval_ms || now >= ui->next_frame_ms)
+		ui->next_frame_ms = now;
+}
+
 static void ui_rearm(struct fyai_ui *ui)
 {
 	int ms = fytim_poll_timeout_ms(ui->ft);
@@ -1419,8 +1439,7 @@ static void ui_apply_resize(struct fyai_ui *ui, int rows, int width)
 	/* Repaint committed rows from stored transcript data. */
 	ui->repaint_pending = true;
 	/* Reconcile tile grants on the next frame. */
-	ui->frame_pending = true;
-	ui->next_frame_ms = fyai_event_now_ms();
+	ui_frame_now(ui);
 }
 
 /*
@@ -4560,8 +4579,7 @@ void fyai_ui_resized(struct fyai_ctx *ctx)
 	if (!fyai_ui_active(ctx))
 		return;
 	ui = ctx->ui;
-	ui->frame_pending = true;
-	ui->next_frame_ms = fyai_event_now_ms();
+	ui_frame_now(ui);
 	ui_rearm(ui);
 }
 
@@ -4992,7 +5010,6 @@ static int ui_inline_set(struct fyai_ui *ui, uintptr_t key, const char *head,
 	struct fyai_buf out = {0};
 	struct fyai_flow_sep sep;
 	struct fyai_flow *flow;
-	fyai_event_ms_t now;
 	size_t from;
 	unsigned i;
 	int rc = -1;
@@ -5038,10 +5055,7 @@ static int ui_inline_set(struct fyai_ui *ui, uintptr_t key, const char *head,
 					    out.len);
 	if (rc)
 		goto out;
-	now = fyai_event_now_ms();
-	ui->frame_pending = true;
-	if (!ui->ctx->cfg->tool_update_interval_ms || now >= ui->next_frame_ms)
-		ui->next_frame_ms = now;
+	ui_frame_throttled(ui);
 	ui_rearm(ui);
 out:
 	free(out.data);
@@ -5060,7 +5074,6 @@ static int ui_band_update(struct fyai_ctx *ctx, struct fytim_workband *band,
 {
 	struct fyai_ui *ui;
 	struct fyai_buf out = { 0 };
-	fyai_event_ms_t now;
 	size_t title_len;
 	char *margin = NULL;
 	int saved_width, rc = -1;
@@ -5104,11 +5117,8 @@ static int ui_band_update(struct fyai_ctx *ctx, struct fytim_workband *band,
 	fyai_buf_trim(&out);
 	if (fytim_workband_set(band, out.data, out.len) != FYTIM_OK)
 		goto out;
-	now = fyai_event_now_ms();
 	/* Defer the frame. A render callback must not read terminal input. */
-	ui->frame_pending = true;
-	if (!ctx->cfg->tool_update_interval_ms || now >= ui->next_frame_ms)
-		ui->next_frame_ms = now;
+	ui_frame_throttled(ui);
 	ui_rearm(ui);
 	rc = 0;
 out:
@@ -5139,7 +5149,6 @@ static int ui_shell_band_update(struct fyai_ctx *ctx,
 	struct fyai_buf top = {0};
 	struct fyai_buf head = {0};
 	struct fyai_buf out = {0};
-	fyai_event_ms_t now;
 	char *margin = NULL;
 	size_t start;
 	size_t end;
@@ -5213,10 +5222,7 @@ static int ui_shell_band_update(struct fyai_ctx *ctx,
 		fyai_flow_observe(fyai_sink_flow(ctx->sink), out.data, out.len);
 	if (fytim_workband_set_commit(band, out.data, out.len) != FYTIM_OK)
 		goto out;
-	now = fyai_event_now_ms();
-	ui->frame_pending = true;
-	if (!ctx->cfg->tool_update_interval_ms || now >= ui->next_frame_ms)
-		ui->next_frame_ms = now;
+	ui_frame_throttled(ui);
 	ui_rearm(ui);
 	rc = 0;
 out:
@@ -5703,8 +5709,7 @@ void fyai_ui_wake(struct fyai_ctx *ctx)
 
 	if (!ui || !ui->ft)
 		return;
-	ui->frame_pending = true;
-	ui->next_frame_ms = fyai_event_now_ms();
+	ui_frame_now(ui);
 	ui_rearm(ui);
 }
 
