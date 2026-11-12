@@ -231,11 +231,6 @@ static void wsc_end(struct fyai_wsc *c)
 	(void)fyai_event_defer(c->loop, wsc_free_cb, c);
 }
 
-void fyai_wsc_kill(struct fyai_wsc *c)
-{
-	wsc_end(c);
-}
-
 /* Watch what the connection waits for. */
 static void wsc_interest(struct fyai_wsc *c)
 {
@@ -306,11 +301,6 @@ int fyai_wsc_send(struct fyai_wsc *c, int opcode, const void *data, size_t n)
 	}
 	wsc_interest(c);
 	return 0;
-}
-
-size_t fyai_wsc_pending(const struct fyai_wsc *c)
-{
-	return fyai_buf_pending(&c->out);
 }
 
 void fyai_wsc_close(struct fyai_wsc *c, unsigned int code)

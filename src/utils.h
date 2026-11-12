@@ -310,8 +310,6 @@ bool fyai_editor_done(const struct fyai_editor_request *request);
 int fyai_editor_collect(const struct fyai_editor_request *request);
 void fyai_editor_destroy(struct fyai_editor_request *request);
 
-/* Synchronous standalone-command adapters over the editor operation. */
-int fyai_spawn_editor(struct fyai_ctx *ctx, const char *path);
 int fyai_spawn_editor_readonly(struct fyai_ctx *ctx, const char *path);
 
 bool self_is_traced(void);
@@ -320,29 +318,22 @@ bool fyai_exec_self_available(void);
 int fyai_exec_self(const char *const argv[]);
 int raise_stack(size_t bytes, char **argv);
 
-const char *find_cli_option(int argc, char **argv, const char *long_opt, char short_opt);
-bool has_cli_flag(int argc, char **argv, const char *long_opt);
 char *read_all_stdin(void);
 
 /* >= 0 index in set, -1 not found */
 int str_in_set(const char *v, const char *const *opts);
-
-bool executable_in_path(const char *name);
 
 bool is_mode_file(const char *path, int mode);
 bool is_mode_directory(const char *path, int mode);
 
 bool is_readable_file(const char *path);
 bool is_writable_file(const char *path);
-bool is_executable_file(const char *path);
-bool is_readable_directory(const char *path);
 bool is_writable_directory(const char *path);
 
 fy_generic parse_json_string(struct fy_generic_builder *gb, const char *str);
 fy_generic parse_json_string_size(struct fy_generic_builder *gb,
 				  const char *str, size_t len);
 
-fy_generic parse_json_generic(struct fy_generic_builder *gb, fy_generic v);
 const char *emit_json_string(struct fy_generic_builder *gb, fy_generic v);
 
 int mkdir_private(const char *path);

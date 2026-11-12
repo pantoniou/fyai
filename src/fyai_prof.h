@@ -21,8 +21,6 @@
 /* Read FYAI_PROFILE and latch the process base time. Call once, early. */
 void fyai_prof_init(void);
 
-bool fyai_prof_enabled(void);
-
 /* Sample the monotonic clock into *ts (only meaningful when enabled). */
 void fyai_prof_stamp(struct timespec *ts);
 

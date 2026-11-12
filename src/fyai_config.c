@@ -371,11 +371,6 @@ static int resolve_secret(struct fyai_cfg *cfg, const char **out, fy_generic v)
 	return 0;
 }
 
-void fyai_config_sandbox_lockdown(struct fyai_cfg *cfg)
-{
-	(void)fyai_config_sandbox_select(cfg, "lockdown");
-}
-
 int fyai_config_sandbox_select(struct fyai_cfg *cfg, const char *name)
 {
 	fy_generic policy;
@@ -1439,44 +1434,6 @@ int fyai_config_load(struct fyai_cfg *cfg,
 	if (fyai_config_apply(cfg, cfg->config_doc))
 		return -1;
 
-	return 0;
-}
-
-/*
- * The effective config is the merged document itself - the single source -
- * not a re-synthesized view of the struct fields. Catalog-derived values
- * (provider, endpoint, max_tokens) are deliberately absent: they are
- * derivations, not configuration.
- */
-int fyai_config_show(struct fyai_ctx *ctx)
-{
-	struct fyai_cfg *cfg = ctx->cfg;
-
-	if (fy_is_invalid(cfg->config_doc)) {
-		fyai_cfg_error(cfg, "no configuration; run fyai init or fyai config import");
-		return -1;
-	}
-	emit_generic_to_sink(ctx, NULL, cfg->config_doc, true);
-	return 0;
-}
-
-int fyai_config_get(struct fyai_ctx *ctx, const char *key)
-{
-	fy_generic v;
-
-	if (fy_is_invalid(ctx->arena_config)) {
-		fyai_error(ctx, "no config in arena; run fyai init or fyai config import");
-		return -1;
-	}
-	v = fy_get_at_pathstr(ctx->gb, ctx->arena_config, key);
-	if (fy_is_invalid(v)) {
-		fyai_error(ctx, "key '%s' not set", key);
-		return -1;
-	}
-	/* Single-line document: bare scalar, or { a: b } / [ 1, 2 ]. */
-	(void)fy_emit(v, FYOPEF_DISABLE_DIRECTORY | FYOPEF_OUTPUT_TYPE_STDOUT |
-			 FYOPEF_MODE_YAML_1_2 | FYOPEF_STYLE_ONELINE |
-			 FYOPEF_WIDTH_INF, NULL);
 	return 0;
 }
 

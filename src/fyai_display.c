@@ -4916,29 +4916,6 @@ out:
 	return out;
 }
 
-/* One compact line per internal turn: index, first-message role, provider, tokens. */
-int fyai_list_turns(struct fyai_ctx *ctx)
-{
-	fy_generic turns;
-	fy_generic item;
-	size_t n;
-
-	turns = fyai_list_turns_data(ctx, ctx->transient_gb);
-	n = fy_len(turns);
-	if (!n) {
-		fyai_result(ctx, "no turns\n");
-		return 0;
-	}
-
-	fy_foreach(item, turns) {
-		fyai_result(ctx, "%3lld  %-9s  %-12s  %-15s  tokens=%lld\n",
-		       fy_get(item, "index", 0LL), fy_get(item, "role", ""),
-		       fy_get(item, "provider", ""), fy_get(item, "api", ""),
-		       fy_get(item, "tokens", 0LL));
-	}
-	return 0;
-}
-
 
 /*
  * On entering the interactive loop, show where the conversation stands: a

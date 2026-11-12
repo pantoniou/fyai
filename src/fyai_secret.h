@@ -32,7 +32,6 @@ int fyai_secret_kernel_set(const char *name, const void *value, size_t len);
 int fyai_secret_kernel_delete(const char *name);
 void fyai_secret_clear(void *value, size_t len);
 void fyai_secret_clear_and_free(char **value, size_t *len);
-int fyai_secret_execute(struct fyai_ctx *ctx);
 /*
  * The secret backend with no @name, or whether @name is present, absent, or
  * unavailable, built in @gb. Never the value.

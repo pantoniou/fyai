@@ -99,8 +99,6 @@ void fyai_tcall_cancel(struct fyai_tcall *call);
 /* Free a call, cancelling it if it has not ended. */
 void fyai_tcall_destroy(struct fyai_tcall *call);
 
-bool fyai_tcall_ended(const struct fyai_tcall *call);
-
 /* True while the channel to the transport works. */
 bool fyai_tclient_alive(const struct fyai_tclient *client);
 

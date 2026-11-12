@@ -426,51 +426,6 @@ fy_generic fyai_project_table_create(struct fy_generic_builder *gb, size_t count
 	return fy_gb_mapping_create(gb, count, pairs);
 }
 
-fy_generic fyai_project_lookup(fy_generic snapshot, const char *path_hex)
-{
-	fy_generic objects, object, entries, entry;
-	const char *part, *end, *name, *digest;
-	size_t length, low, high, middle;
-	unsigned int depth = 0;
-	int rc;
-
-	objects = fy_get(snapshot, "objects", fy_invalid);
-	digest = fy_get(snapshot, "root", "");
-	object = fyai_project_get(objects, digest);
-	part = path_hex;
-	while (*part && fy_is_mapping(object)) {
-		if (++depth > FYAI_PROJECT_MAX_DEPTH)
-			return fy_invalid;
-		end = part;
-		while (*end && strncmp(end, FYAI_PROJECT_HEX_SLASH, FYAI_PROJECT_HEX_SLASH_LEN)) {
-			if (!end[1])
-				return fy_invalid;
-			end += 2;
-		}
-		length = end - part;
-		entries = fy_get(object, "entries", fy_invalid);
-		object = fy_invalid;
-		/* Entries are in the byte order of their hex names. */
-		for (low = 0, high = fy_len(entries); low < high;) {
-			middle = low + (high - low) / 2;
-			entry = fy_get_at(entries, middle);
-			name = fy_get(entry, "name_hex", "");
-			rc = project_key_compare(part, length, name, strlen(name));
-			if (rc < 0)
-				high = middle;
-			else if (rc > 0)
-				low = middle + 1;
-			else {
-				digest = fy_get(entry, "digest", "");
-				object = fyai_project_get(objects, digest);
-				break;
-			}
-		}
-		part = *end ? end + FYAI_PROJECT_HEX_SLASH_LEN : end;
-	}
-	return object;
-}
-
 fy_generic fyai_project_attributes(fy_generic snapshot, const char *path_hex, fy_generic object)
 {
 	fy_generic attributes, value;

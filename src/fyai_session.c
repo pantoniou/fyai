@@ -1109,11 +1109,6 @@ static fy_generic session_prompt_text(struct fyai_ctx *ctx,
 	return fy_gb_internalize(ctx->transient_gb, text);
 }
 
-long long fyai_context_projected(struct fyai_ctx *ctx)
-{
-	return fyai_context_projected_at(ctx, ctx->last_message);
-}
-
 /* The output allowance; the window, not the configuration, can set it. */
 static fy_generic session_allowance(struct fy_generic_builder *gb,
 				    struct fyai_cfg *cfg, long long out_tokens)

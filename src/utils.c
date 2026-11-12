@@ -1516,51 +1516,6 @@ int raise_stack(size_t bytes, char **argv)
 	exit(127);
 }
 
-/*
- * Find an option's argument on the command line before the main option
- * parse. Used for --provider/--config/--env, which config loading needs
- * before the authoritative getopt pass runs. Handles "--opt val",
- * "--opt=val", "-o val", and "-oval". Returns a pointer into argv or NULL.
- */
-const char *find_cli_option(int argc, char **argv, const char *long_opt, char short_opt)
-{
-	size_t long_len = strlen(long_opt);
-	int i;
-
-	for (i = 1; i < argc; i++) {
-		if (!strcmp(argv[i], "--"))
-			break;
-		if (!strcmp(argv[i], long_opt) ||
-		    (short_opt && argv[i][0] == '-' &&
-		     argv[i][1] == short_opt &&
-		     !argv[i][2])) {
-			if (i + 1 < argc)
-				return argv[i + 1];
-		} else if (!strncmp(argv[i], long_opt, long_len) &&
-			   argv[i][long_len] == '=') {
-			return argv[i] + long_len + 1;
-		} else if (short_opt && argv[i][0] == '-' &&
-			   argv[i][1] == short_opt && argv[i][2]) {
-			return argv[i] + 2;
-		}
-	}
-	return NULL;
-}
-
-/* Whether a long flag (no argument) appears before "--". */
-bool has_cli_flag(int argc, char **argv, const char *long_opt)
-{
-	int i;
-
-	for (i = 1; i < argc; i++) {
-		if (!strcmp(argv[i], "--"))
-			break;
-		if (!strcmp(argv[i], long_opt))
-			return true;
-	}
-	return false;
-}
-
 /* Slurp all of stdin into a NUL-terminated malloc'd buffer (for "-" prompts,
  * where stdin may be a non-seekable pipe). Returns NULL on error. */
 char *read_all_stdin(void)
@@ -1605,39 +1560,6 @@ int str_in_set(const char *v, const char *const *opts)
 	return -1;
 }
 
-bool executable_in_path(const char *name)
-{
-	const char *path, *start, *end;
-	char candidate[4096];
-	size_t dir_len, name_len;
-
-	if (strchr(name, '/'))
-		return access(name, X_OK) == 0;
-
-	path = getenv("PATH");
-	if (!path)
-		return false;
-
-	name_len = strlen(name);
-	for (start = path; *start; start = *end ? end + 1 : end) {
-		end = strchr(start, ':');
-		if (!end)
-			end = start + strlen(start);
-		dir_len = (size_t)(end - start);
-		if (!dir_len)
-			continue;
-		if (dir_len + 1 + name_len + 1 > sizeof(candidate))
-			continue;
-		memcpy(candidate, start, dir_len);
-		candidate[dir_len] = '/';
-		memcpy(candidate + dir_len + 1, name, name_len + 1);
-		if (access(candidate, X_OK) == 0)
-			return true;
-	}
-
-	return false;
-}
-
 bool is_mode_file(const char *path, int mode)
 {
 	struct stat st;
@@ -1657,21 +1579,6 @@ bool is_mode_directory(const char *path, int mode)
 bool is_readable_file(const char *path)
 {
 	return is_mode_file(path, R_OK);
-}
-
-bool is_writeable_file(const char *path)
-{
-	return is_mode_file(path, W_OK);
-}
-
-bool is_executable_file(const char *path)
-{
-	return is_mode_file(path, X_OK);
-}
-
-bool is_readable_directory(const char *path)
-{
-	return is_mode_directory(path, W_OK);
 }
 
 bool is_writable_directory(const char *path)
@@ -1704,11 +1611,6 @@ fy_generic parse_json_string_size(struct fy_generic_builder *gb,
 		FYOPPF_MODE_JSON |
 		FYOPPF_COLLECT_DIAG,
 		NULL);
-}
-
-fy_generic parse_json_generic(struct fy_generic_builder *gb, fy_generic v)
-{
-	return parse_json_string(gb, fy_cast(v, ""));
 }
 
 const char *emit_json_string(struct fy_generic_builder *gb, fy_generic v)
@@ -2009,11 +1911,6 @@ static int fyai_spawn_editor_mode(struct fyai_ctx *ctx, const char *path,
 		fyai_error(ctx, "editor exited unsuccessfully");
 	fyai_editor_destroy(request);
 	return rc;
-}
-
-int fyai_spawn_editor(struct fyai_ctx *ctx, const char *path)
-{
-	return fyai_spawn_editor_mode(ctx, path, false);
 }
 
 int fyai_spawn_editor_readonly(struct fyai_ctx *ctx, const char *path)

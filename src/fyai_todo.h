@@ -28,9 +28,6 @@
 fy_generic fyai_todo_normalize(struct fy_generic_builder *gb, fy_generic args,
 			       char *why, size_t why_size);
 
-/* The stored list of this branch, or fy_invalid when it holds none. */
-fy_generic fyai_todo_stored(struct fyai_ctx *ctx);
-
 /* Whether every item of @todos is finished: completed or cancelled. */
 bool fyai_todo_all_done(fy_generic todos);
 

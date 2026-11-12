@@ -40,11 +40,6 @@ void fyai_prof_init(void)
 		clock_gettime(CLOCK_MONOTONIC, &prof_base);
 }
 
-bool fyai_prof_enabled(void)
-{
-	return prof_enabled;
-}
-
 void fyai_prof_stamp(struct timespec *ts)
 {
 	if (prof_enabled)

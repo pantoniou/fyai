@@ -232,15 +232,11 @@ int markdown_render_tool_head(struct fyai_cfg *cfg, const char *title,
 			      size_t len, const char *cause,
 			      const char *first_margin, const char *next_margin,
 			      struct fyai_buf *out);
-int fyai_print_markdown(const char *text, struct fyai_cfg *cfg);
-/* Apply @extra renderer flags to this render. */
-int fyai_print_markdown_flags(const char *text, struct fyai_cfg *cfg,
-			      enum fymd_cfg_flags extra);
 /* Render to @fp with @extra renderer flags. */
 int fyai_fprint_markdown(FILE *fp, const char *text, struct fyai_cfg *cfg,
 			 enum fymd_cfg_flags extra);
 /*
- * Like fyai_print_markdown(), but bound the rendered view to @max_lines terminal
+ * Render to stdout and bound the rendered view to @max_lines terminal
  * rows (head + omission separator + tail), counted after wrapping/layout. A zero
  * limit renders unbounded. Used to cap tool-output previews to the configured
  * tool_preview_lines without truncating the markdown source.

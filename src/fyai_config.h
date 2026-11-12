@@ -62,9 +62,6 @@
 int fyai_config_load(struct fyai_cfg *cfg,
 		     const char *cli_config, const char *cli_env);
 
-/* `fyai config` verb backends. */
-int fyai_config_show(struct fyai_ctx *ctx);
-int fyai_config_get(struct fyai_ctx *ctx, const char *key);
 int fyai_config_set(struct fyai_ctx *ctx, const char *key, const char *value);
 int fyai_config_set_generic(struct fyai_ctx *ctx, const char *key,
 			    fy_generic value);
@@ -209,12 +206,6 @@ void fyai_config_cleanup(struct fyai_cfg *cfg);
  * loads. With none, the picker selects in the session.
  */
 int fyai_config_select_resume(struct fyai_cfg *cfg);
-
-/*
- * Select the lockdown sandbox profile for this invocation only, as
- * `sandbox_profile: lockdown` does. Nothing is stored.
- */
-void fyai_config_sandbox_lockdown(struct fyai_cfg *cfg);
 
 /*
  * Confine the tools of @cfg by the sandbox profile @name, as `/session profile`

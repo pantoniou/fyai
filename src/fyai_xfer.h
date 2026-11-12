@@ -58,8 +58,6 @@ struct fyai_xfer *fyai_xfer_submit(struct fyai_ctx *ctx, fyai_xfer_write_fn writ
 /* Stop a transfer; @done still runs, with CURLE_ABORTED_BY_CALLBACK. */
 void fyai_xfer_cancel(struct fyai_xfer *xfer);
 
-bool fyai_xfer_done(const struct fyai_xfer *xfer);
-
 /* The result of a finished transfer, as curl would report it. */
 CURLcode fyai_xfer_result(const struct fyai_xfer *xfer);
 

@@ -333,9 +333,6 @@ bool fyai_workpane_surface_slot(const struct fyai_workpane_manager *wm,
 struct fytim_surface *
 fyai_workpane_slot_surface(const struct fyai_workpane_manager *wm,
 			   unsigned int slot);
-/* Whether @sf may take focus. */
-bool fyai_workpane_tile_selectable(const struct fyai_workpane_manager *wm,
-				   const struct fytim_surface *sf);
 
 /*
  * The Markdown of the cap row of the pane into @buf: its height, its tiles,
@@ -397,9 +394,6 @@ int fyai_workpane_resolved_rows(const struct fyai_workpane_manager *wm);
 /* The height @sf asks layout for, which its content never changes. */
 int fyai_workpane_tile_preferred_rows(const struct fyai_workpane_manager *wm,
 				      const struct fytim_surface *sf);
-/* The rows layout last granted @sf. */
-int fyai_workpane_tile_granted_rows(const struct fyai_workpane_manager *wm,
-				    const struct fytim_surface *sf);
 
 /* Adopt the disposition the configuration states. */
 void fyai_workpane_adopt_config(struct fyai_workpane_manager *wm);
@@ -416,8 +410,5 @@ void fyai_workpane_grid_resized(struct fyai_workpane_manager *wm,
 
 /* True when the configured tile controls need the mouse. */
 bool fyai_workpane_wants_mouse(const struct fyai_ctx *ctx);
-
-/* The manager of @ctx, or NULL without an interactive display. */
-struct fyai_workpane_manager *fyai_workpane_of(const struct fyai_ctx *ctx);
 
 #endif

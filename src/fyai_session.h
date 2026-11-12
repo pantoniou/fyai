@@ -62,9 +62,6 @@ fy_generic fyai_session_context_data(struct fyai_ctx *ctx,
 /* Return the active context window, or zero if it is not specified. */
 long long fyai_context_window(struct fyai_ctx *ctx);
 
-/* Return the projected prompt and output size of the next request. */
-long long fyai_context_projected(struct fyai_ctx *ctx);
-
 /* As above, measuring the turn chain that ends at @head. */
 long long fyai_context_projected_at(struct fyai_ctx *ctx, fy_generic head);
 

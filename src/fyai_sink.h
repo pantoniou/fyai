@@ -79,8 +79,6 @@ int fyai_sink_diagram_locate(const struct fyai_cfg *cfg, const char *source,
 char *fyai_sink_diagram_navigate(const struct fyai_cfg *cfg, const char *source,
 				 const char *from, enum fyai_diagram_move dir,
 				 int cols);
-int fyai_sink_diagram_page(struct fyai_sink *s, struct fytim_surface *surface,
-			   const char *header, const char *source);
 int fyai_sink_page_split(struct fyai_sink *s, struct fytim_surface *surface,
 			 const struct fyai_sink_page *page);
 /* Split the grid between the page and its aside. Returns the aside extent, in
@@ -196,7 +194,6 @@ struct fyai_sink *fyai_sink_create_render(struct fyai_ctx *ctx, FILE *out);
 struct fyai_sink *fyai_sink_create_frames(struct fyai_ctx *ctx, int fd);
 /* The captured text, NUL terminated. @lenp may be NULL. */
 const char *fyai_sink_captured(const struct fyai_sink *s, size_t *lenp);
-void fyai_sink_capture_reset(struct fyai_sink *s);
 void fyai_sink_destroy(struct fyai_sink *s);
 
 int fyai_sink_doc_begin(struct fyai_sink *s, enum fyai_sink_doc_kind kind);

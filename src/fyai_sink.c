@@ -506,14 +506,6 @@ int fyai_sink_page(struct fyai_sink *s, struct fytim_surface *surface,
 	return sink_page(s, surface, &page);
 }
 
-int fyai_sink_diagram_page(struct fyai_sink *s, struct fytim_surface *surface,
-			   const char *header, const char *source)
-{
-	struct fyai_sink_page page = { .markdown = header, .diagram = source };
-
-	return sink_page(s, surface, &page);
-}
-
 int fyai_sink_page_split(struct fyai_sink *s, struct fytim_surface *surface,
 			 const struct fyai_sink_page *page)
 {
@@ -1552,18 +1544,6 @@ const char *fyai_sink_captured(const struct fyai_sink *s, size_t *lenp)
 	if (lenp)
 		*lenp = c->text.len;
 	return c->text.data ? c->text.data : "";
-}
-
-void fyai_sink_capture_reset(struct fyai_sink *s)
-{
-	struct sink_capture *c;
-
-	if (!s || s->ops != &sink_capture_ops)
-		return;
-	c = s->state;
-	c->text.len = 0;
-	if (c->text.data)
-		c->text.data[0] = '\0';
 }
 
 struct fyai_sink *fyai_sink_create(struct fyai_ctx *ctx)

@@ -292,7 +292,6 @@ void fyai_tools_user_program_forget(struct fyai_shell_session *sess);
 fy_generic fyai_tool_job_collect(struct fyai_ctx *ctx,
 				 struct fyai_tool_job *job, bool *okp);
 
-struct fyai_tool_job_group *fyai_tool_job_group_create(struct fyai_ctx *ctx);
 struct fyai_tool_job_group *
 fyai_tool_job_group_create_notify(struct fyai_ctx *ctx,
 				  fyai_tool_group_complete_fn complete,

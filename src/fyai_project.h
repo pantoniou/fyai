@@ -118,9 +118,6 @@ fy_generic fyai_project_get(fy_generic table, const char *key);
 fy_generic fyai_project_table_create(struct fy_generic_builder *gb, size_t count,
 				     fy_generic *pairs);
 
-/* Borrowed manifest at a hex-encoded relative path; invalid if absent. */
-fy_generic fyai_project_lookup(fy_generic snapshot, const char *path_hex);
-
 /* Borrowed object or timestamp override; storage belongs to snapshot. */
 fy_generic fyai_project_attributes(fy_generic snapshot, const char *path_hex, fy_generic object);
 

@@ -84,9 +84,6 @@ void fyai_transport_hdr_encode(uint8_t *out, const struct fyai_transport_hdr *hd
 int fyai_transport_hdr_decode(const uint8_t *in, size_t size,
 			      struct fyai_transport_hdr *hdr);
 
-/* Return the kind name for a trace record. */
-const char *fyai_transport_kind_name(unsigned int kind);
-
 enum fyai_transport_auth {
 	FYAI_TA_NONE,			/* no credential is sent */
 	FYAI_TA_BEARER,			/* Authorization: Bearer <credential> */
@@ -318,7 +315,6 @@ bool fyai_transport_registry_exec_info(const struct fyai_transport_registry *reg
 uint64_t fyai_transport_exec_id(const struct fyai_transport_exec *exec);
 /* The PID of the execution in the namespace of the registry. */
 pid_t fyai_transport_exec_pid(const struct fyai_transport_exec *exec);
-int fyai_transport_exec_channel(const struct fyai_transport_exec *exec);
 
 /*
  * Read one datagram from a registered channel and authenticate it. A message

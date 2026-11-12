@@ -6067,11 +6067,6 @@ int fyai_ui_surface_zoom(struct fyai_ctx *ctx, struct fytim_surface *sf)
 	return 0;
 }
 
-struct fytim_surface *fyai_ui_surface_zoomed(const struct fyai_ctx *ctx)
-{
-	return fyai_workpane_zoomed(ctx ? ctx->workpane : NULL);
-}
-
 int fyai_ui_surface_keys(struct fyai_ctx *ctx, struct fytim_surface *sf,
 			 bool take, fyai_ui_keys_fn cb, void *user)
 {

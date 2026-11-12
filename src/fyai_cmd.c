@@ -876,11 +876,6 @@ static int prop_value(struct fy_generic_builder *gb, struct fyai_cmd_prop *cp,
 
 /* ---- parser ---------------------------------------------------------------- */
 
-char *fyai_cmd_usage_of(struct fyai_cmd_parsed *p, enum fyai_cmd_surface s)
-{
-	return fyai_cmd_usage(p->def, p->path, s);
-}
-
 /* Report @fmt for the command at @path, with its usage, in one diagnostic. */
 static void parse_error(struct fyai_cfg *cfg, fy_generic def, const char *path,
 			enum fyai_cmd_surface surface, const char *fmt, ...)

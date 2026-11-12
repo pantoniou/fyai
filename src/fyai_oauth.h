@@ -81,10 +81,6 @@ void fyai_oauth_flow_finish(struct fyai_oauth_flow *f, bool ok);
 
 void fyai_oauth_flow_destroy(struct fyai_oauth_flow *f);
 
-/* The synchronous convenience form, for a caller with nothing else on this
- * loop. */
-int fyai_oauth_flow_wait(struct fyai_ctx *ctx, struct fyai_oauth_flow *f);
-
 /* Hand @url to the desktop browser; best effort, failure is not fatal. */
 void fyai_oauth_open_browser(const char *url);
 

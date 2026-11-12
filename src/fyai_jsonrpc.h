@@ -147,10 +147,6 @@ int jsonrpc_conn_respond(struct jsonrpc_conn *conn, fy_generic id,
 			 fy_generic result, fy_generic error);
 
 
-/* Update a stdio connection's descriptors after a transport restart. */
-void jsonrpc_conn_stdio_set_fds(struct jsonrpc_conn *conn, int stdin_fd,
-				int stdout_fd);
-
 /* Suppress the close diagnostic when the caller stops the peer. */
 void jsonrpc_conn_expect_close(struct jsonrpc_conn *conn);
 

@@ -1225,20 +1225,6 @@ void jsonrpc_conn_destroy(struct jsonrpc_conn *conn)
 	free(conn);
 }
 
-void jsonrpc_conn_stdio_set_fds(struct jsonrpc_conn *conn, int stdin_fd,
-				int stdout_fd)
-{
-	if (!conn)
-		return;
-	if (conn->owned_fd >= 0) {
-		close(conn->owned_fd);
-		conn->owned_fd = -1;
-	}
-	conn->stdin_fd = stdin_fd;
-	conn->stdout_fd = stdout_fd;
-	conn->closed = false;
-}
-
 void jsonrpc_conn_expect_close(struct jsonrpc_conn *conn)
 {
 	if (conn)

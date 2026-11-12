@@ -62,9 +62,6 @@ void fyai_waiters_release(struct fyai_ctx *ctx);
 /* Drop the waiters of the parent in a forked child, without ending them. */
 void fyai_waiters_abandon(struct fyai_ctx *ctx);
 
-/* True while a named wait is pending. */
-bool fyai_wait_pending(const struct fyai_ctx *ctx);
-
 /*
  * The pending waits of this run, as rows of name, reason and the seconds that
  * remain. A wait belongs to the run that made it: a child has none of its parent.

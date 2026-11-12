@@ -505,17 +505,6 @@ unsigned int fyai_event_loop_source_count(const struct fyai_event_loop *el)
 	return el ? el->source_count : 0;
 }
 
-void fyai_event_loop_stop(struct fyai_event_loop *el)
-{
-	if (el && el->depth)
-		el->stop[el->depth - 1] = true;
-}
-
-void *fyai_event_source_userdata(const struct fyai_event_source *src)
-{
-	return src ? src->userdata : NULL;
-}
-
 void fyai_event_prepare(struct fyai_event *ev, struct fyai_event_source *src,
 			unsigned int events)
 {
@@ -954,11 +943,6 @@ int fyai_event_sleep_until(struct fyai_event_loop *el, fyai_event_ms_t ms,
 	rc = fyai_event_loop_run_until(el, done, ms);
 	fyai_event_source_remove(src);
 	return rc;
-}
-
-int fyai_event_sleep(struct fyai_event_loop *el, fyai_event_ms_t ms)
-{
-	return fyai_event_sleep_until(el, ms, NULL);
 }
 
 int fyai_event_add_signal(struct fyai_event_loop *el, int signo,

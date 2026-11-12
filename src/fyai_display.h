@@ -54,7 +54,6 @@ fy_generic fyai_list_exchanges_data(struct fyai_ctx *ctx,
 				    struct fy_generic_builder *gb);
 fy_generic fyai_list_reflog_data(struct fyai_ctx *ctx,
 				 struct fy_generic_builder *gb);
-int fyai_list_turns(struct fyai_ctx *ctx);
 void fyai_interactive_recap(struct fyai_ctx *ctx);
 /* Apply the edit of the configuration that the user finished, if any: the step of the loop of a session, of a worker too. */
 int fyai_interactive_config_edit_step(struct fyai_ctx *ctx);

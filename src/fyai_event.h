@@ -90,9 +90,6 @@ int fyai_event_loop_run_until(struct fyai_event_loop *el,
 /* Dispatch once, waiting at most @timeout_ms; return the event count or -1. */
 int fyai_event_loop_step(struct fyai_event_loop *el, fyai_event_ms_t timeout_ms);
 
-/* Ask the innermost active run to unwind. Safe from within a callback. */
-void fyai_event_loop_stop(struct fyai_event_loop *el);
-
 unsigned int fyai_event_loop_source_count(const struct fyai_event_loop *el);
 
 int fyai_event_add_fd(struct fyai_event_loop *el, int fd, unsigned int events,
@@ -109,11 +106,7 @@ int fyai_event_timer_rearm(struct fyai_event_source *src,
 			   fyai_event_ms_t first_ms, fyai_event_ms_t interval_ms);
 int fyai_event_timer_disarm(struct fyai_event_source *src);
 
-/* Delay @ms while @el keeps servicing whatever else is registered on it - the
- * loop-aware replacement for sleep(3), which stalls the whole process. */
-int fyai_event_sleep(struct fyai_event_loop *el, fyai_event_ms_t ms);
-
-/* As fyai_event_sleep(), but return at once when *@done goes true. */
+/* Delay @ms while @el services its sources; return at once when *@done goes true. */
 int fyai_event_sleep_until(struct fyai_event_loop *el, fyai_event_ms_t ms,
 			   const volatile bool *done);
 
@@ -163,8 +156,6 @@ int fyai_event_child_terminate_group(struct fyai_event_loop *el, pid_t pid,
 				     fyai_event_ms_t term_ms, int *statusp);
 
 void fyai_event_source_remove(struct fyai_event_source *src);
-
-void *fyai_event_source_userdata(const struct fyai_event_source *src);
 
 /*
  * Arm the signal-context dump and probe the terminal mode of @fd. The handler

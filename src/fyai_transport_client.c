@@ -394,11 +394,6 @@ void fyai_tcall_destroy(struct fyai_tcall *call)
 	free(call);
 }
 
-bool fyai_tcall_ended(const struct fyai_tcall *call)
-{
-	return call && call->ended;
-}
-
 bool fyai_tclient_alive(const struct fyai_tclient *c)
 {
 	return c && !c->lost && c->src;

@@ -271,19 +271,6 @@ bool fyai_wait_cancel(struct fyai_ctx *ctx, const char *name)
 	return false;
 }
 
-bool fyai_wait_pending(const struct fyai_ctx *ctx)
-{
-	const struct fyai_wait *w;
-
-	if (!ctx)
-		return false;
-	fyai_waits_reap((struct fyai_ctx *)ctx);
-	for (w = ctx->waits; w; w = w->next)
-		if (!w->fired)
-			return true;
-	return false;
-}
-
 fy_generic fyai_waits_rows(struct fyai_ctx *ctx, struct fy_generic_builder *gb)
 {
 	const struct fyai_wait *w;

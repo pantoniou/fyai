@@ -114,13 +114,7 @@ struct fyai_wsc *fyai_wsc_open(struct fyai_ctx *ctx, const struct fyai_wsc_opts 
  */
 int fyai_wsc_send(struct fyai_wsc *c, int opcode, const void *data, size_t n);
 
-/* The bytes that wait to be written. */
-size_t fyai_wsc_pending(const struct fyai_wsc *c);
-
 /* Close the WebSocket with @code, and end once the close frame has left. */
 void fyai_wsc_close(struct fyai_wsc *c, unsigned int code);
-
-/* End the connection now. */
-void fyai_wsc_kill(struct fyai_wsc *c);
 
 #endif

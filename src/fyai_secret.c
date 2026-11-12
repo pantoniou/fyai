@@ -172,10 +172,3 @@ out:
 	fyai_secret_clear_and_free(&value, &cap);
 	return rc;
 }
-
-int fyai_secret_execute(struct fyai_ctx *ctx)
-{
-	struct fyai_secret_args *a = &ctx->cfg->cmd.args.secret;
-
-	return fyai_secret_action(ctx, a->command, a->name, a->stdin_value);
-}

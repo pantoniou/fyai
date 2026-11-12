@@ -9096,11 +9096,6 @@ static int fyai_tool_job_group_reserve(struct fyai_tool_job_group *group)
 	return 0;
 }
 
-struct fyai_tool_job_group *fyai_tool_job_group_create(struct fyai_ctx *ctx)
-{
-	return fyai_tool_job_group_create_notify(ctx, NULL, NULL);
-}
-
 struct fyai_tool_job_group *
 fyai_tool_job_group_create_notify(struct fyai_ctx *ctx,
 				  fyai_tool_group_complete_fn complete,

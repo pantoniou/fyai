@@ -140,16 +140,6 @@ static fy_generic todo_stored_generic(struct fyai_ctx *ctx)
 	return b.todos;
 }
 
-fy_generic fyai_todo_stored(struct fyai_ctx *ctx)
-{
-	fy_generic stored;
-
-	stored = todo_stored_generic(ctx);
-	if (fy_is_invalid(stored))
-		return fy_invalid;
-	return fy_gb_internalize(fyai_ctx_transient_gb(ctx), stored);
-}
-
 /*
  * Publish @todos, kept in the durable builder, as the todo list of this
  * branch. The list is branch state, as the configuration is: the publish

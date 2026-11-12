@@ -1546,17 +1546,6 @@ int fyai_print_markdown_limited(const char *text, struct fyai_cfg *cfg,
 	return markdown_fprint(stdout, text, cfg, max_lines, 0);
 }
 
-int fyai_print_markdown(const char *text, struct fyai_cfg *cfg)
-{
-	return markdown_fprint(stdout, text, cfg, 0, 0);
-}
-
-int fyai_print_markdown_flags(const char *text, struct fyai_cfg *cfg,
-			      enum fymd_cfg_flags extra)
-{
-	return markdown_fprint(stdout, text, cfg, 0, extra);
-}
-
 int fyai_fprint_markdown(FILE *fp, const char *text, struct fyai_cfg *cfg,
 			 enum fymd_cfg_flags extra)
 {

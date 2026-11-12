@@ -227,11 +227,6 @@ void fyai_xfer_cancel(struct fyai_xfer *x)
 		fyai_tcall_cancel(x->call);
 }
 
-bool fyai_xfer_done(const struct fyai_xfer *x)
-{
-	return x && x->finished;
-}
-
 CURLcode fyai_xfer_result(const struct fyai_xfer *x)
 {
 	return x && x->finished ? x->result : CURLE_FAILED_INIT;

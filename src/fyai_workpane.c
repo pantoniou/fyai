@@ -125,11 +125,6 @@ static int workpane_tile_infos(const struct fyai_workpane_manager *wm,
 			       struct fyai_workpane_tile_info *info,
 			       struct fyai_workpane_tile **order);
 
-struct fyai_workpane_manager *fyai_workpane_of(const struct fyai_ctx *ctx)
-{
-	return ctx ? ctx->workpane : NULL;
-}
-
 static struct fyai_workpane_tile *
 workpane_tile(const struct fyai_workpane_manager *wm,
 	      const struct fytim_surface *sf)
@@ -976,14 +971,6 @@ const char *fyai_workpane_tile_region_at(const struct fyai_workpane_manager *wm,
 	return NULL;
 }
 
-bool fyai_workpane_tile_selectable(const struct fyai_workpane_manager *wm,
-				   const struct fytim_surface *sf)
-{
-	const struct fyai_workpane_tile *t = workpane_tile(wm, sf);
-
-	return t && t->selectable;
-}
-
 void fyai_workpane_set_focus(struct fyai_workpane_manager *wm,
 			     struct fytim_surface *sf)
 {
@@ -1221,14 +1208,6 @@ int fyai_workpane_tile_preferred_rows(const struct fyai_workpane_manager *wm,
 	const struct fyai_workpane_tile *t = workpane_tile(wm, sf);
 
 	return t ? t->preferred_rows : 0;
-}
-
-int fyai_workpane_tile_granted_rows(const struct fyai_workpane_manager *wm,
-				    const struct fytim_surface *sf)
-{
-	const struct fyai_workpane_tile *t = workpane_tile(wm, sf);
-
-	return t ? t->granted_rows : 0;
 }
 
 void fyai_workpane_cycle_disposition(struct fyai_workpane_manager *wm)

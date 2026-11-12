@@ -145,23 +145,6 @@ int fyai_transport_hdr_decode(const uint8_t *in, size_t size,
 	return 0;
 }
 
-const char *fyai_transport_kind_name(unsigned int kind)
-{
-	static const char *const names[FYAI_TK_COUNT] = {
-		[FYAI_TK_REQUEST] = "request",
-		[FYAI_TK_CANCEL] = "cancel",
-		[FYAI_TK_CREDIT] = "credit",
-		[FYAI_TK_RESP_START] = "response-start",
-		[FYAI_TK_RESP_BODY] = "response-body",
-		[FYAI_TK_RESP_END] = "response-end",
-		[FYAI_TK_RESP_ERROR] = "response-error",
-	};
-
-	if (kind >= FYAI_TK_COUNT || !names[kind])
-		return "unknown";
-	return names[kind];
-}
-
 const char *fyai_transport_verdict_str(enum fyai_transport_verdict v)
 {
 	switch (v) {
@@ -795,11 +778,6 @@ uint64_t fyai_transport_exec_id(const struct fyai_transport_exec *exec)
 pid_t fyai_transport_exec_pid(const struct fyai_transport_exec *exec)
 {
 	return exec->pid;
-}
-
-int fyai_transport_exec_channel(const struct fyai_transport_exec *exec)
-{
-	return exec->channel;
 }
 
 /*
