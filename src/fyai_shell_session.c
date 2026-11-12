@@ -117,7 +117,7 @@ void fyai_tools_work_update(struct fyai_ctx *ctx)
 			items = fy_append(gb, items, item);
 		}
 		for (job = ctx->tool_jobs; job; job = job->next) {
-			if (!job->is_agent || job->done)
+			if (!job->agent || job->phase == FYAI_JOB_DONE)
 				continue;
 			item = fy_mapping(gb, "kind", "agent",
 					  "name", job->branch ? job->branch : "");
@@ -1793,7 +1793,8 @@ int fyai_tools_session_input(struct fyai_ctx *ctx, const char *name,
 	/* The terminal of a sub-agent is named by its branch. */
 	if (!sess) {
 		for (job = ctx->tool_jobs; job; job = job->next)
-			if (job->is_agent && !job->done && job->pty >= 0 &&
+			if (job->agent && job->phase != FYAI_JOB_DONE &&
+			    job->pty >= 0 &&
 			    job->branch && !strcmp(job->branch, name))
 				break;
 		if (!job)
@@ -1954,7 +1955,7 @@ void fyai_tools_counts(struct fyai_ctx *ctx, int *userp, int *shellp,
 			(*shellp)++;
 	}
 	for (job = ctx->tool_jobs; job; job = job->next)
-		if (job->agent && !job->done)
+		if (job->agent && job->phase != FYAI_JOB_DONE)
 			(*agentp)++;
 }
 
@@ -2047,7 +2048,8 @@ static int fyai_focus_targets(struct fyai_ctx *ctx,
 		n++;
 	}
 	for (job = ctx->tool_jobs; job; job = job->next) {
-		if (!job->inline_block || job->done || n >= max)
+		if (!job->inline_block || job->phase == FYAI_JOB_DONE ||
+		    n >= max)
 			continue;
 		out[n].key = (uintptr_t)job;
 		out[n].sf = NULL;
@@ -2238,7 +2240,8 @@ fy_generic fyai_tools_sessions_data(struct fyai_ctx *ctx,
 				"running"));
 	}
 	for (job = ctx->tool_jobs; job; job = job->next) {
-		if (!job->agent || (job->done && !job->btw_panel))
+		if (!job->agent ||
+		    (job->phase == FYAI_JOB_DONE && !job->btw_panel))
 			continue;
 		rows = fy_append(gb, rows, fy_mapping(gb,
 			"name", fyai_agent_job_name(job),

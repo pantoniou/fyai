@@ -366,14 +366,14 @@ static void fyai_agent_head_repaint(void *owner)
 	struct fyai_tool_job *job = owner;
 	char *title;
 
-	if (job->surface && !job->done)
+	if (job->surface && job->phase != FYAI_JOB_DONE)
 		fyai_agent_head_paint(job);
 	else if (job->surface && job->btw_panel) {
 		title = fyai_agent_head_title(job);
 		(void)fyai_chrome_update(job->ctx, job->surface,
 			&(struct fyai_chrome_spec){
 				.title = title ? title : "**btw**",
-				.mark = job->result_ok && !job->failed ?
+				.mark = job->verdict == FYAI_JOB_OK ?
 					FYAI_UI_MARK_OK : FYAI_UI_MARK_FAILED,
 			}, NULL);
 		free(title);
@@ -386,12 +386,12 @@ fyai_agent_view_animate(const struct fyai_event *ev)
 {
 	struct fyai_tool_job *job = ev->userdata;
 
-	if (job->inline_block && !job->done) {
+	if (job->inline_block && job->phase != FYAI_JOB_DONE) {
 		job->animation_frame++;
 		fyai_agent_inline_paint(job, false, true);
 		return FYAIEA_CONTINUE;
 	}
-	if (!job->surface || job->done)
+	if (!job->surface || job->phase == FYAI_JOB_DONE)
 		return FYAIEA_CONTINUE;
 	job->animation_frame++;
 	fyai_agent_head_paint(job);
@@ -447,7 +447,7 @@ bool fyai_event_agent_live(struct fyai_ctx *ctx, const char *branch)
 	if (!ctx || fy_str_empty(branch))
 		return false;
 	for (job = ctx->tool_jobs; job; job = job->next) {
-		if (!job->agent || job->done || !job->branch)
+		if (!job->agent || job->phase == FYAI_JOB_DONE || !job->branch)
 			continue;
 		if (!strcmp(job->branch, branch))
 			return true;
@@ -465,7 +465,7 @@ static enum fyai_event_action fyai_agent_wait_poll(const struct fyai_event *ev)
 	char *owner = NULL;
 	bool wants;
 
-	if (job->done || !job->branch)
+	if (job->phase == FYAI_JOB_DONE || !job->branch)
 		return FYAIEA_CONTINUE;
 	wants = fyai_process_reads_stdin(job->pid);
 	if (wants == job->wants_input)

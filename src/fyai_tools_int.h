@@ -40,6 +40,30 @@ struct fyai_shell_sandbox {
 #define FYAI_TOOL_CHILD_VIEW_FD 7
 
 /*
+ * The phase of the tool/run request of a job. It only moves forward, so a
+ * test may order it. A job is complete when its request is settled and, for a
+ * job that has no terminal session, when its child is reaped too: the reap
+ * is a process fact that is independent of the request and stays in `reaped`.
+ */
+enum fyai_tool_job_phase {
+	FYAI_JOB_SPAWNED,	/* forked; the channel is not attached */
+	FYAI_JOB_RUNNING,	/* the tool/run request is outstanding */
+	FYAI_JOB_ANSWERED,	/* the request is settled; the child may live */
+	FYAI_JOB_DONE,		/* complete: the result can be collected */
+};
+
+/*
+ * What the job reported. A failed control channel is final: a later verdict
+ * from an answer or from an exit status does not replace it.
+ */
+enum fyai_tool_job_verdict {
+	FYAI_JOB_UNDECIDED,
+	FYAI_JOB_OK,
+	FYAI_JOB_NOT_OK,
+	FYAI_JOB_CHANNEL_FAILED,
+};
+
+/*
  * The job owns its source pointers so withdrawing is idempotent: the callbacks
  * retire a source when it is spent and the collect path retires whatever is
  * left, and neither has to know what the other did. The loop is shared and
@@ -55,7 +79,6 @@ struct fyai_tool_job {
 	fy_generic display;		/* tool-resolved presentation, if any */
 	fy_generic diag;		/* diagnostics collected by the child */
 	char *origin;			/* who the child was, for a diagnostic */
-	bool is_agent;			/* the call delegates to a sub-agent */
 	long long model_text;		/* the bytes of its terminal, for the model */
 	pid_t pid;
 	uint64_t transport_exec;	/* the transport's id for this sub-agent, or 0 */
@@ -68,14 +91,12 @@ struct fyai_tool_job {
 	char *title;
 	char *command;
 	struct fyai_event_source *csrc;
-	bool out_open;		/* tool/run still outstanding */
-	bool have_result;
-	bool reaped;
-	bool failed;
-	bool result_ok;
-	bool done;
+	enum fyai_tool_job_phase phase;
+	enum fyai_tool_job_verdict verdict;
+	bool have_result;	/* the child answered tool/run */
+	bool reaped;		/* the child has been waited for */
 	bool native_shell;
-	bool agent;
+	bool agent;			/* the call delegates to a sub-agent */
 	bool btw;			/* the user opened this side question */
 	bool btw_panel;		/* its finished screen remains in the pane */
 	bool exec;			/* the child executes fyai again */
@@ -98,6 +119,11 @@ struct fyai_tool_job {
 	size_t animation_frame;
 	struct fyai_event_source *waiter;	/* asks if it stopped for input */
 	bool wants_input;
+	/*
+	 * One-way latches that are set before the outcome is known and do not
+	 * order with the phase: a stop was requested, the time limit expired,
+	 * the advisory limit of an agent passed.
+	 */
 	bool terminating;
 	bool timed_out;
 	bool overdue;

@@ -139,7 +139,7 @@ void fyai_tool_jobs_resize(struct fyai_ctx *ctx, int rows, int cols)
 		return;
 
 	for (job = ctx->tool_jobs; job; job = job->next) {
-		if (!job->conn || job->done)
+		if (!job->conn || job->phase == FYAI_JOB_DONE)
 			continue;
 		/* Displayed terminals use their post-layout tile size. */
 		if ((job->session && job->session->surface) || job->surface)
@@ -156,25 +156,39 @@ static void fyai_tool_job_drop(struct fyai_event_source **srcp)
 	*srcp = NULL;
 }
 
-static void fyai_tool_job_update_done(struct fyai_tool_job *job)
+/*
+ * Set the verdict of the job. The verdict of a failed control channel is
+ * final.
+ */
+static void fyai_tool_job_verdict_set(struct fyai_tool_job *job, bool ok)
 {
-	bool was_done = job->done;
+	if (job->verdict == FYAI_JOB_CHANNEL_FAILED)
+		return;
+	job->verdict = ok ? FYAI_JOB_OK : FYAI_JOB_NOT_OK;
+}
 
-	/* A session job completes when its start answer arrives. */
-	job->done = job->session ? !job->out_open :
-				   (job->reaped && !job->out_open);
-	if (!was_done && job->done) {
-		fyai_tools_work_update(job->ctx);
-		fyai_tool_job_drop(&job->band_delay);
-		job->elapsed_ms = fyai_event_now_ms() - job->started_ms;
-		if (job->agent && job->timeout_ms &&
-		    job->elapsed_ms >= job->timeout_ms)
-			job->overdue = true;
-		/* Remove the deadline before the job waits for its group. */
-		fyai_tool_job_drop(&job->deadline);
-		fyai_tool_job_drop(&job->hang_deadline);
-	}
-	if (!was_done && job->done && job->agent && job->branch) {
+/*
+ * Move a job with a settled request to DONE. A session job completes when its
+ * start answer arrives; any other job also waits for its child.
+ */
+static void fyai_tool_job_settle(struct fyai_tool_job *job)
+{
+	if (job->phase != FYAI_JOB_ANSWERED)
+		return;
+	if (!job->session && !job->reaped)
+		return;
+	job->phase = FYAI_JOB_DONE;
+
+	fyai_tools_work_update(job->ctx);
+	fyai_tool_job_drop(&job->band_delay);
+	job->elapsed_ms = fyai_event_now_ms() - job->started_ms;
+	if (job->agent && job->timeout_ms &&
+	    job->elapsed_ms >= job->timeout_ms)
+		job->overdue = true;
+	/* Remove the deadline before the job waits for its group. */
+	fyai_tool_job_drop(&job->deadline);
+	fyai_tool_job_drop(&job->hang_deadline);
+	if (job->agent && job->branch) {
 		/*
 		 * The sub-agent answers no question now: drop the wait
 		 * reports it queued, or a later turn asks the model about
@@ -182,7 +196,7 @@ static void fyai_tool_job_update_done(struct fyai_tool_job *job)
 		 */
 		fyai_events_drop_agent(job->ctx, job->branch);
 	}
-	if (!was_done && job->done && job->stream.active) {
+	if (job->stream.active) {
 		/*
 		 * Test `timed_out` here and during collection. The parent owns
 		 * the deadline. A stopped job can report success immediately
@@ -190,11 +204,11 @@ static void fyai_tool_job_update_done(struct fyai_tool_job *job)
 		 * collection corrects the result.
 		 */
 		(void)fyai_fenced_stream_set_indicator(&job->stream,
-			job->result_ok && !job->failed && !job->timed_out ?
+			job->verdict == FYAI_JOB_OK && !job->timed_out ?
 			FYMD_INDICATOR_SUCCESS : FYMD_INDICATOR_FAILURE, 0);
 		(void)fyai_fenced_stream_push(&job->stream, NULL, 0);
 	}
-	if (!was_done && job->done && job->group)
+	if (job->group)
 		fyai_tool_job_group_service(job->group);
 }
 
@@ -206,11 +220,11 @@ static enum fyai_event_action fyai_tool_job_child(const struct fyai_event *ev)
 	job->reaped = true;
 	/* Preserve a session start result after its serving child exits. */
 	if (!job->have_result)
-		job->result_ok = WIFEXITED(ev->status) &&
-				 WEXITSTATUS(ev->status) == 0;
+		fyai_tool_job_verdict_set(job, WIFEXITED(ev->status) &&
+					       WEXITSTATUS(ev->status) == 0);
 	job->term_signal = WIFSIGNALED(ev->status) ?
 				WTERMSIG(ev->status) : 0;
-	fyai_tool_job_update_done(job);
+	fyai_tool_job_settle(job);
 	return FYAIEA_CONTINUE;
 }
 
@@ -237,7 +251,7 @@ struct fyai_tool_job *fyai_agent_job_named(struct fyai_ctx *ctx,
 		return NULL;
 	fyai_branch_sanitize(name, "agent", slug, sizeof(slug));
 	for (job = ctx->tool_jobs; job; job = job->next) {
-		if (!job->agent || job->done || !job->branch)
+		if (!job->agent || job->phase == FYAI_JOB_DONE || !job->branch)
 			continue;
 		who = fyai_agent_job_name(job);
 		if (!strcmp(job->branch, name) || !strcmp(who, name) ||
@@ -261,7 +275,8 @@ bool fyai_tool_agent_foreground_wait(struct fyai_ctx *ctx,
 	fy_generic args;
 
 	for (job = ctx->tool_jobs; job; job = job->next) {
-		if (!job->agent || job->done || job->conn != conn)
+		if (!job->agent || job->phase == FYAI_JOB_DONE ||
+		    job->conn != conn)
 			continue;
 		args = fyai_tool_call_args(ctx, job->call);
 		if (!fy_get(args, "_fyai_background", false) && !job->btw)
@@ -305,7 +320,8 @@ static struct fyai_tool_job *fyai_tool_job_by_branch(struct fyai_ctx *ctx,
 	struct fyai_tool_job *job;
 
 	for (job = ctx->tool_jobs; job; job = job->next) {
-		if (job->branch && !strcmp(job->branch, branch) && !job->done)
+		if (job->branch && !strcmp(job->branch, branch) &&
+		    job->phase != FYAI_JOB_DONE)
 			return job;
 	}
 	return NULL;
@@ -331,7 +347,7 @@ uint64_t fyai_tool_agent_transport_exec(struct fyai_ctx *ctx, const char *name)
 
 	nl = strlen(name);
 	for (job = ctx->tool_jobs; job; job = job->next) {
-		if (!job->agent || job->done || !job->branch)
+		if (!job->agent || job->phase == FYAI_JOB_DONE || !job->branch)
 			continue;
 		bl = strlen(job->branch);
 		if (!strcmp(job->branch, name))
@@ -585,7 +601,7 @@ static void fyai_tool_job_live_close(struct fyai_tool_job *job,
 	memset(&job->pending_output, 0, sizeof(job->pending_output));
 	/* A sub-agent's screen is committed with its outcome, not discarded. */
 	if (job->agent)
-		fyai_agent_view_close(job, job->result_ok && !job->failed,
+		fyai_agent_view_close(job, job->verdict == FYAI_JOB_OK,
 				      NULL);
 	if (job->stream.active)
 		fyai_fenced_stream_finish(&job->stream);
@@ -776,7 +792,7 @@ fyai_tool_job_band_delay(const struct fyai_event *ev)
 	struct fyai_tool_job *job = ev->userdata;
 
 	job->band_delay = NULL;
-	if (!job->done)
+	if (job->phase != FYAI_JOB_DONE)
 		fyai_tool_job_band_open(job);
 	return FYAIEA_CONTINUE;
 }
@@ -1002,8 +1018,8 @@ struct fyai_tool_job *fyai_tool_job_submit(struct fyai_ctx *ctx,
 		"could not spawn tool job");
 	job->view_run = view_run;
 	view_run = NULL;
-	job->is_agent = fy_equal(name, "agent");
-	fyai_tool_job_link(ctx, job);
+	job->agent = fy_equal(name, "agent");
+		fyai_tool_job_link(ctx, job);
 	if (have_session) {
 		user_owned = fy_get(args, "_fyai_user_owned", false);
 		fyai_shell_tty_size(ctx, args, &srows, &scols);
@@ -1059,7 +1075,6 @@ struct fyai_tool_job *fyai_tool_job_submit(struct fyai_ctx *ctx,
 	} else {
 		job->call = tool_call;
 	}
-	job->agent = fy_equal(name, "agent");
 	job->btw = fy_get(args, "_fyai_btw", false);
 	monitor_v = fy_get(args, "_fyai_monitor", fy_invalid);
 	if (fy_is_string(monitor_v)) {
@@ -1112,7 +1127,6 @@ struct fyai_tool_job *fyai_tool_job_submit(struct fyai_ctx *ctx,
 	if (fy_any_equal(name, "shell", "agent") &&
 	    fyai_sink_bands_available(ctx->sink)) {
 		if (fy_equal(name, "agent")) {
-			job->agent = true;
 			if (job->btw) {
 				job->title = strdup("**btw**\n");
 			} else {
@@ -1365,12 +1379,12 @@ static void fyai_tool_job_run_done(struct jsonrpc_request *req, void *userdata)
 {
 	struct fyai_tool_job *job = userdata;
 
-	job->out_open = false;
+	job->phase = FYAI_JOB_ANSWERED;
 	if (jsonrpc_request_ok(req)) {
 		fy_generic r = jsonrpc_request_result(req);
 
 		job->result = fy_get(r, "result", fy_invalid);
-		job->result_ok = fy_get(r, "ok", false);
+		fyai_tool_job_verdict_set(job, fy_get(r, "ok", false));
 		job->display = fy_get(r, "display", fy_invalid);
 		job->diag = fy_get(r, "diag", fy_invalid);
 		/* The scope keeps what the call left running. */
@@ -1394,9 +1408,9 @@ static void fyai_tool_job_run_done(struct jsonrpc_request *req, void *userdata)
 					fy_castp(&job->display, ""));
 		job->have_result = true;
 	} else {
-		job->failed = true;
+		job->verdict = FYAI_JOB_CHANNEL_FAILED;
 	}
-	fyai_tool_job_update_done(job);
+	fyai_tool_job_settle(job);
 }
 
 static int fyai_tool_job_attach(struct fyai_ctx *ctx,
@@ -1424,7 +1438,7 @@ static int fyai_tool_job_attach(struct fyai_ctx *ctx,
 	fyai_error_check(ctx, !rc, err,
 			 "could not serve the tool control channel");
 
-	job->out_open = true;
+	job->phase = FYAI_JOB_RUNNING;
 	params = !fy_str_empty(job->branch) ?
 		fy_gb_mapping(gb, "call", job->call, "branch", job->branch) :
 		fy_gb_mapping(gb, "call", job->call);
@@ -1457,13 +1471,13 @@ static int fyai_tool_job_attach(struct fyai_ctx *ctx,
 
 err:
 	if (job)
-		job->failed = true;
+		job->verdict = FYAI_JOB_CHANNEL_FAILED;
 	return -1;
 }
 
 bool fyai_tool_job_done(const struct fyai_tool_job *job)
 {
-	return job && job->done;
+	return job && job->phase == FYAI_JOB_DONE;
 }
 
 bool fyai_tools_active(const struct fyai_ctx *ctx)
@@ -1472,7 +1486,7 @@ bool fyai_tools_active(const struct fyai_ctx *ctx)
 	const struct fyai_shell_session *session;
 
 	for (job = ctx->tool_jobs; job; job = job->next)
-		if (!job->done)
+		if (job->phase != FYAI_JOB_DONE)
 			return true;
 	for (session = ctx->shell_sessions; session; session = session->next)
 		if (!session->exited)
@@ -1663,7 +1677,7 @@ fy_generic fyai_tool_job_collect(struct fyai_ctx *ctx,
 
 	if (!job)
 		return fy_invalid;
-	if (!job->done) {
+	if (job->phase != FYAI_JOB_DONE) {
 		*okp = false;
 		return fy_invalid;
 	}
@@ -1676,7 +1690,7 @@ fy_generic fyai_tool_job_collect(struct fyai_ctx *ctx,
 		if (fy_is_valid(job->diag))
 			fyai_diag_adopt(fyai_ctx_diag(ctx), job->diag,
 					job->origin);
-		*okp = job->result_ok && !job->failed;
+		*okp = job->verdict == FYAI_JOB_OK;
 		if (!*okp) {
 			/* Quote the cause without consuming the diagnostic. */
 			cause = fyai_diag_string(fyai_ctx_diag(ctx));
@@ -1708,8 +1722,9 @@ fy_generic fyai_tool_job_collect(struct fyai_ctx *ctx,
 			job->reaped = true;
 			/* The answer stands; see fyai_tool_job_child(). */
 			if (!job->have_result)
-				job->result_ok = WIFEXITED(status) &&
-						 WEXITSTATUS(status) == 0;
+				fyai_tool_job_verdict_set(job,
+						WIFEXITED(status) &&
+						WEXITSTATUS(status) == 0);
 			job->term_signal = WIFSIGNALED(status) ?
 						WTERMSIG(status) : 0;
 			job->view_entry_failed = job->view_run && !job->have_result &&
@@ -1722,7 +1737,7 @@ fy_generic fyai_tool_job_collect(struct fyai_ctx *ctx,
 			 job->origin ? job->origin : "tool", (long)job->pid,
 			 job->term_signal ? "signal " : "exit ",
 			 job->term_signal ? job->term_signal :
-					    (job->result_ok ? 0 : 1),
+			 job->verdict == FYAI_JOB_OK ? 0 : 1,
 			 job->timed_out ? ", timed out" :
 			 (job->have_result ? "" : ", no result"));
 	if (fy_is_valid(job->diag)) {
@@ -1749,7 +1764,8 @@ fy_generic fyai_tool_job_collect(struct fyai_ctx *ctx,
 	} else if (!job->timed_out && !job->have_result) {
 		fyai_error(ctx, "[%s] ended without a result%s",
 			   job->origin ? job->origin : "tool",
-			   job->failed ? " (the control channel failed)" : "");
+			   job->verdict == FYAI_JOB_CHANNEL_FAILED ?
+				" (the control channel failed)" : "");
 	}
 	if (job->term_signal || !job->have_result)
 		result = fy_invalid;
@@ -1821,7 +1837,7 @@ fy_generic fyai_tool_job_collect(struct fyai_ctx *ctx,
 						"timeout_ms",
 						(long long)job->timeout_ms))));
 		}
-		job->result_ok = false;
+		fyai_tool_job_verdict_set(job, false);
 	}
 	if (job->agent && job->overdue && !job->timed_out) {
 		fyai_notice(ctx, "[%s] exceeded the %u ms advisory limit; "
@@ -1837,7 +1853,7 @@ fy_generic fyai_tool_job_collect(struct fyai_ctx *ctx,
 	}
 	if (job->view_run)
 		fyai_agent_view_finish(ctx, job, &result);
-	*okp = job->result_ok && !job->failed;
+	*okp = job->verdict == FYAI_JOB_OK;
 	if (job->btw_panel) {
 		job->group = NULL;
 		return result;

@@ -2384,8 +2384,9 @@ static fy_generic fyai_list_agents(struct fyai_ctx *ctx, struct fy_generic_build
 	len = snprintf(prefix, sizeof(prefix), "%s/" FYAI_BRANCH_AGENT_PREFIX, fyai_ctx_branch(ctx));
 	views = fyai_view_list(ctx, gb);
 	for (job = ctx->tool_jobs; job; job = job->next) {
-		if (!job->agent || job->btw || job->done || !job->branch ||
-		    strncmp(job->branch, prefix, len) || strchr(job->branch + len, '/'))
+		if (!job->agent || job->btw || job->phase == FYAI_JOB_DONE ||
+		    !job->branch || strncmp(job->branch, prefix, len) ||
+		    strchr(job->branch + len, '/'))
 			continue;
 		rest = job->branch + len;
 		rows = fy_append(gb, rows, fy_mapping(gb, "name", rest,
