@@ -21,6 +21,15 @@ static const char *const remote_features[] = {
 
 int fyai_remote_cloexec(int fd);
 int fyai_remote_socketpair(int type, int sv[2]);
+/*
+ * Run @args on one end of a socket pair. The other end goes to @fdp and the
+ * pid of the child to @pidp. The child has the pair as its standard input and
+ * output, the standard error of this process, and of the environment only the
+ * names in the NULL-terminated list @keep and those that every child of fyai
+ * keeps.
+ */
+int fyai_remote_spawn(struct fyai_ctx *ctx, char *const args[],
+		      const char *const keep[], int *fdp, pid_t *pidp);
 int fyai_remote_send(struct jsonrpc_conn *conn, fy_generic frame);
 int fyai_remote_mkdirs(struct fyai_cfg *cfg, size_t top, const char *path);
 char *fyai_remote_socket_path(struct fyai_ctx *ctx, const char *override,

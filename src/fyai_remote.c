@@ -31,6 +31,7 @@
 #include "fyai_jsonrpc.h"
 #include "fyai_remote.h"
 #include "fyai_remote_int.h"
+#include "fyai_sandbox.h"
 #include "fyai_sink.h"
 #include "fyai_storage.h"
 #include "fyai_terminal.h"
@@ -52,6 +53,42 @@ int fyai_remote_socketpair(int type, int sv[2])
 	if (socketpair(AF_UNIX, type, 0, sv))
 		return -1;
 	return fyai_remote_cloexec(sv[0]) || fyai_remote_cloexec(sv[1]) ? -1 : 0;
+}
+
+int fyai_remote_spawn(struct fyai_ctx *ctx, char *const args[],
+		      const char *const keep[], int *fdp, pid_t *pidp)
+{
+	int sv[2] = { -1, -1 }, rc;
+	pid_t pid;
+
+	rc = fyai_remote_socketpair(SOCK_STREAM, sv);
+	fyai_error_check(ctx, !rc, err, "cannot make the channel of '%s': %s",
+			 args[0], strerror(errno));
+	pid = fork();
+	fyai_error_check(ctx, pid >= 0, err, "cannot fork '%s': %s", args[0],
+			 strerror(errno));
+	if (!pid) {
+		if (dup2(sv[1], STDIN_FILENO) < 0 || dup2(sv[1], STDOUT_FILENO) < 0)
+			_exit(126);
+		fyai_close_fds_from(STDERR_FILENO + 1);
+		if (fyai_env_sanitize(keep))
+			_exit(126);
+		if (ctx->signal_mask_valid)
+			sigprocmask(SIG_SETMASK, &ctx->signal_mask, NULL);
+		signal(SIGPIPE, SIG_DFL);
+		execvp(args[0], args);
+		_exit(127);
+	}
+	close(sv[1]);
+	*fdp = sv[0];
+	*pidp = pid;
+	return 0;
+err:
+	if (sv[0] >= 0)
+		close(sv[0]);
+	if (sv[1] >= 0)
+		close(sv[1]);
+	return -1;
 }
 
 int fyai_remote_send(struct jsonrpc_conn *conn, fy_generic frame)
