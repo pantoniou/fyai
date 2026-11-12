@@ -195,17 +195,11 @@ are unchanged.
 
 ### 13. Remote peer, run and session
 
-`fyai_remote_server.c`.
-
-- `struct fyai_remote_peer`: `authenticated`, `failed`, `handed`, `native`,
-  `lines_only`, `watcher`, `run`, `session`. The roles are PENDING_AUTH,
-  NATIVE_DRIVER, WATCHER, HANDED_OFF and RAW. Illegal: a watcher with `run`;
-  `native` without `authenticated`; `handed` with `session`.
-- `struct fyai_remote_run`: `exited`, `err_closed`, `input_closed`, `reported`.
-  `remote_run_settle()` joins them from four callbacks and reports once.
-- `struct fyai_remote_session`: `exited`, `anonymous`, `snapshot`, `peer`,
-  `watchers`. The reap condition is an expression over these fields.
-- Change: a peer-role enum first.
+Done for the peer: `enum remote_peer_role` (pending, client, watcher, handed).
+`failed`, `native` and `lines_only` stay. `struct fyai_remote_run` joins
+`exited`, `err_closed`, `input_closed` and `reported` in `remote_run_settle()`
+from four callbacks, and `struct fyai_remote_session` still tests its reap
+condition over `exited`, `anonymous`, `snapshot`, `peer` and `watchers`.
 
 ### 14. Tool job group
 
