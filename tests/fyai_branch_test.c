@@ -14,6 +14,7 @@ FYAI_TEST_ENTRY(branch, select_directory, branch_select_directory)
 FYAI_TEST_ENTRY(branch, select_empty, branch_select_empty)
 FYAI_TEST_ENTRY(branch, pick_last, branch_pick_last_newest)
 FYAI_TEST_ENTRY(branch, import_provenance, branch_import_provenance)
+FYAI_TEST_ENTRY(branch, adopt_ends_unstored, branch_adopt_ends_unstored)
 
 /* An entry with both timestamps and a directory. */
 static fy_generic entry_new(struct fy_generic_builder *gb, long long created,
@@ -197,6 +198,45 @@ int branch_import_provenance(void)
 					  "content_type"),
 			     "input_image"));
 
+	fy_generic_builder_destroy(gb);
+	return 0;
+}
+
+/* Adopting a stored branch ends the session that no publish stored. */
+int branch_adopt_ends_unstored(void)
+{
+	struct fy_generic_builder *gb;
+	struct fyai_cfg cfg;
+	struct fyai_ctx ctx;
+
+	gb = builder_new();
+	FYAI_TCHECK(gb);
+	memset(&cfg, 0, sizeof(cfg));
+	memset(&ctx, 0, sizeof(ctx));
+	ctx.cfg = &cfg;
+	ctx.gb = gb;
+	ctx.last_message = fy_invalid;
+	ctx.arena_config = fy_invalid;
+	ctx.arena_catalog = fy_invalid;
+	ctx.arena_skills = fy_invalid;
+	ctx.branch_prev = fy_invalid;
+	ctx.branch_desc = fy_invalid;
+	ctx.branch_agent = fy_invalid;
+	ctx.arena_branches = fy_mapping(gb,
+		"stored", entry_new(gb, 10, 20, "/w"));
+	FYAI_TCHECK(!fyai_ctx_set_branch(&ctx, "session/fresh"));
+	ctx.session_unstored = strdup("session/fresh");
+	FYAI_TCHECK(ctx.session_unstored);
+
+	/* A branch that is not stored is not adopted, and the session stays. */
+	FYAI_TCHECK(fyai_branch_adopt(&ctx, "missing", true));
+	FYAI_TCHECK(ctx.session_unstored);
+
+	FYAI_TCHECK(!fyai_branch_adopt(&ctx, "stored", true));
+	FYAI_TCHECK(!strcmp(fyai_ctx_branch(&ctx), "stored"));
+	FYAI_TCHECK(!ctx.session_unstored);
+
+	free(ctx.branch);
 	fy_generic_builder_destroy(gb);
 	return 0;
 }
