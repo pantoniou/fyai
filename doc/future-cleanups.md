@@ -265,14 +265,8 @@ the code before a change.
 
 ### 15. Agent record state
 
-`struct agent_record`, `fyai_agents.c`.
-
-- `char state[24]` holds a wire string. `agent_state_class()` compares it with
-  `strcmp()`, and `active` is a cached copy of the result.
-- An unknown string counts as running, so a misspelled state leaves an agent
-  active.
-- `fyai_tools.c` and `fyai_wait.c` compare the same strings again.
-- Change: an enum for the state, and the string only for display.
+Done. `struct agent_record` holds `enum agent_state`, and an unknown wire state
+is rejected with a warning.
 
 ## Medium priority
 
