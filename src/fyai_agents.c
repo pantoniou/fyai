@@ -23,13 +23,73 @@
 #include "fyai_uimodel.h"
 #include "fyai_workpane.h"
 
+enum agent_state {
+	AGENT_STARTING,
+	AGENT_RUNNING,
+	AGENT_WAITING,
+	AGENT_FAILED,
+	AGENT_INTERRUPTED,
+	AGENT_COMPLETED,
+	AGENT_CANCELLED,
+};
+
+/* Indexed by enum agent_state; the text is the wire and display name. */
+static const char *const agent_state_names[] = {
+	[AGENT_STARTING] = "starting",
+	[AGENT_RUNNING] = "running",
+	[AGENT_WAITING] = "waiting for input",
+	[AGENT_FAILED] = "failed",
+	[AGENT_INTERRUPTED] = "interrupted",
+	[AGENT_COMPLETED] = "completed",
+	[AGENT_CANCELLED] = "cancelled",
+};
+
+struct fyai_agents {
+	struct fyai_ctx *ctx;
+	struct agent_record *records;
+	struct agent_forward *forwards;
+	struct agent_question *questions, **question_tail;
+	struct agent_message_ack *messages;
+	struct agent_parent_ask *parent_asks;
+	bool closing;
+	struct fyai_event_source *timer;
+	struct fytim_surface *surface;
+	struct fyai_sink_band *progress;
+	long long next_execution, selected, sequence;
+	unsigned long generation, painted;
+	bool subscribed, attached, question_presented;
+	char *draft;
+	char *question_draft;
+	char *history;
+	size_t offset;
+	char activity[24];
+};
+
+static struct fyai_agents *agents_get(struct fyai_ctx *ctx)
+{
+	struct fyai_agents *a;
+
+	if (ctx->agents)
+		return ctx->agents;
+	a = calloc(1, sizeof(*a));
+	fyai_error_check(ctx, a, err_out, "cannot allocate the agent registry");
+	a->ctx = ctx;
+	a->question_tail = &a->questions;
+	snprintf(a->activity, sizeof(a->activity), "running");
+	ctx->agents = a;
+	return a;
+
+err_out:
+	return NULL;
+}
+
 struct agent_record {
 	struct agent_record *next;
 	struct jsonrpc_conn *route;
 	long long execution, parent, sequence, started;
 	char *branch, *model, *source;
-	char state[24];
-	bool active, subscribed;
+	enum agent_state state;
+	bool subscribed;
 };
 
 struct agent_forward {
@@ -110,63 +170,44 @@ enum agent_class {
 	AGENT_CLASS_RUNNING,
 };
 
-struct fyai_agents {
-	struct fyai_ctx *ctx;
-	struct agent_record *records;
-	struct agent_forward *forwards;
-	struct agent_question *questions, **question_tail;
-	struct agent_message_ack *messages;
-	struct agent_parent_ask *parent_asks;
-	bool closing;
-	struct fyai_event_source *timer;
-	struct fytim_surface *surface;
-	struct fyai_sink_band *progress;
-	long long next_execution, selected, sequence;
-	unsigned long generation, painted;
-	bool subscribed, attached, question_presented;
-	char *draft;
-	char *question_draft;
-	char *history;
-	size_t offset;
-	char activity[24];
-};
-
-static struct fyai_agents *agents_get(struct fyai_ctx *ctx)
+/* The state that a wire name gives, or -1 when the name is unknown. */
+static int agent_state_parse(const char *name)
 {
-	struct fyai_agents *a;
+	size_t i;
 
-	if (ctx->agents)
-		return ctx->agents;
-	a = calloc(1, sizeof(*a));
-	fyai_error_check(ctx, a, err_out, "cannot allocate the agent registry");
-	a->ctx = ctx;
-	a->question_tail = &a->questions;
-	snprintf(a->activity, sizeof(a->activity), "running");
-	ctx->agents = a;
-	return a;
-
-err_out:
-	return NULL;
+	for (i = 0; i < sizeof(agent_state_names) / sizeof(agent_state_names[0]); i++)
+		if (!strcmp(agent_state_names[i], name))
+			return (int)i;
+	return -1;
 }
 
-/* The class of a wire state. An unknown state is work in progress. */
-static enum agent_class agent_state_class(const char *state)
+static const char *agent_state_name(enum agent_state state)
 {
-	if (!strcmp(state, "waiting for input"))
+	return agent_state_names[state];
+}
+
+static enum agent_class agent_state_class(enum agent_state state)
+{
+	switch (state) {
+	case AGENT_WAITING:
 		return AGENT_CLASS_WAITING;
-	if (!strcmp(state, "failed") || !strcmp(state, "interrupted"))
+	case AGENT_FAILED:
+	case AGENT_INTERRUPTED:
 		return AGENT_CLASS_STOPPED;
-	if (!strcmp(state, "completed") || !strcmp(state, "cancelled"))
+	case AGENT_COMPLETED:
+	case AGENT_CANCELLED:
 		return AGENT_CLASS_ENDED;
-	return AGENT_CLASS_RUNNING;
+	default:
+		return AGENT_CLASS_RUNNING;
+	}
 }
 
 /* An agent is active until its state says it has stopped. */
-static bool agent_state_active(const char *state)
+static bool agent_active(const struct agent_record *r)
 {
 	enum agent_class class;
 
-	class = agent_state_class(state);
+	class = agent_state_class(r->state);
 	return class == AGENT_CLASS_WAITING || class == AGENT_CLASS_RUNNING;
 }
 
@@ -205,7 +246,7 @@ static struct agent_record *agents_named(struct fyai_ctx *ctx, const char *name)
 		return NULL;
 	fyai_branch_sanitize(name, "agent", slug, sizeof(slug));
 	for (r = ctx->agents->records; r; r = r->next) {
-		if (!r->active)
+		if (!agent_active(r))
 			continue;
 		if (!strcmp(r->branch, name))
 			return r;
@@ -228,7 +269,7 @@ bool fyai_agents_ambiguous(struct fyai_ctx *ctx, const char *name)
 	if (!ctx->agents || fy_str_empty(name))
 		return false;
 	for (r = ctx->agents->records; r; r = r->next) {
-		if (!r->active)
+		if (!agent_active(r))
 			continue;
 		if (!strcmp(r->branch, name))
 			return false;
@@ -354,8 +395,7 @@ static struct agent_record *agents_add(struct fyai_agents *a,
 	r->parent = fy_get(params, "parent", 0LL);
 	r->started = fyai_event_now_ms();
 	r->route = route;
-	r->active = true;
-	snprintf(r->state, sizeof(r->state), "starting");
+	r->state = AGENT_STARTING;
 	r->next = a->records;
 	a->records = r;
 	a->generation++;
@@ -372,10 +412,10 @@ static void agents_event(struct fyai_ctx *ctx, struct jsonrpc_conn *from,
 	struct agent_record *r;
 	long long execution, sequence;
 	fy_generic source;
-	const char *state, *model, *text;
+	const char *name, *model, *text;
 	char *copy;
 	bool changed;
-	int rc;
+	int rc, state;
 
 	a = agents_get(ctx);
 	if (!a)
@@ -385,15 +425,20 @@ static void agents_event(struct fyai_ctx *ctx, struct jsonrpc_conn *from,
 	r = agents_record(a, execution);
 	if (!r && ctx->agent_execution)
 		r = agents_add(a, from, params, execution);
-	if (!r || r->route != from || sequence <= r->sequence || !r->active)
+	if (!r || r->route != from || sequence <= r->sequence || !agent_active(r))
 		return;
+	name = fy_get(params, "state", "running");
+	state = agent_state_parse(name);
+	if (state < 0) {
+		fyai_warning(ctx, "agent %s reported the unknown state \"%s\"",
+			     r->branch, name);
+		return;
+	}
 	r->sequence = sequence;
-	state = fy_get(params, "state", "running");
-	changed = strcmp(r->state, state) != 0;
-	snprintf(r->state, sizeof(r->state), "%s", state);
-	r->active = agent_state_active(r->state);
+	changed = r->state != (enum agent_state)state;
+	r->state = state;
 	/* Running follows the admission response; the child now knows its ID. */
-	if (r->active)
+	if (agent_active(r))
 		agents_messages_admitted(a, r);
 	model = fy_get(params, "model", "");
 	if (!fy_str_empty(model) && strcmp(model, r->model)) {
@@ -583,7 +628,7 @@ static enum agents_served agents_serve_admit(struct fyai_ctx *ctx,
 	}
 	branch = fy_get(params, "branch", "");
 	for (r = a->records; r; r = r->next) {
-		if (!r->active)
+		if (!agent_active(r))
 			continue;
 		active++;
 		if (!strcmp(r->branch, branch)) {
@@ -669,7 +714,7 @@ static enum agents_served agents_serve_control(struct fyai_ctx *ctx,
 	if (execution > 0 && execution == ctx->agent_execution)
 		return agents_serve_own_control(ctx, a, gb, action, params, result);
 	r = agents_record(a, execution);
-	fyai_error_check(ctx, r && r->active && r->route, err_out,
+	fyai_error_check(ctx, r && agent_active(r) && r->route, err_out,
 			 "no live agent answers execution %lld", execution);
 	rc = agents_forward(ctx, conn, r->route, "agent/control", params, id);
 	return rc ? AGENTS_SERVED_FAIL : AGENTS_SERVED_OK;
@@ -739,7 +784,7 @@ static enum agents_served agents_serve_message(struct fyai_ctx *ctx,
 		"agent message needs text and identity");
 	if (!strcmp(target, "parent")) {
 		for (r = a->records; r; r = r->next)
-			if (r->route == conn && r->active)
+			if (r->route == conn && agent_active(r))
 				break;
 		fyai_error_check(ctx, r && r->execution == execution, err_out,
 				 "agent message sender is not live");
@@ -761,7 +806,7 @@ static enum agents_served agents_serve_message(struct fyai_ctx *ctx,
 				 "agent message has no sender");
 	} else {
 		r = agents_record(a, execution);
-		fyai_error_check(ctx, r && r->active && r->route, err_out,
+		fyai_error_check(ctx, r && agent_active(r) && r->route, err_out,
 				 "agent message target is not live");
 		rc = agents_forward(ctx, conn, r->route, "agent/message",
 			params, id);
@@ -936,10 +981,8 @@ void fyai_agents_conn_closed(struct fyai_ctx *ctx, struct jsonrpc_conn *conn)
 		if (r->route != conn)
 			continue;
 		r->route = NULL;
-		if (r->active) {
-			r->active = false;
-			snprintf(r->state, sizeof(r->state), "interrupted");
-		}
+		if (agent_active(r))
+			r->state = AGENT_INTERRUPTED;
 	}
 	a->generation++;
 }
@@ -968,7 +1011,7 @@ const char *fyai_agents_state(struct fyai_ctx *ctx, const char *branch)
 	struct agent_record *r;
 
 	r = agents_branch_record(ctx, branch);
-	return r ? r->state : NULL;
+	return r ? agent_state_name(r->state) : NULL;
 }
 
 bool fyai_agents_branch_identity(struct fyai_ctx *ctx, const char *branch,
@@ -992,9 +1035,9 @@ fy_generic fyai_agents_rows(struct fyai_ctx *ctx, struct fy_generic_builder *gb)
 	rows = fy_sequence(gb);
 	for (r = ctx->agents ? ctx->agents->records : NULL; r; r = r->next)
 		rows = fy_append(gb, rows, fy_mapping(gb,
-			"branch", r->branch, "state", r->state,
+			"branch", r->branch, "state", agent_state_name(r->state),
 			"execution", r->execution, "parent", r->parent,
-			"model", r->model, "active", r->active));
+			"model", r->model, "active", agent_active(r)));
 	return rows;
 }
 
@@ -1004,7 +1047,7 @@ static int agents_control(struct fyai_ctx *ctx, struct agent_record *r,
 	struct fy_generic_builder *gb;
 
 	gb = fyai_ctx_transient_gb(ctx);
-	if (!r || !r->route || !r->active || !gb)
+	if (!r || !r->route || !agent_active(r) || !gb)
 		return -1;
 	return jsonrpc_notify(r->route, "agent/control", fy_mapping(gb,
 		"execution", r->execution, "action", action,
@@ -1042,7 +1085,7 @@ static size_t agents_descendants(struct fyai_agents *a, struct agent_record *par
 	size_t count = 0, hops;
 
 	for (r = a->records; r; r = r->next) {
-		if (!r->active)
+		if (!agent_active(r))
 			continue;
 		for (p = r, hops = 0; p && hops < AGENT_CHAIN_MAX; hops++) {
 			if (p->parent == parent->execution) {
@@ -1079,7 +1122,7 @@ static size_t agents_progress(FILE *fp, struct fyai_agents *a, long long parent)
 
 	for (r = a->records; r; r = r->next) {
 		if (r->parent != parent ||
-		    (!r->active && (!r->route || agents_priority(r) != 1)))
+		    (!agent_active(r) && (!r->route || agents_priority(r) != 1)))
 			continue;
 		count++;
 		for (i = 0; i < AGENT_PROGRESS_SHOWN; i++) {
@@ -1095,7 +1138,7 @@ static size_t agents_progress(FILE *fp, struct fyai_agents *a, long long parent)
 		r = shown[i];
 		name = fyai_prompt_literal(r->branch);
 		fprintf(fp, "%s · %s · %llds · %zu descendants  \n",
-			name ? name : "agent", r->state,
+			name ? name : "agent", agent_state_name(r->state),
 			(long long)((fyai_event_now_ms() - r->started) / 1000),
 			agents_descendants(a, r));
 		free(name);
@@ -1468,7 +1511,7 @@ static int agents_message_new(struct fyai_ctx *ctx, const char *name,
 	if (parent) {
 		if (!ctx->tool_rpc || !ctx->agent_execution)
 			return -1;
-	} else if (!r || !r->route || !r->active) {
+	} else if (!r || !r->route || !agent_active(r)) {
 		branch = fyai_tool_agent_live_branch(ctx, name);
 		if (!branch)
 			return -1;
@@ -1696,7 +1739,8 @@ static void agents_present_view(struct fyai_ctx *ctx, struct fyai_agents *a,
 	FILE *fp;
 	int rc;
 
-	if (fyai_ui_surface_set_title(a->surface, selected->branch, selected->state))
+	if (fyai_ui_surface_set_title(a->surface, selected->branch,
+				       agent_state_name(selected->state)))
 		fyai_warning(ctx, "the agent view is not named");
 	fp = open_memstream(&md, &size);
 	fyai_error_check(ctx, fp, err_out, "cannot build the agent view");
@@ -1704,17 +1748,17 @@ static void agents_present_view(struct fyai_ctx *ctx, struct fyai_agents *a,
 		fprintf(fp, "%s\n\n", a->history);
 	fprintf(fp, "%s\n\n", selected->source ? selected->source :
 		"Waiting for agent output.");
-	if (!selected->active)
+	if (!agent_active(selected))
 		fprintf(fp, "Agent %s. This view is read-only. Use /branch detach to return.\n\n",
-			selected->state);
+			agent_state_name(selected->state));
 	for (r = a->records; a->attached && r; r = r->next) {
 		if (r->parent != selected->execution)
 			continue;
-		if (r->active && !r->subscribed)
+		if (agent_active(r) && !r->subscribed)
 			r->subscribed = !agents_control(ctx, r, "subscribe", NULL, true);
 		name = fyai_prompt_literal(r->branch);
 		fprintf(fp, "### %s · %s\n\n%s\n\n%zu active descendants\n\n",
-			name ? name : "agent", r->state, r->source ? r->source : "",
+			name ? name : "agent", agent_state_name(r->state), r->source ? r->source : "",
 			agents_descendants(a, r));
 		free(name);
 		(void)agents_progress(fp, a, r->execution);
