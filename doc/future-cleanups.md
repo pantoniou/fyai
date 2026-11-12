@@ -703,14 +703,12 @@ is a series. Check an item again before work on it.
 
 ### Fork and cleanup gaps
 
-10. `fyai_ctx_fork_disown()` (`fyai_tools.c:5916`) does not reset (M):
-    `btw_runs`, `workpane`, `patch_views`, `catalog_update`, `acp_rpc`,
-    `cmd_call`, `display_output` and `home`. Unverified: `transport_src`,
-    `signal_src[]` and `waiter_tick`, which an abandon helper may clear. Move
-    each cluster into a reset function of its subsystem, as in the context
-    section of part 1.
-11. `session_quit` (`fyai_cmd_config.c:1381`) is deferred and has no cancel
-    path (S, unverified: the ctx may outlive the loop).
+10. Done. `fyai_ctx_fork_disown()` also clears the tile manager, the active
+    command, the catalogue update, the ACP connection, the control source and
+    the side questions. `home` stays: the tools of the child use the home of
+    the parent. `patch_views` and `waiter_tick` were cleared already.
+11. Not a defect. `session_quit` runs on the loop that its ctx owns, and
+    `fyai_ui_quit_request()` accepts a ctx with no UI.
 
 ### Dead code and compatibility
 
