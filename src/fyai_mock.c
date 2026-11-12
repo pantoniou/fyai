@@ -5,10 +5,12 @@
  *
  * SPDX-License-Identifier: MIT
  *
- * One thread, one event loop. A reply is a list of operations (write bytes,
- * sleep, wait for a marker file, shut the connection down) that a connection
- * runs in order, so a held reply never blocks another connection. The
- * scenario format is described in doc/mock-provider.md.
+ * One thread, one event loop. The HTTP side is fyai_httpd: it listens, reads
+ * each request with its body, and keeps the connection. A reply is a list of
+ * operations (write bytes, sleep, wait for a marker file, close the
+ * connection after it) that a connection runs in order, so a held reply never
+ * blocks another connection. The scenario format is described in
+ * doc/mock-provider.md.
  */
 
 #ifdef HAVE_CONFIG_H
@@ -18,33 +20,28 @@
 #include <ctype.h>
 #include <errno.h>
 #include <fcntl.h>
-#include <netinet/in.h>
-#include <netinet/tcp.h>
 #include <signal.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
-#include <sys/socket.h>
 #include <sys/types.h>
 #include <unistd.h>
 
 #include "fyai.h"
 #include "fyai_config.h"
 #include "fyai_event.h"
+#include "fyai_httpd.h"
 #include "fyai_mock.h"
 #include "fyai_sink.h"
 #include "utils.h"
 
 #define FYAI_MODULE FYAIEM_UNKNOWN
 
-#ifndef MSG_NOSIGNAL
-#define MSG_NOSIGNAL 0
-#endif
-
-#define MOCK_BACKLOG		256
-#define MOCK_MAX_HEAD		(64 * 1024)
+#define MOCK_MAX_CONNS		4096
+#define MOCK_MAX_BODY		(64u << 20)
+#define MOCK_MAX_OUTPUT		(64u << 20)
 #define MOCK_POLL_MS		10
 #define MOCK_HOLD_MS		30000	/* before a reply; scaled */
 #define MOCK_STREAM_HOLD_MS	5000	/* inside a stream; not scaled */
@@ -56,7 +53,7 @@ enum mock_op_kind {
 	MOCK_WRITE,
 	MOCK_SLEEP,
 	MOCK_MARKER,
-	MOCK_SHUTDOWN,
+	MOCK_CLOSE,		/* end the connection after the reply */
 };
 
 /* Names the marker for MOCK_MARKER; @ms is the sleep or the deadline. */
@@ -71,7 +68,7 @@ struct mock {
 	struct fyai_ctx *ctx;
 	struct fy_generic_builder *gb;
 	struct fyai_event_loop *el;
-	struct fyai_event_source *listen_src;
+	struct fyai_httpd *httpd;
 	const char *rundir;
 	fy_generic steps;
 	size_t nsteps;
@@ -81,41 +78,21 @@ struct mock {
 	size_t served;
 	double scale;		/* FYAI_TIMEOUT_SCALE */
 	unsigned short port;
-	int listen_fd;
 };
 
+/* The state of one connection of the server: the reply in progress. */
 struct mock_conn {
 	struct mock *m;
-	int fd;
-	struct fyai_event_source *src;
+	struct fyai_httpd_conn *hc;
 	struct fyai_event_source *timer;
 	unsigned short peer_port;
 
-	char *in;
-	size_t in_len;
-	size_t in_cap;
-	bool continue_sent;
-
-	/* A reply in progress: the connection reads nothing until it ends. */
-	bool busy;
 	bool close_after;
 	struct mock_op *ops;
 	size_t nops;
 	size_t cap_ops;
 	size_t pos;
-	size_t woff;		/* bytes of ops[pos] already sent */
 	fyai_event_ms_t deadline;
-};
-
-struct mock_req {
-	char method[16];
-	char target[4096];
-	const char *hdrs;
-	size_t hlen;
-	char *body;		/* NUL terminated, owned */
-	size_t body_len;
-	size_t consumed;
-	bool http10;
 };
 
 /* Request fields a `match` can name; unnamed keys compare as "". */
@@ -129,7 +106,6 @@ struct mock_fields {
 };
 
 static void conn_pump(struct mock_conn *c);
-static void conn_feed(struct mock_conn *c);
 
 /* ---- text buffer ----------------------------------------------------------- */
 
@@ -231,7 +207,7 @@ static void ops_free(struct mock_conn *c)
 		free(c->ops[i].data);
 	free(c->ops);
 	c->ops = NULL;
-	c->nops = c->cap_ops = c->pos = c->woff = 0;
+	c->nops = c->cap_ops = c->pos = 0;
 }
 
 static const char *status_text(int status)
@@ -301,47 +277,12 @@ static int op_reply(struct mock_conn *c, int status, const char *ctype,
 
 /* ---- connections ----------------------------------------------------------- */
 
-static void conn_close(struct mock_conn *c)
+/* The server ended the connection: drop what the reply holds. */
+static void conn_free(struct mock_conn *c)
 {
 	fyai_event_source_remove(c->timer);
-	fyai_event_source_remove(c->src);
-	if (c->fd >= 0)
-		close(c->fd);
 	ops_free(c);
-	free(c->in);
 	free(c);
-}
-
-/* Send what @c owes of the current write; 1 when the socket is full. */
-static int conn_send(struct mock_conn *c, struct mock_op *op)
-{
-	ssize_t n;
-
-	while (c->woff < op->len) {
-		n = send(c->fd, op->data + c->woff, op->len - c->woff,
-			 MSG_NOSIGNAL);
-		if (n < 0) {
-			if (errno == EINTR)
-				continue;
-			if (errno == EAGAIN || errno == EWOULDBLOCK)
-				return 1;
-			return -1;
-		}
-		c->woff += (size_t)n;
-	}
-	return 0;
-}
-
-static void conn_idle(struct mock_conn *c)
-{
-	ops_free(c);
-	c->busy = false;
-	c->continue_sent = false;
-	fyai_event_timer_disarm(c->timer);
-	fyai_event_fd_modify(c->src, FYAIEV_READ);
-	/* The next request can have arrived with the last one. */
-	if (c->in_len)
-		conn_feed(c);
 }
 
 static enum fyai_event_action conn_on_timer(const struct fyai_event *ev)
@@ -349,7 +290,7 @@ static enum fyai_event_action conn_on_timer(const struct fyai_event *ev)
 	struct mock_conn *c = ev->userdata;
 	struct mock_op *op;
 
-	if (!c->busy || c->pos >= c->nops)
+	if (c->pos >= c->nops)
 		return FYAIEA_CONTINUE;
 	op = &c->ops[c->pos];
 	if (op->kind == MOCK_MARKER) {
@@ -366,21 +307,19 @@ done:
 	return FYAIEA_CONTINUE;
 }
 
+/* Wait @first, then every @interval. The connection ends when that fails. */
 static void conn_arm(struct mock_conn *c, fyai_event_ms_t first,
 		     fyai_event_ms_t interval)
 {
 	int rc;
 
-	if (c->timer) {
+	if (c->timer)
 		rc = fyai_event_timer_rearm(c->timer, first, interval);
-		if (rc)
-			conn_close(c);
-		return;
-	}
-	rc = fyai_event_add_timer(c->m->el, first, interval, conn_on_timer, c,
-				  &c->timer);
+	else
+		rc = fyai_event_add_timer(c->m->el, first, interval, conn_on_timer, c,
+					  &c->timer);
 	if (rc)
-		conn_close(c);
+		fyai_httpd_kill(c->hc);
 }
 
 /*
@@ -389,23 +328,16 @@ static void conn_arm(struct mock_conn *c, fyai_event_ms_t first,
  */
 static void conn_pump(struct mock_conn *c)
 {
+	struct fyai_httpd_conn *hc = c->hc;
 	struct mock_op *op;
-	int rc;
 
 	while (c->pos < c->nops) {
 		op = &c->ops[c->pos];
 		switch (op->kind) {
 		case MOCK_WRITE:
-			rc = conn_send(c, op);
-			if (rc < 0) {
-				conn_close(c);
+			/* A failed write ends the connection, and frees @c. */
+			if (fyai_httpd_conn_write(hc, op->data, op->len))
 				return;
-			}
-			if (rc) {
-				fyai_event_fd_modify(c->src, FYAIEV_READ | FYAIEV_WRITE);
-				return;
-			}
-			c->woff = 0;
 			c->pos++;
 			break;
 		case MOCK_SLEEP:
@@ -419,235 +351,16 @@ static void conn_pump(struct mock_conn *c)
 			c->deadline = fyai_event_now_ms() + op->ms;
 			conn_arm(c, MOCK_POLL_MS, MOCK_POLL_MS);
 			return;
-		case MOCK_SHUTDOWN:
-			shutdown(c->fd, SHUT_WR);
+		case MOCK_CLOSE:
 			c->close_after = true;
 			c->pos++;
 			break;
 		}
 	}
-	if (c->close_after) {
-		conn_close(c);
-		return;
-	}
-	conn_idle(c);
-}
-
-/* Read what the peer sent into the input; -1 when the connection is over. */
-static int conn_fill(struct mock_conn *c)
-{
-	size_t cap;
-	ssize_t n;
-	char *p;
-
-	if (c->in_len + 4096 > c->in_cap) {
-		cap = c->in_cap ? c->in_cap * 2 : 8192;
-		p = realloc(c->in, cap);
-		if (!p)
-			return -1;
-		c->in = p;
-		c->in_cap = cap;
-	}
-	n = recv(c->fd, c->in + c->in_len, c->in_cap - c->in_len - 1, 0);
-	if (n < 0 && (errno == EINTR || errno == EAGAIN || errno == EWOULDBLOCK))
-		return 0;
-	if (n <= 0)
-		return -1;
-	c->in_len += (size_t)n;
-	return 0;
-}
-
-static enum fyai_event_action conn_on_event(const struct fyai_event *ev)
-{
-	struct mock_conn *c = ev->userdata;
-
-	/* Input that arrives during a reply is kept for the next request. */
-	if (ev->events & FYAIEV_READ) {
-		if (conn_fill(c)) {
-			conn_close(c);
-			return FYAIEA_CONTINUE;
-		}
-		if (!c->busy)
-			conn_feed(c);
-		return FYAIEA_CONTINUE;
-	}
-	if (ev->events & (FYAIEV_EOF | FYAIEV_ERROR)) {
-		conn_close(c);
-		return FYAIEA_CONTINUE;
-	}
-	if (c->busy && (ev->events & FYAIEV_WRITE)) {
-		fyai_event_fd_modify(c->src, FYAIEV_READ);
-		conn_pump(c);
-	}
-	return FYAIEA_CONTINUE;
-}
-
-/* ---- request parsing ------------------------------------------------------- */
-
-static const char *find_blank(const char *p, size_t n)
-{
-	size_t i;
-
-	for (i = 0; i + 4 <= n; i++)
-		if (p[i] == '\r' && p[i + 1] == '\n' && p[i + 2] == '\r' &&
-		    p[i + 3] == '\n')
-			return p + i;
-	return NULL;
-}
-
-/* Copy the value of header @name of @hdrs into @out; "" when absent. */
-static void hdr_get(const char *hdrs, size_t hlen, const char *name, char *out,
-		    size_t size)
-{
-	size_t nlen = strlen(name), vlen;
-	const char *line = hdrs, *end = hdrs + hlen, *eol, *colon, *v;
-
-	out[0] = '\0';
-	while (line < end) {
-		eol = memchr(line, '\n', (size_t)(end - line));
-		if (!eol)
-			eol = end;
-		colon = memchr(line, ':', (size_t)(eol - line));
-		if (colon && (size_t)(colon - line) == nlen &&
-		    !strncasecmp(line, name, nlen)) {
-			v = colon + 1;
-			while (v < eol && (*v == ' ' || *v == '\t'))
-				v++;
-			vlen = (size_t)(eol - v);
-			while (vlen && (v[vlen - 1] == '\r' ||
-					v[vlen - 1] == ' ' ||
-					v[vlen - 1] == '\t'))
-				vlen--;
-			if (vlen >= size)
-				vlen = size - 1;
-			memcpy(out, v, vlen);
-			out[vlen] = '\0';
-			return;
-		}
-		line = eol + 1;
-	}
-}
-
-/*
- * Decode a chunked body at @p. Return 1 and set @bodyp, @lenp and @usedp when
- * complete, 0 when more bytes are needed, -1 when malformed.
- */
-static int chunked_decode(const char *p, size_t n, char **bodyp, size_t *lenp,
-			  size_t *usedp)
-{
-	struct fyai_buf sb = { 0 };
-	size_t pos = 0, size;
-	const char *eol;
-	char *endp;
-	int rc = 0;
-
-	for (;;) {
-		eol = memchr(p + pos, '\n', n - pos);
-		if (!eol)
-			goto more;
-		size = strtoul(p + pos, &endp, 16);
-		if (endp == p + pos)
-			goto bad;
-		pos = (size_t)(eol - p) + 1;
-		if (!size)
-			break;
-		if (n - pos < size + 2)
-			goto more;
-		if (fyai_buf_append_data(&sb, p + pos, size))
-			goto bad;
-		pos += size + 2;
-	}
-	/* Trailers end with an empty line. */
-	for (;;) {
-		eol = memchr(p + pos, '\n', n - pos);
-		if (!eol)
-			goto more;
-		size = (size_t)(eol - (p + pos));
-		pos = (size_t)(eol - p) + 1;
-		if (size <= 1)
-			break;
-	}
-	if (!sb.data && fyai_buf_append_data(&sb, "", 0))
-		goto bad;
-	*bodyp = sb.data;
-	*lenp = sb.len;
-	*usedp = pos;
-	return 1;
-more:
-	free(sb.data);
-	return rc;
-bad:
-	free(sb.data);
-	return -1;
-}
-
-/*
- * Parse the request at the start of the input of @c. Return 1 when complete,
- * 0 when more bytes are needed, -1 when malformed.
- */
-static int req_parse(struct mock_conn *c, struct mock_req *r)
-{
-	const char *blank, *eol, *sp1, *sp2, *base = c->in;
-	char te[64], cl[32];
-	size_t head, tlen, mlen, need, used;
-	int rc;
-
-	memset(r, 0, sizeof(*r));
-	c->in[c->in_len] = '\0';
-	blank = find_blank(base, c->in_len);
-	if (!blank)
-		return c->in_len > MOCK_MAX_HEAD ? -1 : 0;
-	head = (size_t)(blank - base) + 4;
-
-	eol = memchr(base, '\n', head);
-	sp1 = memchr(base, ' ', (size_t)(eol - base));
-	if (!sp1)
-		return -1;
-	sp2 = memchr(sp1 + 1, ' ', (size_t)(eol - sp1 - 1));
-	if (!sp2)
-		return -1;
-	mlen = (size_t)(sp1 - base);
-	tlen = (size_t)(sp2 - sp1 - 1);
-	if (mlen >= sizeof(r->method) || tlen >= sizeof(r->target))
-		return -1;
-	memcpy(r->method, base, mlen);
-	memcpy(r->target, sp1 + 1, tlen);
-	r->http10 = !strncmp(sp2 + 1, "HTTP/1.0", 8);
-	r->hdrs = eol + 1;
-	r->hlen = head - (size_t)(eol + 1 - base);
-
-	hdr_get(r->hdrs, r->hlen, "Transfer-Encoding", te, sizeof(te));
-	if (strcasestr(te, "chunked")) {
-		rc = chunked_decode(base + head, c->in_len - head, &r->body,
-				    &r->body_len, &used);
-		if (rc < 0)
-			return -1;
-		if (!rc)
-			goto incomplete;
-		r->consumed = head + used;
-		return 1;
-	}
-	hdr_get(r->hdrs, r->hlen, "Content-Length", cl, sizeof(cl));
-	need = cl[0] ? strtoul(cl, NULL, 10) : 0;
-	if (c->in_len - head < need)
-		goto incomplete;
-	r->body = malloc(need + 1);
-	if (!r->body)
-		return -1;
-	memcpy(r->body, base + head, need);
-	r->body[need] = '\0';
-	r->body_len = need;
-	r->consumed = head + need;
-	return 1;
-
-incomplete:
-	hdr_get(r->hdrs, r->hlen, "Expect", te, sizeof(te));
-	if (!c->continue_sent && strcasestr(te, "100-continue")) {
-		c->continue_sent = true;
-		(void)send(c->fd, "HTTP/1.1 100 Continue\r\n\r\n", 25,
-			   MSG_NOSIGNAL);
-	}
-	return 0;
+	/* The next request can be in the input already: it runs in this call. */
+	fyai_event_timer_disarm(c->timer);
+	ops_free(c);
+	fyai_httpd_conn_done(hc, c->close_after);
 }
 
 /* ---- scenario -------------------------------------------------------------- */
@@ -924,7 +637,7 @@ static int reply_sse(struct mock_conn *c, fy_generic step, int status)
 	if (payload.len > pos)
 		rc = op_add(c, MOCK_WRITE, payload.data + pos, payload.len - pos, 0);
 	if (!rc && truncated)
-		rc = op_add(c, MOCK_SHUTDOWN, NULL, 0, 0);
+		rc = op_add(c, MOCK_CLOSE, NULL, 0, 0);
 out:
 	free(ends);
 	free(payload.data);
@@ -1042,25 +755,31 @@ static int reply_delete(struct mock_conn *c, fy_generic step)
 
 /* ---- requests -------------------------------------------------------------- */
 
+/* The value of header @name of @req, or "". */
+static const char *hdr(const struct fyai_http_request *req, const char *name)
+{
+	const char *v = fyai_http_header(req, name);
+
+	return v ? v : "";
+}
+
 /* Record the request, pick its step and build the reply. */
-static int mock_handle(struct mock_conn *c, struct mock_req *r)
+static int mock_handle(struct mock_conn *c, const struct fyai_http_request *r)
 {
 	struct mock *m = c->m;
 	struct mock_fields f;
-	char auth[1024], session[256], xkey[1024], aver[128], proto[128];
-	char ctype[256], conn[64];
+	const char *auth, *session, *xkey, *aver, *proto, *ctype;
 	fy_generic parsed, v, rec, step;
 	const char *rpc = "", *line;
 	bool post, get, del;
 
-	hdr_get(r->hdrs, r->hlen, "Authorization", auth, sizeof(auth));
-	hdr_get(r->hdrs, r->hlen, "Mcp-Session-Id", session, sizeof(session));
-	hdr_get(r->hdrs, r->hlen, "x-api-key", xkey, sizeof(xkey));
-	hdr_get(r->hdrs, r->hlen, "anthropic-version", aver, sizeof(aver));
-	hdr_get(r->hdrs, r->hlen, "MCP-Protocol-Version", proto, sizeof(proto));
-	hdr_get(r->hdrs, r->hlen, "Content-Type", ctype, sizeof(ctype));
-	hdr_get(r->hdrs, r->hlen, "Connection", conn, sizeof(conn));
-	c->close_after = r->http10 || strcasestr(conn, "close");
+	auth = hdr(r, "Authorization");
+	session = hdr(r, "Mcp-Session-Id");
+	xkey = hdr(r, "x-api-key");
+	aver = hdr(r, "anthropic-version");
+	proto = hdr(r, "MCP-Protocol-Version");
+	ctype = hdr(r, "Content-Type");
+	c->close_after = r->http10 || strcasestr(hdr(r, "Connection"), "close");
 
 	post = !strcmp(r->method, "POST");
 	get = !strcmp(r->method, "GET");
@@ -1146,65 +865,49 @@ static int mock_handle(struct mock_conn *c, struct mock_req *r)
 	return reply_delete(c, step);
 }
 
-/* Handle every complete request in the input of @c. */
-static void conn_feed(struct mock_conn *c)
+/* ---- the server ------------------------------------------------------------ */
+
+/* A request of the server is whole: build its reply and run it. */
+static void mock_request(void *data, struct fyai_httpd_conn *hc,
+			 const struct fyai_http_request *req)
 {
-	struct mock_req r;
+	struct mock *m = data;
+	struct mock_conn *c = fyai_httpd_conn_user(hc);
+	const char *colon;
 	int rc;
 
-	rc = req_parse(c, &r);
-	if (rc <= 0) {
-		free(r.body);
-		if (rc < 0)
-			conn_close(c);
-		return;
+	if (!c) {
+		c = calloc(1, sizeof(*c));
+		fyai_error_check(m->ctx, c, err_kill, "mock: out of memory");
+		c->m = m;
+		c->hc = hc;
+		colon = strrchr(fyai_httpd_conn_peer(hc), ':');
+		c->peer_port = colon ? (unsigned short)atoi(colon + 1) : 0;
+		fyai_httpd_conn_set_user(hc, c);
 	}
-	c->busy = true;
-	rc = mock_handle(c, &r);
-	if (rc) {
-		free(r.body);
-		conn_close(c);
-		return;
-	}
-	free(r.body);
-	memmove(c->in, c->in + r.consumed, c->in_len - r.consumed);
-	c->in_len -= r.consumed;
+	rc = mock_handle(c, req);
+	fyai_error_check(m->ctx, !rc, err_kill, "mock: cannot build the reply");
 	conn_pump(c);
+	return;
+err_kill:
+	fyai_httpd_kill(hc);
 }
 
-static enum fyai_event_action mock_on_accept(const struct fyai_event *ev)
+static void mock_closed(void *data, struct fyai_httpd_conn *hc)
 {
-	struct mock *m = ev->userdata;
-	struct mock_conn *c;
-	struct sockaddr_in sa;
-	socklen_t slen = sizeof(sa);
-	int fd, one = 1, rc;
+	struct mock_conn *c = fyai_httpd_conn_user(hc);
 
-	fd = accept(ev->fd, (struct sockaddr *)&sa, &slen);
-	if (fd < 0)
-		return FYAIEA_CONTINUE;
-	c = calloc(1, sizeof(*c));
-	if (!c) {
-		close(fd);
-		return FYAIEA_CONTINUE;
-	}
-	(void)fcntl(fd, F_SETFD, FD_CLOEXEC);
-	(void)fcntl(fd, F_SETFL, fcntl(fd, F_GETFL, 0) | O_NONBLOCK);
-	/* Keep each write a segment of its own, so a client sees the splits. */
-	(void)setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &one, sizeof(one));
-#ifdef SO_NOSIGPIPE
-	(void)setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &one, sizeof(one));
-#endif
-	c->m = m;
-	c->fd = fd;
-	c->peer_port = ntohs(sa.sin_port);
-	rc = fyai_event_add_fd(m->el, fd, FYAIEV_READ, conn_on_event, c,
-			       &c->src);
-	if (rc) {
-		close(fd);
-		free(c);
-	}
-	return FYAIEA_CONTINUE;
+	(void)data;
+	if (c)
+		conn_free(c);
+}
+
+static void mock_log(void *data, const char *line)
+{
+	struct mock *m = data;
+
+	if (m->log)
+		fyai_report(m->ctx, "mock: %s\n", line);
 }
 
 static enum fyai_event_action mock_on_term(const struct fyai_event *ev)
@@ -1214,38 +917,6 @@ static enum fyai_event_action mock_on_term(const struct fyai_event *ev)
 }
 
 /* ---- start ----------------------------------------------------------------- */
-
-static int mock_listen(struct mock *m)
-{
-	struct sockaddr_in sa;
-	socklen_t slen = sizeof(sa);
-	int fd, one = 1, rc;
-
-	fd = socket(AF_INET, SOCK_STREAM, 0);
-	fyai_error_check(m->ctx, fd >= 0, err, "mock: no socket: %s",
-			 strerror(errno));
-	(void)fcntl(fd, F_SETFD, FD_CLOEXEC);
-	(void)setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &one, sizeof(one));
-	memset(&sa, 0, sizeof(sa));
-	sa.sin_family = AF_INET;
-	sa.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
-	rc = bind(fd, (struct sockaddr *)&sa, sizeof(sa));
-	fyai_error_check(m->ctx, !rc, err_close, "mock: cannot bind: %s",
-			 strerror(errno));
-	rc = listen(fd, MOCK_BACKLOG);
-	fyai_error_check(m->ctx, !rc, err_close, "mock: cannot listen: %s",
-			 strerror(errno));
-	(void)fcntl(fd, F_SETFL, fcntl(fd, F_GETFL, 0) | O_NONBLOCK);
-	rc = getsockname(fd, (struct sockaddr *)&sa, &slen);
-	fyai_error_check(m->ctx, !rc, err_close, "mock: no port: %s",
-			 strerror(errno));
-	m->port = ntohs(sa.sin_port);
-	return fd;
-err_close:
-	close(fd);
-err:
-	return -1;
-}
 
 /* The port file appears whole or not at all. */
 static int mock_publish_port(struct mock *m)
@@ -1270,11 +941,24 @@ err:
 int fyai_mock_serve(struct fyai_ctx *ctx, struct fy_generic_builder *gb,
 		    const char *scenario, const char *rundir, bool log)
 {
-	struct mock m = { .ctx = ctx, .gb = gb, .rundir = rundir,
-			  .log = log, .listen_fd = -1 };
+	struct mock m = { .ctx = ctx, .gb = gb, .rundir = rundir, .log = log };
+	struct fyai_httpd_opts opts = {
+		.max_conns = MOCK_MAX_CONNS,
+		.max_output = MOCK_MAX_OUTPUT,
+		.max_body = MOCK_MAX_BODY,
+		.keepalive = true,
+		.http10 = true,
+	};
+	struct fyai_httpd_ops ops = {
+		.request = mock_request,
+		.closed = mock_closed,
+		.log = mock_log,
+		.data = &m,
+	};
 	struct fyai_event_source *term = NULL;
+	char bound[64];
 	fy_generic doc, step;
-	const char *scale;
+	const char *scale, *colon;
 	size_t i;
 	int rc;
 
@@ -1298,12 +982,15 @@ int fyai_mock_serve(struct fyai_ctx *ctx, struct fy_generic_builder *gb,
 
 	m.el = fyai_ctx_loop(ctx);
 	fyai_error_check(ctx, m.el, err, "mock: no event loop");
-	m.listen_fd = mock_listen(&m);
-	if (m.listen_fd < 0)
+	opts.loop = m.el;
+	m.httpd = fyai_httpd_new(ctx, &opts, &ops);
+	if (!m.httpd)
 		goto err;
-	rc = fyai_event_add_fd(m.el, m.listen_fd, FYAIEV_READ, mock_on_accept,
-			       &m, &m.listen_src);
-	fyai_error_check(ctx, !rc, err, "mock: cannot watch the listener");
+	rc = fyai_httpd_listen(m.httpd, "127.0.0.1:0", NULL, bound, sizeof(bound));
+	if (rc)
+		goto err;
+	colon = strrchr(bound, ':');
+	m.port = colon ? (unsigned short)atoi(colon + 1) : 0;
 	rc = fyai_event_add_signal(m.el, SIGTERM, mock_on_term, &m, &term);
 	fyai_error_check(ctx, !rc, err, "mock: cannot watch SIGTERM");
 	rc = mock_publish_port(&m);
@@ -1312,13 +999,11 @@ int fyai_mock_serve(struct fyai_ctx *ctx, struct fy_generic_builder *gb,
 
 	rc = fyai_event_loop_run_until(m.el, NULL, -1);
 	fyai_event_source_remove(term);
-	fyai_event_source_remove(m.listen_src);
-	close(m.listen_fd);
+	fyai_httpd_close(m.httpd);
 	free(m.consumed);
 	return rc < 0 ? -1 : 0;
 err:
-	if (m.listen_fd >= 0)
-		close(m.listen_fd);
+	fyai_httpd_close(m.httpd);
 	free(m.consumed);
 	return -1;
 }
