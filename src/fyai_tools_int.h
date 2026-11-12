@@ -238,10 +238,6 @@ char *fyai_shell_bound_alloc(const char *text, size_t max_bytes);
 int fyai_tool_apply_sandbox(struct fyai_ctx *ctx);
 fy_generic fyai_tool_result_note(struct fyai_ctx *ctx, bool agent_call,
 				 fy_generic result);
-void fyai_agent_inline_paint(struct fyai_tool_job *job, bool done,
-			     bool ok);
-void fyai_agent_view_refresh(struct fyai_tool_job *job);
-void fyai_agent_view_reply(const char *data, size_t len, void *user);
 const char *fyai_agent_job_name(const struct fyai_tool_job *job);
 struct fyai_tool_job *fyai_agent_job_named(struct fyai_ctx *ctx,
 					   const char *name);
@@ -312,5 +308,24 @@ char *fyai_shell_input_tool(struct fyai_ctx *ctx, fy_generic args,
 			    bool *okp);
 char *fyai_shell_close_tool(struct fyai_ctx *ctx, fy_generic args,
 			    bool *okp);
+
+/* fyai_agent_view.c */
+void fyai_agent_tty_size(struct fyai_ctx *ctx, int *rowsp, int *colsp);
+void fyai_agent_inline_paint(struct fyai_tool_job *job, bool done,
+			     bool ok);
+void fyai_agent_view_refresh(struct fyai_tool_job *job);
+void fyai_agent_head_paint(struct fyai_tool_job *job);
+void fyai_agent_view_reply(const char *data, size_t len, void *user);
+char *fyai_agent_input_tool(struct fyai_ctx *ctx, fy_generic args,
+			    bool *okp);
+int fyai_agent_view_open(struct fyai_ctx *ctx,
+			 struct fyai_tool_job *job);
+void fyai_agent_view_close(struct fyai_tool_job *job, bool ok,
+			   const char *cause);
+bool fyai_agent_isolated(struct fyai_ctx *ctx, fy_generic args);
+int fyai_agent_view_begin(struct fyai_ctx *ctx, const char *agent,
+			  struct fyai_view_run **run);
+void fyai_agent_view_finish(struct fyai_ctx *ctx, struct fyai_tool_job *job,
+			    fy_generic *result);
 
 #endif /* FYAI_TOOLS_INT_H */
