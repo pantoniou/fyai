@@ -624,6 +624,7 @@ set(FYAI_SOURCES
     src/fyai_tools.c
     src/fyai_shell_sandbox.c
     src/fyai_tool_child.c
+    src/fyai_shell_session.c
     src/fyai_tool_spec.c
     src/fyai_tool_registry.c
     src/fyai_monitor.c
