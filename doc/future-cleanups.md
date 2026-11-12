@@ -152,8 +152,12 @@ the code before a change.
   is valid only before the start frame); `paused` without `easy`.
 - The client end, `struct fyai_tcall`, has `started`, `ended` and `cancel_sent`
   with the same pattern.
-- Change: an enum for the main path. The 401 retry and the cancel then have a
-  stated order.
+- Checked, no change. A request can end with an error before its start frame
+  (`finished` without `started`), so `started` is not a step between running
+  and finished, and an ordered phase would change what the code after a failed
+  request tests. `cancelled` is a one-way request and `paused` describes curl,
+  not the request. Only `rejected` and `retried` form a sequence, and each is
+  read at one site.
 
 ### 7. curl transfer
 
@@ -262,8 +266,8 @@ is rejected with a warning.
   both set is resolved by dispatch order.
 - Session and switch state: `switch_pending` guards three payload numbers.
   `session_unstored` is a branch name that must match `ctx->branch` and can go
-  stale on a rename or a switch. `compacting` is set around a call, so an
-  early return leaves it set.
+  stale on a rename or a switch. `compacting` is set and cleared on each side of
+  `fyai_run_turn()` with nothing between, so it is not left set.
 - Frame scheduling (`frame_pending`, `reflow_pending`, `repaint_pending`): a
   dirty level NONE < FRAME < REPAINT < REFLOW kept as independent booleans.
   `next_frame_ms` is reset at five sites.
