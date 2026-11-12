@@ -14,6 +14,7 @@
 #include "fyai_grammar.h"
 #include "fyai_provider.h"
 #include "fyai_reqcache.h"
+#include "fyai_test.h"
 #include "fyai_turn.h"
 #include "utils.h"
 
@@ -33,6 +34,7 @@ FYAI_TEST_ENTRY(grammar, history_losses, grammar_history_losses)
 FYAI_TEST_ENTRY(grammar, temperature, grammar_temperature)
 FYAI_TEST_ENTRY(grammar, paused_turn, grammar_paused_turn)
 FYAI_TEST_ENTRY(grammar, request_cache, grammar_request_cache)
+FYAI_TEST_ENTRY(grammar, chain_miss_needs_link, grammar_chain_miss_needs_link)
 
 static struct fyai_cfg test_cfg;
 static struct fyai_ctx test_ctx;
@@ -1222,4 +1224,23 @@ int grammar_request_cache(void)
 int grammar_request_cache_bench(void)
 {
 	return grammar_run(test_request_cache_bench);
+}
+
+/*
+ * Only a request that carries a link can miss it. The same refusal of an
+ * unlinked request is an ordinary error.
+ */
+int grammar_chain_miss_needs_link(void)
+{
+	struct fyai_cfg cfg = { .api_mode = FYAI_API_RESPONSES };
+	struct fyai_ctx ctx = { .cfg = &cfg };
+	const char *body = "{\"error\":{\"param\":\"previous_response_id\"}}";
+
+	ctx.response_chain = FYAI_CHAIN_LINKED;
+	FYAI_TCHECK(fyai_grammar_chain_miss(&ctx, 400, body));
+	ctx.response_chain = FYAI_CHAIN_UNLINKED;
+	FYAI_TCHECK(!fyai_grammar_chain_miss(&ctx, 400, body));
+	ctx.response_chain = FYAI_CHAIN_LINKED;
+	FYAI_TCHECK(!fyai_grammar_chain_miss(&ctx, 500, body));
+	return 0;
 }
