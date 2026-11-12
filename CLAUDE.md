@@ -965,7 +965,7 @@ the page source; the terminal library draws its slots.
   makes the one normalized sequence that the UI, the `user/ask` forward of a
   sub-agent, and the text fallbacks all read; `fyai_ask_result()` builds the
   structured result. Do not parse the arguments or build the result anywhere
-  else. `fyai_ui_ask()` puts the questions in the queue of the UI and calls its
+  else. `fyai_ask_open()` puts the questions in the queue of the UI and calls its
   `done` function with one `struct fyai_ask_reply` for each question, or with
   NULL for none; the caller waits in the event loop, not in a nested loop of
   its own. `ask_user` and the questions of a sub-agent take this path when
@@ -973,7 +973,7 @@ the page source; the terminal library draws its slots.
   `ask` while nothing is typed, where the number keys choose or toggle, and
   `ask_text` once text is typed, where they type. Escape and `^C` answer
   nothing. A caller that goes away withdraws its questions with
-  `fyai_ui_ask_withdraw()`. Agents put one set of questions at a time, so the
+  `fyai_ask_close()`. Agents put one set of questions at a time, so the
   page adds `fyai_agents_questions_waiting()` to the sets it says wait. The UI
   copies the text of the questions it shows; the page gets them as
   `struct fyai_page_ask` and does not read generics. A preview is rendered
@@ -990,7 +990,7 @@ the page source; the terminal library draws its slots.
   named wait is. `src/fyai_asks.c` keeps them in `ctx->asks` with a builder of
   their own, because the turn that asked ends before the user answers. `list`
   shows them (kind `questions`), `cancel` withdraws one with
-  `fyai_ui_ask_withdraw()`, and `wait` resolves a name to it. When the user
+  `fyai_ask_close()`, and `wait` resolves a name to it. When the user
   answers, the registry queues `[question 'NAME' answered]` and the JSON as an
   event; a cancel by the model queues nothing, because the model has the
   result of that call. `ask_user` is an instant tool only for such a call
@@ -1401,7 +1401,7 @@ register, focus, zoom, resize - and sizes nothing itself.
   hid, and the keys. `fyai_workpane_cap_source()` writes it and the manager
   draws it again after each layout, so a tile the ladder hid is counted, not
   silently gone. It is chrome that fyai writes whole, so it needs no escaping.
-- The head of a tile is UI Markdown. `fyai_ui_surface_set_head_frame()`
+- The head of a tile is UI Markdown. `fyai_chrome_update()`
   escapes the title with `markdown_ui_escape()` - it holds what a model or a
   program wrote - and makes it the `tile:focus` label, so a click on the name
   gives the tile the keys. The manager keeps the regions of the head with the

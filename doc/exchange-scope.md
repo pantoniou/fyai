@@ -79,7 +79,7 @@ holder ends, and the kernel ends every process of the PID namespace.
   `fyai_cover_join()`. It no longer makes namespaces of its own.
 - The init of the namespace reaps the orphans that detached processes leave.
 - The holder is started by `unshare()` where the host allows it. Where it does
-  not, the holder is the bubblewrap holder that `src/fyai_cover.c` already has.
+  not, the holder is the bubblewrap holder that `src/fyai_cover_linux.c` already has.
   Both give the same `holder` process identifier to `fyai_cover_join()`.
 - Where neither can start, the tool makes namespaces for each call as it does
   today, and the orphan tracker below gives the lifetime.

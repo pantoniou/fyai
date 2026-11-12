@@ -55,7 +55,7 @@ int fyai_settings_keep(struct fyai_ctx *ctx, struct fy_generic_builder *gb,
 /*
  * The review of the pending proposal @id in the review panel. Open checks the
  * proposal over the configuration in force and makes its diff; the questions
- * go to fyai_ui_ask(), whose callback gives the replies to apply. Apply
+ * go to fyai_ask_open(), whose callback gives the replies to apply. Apply
  * applies the proposal when the user accepts it, or when @replies is NULL
  * because no panel asked; otherwise the proposal stays pending. With
  * @notify, the model is told by an event. The review borrows @gb, which

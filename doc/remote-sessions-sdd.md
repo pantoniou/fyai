@@ -792,7 +792,7 @@ A watcher shows a session that another client drives. It does not drive it.
 3. The device connects, checks the fingerprint, and sends the pairing secret
    and a device name.
 4. fyai shows the device name and the scopes on the terminal and asks the user
-   to confirm with `fyai_ui_ask()`. A session with no terminal accepts a
+   to confirm with `fyai_ask_open()`. A session with no terminal accepts a
    pairing only from a connection that already has the `pair` scope.
 5. fyai sends the device token one time. The device stores it.
 
@@ -966,7 +966,7 @@ network loss costs no snapshot.
 | `transcript` | stored exchanges, paged; the live document                                                    | `display_outputs` of each turn; `fyai_output_append()`, `fyai_output_add_*fragment()`, `fyai_output_finalize()` |
 | `tools`      | each call: head, progress, result, outcome                                                    | the `tool_head` fragment; `struct fyai_chrome_spec`; `fyai_tool_progress_emit()`            |
 | `panels`     | todos, sub-agents, monitors, waits, named questions, terminal sessions, queued input, log     | `fyai_todo_rows()`, `fyai_agents_rows()`, `fyai_monitors_rows()`, `fyai_waits_rows()`, `fyai_asks_rows()`, `fyai_tools_sessions_data()` |
-| `questions`  | each open question; answer; withdraw                                                          | `fyai_ask_normalize()`, `fyai_ui_ask()`, the settings review                               |
+| `questions`  | each open question; answer; withdraw                                                          | `fyai_ask_normalize()`, `fyai_ask_open()`, the settings review                               |
 | `terminals`  | the terminals of the work pane: list, attach, bytes, keys, size                              | `shell/output`, the agent terminal, `fyai_terminal_view`                                    |
 | `screen`     | the terminal of the session as bytes                                                          | the output tap of the UI (section 9)                                                       |
 | `commands`   | the commands a remote client may run; completion; structured results                          | `data/commands.yaml`; `fyai_session_completion()`                                           |
@@ -1231,7 +1231,7 @@ No code exists for these. Each item names the seam.
 | --------------------------------------- | ------------------------------------------------------------------------------------------------------- |
 | Observer beside the sink                | A remote observer gets the document and band events of `struct fyai_sink_ops` in addition to the backend. `fyai_sink_captured()` (`src/fyai_sink.c:1477`) tests the ops by identity and must see the backend, not the observer. |
 | Band source                             | `band_paint()` gives rendered rows. The fenced stream (`fyai_fenced_stream`, `src/fyai_markdown.c`) also gives its source to the observer. |
-| Questions with no terminal UI           | `fyai_ui_ask()` and `fyai_ui_ask_available()` require `ui->page`. A session with no UI keeps the question queue in a model that does not need a page. |
+| Questions with no terminal UI           | `fyai_ask_open()` and `fyai_ui_ask_available()` require `ui->page`. A session with no UI keeps the question queue in a model that does not need a page. |
 | Answer from outside the UI              | a public call that settles the head question with replies, beside the static `ui_question_finish()`. |
 | Approvals in an interactive session     | `ctx->tool_gate` (`struct fyai_tool_gate_ops`, `src/fyai.h:1063`) for a remote approval mode, as the SDK front uses it. |
 | Line input                              | `fyai_ui_input_line()` (section 10.1).                                                                  |

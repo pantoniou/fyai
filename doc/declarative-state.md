@@ -413,7 +413,7 @@ change ends with the invocation, unless the user stores it with
 
 A change that needs review is a question to the user, shown as `ask_user`
 shows one: a panel in the input area, made with `fyai_ask_normalize()` and
-`fyai_ui_ask()`, with the same keys. There is no second question UI.
+`fyai_ask_open()`, with the same keys. There is no second question UI.
 
 The panel has three answers:
 
