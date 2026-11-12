@@ -463,6 +463,21 @@ configure_file(
 
 # fyai
 find_package(OpenSSL REQUIRED COMPONENTS Crypto SSL)
+# A static libcrypto can list zstd among its private libraries, and a bare
+# -lzstd selects the shared library. Link the archive so that the executable
+# keeps only the system libraries.
+if(FYAI_STATIC_DEPS AND CMAKE_SYSTEM_NAME STREQUAL "Linux" AND
+   TARGET OpenSSL::Crypto)
+    find_library(FYAI_ZSTD_STATIC NAMES libzstd.a)
+    get_target_property(_fyai_ossl_libs OpenSSL::Crypto
+        INTERFACE_LINK_LIBRARIES)
+    if(FYAI_ZSTD_STATIC AND _fyai_ossl_libs)
+        list(TRANSFORM _fyai_ossl_libs REPLACE "^(-l)?zstd$"
+            "${FYAI_ZSTD_STATIC}")
+        set_property(TARGET OpenSSL::Crypto PROPERTY
+            INTERFACE_LINK_LIBRARIES "${_fyai_ossl_libs}")
+    endif()
+endif()
 if(ENABLE_LIBSECRET)
     if(FYAI_STATIC_DEPS)
         message(FATAL_ERROR "ENABLE_LIBSECRET is incompatible with static dependency builds")
