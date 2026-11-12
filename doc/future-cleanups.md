@@ -157,16 +157,9 @@ the code before a change.
 
 ### 7. curl transfer
 
-`struct fyai_curl_transfer` and `struct fyai_curl_state`, `fyai_curl.c`.
-
-- Fields: `active`, `done`, `notified`, `cancel_pending`, `result`; on the
-  state `running`, `failed`, `dispatching`, `action_pending`.
-- States: NEW, ACTIVE, DONE, NOTIFIED, and CANCEL_DEFERRED for a cancel that
-  arrives while `dispatching`.
-- Illegal combinations: `done` with `active`; `notified` without `done`;
-  `cancel_pending` on a done transfer; `action_pending` without `dispatching`.
-- `struct fyai_xfer` has a `finished` flag that repeats this machine.
-- Change: an enum {NEW, ACTIVE, DONE, NOTIFIED} and one cancel bit.
+Done for `struct fyai_curl_transfer`: `enum fyai_curl_phase` and one bit for a
+cancel that comes while a callback runs. `struct fyai_xfer` still has a
+`finished` flag that repeats the phase.
 
 ### 8. Sink document mode
 
