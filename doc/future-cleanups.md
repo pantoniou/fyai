@@ -93,63 +93,69 @@ the code before a change.
 - Still open: the clearing sequence of `fyai_shell_session_exited()`, and
   the display mode (`inline_block` or `surface`).
 
-### 3. Retry and authentication retry
+### 3. Retry and authentication retry (partly done)
 
 `struct stream_response` and `struct fyai_buffered_request`
-(`fyai_stream.c`), and `ctx->auth_retry_done` (`fyai.h`).
+(`fyai_stream.c`), and the former `ctx->auth_retry_done`.
 
-- Fields: `attempt`, `retry_hint`, `retry_cause`, `retry_band`, `retry_timer`,
-  `auth_refresh`, `printed_content`, `printed_reasoning`, `cancel_requested`.
-- `stream_retry_arm()` retries when `!cancel_requested`, the attempt count is
-  below the maximum, the failure is transient or has a hint, and nothing was
-  printed. The decision is three booleans, a counter and a timer pointer.
-- `retry_band` is a three-valued "band is open" that `stream_request_resubmit()`
-  carries by hand across a `memset()`.
-- The latch `auth_retry_done` was on the context. A model step reset it, so
-  a second model request refreshed. A buffered request did not reset it, so
-  one after a refresh could not. It is now `auth_refreshed` on each request.
-- Illegal combinations: `retry_hint` without `retry_cause`; `retry_timer` while
-  the state is not a retry; `auth_refresh` with `retry_timer`.
-- Change: split the retry state into RETRY_WAIT and AUTH_REFRESH, and share
-  one retry structure between the stream and the buffered request. The latch
-  is done.
+- Done: `struct fyai_retry` holds the state that the stream and the buffered
+  request share: `phase`, `timer`, `auth_refresh`, `attempt`, `band` and
+  `refreshed`. `enum fyai_retry_phase` (IDLE, BACKOFF, AUTH) names what the
+  request waits on between two transfers. The cancel and the destroy paths
+  read the phase and not the pointers, and `stream_request_resubmit()` keeps
+  the whole structure across its `memset()` and not four fields.
+- Stay booleans: `band` is open from the first retry report to the settle of
+  the request, across the phases. `refreshed` is a one-way latch of one
+  refresh for each request. `cancel_requested` is a request from outside.
+- Survey corrections: `retry_band` is a plain bool and not three-valued.
+  The stream state already has RETRYING; it covers both BACKOFF and AUTH,
+  which is why the phase is a separate field of the shared structure and
+  not new values of `enum fyai_stream_state`. `auth_refresh` with
+  `retry_timer` was never possible: each arm site runs after the transfer
+  ended, and a phase holds only one of them.
+- Left: `retry_hint`, `retry_cause`, `printed_content` and `printed_reasoning`
+  are stream only. The buffered request has no counterpart, so they stay in
+  `struct stream_response`. `retry_hint` without `retry_cause` is reachable
+  when the text of the error is out of memory.
 
-### 4. Turn run beside its enum
+### 4. Turn run beside its enum (partly done)
 
 `struct fyai_turn_run` (`fyai.c`) and the turn fields of `struct fyai_ctx`.
 
-- `enum fyai_turn_run_state` exists. Beside it: `cancel_requested`,
-  `accept_pending_user`, `group_parallel`, `exclusive_index`, `gate_id`,
-  `gate_items`, `gate_count`, `gate_pending`, `gate_next`, `gate_after`,
-  `diff_before`; and on the context `turn_end_requested`, `tool_diff_tracking`,
-  `tool_gate_run`.
-- The gate has its own machine inside the GATE state: `gate_pending > 0` is
-  waiting for answers, and `gate_after` is a post-round that resumes at
-  `gate_next`.
-- `tool_diff_tracking` is set at one site and cleared at five.
-- Illegal combinations: `gate_pending > 0` outside GATE; `gate_after` without
-  `gate_id`; `tool_diff_tracking` in DONE; `turn_end_requested` and `turn_stop`
-  that disagree.
-- Change: a nested gate enum (IDLE, ASKING, AFTER) and one owner of
-  `tool_diff_tracking`.
+- Done: `enum fyai_gate_phase` (IDLE, ASKING, AFTER) replaces `gate_after`
+  and says whether a round is open. `fyai_turn_run_gate_clear()` returns it to
+  IDLE. `fyai_turn_run_diff_begin()` and `fyai_turn_run_diff_end()` are the
+  only writers of `ctx->tool_diff_tracking`, and every end of the run reaches
+  the second.
+- Stay: `gate_pending` is a count of missing answers and not a phase; the
+  turn waits when it is above 0 and resolves the round when it is 0.
+  `turn_end_requested` is a request that a tool makes and the turn consumes,
+  and `turn_stop` is the reason that a stopped turn records. They describe
+  different events and do not disagree. `cancel_requested`,
+  `accept_pending_user` and `group_parallel` are independent flags.
+  `tool_gate_run` is a pointer to the run that holds the open round.
+- Left: `gate_id` is not cleared with the round. It is checked only after
+  `tool_gate_run` matches, and that is NULL outside a round.
 
-### 5. Transport bootstrap and role
+### 5. Transport bootstrap and role (partly done)
 
-`struct fyai_ctx`: `tclient`, `transport_ctl`, `transport_pid`,
-`transport_owner`, `transport_primary`, `transport_src`, `transport_exec`,
-`transport_seq`, `transport_names`, `transport_nnames`, `transport_gen`,
-`transport_stated`, `transport_envfd`, `xfer_*`.
+`struct fyai_ctx` and `fyai_transport_boot.c`.
 
-- Roles, set in `fyai_transport_boot.c`: OWNER, SUPERVISOR-PRIMARY, SECONDARY
-  and CHILD. Nothing names them.
-- "Configuration was stated" is `transport_stated && transport_gen ==
-  cfg->config_generation`.
-- `transport_envfd` is a descriptor with sentinels: `<= 2` is none and `0` is
-  consumed.
-- Illegal combinations: `owner` without `primary` (impossible by construction,
-  not enforced); `primary` without `tclient`; `transport_ctl >= 0` with no
-  `transport_src`; `transport_nnames` that differs from the granted names.
-- Change: a role enum and a transport sub-structure.
+- Done: `struct fyai_transport_state` (`ctx->transport`) holds `client`, `ctl`,
+  `pid`, `src`, `exec`, `seq`, `why`, `names`, `nnames`, `gen`, `stated` and
+  `envfd`. `enum fyai_transport_role` (NONE, OWNER, SUPERVISOR, SECONDARY,
+  CHILD) replaces `transport_owner` and `transport_primary`: the primary
+  connection is OWNER or SUPERVISOR, and only OWNER ends the transport.
+  `fyai_transport_detach()` returns the role to NONE.
+- Survey correction: SECONDARY and CHILD had the same two flags. No code
+  tests them apart, so the roles are named for the doc and for the child
+  attach only.
+- Stay: `stated` with `gen` is a latch with its value (generation 0 is a valid
+  stated value), so it stays a pair. `envfd` keeps its sentinels: it is 0
+  when the descriptor was taken or never set, and a descriptor above 2
+  otherwise.
+- Left: the `xfer_*` fields are the model transfer and not the transport.
+  They belong to the model transfer structure of the context list below.
 
 ### 6. Transport server request
 
