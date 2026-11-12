@@ -217,15 +217,27 @@ bool fyai_http_origin_ok(const struct fyai_http_request *req, bool tls)
 
 /* ---- the connections ----------------------------------------------------- */
 
+/*
+ * HEAD and DISPATCHED alternate for each request of a kept connection. The
+ * other states only move forward, and a connection takes no request from
+ * UPGRADED on, so state >= UPGRADED tests that, and state >= CLOSING tests
+ * that it takes no more output.
+ */
+enum httpd_conn_state {
+	HTTPD_CONN_HEAD,		/* the next request is being read */
+	HTTPD_CONN_DISPATCHED,		/* the handler has the request */
+	HTTPD_CONN_UPGRADED,		/* the WebSocket carries the frames */
+	HTTPD_CONN_CLOSING,		/* flush the output, then end */
+	HTTPD_CONN_DEAD,		/* free it at the next reap */
+};
+
 struct fyai_httpd_conn {
 	struct fyai_httpd_conn *next;
 	struct fyai_httpd *h;
 	struct fyai_netio io;
 	struct fyai_event_source *src, *deadline;
-	bool upgraded;		/* the WebSocket carries the frames */
-	bool dispatched;	/* the handler has the request */
-	bool dead;		/* free it at the next reap */
-	bool closing;		/* flush the output, then end */
+	enum httpd_conn_state state;
+	/* Facts about the request in hand, not phases of the connection. */
 	bool keep;		/* the request in hand leaves the connection open */
 	bool continue_sent;	/* 100 Continue went for the request in hand */
 	struct fyai_buf in;	/* the request: its head, then its body */
@@ -251,7 +263,7 @@ struct fyai_httpd {
 	size_t count;
 	struct fyai_httpd_opts opts;
 	struct fyai_httpd_ops ops;
-	bool reap_queued;
+	bool reap_queued;	/* a reap is deferred: a fact about the server */
 };
 
 static void httpd_log(struct fyai_httpd *h, const char *fmt, ...)
@@ -280,9 +292,9 @@ void fyai_httpd_kill(struct fyai_httpd_conn *c)
 {
 	struct fyai_httpd *h = c->h;
 
-	if (c->dead)
+	if (c->state == HTTPD_CONN_DEAD)
 		return;
-	c->dead = true;
+	c->state = HTTPD_CONN_DEAD;
 	/* Stop the sources now; the memory goes at the next turn of the loop. */
 	fyai_event_source_remove(c->src);
 	c->src = NULL;
@@ -312,7 +324,7 @@ static void httpd_reap_cb(void *data)
 
 	h->reap_queued = false;
 	while ((c = *link)) {
-		if (!c->dead) {
+		if (c->state != HTTPD_CONN_DEAD) {
 			link = &c->next;
 			continue;
 		}
@@ -327,9 +339,9 @@ static void httpd_interest(struct fyai_httpd_conn *c)
 {
 	unsigned int events = 0;
 
-	if (c->dead || !c->src)
+	if (c->state == HTTPD_CONN_DEAD || !c->src)
 		return;
-	if (!c->closing || c->io.want_read)
+	if (c->state != HTTPD_CONN_CLOSING || c->io.want_read)
 		events |= FYAIEV_READ;
 	if (fyai_buf_pending(&c->out) || c->io.want_write)
 		events |= FYAIEV_WRITE;
@@ -384,7 +396,7 @@ int fyai_httpd_conn_write(struct fyai_httpd_conn *c, const void *data, size_t n)
 	struct fyai_ctx *ctx = c->h->ctx;
 	int rc;
 
-	if (c->dead || c->closing)
+	if (c->state >= HTTPD_CONN_CLOSING)
 		return -1;
 	/* A client that cannot be served is cut. */
 	if (fyai_buf_pending(&c->out) + n > c->h->opts.max_output) {
@@ -409,16 +421,16 @@ void fyai_httpd_conn_done(struct fyai_httpd_conn *c, bool close)
 	struct fyai_ctx *ctx = c->h->ctx;
 	int rc;
 
-	if (c->dead || c->closing || c->upgraded)
+	if (c->state >= HTTPD_CONN_UPGRADED)
 		return;
 	if (close || !c->keep) {
-		c->closing = true;
+		c->state = HTTPD_CONN_CLOSING;
 		if (!fyai_buf_pending(&c->out))
 			goto err_kill;
 		httpd_interest(c);
 		return;
 	}
-	c->dispatched = false;
+	c->state = HTTPD_CONN_HEAD;
 	c->keep = false;
 	c->continue_sent = false;
 	rc = httpd_arm(c);
@@ -448,7 +460,7 @@ void fyai_httpd_respond(struct fyai_httpd_conn *c, int status, const char *why,
 	size_t i, n;
 	const char *name = "Error";
 
-	if (c->dead || c->closing)
+	if (c->state >= HTTPD_CONN_CLOSING)
 		return;
 	for (i = 0; i < sizeof(names) / sizeof(*names); i++)
 		if (names[i].code == status)
@@ -465,7 +477,7 @@ void fyai_httpd_respond(struct fyai_httpd_conn *c, int status, const char *why,
 		fyai_httpd_kill(c);
 		return;
 	}
-	c->closing = true;
+	c->state = HTTPD_CONN_CLOSING;
 	httpd_interest(c);
 }
 
@@ -507,6 +519,8 @@ int fyai_httpd_ws_accept(struct fyai_httpd_conn *c, const struct fyai_http_reque
 	char answer[256];
 	int n;
 
+	if (c->state >= HTTPD_CONN_CLOSING)
+		return -1;
 	n = fyai_ws_server_response(req->ws_key, answer, sizeof(answer));
 	if (n < 0 || fyai_buf_append_data(&c->out, answer, (size_t)n)) {
 		fyai_httpd_kill(c);
@@ -514,7 +528,7 @@ int fyai_httpd_ws_accept(struct fyai_httpd_conn *c, const struct fyai_http_reque
 	}
 	fyai_httpd_conn_hold(c);
 	fyai_ws_init(&c->ws, true, c->h->opts.max_message);
-	c->upgraded = true;
+	c->state = HTTPD_CONN_UPGRADED;
 	fyai_buf_free(&c->in);
 	httpd_interest(c);
 	return 0;
@@ -543,12 +557,15 @@ void fyai_httpd_ws_close(struct fyai_httpd_conn *c, unsigned int code)
 {
 	unsigned char payload[2] = { (unsigned char)(code >> 8), (unsigned char)code };
 
+	if (c->state == HTTPD_CONN_DEAD)
+		return;
 	/* A frame that cannot be queued ends the connection with no close. */
-	if (!c->closing && fyai_httpd_ws_send(c, FYAI_WS_CLOSE, payload, sizeof(payload))) {
+	if (c->state != HTTPD_CONN_CLOSING &&
+	    fyai_httpd_ws_send(c, FYAI_WS_CLOSE, payload, sizeof(payload))) {
 		fyai_httpd_kill(c);
 		return;
 	}
-	c->closing = true;
+	c->state = HTTPD_CONN_CLOSING;
 	httpd_interest(c);
 }
 
@@ -729,7 +746,7 @@ static void httpd_request(struct fyai_httpd_conn *c)
 		req.body = body.data;
 		req.body_len = body.len;
 	}
-	c->dispatched = true;
+	c->state = HTTPD_CONN_DISPATCHED;
 	c->keep = h->opts.keepalive && !req.http10 && !http_wants_close(&req);
 	/* The handler can finish the request, and read the next, in this call. */
 	fyai_buf_consume(&c->in, end + used);
@@ -759,7 +776,7 @@ static void httpd_read(struct fyai_httpd_conn *c)
 	int rc, rounds;
 
 	for (rounds = 0; (rounds < 16 || fyai_netio_buffered(&c->io)) &&
-	     !c->dead && !c->closing; rounds++) {
+	     c->state < HTTPD_CONN_CLOSING; rounds++) {
 		n = fyai_netio_recv(&c->io, chunk, sizeof(chunk));
 		if (n < 0 && errno == EINTR)
 			continue;
@@ -768,11 +785,11 @@ static void httpd_read(struct fyai_httpd_conn *c)
 		if (n <= 0)
 			goto err_kill;
 		got = (size_t)n;
-		if (!c->upgraded) {
+		if (c->state != HTTPD_CONN_UPGRADED) {
 			rc = fyai_buf_append_data(&c->in, chunk, got);
 			fyai_error_check(ctx, !rc, err_kill,
 					 "cannot hold %zu bytes of a request", got);
-			if (c->dispatched) {
+			if (c->state == HTTPD_CONN_DISPATCHED) {
 				/* A client may send its next request before the answer. */
 				if (!c->h->opts.keepalive ||
 				    fyai_buf_pending(&c->in) > FYAI_HTTP_HEAD_MAX +
@@ -784,7 +801,7 @@ static void httpd_read(struct fyai_httpd_conn *c)
 			httpd_request(c);
 			continue;
 		}
-		for (off = 0; off < got && !c->closing && !c->dead;) {
+		for (off = 0; off < got && c->state == HTTPD_CONN_UPGRADED;) {
 			rc = fyai_ws_feed(&c->ws, chunk + off, got - off, &used, &msg);
 			off += used;
 			if (rc < 0) {
@@ -805,7 +822,7 @@ static enum fyai_event_action httpd_conn_cb(const struct fyai_event *ev)
 {
 	struct fyai_httpd_conn *c = ev->userdata;
 
-	if (c->dead)
+	if (c->state == HTTPD_CONN_DEAD)
 		return FYAIEA_CONTINUE;
 	if (ev->events & FYAIEV_ERROR) {
 		fyai_httpd_kill(c);
@@ -815,7 +832,7 @@ static enum fyai_event_action httpd_conn_cb(const struct fyai_event *ev)
 		fyai_httpd_kill(c);
 		return FYAIEA_CONTINUE;
 	}
-	if (c->closing && !fyai_buf_pending(&c->out)) {
+	if (c->state == HTTPD_CONN_CLOSING && !fyai_buf_pending(&c->out)) {
 		fyai_httpd_kill(c);
 		return FYAIEA_CONTINUE;
 	}
@@ -823,10 +840,10 @@ static enum fyai_event_action httpd_conn_cb(const struct fyai_event *ev)
 	if ((ev->events & (FYAIEV_READ | FYAIEV_EOF)) ||
 	    (c->io.ssl && !c->io.handshaken))
 		httpd_read(c);
-	if (c->dead)
+	if (c->state == HTTPD_CONN_DEAD)
 		return FYAIEA_CONTINUE;
 	httpd_interest(c);
-	if (c->upgraded && !c->closing && c->h->ops.ws_drain)
+	if (c->state == HTTPD_CONN_UPGRADED && c->h->ops.ws_drain)
 		c->h->ops.ws_drain(c->h->ops.data, c);
 	return FYAIEA_CONTINUE;
 }
