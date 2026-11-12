@@ -253,15 +253,7 @@ the code before a change.
 
 ### 14. Tool job group
 
-`struct fyai_tool_job_group`, `fyai_tools.c`.
-
-- Fields: `submitted`, `sealed`, `cancelled`, `exclusive`, `notified`;
-  counters `count`, `next`, `active`, `parked`, `max_parallel`.
-- States: BUILDING, SEALED_RUNNING, DRAINING_AFTER_CANCEL, COMPLETE_NOTIFIED.
-  `cancelled` is always written with `sealed`, so the pair is one state.
-  `parked` changes in five branches.
-- Illegal combinations: `cancelled` without `sealed`; `sealed` without
-  `submitted`; `parked > active`; `next > count`.
+Done. `struct fyai_tool_job_group` keeps `enum fyai_tool_group_phase`.
 
 ### 15. Agent record state
 
