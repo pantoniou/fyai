@@ -709,14 +709,10 @@ is a series. Check an item again before work on it.
 
 ### Second owners
 
-6. Second byte buffers (S each). `struct view_text` in
-   `fyai_transcript_view.c:233`, `ws_reserve` in `fyai_ws.c:201`, `append` in
-   `fyai_ptydrv.c:192`, `asm_append` in `fyai_transport.c:947` and `in_buf` in
-   `fyai_mock.c:439`. Use `fyai_buf`. Typed-array growers are a different
-   thing and stay.
-7. Two atomic publishers (S to M). `cas_put` (`fyai_cas.c:610`) and
-   `fyai_manifest.c:783` each write a `.tmp-` file and move it. Write one
-   helper for an immutable file.
+6. Done. The transcript copy, the WebSocket codec, the PTY driver and the
+   transport assembly use `fyai_buf`.
+7. Done. `fyai_cas_temp_open()` and `fyai_cas_temp_seal()` serve the blob store
+   and the manifest writer.
 8. A private loop (S). `fyai cast` play runs its own `poll` and `fytim_pump`
    (`fyai_cast_player.c:790`). It is a stand-alone command, so the risk is low.
 9. The parallel-construction oracles (L). They still run in a production
@@ -783,7 +779,7 @@ of the 475 cases has a positive control is unverified.
 
 ### Suggested order
 
-First the second owners (items 6, 7), then item 13. The remaining timing
+First the private loop of `fyai cast` (item 8), then item 13. The remaining timing
 sites of item 19 need a wake source and not a poll interval. Item 9 and
 items 1, 10 and 15 go with the state-machine and TUI work, because they touch
 the same code.
