@@ -14,6 +14,14 @@ on:
 permissions:
   contents: write
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  FILC_VERSION: "0.687"
+  # A Fil-C build with zgc_reserve_at() and the clone() of a fork.
+  FILC_REPO: pantoniou/fil-c
+  FILC_TAG: reserve-at-0.687-r4
+  FILC_SHA256: 22bee6cc82894df927afb9ef05cfe45c40e3c00a7e35e168d175d2b7e8487b7c
+
 jobs:
   build:
     name: mostly-static - ${{ matrix.os }}
@@ -47,7 +55,8 @@ jobs:
       run: |
         sudo apt-get update -qq
         sudo apt-get install --no-install-recommends -y \
-          pkg-config libssl-dev rsync zlib1g-dev python3 yq zstd
+          pkg-config libssl-dev rsync zlib1g-dev python3 yq zstd \
+          libzstd-dev libjitterentropy3-dev
 
     - name: "Install dependencies (macOS)"
       if: runner.os == 'macOS'
@@ -104,3 +113,96 @@ jobs:
         target_commitish: ${{ github.sha }}
         body: ${{ steps.rel.outputs.tag == 'nightly' && format('Built from {0} @ {1}', github.ref_name, github.sha) || '' }}
         files: ${{ matrix.asset }}.tar.gz
+
+  filc:
+    name: FIL-C - ubuntu-latest
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+
+    steps:
+    - name: "Checkout"
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: "Install dependencies"
+      run: |
+        sudo apt-get update -qq
+        sudo apt-get install --no-install-recommends -y \
+          cmake ninja-build perl pkg-config linux-libc-dev
+
+    - name: "Cache FIL-C"
+      uses: actions/cache@v4
+      with:
+        path: filc-dist
+        key: filc-${{ env.FILC_TAG }}
+
+    - name: "Install FIL-C"
+      run: |
+        tarball=filc-dist/filc-$FILC_VERSION-linux-x86_64.tar.xz
+        if [ ! -f $tarball ]; then
+          mkdir -p filc-dist
+          curl -fsSL -o $tarball \
+            https://github.com/$FILC_REPO/releases/download/$FILC_TAG/filc-$FILC_VERSION-linux-x86_64.tar.xz
+        fi
+        echo "$FILC_SHA256  $tarball" | sha256sum -c
+        tar xJf $tarball -C "$RUNNER_TEMP"
+        FILC="$RUNNER_TEMP/filc-$FILC_VERSION-linux-x86_64"
+        # The kernel header links that setup.sh would make.
+        mkdir -p "$FILC/pizfix/os-include"
+        ln -sfn /usr/include/linux "$FILC/pizfix/os-include/linux"
+        ln -sfn /usr/include/x86_64-linux-gnu/asm "$FILC/pizfix/os-include/asm"
+        ln -sfn /usr/include/asm-generic "$FILC/pizfix/os-include/asm-generic"
+        echo "FILC=$FILC" >> "$GITHUB_ENV"
+
+    - name: "Cache zlib and OpenSSL"
+      uses: actions/cache@v4
+      with:
+        path: deps-filc
+        key: deps-${{ env.FILC_TAG }}-${{ hashFiles('scripts/build-filc.sh') }}
+
+    - name: "Build"
+      run: |
+        export LD_LIBRARY_PATH="$FILC/pizfix/lib"
+        scripts/build-filc.sh -b build-filc -p deps-filc -j "$(nproc)" -o dist
+
+    - name: "Smoke test"
+      run: |
+        export LD_LIBRARY_PATH="$FILC/pizfix/lib"
+        dist/fyai --version
+        dist/fyai --help >/dev/null
+
+    - name: "Package"
+      run: |
+        mkdir -p pkg/fyai-filc-linux-x86_64
+        cp dist/fyai pkg/fyai-filc-linux-x86_64/
+        cp doc/filc.md pkg/fyai-filc-linux-x86_64/README-filc.md
+        echo "$FILC_REPO $FILC_TAG" > pkg/fyai-filc-linux-x86_64/FILC-TOOLCHAIN
+        tar -C pkg -czf fyai-filc-linux-x86_64.tar.gz fyai-filc-linux-x86_64
+
+    - name: "Upload artifact"
+      uses: actions/upload-artifact@v4
+      with:
+        name: fyai-filc-linux-x86_64
+        path: fyai-filc-linux-x86_64.tar.gz
+
+    - name: "Determine release tag"
+      id: rel
+      run: |
+        if [ "${{ startsWith(github.ref, 'refs/tags/v') }}" = "true" ]; then
+          echo "tag=${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
+          echo "prerelease=false" >> "$GITHUB_OUTPUT"
+        else
+          echo "tag=nightly" >> "$GITHUB_OUTPUT"
+          echo "prerelease=true" >> "$GITHUB_OUTPUT"
+        fi
+
+    - name: "Publish release"
+      uses: softprops/action-gh-release@v2
+      with:
+        tag_name: ${{ steps.rel.outputs.tag }}
+        name: ${{ steps.rel.outputs.tag == 'nightly' && 'Nightly build' || steps.rel.outputs.tag }}
+        prerelease: ${{ steps.rel.outputs.prerelease }}
+        make_latest: ${{ steps.rel.outputs.prerelease == 'false' }}
+        target_commitish: ${{ github.sha }}
+        files: fyai-filc-linux-x86_64.tar.gz
