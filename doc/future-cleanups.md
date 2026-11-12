@@ -1,6 +1,8 @@
 # Future cleanups
 
-Status: survey and plan. No code was changed. Part 1 lists implicit state
+Status: part 1 is finished: every entry of its high and medium lists was
+changed or checked, and the result is in the entry. The low list and the
+context clusters stay open. Part 2 is a plan. Part 1 lists implicit state
 machines. Part 2 plans the split of the TUI from the core. Nothing keeps
 compatibility with old arenas or old interfaces.
 
@@ -314,35 +316,63 @@ is rejected with a warning.
   begins every server in the pass that sets it. A server added after that
   pass would block the join, but no path adds one then.
 - UI input owner (`busy`, `marker_busy`, `questions`, `head`,
-  `editor_request`, `external`, `editor_external`, `inline_focus`): the marker
-  derives from three sources, and the key routing is a priority list.
+  `editor_request`, `external`, `editor_external`, `inline_focus`): checked, no
+  change. The fields are independent facts, not one phase: `busy` is a turn,
+  `questions` and `head` are lists, `editor_request` is a request pointer,
+  `external` is a suspended terminal and `inline_focus` is a key. The marker
+  and the interrupt are a priority list over them, and `marker_busy` is the
+  last state drawn, a cache that avoids a repaint.
 - Agent registry UI mode (`surface`, `attached`, `question_presented`,
-  `draft`): NONE, ZOOMED, ATTACHED, QUESTION. `fyai_agents_detach()` is also
-  the error path of zoom.
-- Remote client (`struct remote_client`): `waiting`, `answered`, `refusal`,
-  `running`, `ended`. A frame that arrives while `waiting` and `running` are
-  both set is resolved by dispatch order.
-- Session and switch state: `switch_pending` guards three payload numbers.
-  `session_unstored` is a branch name that must match `ctx->branch` and can go
-  stale on a rename or a switch. `compacting` is set and cleared on each side of
-  `fyai_run_turn()` with nothing between, so it is not left set.
-- Frame scheduling (`frame_pending`, `reflow_pending`, `repaint_pending`): a
-  dirty level NONE < FRAME < REPAINT < REFLOW kept as independent booleans.
-  `next_frame_ms` is reset at five sites.
-- Layout and popup: `popup_state` is stored as an int next to the `popup`
-  pointer, and one site writes it and skips `ui_popup_set()`. Also `tile_full`,
-  `view`, `blocks`.
+  `draft`): checked, no change. A question can be presented while a view is
+  zoomed or attached, each with its own draft, so QUESTION is not exclusive of
+  the view. `attached` is the kind of the one view, and `surface` is the
+  tile that it owns; `fyai_agents_detach()` is also the error path of zoom and
+  is safe for a view that has no tile.
+- Remote client (`struct remote_client`): done. `enum remote_phase` (IDLE,
+  WAITING, ANSWERED, RUNNING, ENDED) replaces `waiting`, `answered`, `running`
+  and `ended`. The survey claimed that a frame could arrive with `waiting` and
+  `running` both set: no path did, because the request for the run is answered
+  before `running` is set. The phase is not monotone: each request starts at
+  WAITING again. The request id and the refusal stay data.
+- Session and switch state: partly done. `switch_pending` guards the three
+  numbers and every reader tests it first, so the payload is not read stale:
+  checked, no change. `session_unstored` did go stale: a resume or a checkout
+  from a fresh session left its name, and `fyai_interactive_record_command()` and
+  the fork state of a sub-agent then took the branch as unstored for the rest
+  of the invocation. `fyai_branch_adopt()` now clears it. The field stays a
+  name: the checks of the publish compare it with the branch. `compacting` was
+  corrected before.
+- Frame scheduling (`frame_pending`, `reflow_pending`, `repaint_pending`):
+  partly done. The booleans are not a max of one level: a reflow is consumed
+  at once, a repaint waits while a turn runs, is dropped for a delegated agent
+  and is absorbed by a fullscreen page, so a reflow can finish and leave a
+  repaint. They stay bools. `next_frame_ms` was written at five sites, which
+  are now `ui_frame_now()` and `ui_frame_throttled()`.
+- Layout and popup: done for `popup_state`. It has the enum type, and the log
+  sets COMPACT through `ui_popup_set()` in place of a direct write. `tile_full`
+  is a pointer to a tile that `ui_tile_full()` checks against the zoom, and
+  `view` and `blocks` are objects: checked, no change.
 - Browser foreign sessions (`foreign_visible`, `foreign_scheduled`,
-  `foreign_phase`): three fields, one lifecycle, re-encoded at three sites.
-- Live document pause and end: `fyai_uitranscript`, `fyai_uidraw` and
-  `fyai_display_output` each rebuild the same paused or ended state with their
-  own guards.
+  `foreign_phase`): done. `enum browser_foreign` (OFF, CLAUDE, CODEX, LOADED)
+  replaces `foreign_visible` and `foreign_phase`, which three sites kept
+  equal. The phase moves forward and restarts at CLAUDE. `foreign_scheduled`
+  stays a bool: it says that a scan is queued on the loop.
+- Live document pause and end: checked, no change. The three components keep
+  different facts. `fyai_display_output` holds what the producer asked for,
+  `fyai_uitranscript` holds the published store, and `fyai_uidraw` holds what
+  the renderer gave the sink, so a mirror can stay behind the store. A merge
+  would remove that difference. `paused` is a toggle inside the live phase.
 - Progressive markdown stream (`live`, `active`, `render_pending`,
-  `full_render`, `flush_src`): `full_render` is set at three sites and appears
-  never to be cleared.
+  `full_render`, `flush_src`): checked, no change. `full_render` is a one-way
+  latch of one stream: a repaint, a change of width and the close set it, and
+  it is not cleared on purpose, because the window of the tail is wrong after
+  the width changed. `live` is set when the stream starts, `active` is its
+  life (the finish clears the structure), and `render_pending` is a request.
 - Claude SDK server (`initialized`, `mcp_starting`, `init_id`, `busy`,
-  `failed`): `failed` is set at six sites and is not cleared in the code that
-  the survey read.
+  `failed`): checked, no change. `failed` is a latch for a broken connection
+  and the loop ends on it, so it is not cleared. `initialized` and
+  `mcp_starting` are two events that finish in either order, and `init_id` is
+  their join. `busy` is the turn.
 
 ## Low priority
 
