@@ -112,6 +112,10 @@ enum ui_tool_mode {
 	UI_TOOL_INLINE,		/* in a block of the transcript */
 };
 
+/* The log of the session shows small above the status, over the whole page,
+ * or not at all. */
+enum ui_popup_state { UI_POPUP_HIDDEN, UI_POPUP_COMPACT, UI_POPUP_FULL };
+
 struct fyai_ui {
 	struct fyai_ctx *ctx;
 	struct fytim *ft;
@@ -214,7 +218,7 @@ struct fyai_ui {
 	char *popup_title;
 	/* The popup keeps the results of the session while it is hidden. The
 	 * header indicator counts them and shows or hides the popup. */
-	int popup_state;		/* enum ui_popup_state */
+	enum ui_popup_state popup_state;
 	/* The tile that maximize gave the whole page of a fullscreen session;
 	 * the page shows nothing else while it stays zoomed. */
 	struct fytim_surface *tile_full;
@@ -722,10 +726,6 @@ static int ui_markup_rows(const char *text, int cols)
 	return rows;
 }
 
-/* The log of the session shows small above the status, over the whole page,
- * or not at all. */
-enum ui_popup_state { UI_POPUP_HIDDEN, UI_POPUP_COMPACT, UI_POPUP_FULL };
-
 /* The rows of the compact log under its heading, at most. */
 #define UI_LOG_ROWS 8
 
@@ -817,7 +817,7 @@ static void ui_log_rebuild(struct fyai_ui *ui);
 /* Take the popup to @state; the log stays for the indicator to show again. */
 static void ui_popup_set(struct fyai_ui *ui, enum ui_popup_state state)
 {
-	if (ui->popup_state == (int)state)
+	if (ui->popup_state == state)
 		return;
 	ui->popup_state = state;
 	/* The newest entry shows from its heading at the new size. */
@@ -1010,7 +1010,7 @@ static void ui_popup_append(struct fyai_ui *ui, enum fyai_error_type level,
 		ui_note_clear(ui);
 	/* A long result opens the log small; the user expands it. */
 	if (shown && rows > UI_NOTE_ROWS && ui->popup_state == UI_POPUP_HIDDEN)
-		ui->popup_state = UI_POPUP_COMPACT;
+		ui_popup_set(ui, UI_POPUP_COMPACT);
 	ui_log_rebuild(ui);
 	fyai_ui_panel_update(ui->ctx);
 }
