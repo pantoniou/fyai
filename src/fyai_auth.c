@@ -530,11 +530,9 @@ static int auth_http_request(struct fyai_ctx *ctx,
 
 	memset(out, 0, sizeof(*out));
 	curl = curl_easy_init();
+	fyai_error_check(ctx, curl, err, "auth: could not make a curl handle");
 	/* Reserve SIGALRM for the watchdog. */
 	curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1L);
-
-	if (!curl)
-		return -1;
 	curl_easy_setopt(curl, CURLOPT_URL, url);
 	curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, auth_write);
 	curl_easy_setopt(curl, CURLOPT_WRITEDATA, out);
@@ -549,6 +547,8 @@ static int auth_http_request(struct fyai_ctx *ctx,
 		curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &out->status);
 	curl_easy_cleanup(curl);
 	return code == CURLE_OK ? 0 : -1;
+err:
+	return -1;
 }
 
 int fyai_auth_parse_tokens(struct fyai_ctx *ctx, struct fyai_credentials *c, fy_generic doc, bool refresh)
