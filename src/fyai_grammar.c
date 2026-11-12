@@ -136,7 +136,7 @@ bool fyai_grammar_chain_miss(struct fyai_ctx *ctx, long status,
 {
 	const struct fyai_grammar *grammar = fyai_grammar(ctx->cfg);
 
-	return ctx->response_chain_linked && grammar->chain_miss &&
+	return ctx->response_chain == FYAI_CHAIN_LINKED && grammar->chain_miss &&
 	       grammar->chain_miss(status, body);
 }
 

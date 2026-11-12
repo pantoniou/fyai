@@ -1112,9 +1112,8 @@ static void stream_request_complete(struct fyai_xfer *transfer, void *userdata)
 			stream_state_transition(stream, FYAISS_FAILED);
 			goto done;
 		}
-		ctx->response_chain_miss =
-			fyai_grammar_chain_miss(ctx, status, stream->raw.data);
-		if (ctx->response_chain_miss) {
+		if (fyai_grammar_chain_miss(ctx, status, stream->raw.data)) {
+			ctx->response_chain = FYAI_CHAIN_MISSED;
 			stream_state_transition(stream, FYAISS_FAILED);
 			goto done;
 		}
@@ -1439,11 +1438,11 @@ static void buffered_request_complete(struct fyai_xfer *transfer, void *userdata
 			}
 			goto done;
 		}
-		ctx->response_chain_miss =
-			fyai_grammar_chain_miss(ctx, status,
-						request->response.data);
-		if (ctx->response_chain_miss)
+		if (fyai_grammar_chain_miss(ctx, status,
+					    request->response.data)) {
+			ctx->response_chain = FYAI_CHAIN_MISSED;
 			goto done;
+		}
 		fyai_error(ctx, "request returned HTTP %ld%s%s", status,
 			   request->response.data ? "\n" : "",
 			   request->response.data ?

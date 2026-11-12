@@ -226,6 +226,18 @@ enum fyai_scope_kind {
 	FYAI_SCOPE_CALL,		/* until the call ends */
 };
 
+/*
+ * The Responses chain of a request. Each request sets UNLINKED or LINKED when
+ * it is submitted. A LINKED request that the provider refuses because
+ * previous_response_id cannot be resolved becomes MISSED, and the model loop
+ * retries that step from local history.
+ */
+enum fyai_chain_state {
+	FYAI_CHAIN_UNLINKED,
+	FYAI_CHAIN_LINKED,
+	FYAI_CHAIN_MISSED,
+};
+
 struct fyai_cfg {
 	int exit_status; /* Exit status of a successfully executed CLI child. */
 	struct fy_allocator *allocator;
@@ -1062,13 +1074,12 @@ struct fyai_ctx {
 	/* Token extents collected by the last streamed call (fy_invalid when
 	 * none); consumed when the assistant response is appended to a turn. */
 	fy_generic last_token_extents;
-	/* Fail-soft latch: set when a provider rejected the logprobs params we
-	 * injected for token_extents, so the session stops asking. */
+	/* One-way latch, not a phase: set when a provider rejected the logprobs
+	 * params injected for token_extents, so the session stops asking. */
 	bool token_extents_off;
-	/* The last Responses request failed because previous_response_id could
-	 * not be resolved. The model loop retries that step from local history. */
-	bool response_chain_linked;
-	bool response_chain_miss;
+	/* The chain state of the last request. A request that carries no
+	 * previous_response_id leaves it UNLINKED. */
+	enum fyai_chain_state response_chain;
 	/*
 	 * The attachments that the next user message takes, as canonical image
 	 * parts that hold their bytes, built in @gb.

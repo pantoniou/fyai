@@ -313,6 +313,8 @@ static int session_compact_responses(struct fyai_ctx *ctx, const char *hint)
 
 	fyai_xfer_set_endpoint(ctx, url, "compact");
 	fyai_xfer_set_body(ctx, body);
+	/* The compact request carries no chain: a refusal of it is an error. */
+	ctx->response_chain = FYAI_CHAIN_UNLINKED;
 	req = fyai_buffered_request_submit(ctx, NULL, NULL);
 	fyai_error_check(ctx, req, err_restore,
 			 "compact: cannot submit the Responses request");

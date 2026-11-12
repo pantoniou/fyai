@@ -2359,8 +2359,7 @@ void fyai_ctx_fork_disown(struct fyai_ctx *ctx)
 	ctx->switch_pending = false;
 	ctx->last_call_input = ctx->last_call_output = ctx->last_call_total = 0;
 	ctx->last_token_extents = fy_invalid;
-	ctx->response_chain_linked = false;
-	ctx->response_chain_miss = false;
+	ctx->response_chain = FYAI_CHAIN_UNLINKED;
 	/* The attachments wait for the next line of the parent, not of this
 	 * child; the store stays open to read the bytes of the branch. */
 	ctx->media_pending = fy_seq_empty;

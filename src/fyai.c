@@ -533,7 +533,6 @@ struct fyai_model_step {
 	fy_generic result;
 	enum fyai_model_step_state state;
 	bool want_extents_lp;
-	bool response_linked;
 	bool notified;
 	bool cancel_requested;
 };
@@ -694,9 +693,8 @@ static int fyai_model_step_submit_request(struct fyai_model_step *step,
 	fyai_prof_once_from_base("start_to_first_send");
 	fyai_prof_stamp(&step->send_started);
 
-	ctx->response_chain_linked = response_linked;
-	ctx->response_chain_miss = false;
-	step->response_linked = response_linked;
+	ctx->response_chain = response_linked ? FYAI_CHAIN_LINKED :
+						FYAI_CHAIN_UNLINKED;
 	step->want_extents_lp = want_extents_lp;
 	rc = fyai_model_step_transition(step, FYAIMSS_REQUEST_PENDING);
 	fyai_error_check(ctx, !rc, out,
@@ -971,7 +969,7 @@ static void fyai_model_step_request_complete(struct fyai_model_step *step,
 					       response_doc);
 			return;
 		}
-		if (step->response_linked && ctx->response_chain_miss) {
+		if (ctx->response_chain == FYAI_CHAIN_MISSED) {
 			rc = fyai_model_step_retry(step, fy_null);
 			if (!rc)
 				return;
