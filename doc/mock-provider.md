@@ -5,10 +5,14 @@ The test suite uses a mock AI provider. It is the hidden command
 runs on the event loop of the process. It uses one thread. A reply that waits
 does not block another connection.
 
-The mock listens on `127.0.0.1` on a port that the kernel chooses. It speaks
-HTTP/1.1 with keep-alive and no TLS. It accepts `POST`, `GET` and `DELETE`. It
-reads a request body with a `Content-Length` or with chunked encoding, and it
-answers `Expect: 100-continue`. Any other method gets status 501.
+The mock listens on `127.0.0.1` on a port that the kernel chooses. The HTTP
+side is `fyai_httpd` (`src/fyai_httpd.h`): it has no TLS, it keeps the
+connection (keep-alive), and it reads a request body with a `Content-Length` or
+with chunked encoding, up to 64 MiB. It answers `Expect: 100-continue` and
+takes HTTP/1.0. A request head is at most 8 KiB. The mock accepts `POST`, `GET`
+and `DELETE`. Any other method gets status 501. The mock writes each reply
+itself with `fyai_httpd_conn_write()` and ends it with
+`fyai_httpd_conn_done()`, so a reply can hold, split or cut its bytes.
 
 ## Run files
 

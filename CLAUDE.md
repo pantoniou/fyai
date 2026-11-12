@@ -167,7 +167,7 @@ initialize each generic field explicitly.
   WebSocket. It knows no route, no credential and no protocol over the
   WebSocket; a handler gets each request and message
   (`src/fyai_httpd.h`). Use it for every listener of HTTP in this program,
-  and do not write a second one.
+  the mock provider included, and do not write a second one.
 - `src/fyai_ws.c`: RFC 6455 as pure functions: the codec, the frame encoder and
   the text of the handshake. `src/fyai_ws_client.c` is the client end, in two
   forms: a blocking connection (`fyai_ws_client`) for a standalone command, and

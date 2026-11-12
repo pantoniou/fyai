@@ -725,20 +725,17 @@ is a series. Check an item again before work on it.
 
 ### Second owners
 
-6. A second HTTP/1.1 server (M). `src/fyai_mock.c` has its own listen, accept,
-   request parser and response writer. Port it to `fyai_httpd`. It is test
-   code that lives in `src/`.
-7. Second byte buffers (S each). `struct view_text` in
+6. Second byte buffers (S each). `struct view_text` in
    `fyai_transcript_view.c:233`, `ws_reserve` in `fyai_ws.c:201`, `append` in
    `fyai_ptydrv.c:192`, `asm_append` in `fyai_transport.c:947` and `in_buf` in
    `fyai_mock.c:439`. Use `fyai_buf`. Typed-array growers are a different
    thing and stay.
-8. Two atomic publishers (S to M). `cas_put` (`fyai_cas.c:610`) and
+7. Two atomic publishers (S to M). `cas_put` (`fyai_cas.c:610`) and
    `fyai_manifest.c:783` each write a `.tmp-` file and move it. Write one
    helper for an immutable file.
-9. A private loop (S). `fyai cast` play runs its own `poll` and `fytim_pump`
+8. A private loop (S). `fyai cast` play runs its own `poll` and `fytim_pump`
    (`fyai_cast_player.c:790`). It is a stand-alone command, so the risk is low.
-10. The parallel-construction oracles (L). They still run in a production
+9. The parallel-construction oracles (L). They still run in a production
     repaint: `fyai_chrome.c:410`, `fyai_session.c:1957` and `:2002`,
     `fyai_ask.c:434`, `fyai_uidraw.c:44`, `:100` and `:487`, `fyai_output.c`,
     and four calls in `fyai_ui.c`. This is step 0 of the TUI split. Remove
@@ -746,43 +743,43 @@ is a series. Check an item again before work on it.
 
 ### Fork and cleanup gaps
 
-11. `fyai_ctx_fork_disown()` (`fyai_tools.c:5916`) does not reset (M):
+10. `fyai_ctx_fork_disown()` (`fyai_tools.c:5916`) does not reset (M):
     `btw_runs`, `workpane`, `patch_views`, `catalog_update`, `acp_rpc`,
     `cmd_call`, `display_output` and `home`. Unverified: `transport_src`,
     `signal_src[]` and `waiter_tick`, which an abandon helper may clear. Move
     each cluster into a reset function of its subsystem, as in the context
     section of part 1.
-12. `session_quit` (`fyai_cmd_config.c:1381`) is deferred and has no cancel
+11. `session_quit` (`fyai_cmd_config.c:1381`) is deferred and has no cancel
     path (S, unverified: the ctx may outlive the loop).
 
 ### Dead code and compatibility
 
-13. About 40 exported functions have no caller in `src/` or `tests/` (M). The
+12. About 40 exported functions have no caller in `src/` or `tests/` (M). The
     largest groups: `fyai_print_markdown*` (they write to stdout, so they also
     bypass the sink), `fyai_config_show`, `fyai_config_get`, `fyai_list_turns`,
     `fyai_spawn_editor`, `fyai_tool_job_group_create`, the unused
     `fyai_workpane_tile_*` getters, and `fyai_cfg_uses_storage`. Keep one only
     if a person uses it to debug.
-14. `fyai_curl_perform` (`fyai_curl.c:564`) is a wrapper for callers that
+13. `fyai_curl_perform` (`fyai_curl.c:564`) is a wrapper for callers that
     have not moved. Its only caller is `auth_http_request`
     (`fyai_auth.c:547`). Move it to the loop and remove the wrapper (S).
     There, `NOSIGNAL` is set before the NULL check of the handle, and the NULL
     return has no diagnostic.
-15. `legacy_scope` in `fyai_settings.c` (S). It treats an entry with no
+14. `legacy_scope` in `fyai_settings.c` (S). It treats an entry with no
     `persistent` member as old. No compatibility is kept now, so remove it.
 
 ### Large files and functions
 
-16. `src/fyai_tools.c` is 9557 lines (L). Seams: the shell sandbox
+15. `src/fyai_tools.c` is 9557 lines (L). Seams: the shell sandbox
     (lines 718-1087), shell sessions and tiles (3527-4900), the child serve
     and exec path (2555-3265), the agent view and inline code (5037-5650), and
     the job lifecycle (5644 to the end). Do this with items 1 and 2 of part 1,
     so the enums land in the new files.
-17. `src/utils.c` holds shell capture (490-1277, which overlaps
+16. `src/utils.c` holds shell capture (490-1277, which overlaps
     `fyai_tools.c`), the editor pane, and JSON helpers (M). Move shell capture
     and the editor into files of their own, and correct the one-line entry in
     `CLAUDE.md`.
-18. Long functions (M to L each), with the split seam: `fyai_config_apply`
+17. Long functions (M to L each), with the split seam: `fyai_config_apply`
     (474 lines, `fyai_config.c:398`; a table of key and setter),
     `fyai_tool_job_submit` (351; validate, build, spawn), `capture_run`
     (347, `fyai_project_capture.c`), `ui_page_update` (323; one function for
@@ -792,7 +789,7 @@ is a series. Check an item again before work on it.
 
 ### Documentation and tests
 
-19. Names that no longer exist (S). `CLAUDE.md` names `fyai_ui_ask_withdraw()`
+18. Names that no longer exist (S). `CLAUDE.md` names `fyai_ui_ask_withdraw()`
     (the code has `fyai_ask_close()`) and `fyai_ui_surface_set_head_frame()`.
     `src/fyai_settings.h:58` names `fyai_ui_ask()`. `doc/exchange-scope.md:82`
     cites `src/fyai_cover.c`. Other plans in `doc/` name functions that the
@@ -800,7 +797,7 @@ is a series. Check an item again before work on it.
     `transport-isolation-review.md`, `state-sync-sdd.md`,
     `command-schema-plan.md`, `macos-transport-isolation-sdd.md`,
     `web-fetch-plan.md`). They may be plans, not errors.
-20. Timing in tests (S). `fyai_event_test.c:1528` sleeps 20 ms so that timers
+19. Timing in tests (S). `fyai_event_test.c:1528` sleeps 20 ms so that timers
     expire: use an expired deadline. The watchdog sleeps at `:1286` and
     `:1318` test a timer and stay. `tests/fyai_shell_test.c` (lines 99, 356,
     365) and some cases (`shell_tty.sh:126`, `transport_bootstrap.sh:36`,
@@ -813,6 +810,9 @@ of the 475 cases has a positive control is unverified.
 
 ### Suggested order
 
-First the cheap rule fixes (items 3, 4, 5, 19, 20), then the error-check
-sweep (2) and the dead code (13, 14, 15). Item 10 and items 1, 11 and 16 go
+First the cheap rule fixes (items 3, 4, 5, 18, 19), then the error-check
+sweep (2) and the dead code (12, 13, 14). Item 9 and items 1, 10 and 15 go
 with the state-machine and TUI work, because they touch the same code.
+
+Done: the mock provider now serves on `fyai_httpd`, which takes request
+bodies, keeps a connection and lets a handler write its own answer.
