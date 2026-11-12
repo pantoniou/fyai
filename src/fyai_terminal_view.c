@@ -40,6 +40,20 @@ enum tty_scan {
 	TTYSC_SKIP,		/* one byte of a two-byte escape */
 };
 
+/*
+ * What the program writes to its terminal. Only LINE leaves the output as
+ * lines. A leave of the alternate buffer makes ALT_EXITED: the primary screen
+ * is empty, so a read takes the log. A program can enter the buffer again.
+ * The view never returns to LINE or SCREEN, and the state is compared for
+ * equality.
+ */
+enum tty_screen_mode {
+	TTYSCR_LINE,		/* lines of text */
+	TTYSCR_SCREEN,		/* the program addresses the screen */
+	TTYSCR_ALT_ACTIVE,	/* the alternate buffer is the screen */
+	TTYSCR_ALT_EXITED,	/* the program left the alternate buffer */
+};
+
 struct fyai_terminal_view {
 	struct fyai_ctx *ctx;
 	struct fyvt *vt;
@@ -74,10 +88,13 @@ struct fyai_terminal_view {
 	int cursor_col;
 	bool cursor_visible;
 	bool cursor_moved;	/* a paint must place the cursor again */
-	bool screen_mode;
-	bool alt_screen;
-	bool alt_screen_seen;
-	bool alt_screen_used;	/* the program entered the alternate buffer */
+	enum tty_screen_mode mode;
+	/*
+	 * The program entered the alternate buffer at least one time. A leave
+	 * with no entry before it makes ALT_EXITED, so this is not derived
+	 * from the state.
+	 */
+	bool alt_screen_used;
 	bool binary;
 };
 
@@ -344,7 +361,7 @@ static void tty_line_report(struct fyai_terminal_view *view)
 {
 	size_t end;
 
-	if (!view->line_cb || view->screen_mode)
+	if (!view->line_cb || view->mode != TTYSCR_LINE)
 		return;
 	/* Report up to the end of the last completed line. */
 	end = view->log_line;
@@ -427,8 +444,8 @@ static void tty_csi_alt_screen(struct fyai_terminal_view *view,
 		if (next == p)
 			break;
 		if (param == 47 || param == 1047 || param == 1049) {
-			view->alt_screen = final == 'h';
-			view->alt_screen_seen = true;
+			view->mode = final == 'h' ? TTYSCR_ALT_ACTIVE :
+						      TTYSCR_ALT_EXITED;
 			if (final == 'h')
 				view->alt_screen_used = true;
 			/* Switching screens resets scrollback. */
@@ -467,8 +484,9 @@ static void tty_log_feed(struct fyai_terminal_view *view, unsigned char c)
 			view->scan = TTYSC_SKIP;
 		} else {
 			/* ESC M and ESC c move or reset the screen. */
-			if (c == 'M' || c == 'c' || c == 'D' || c == 'E')
-				view->screen_mode = true;
+			if ((c == 'M' || c == 'c' || c == 'D' || c == 'E') &&
+			    view->mode == TTYSCR_LINE)
+				view->mode = TTYSCR_SCREEN;
 			view->scan = TTYSC_TEXT;
 		}
 		return;
@@ -476,8 +494,9 @@ static void tty_log_feed(struct fyai_terminal_view *view, unsigned char c)
 		if (c >= 0x40 && c <= 0x7e) {
 			tty_csi_alt_screen(view, view->csi, view->csi_len,
 					   (char)c);
-			if (tty_csi_draws(view->csi, view->csi_len, (char)c))
-				view->screen_mode = true;
+			if (tty_csi_draws(view->csi, view->csi_len, (char)c) &&
+			    view->mode == TTYSCR_LINE)
+				view->mode = TTYSCR_SCREEN;
 			view->scan = TTYSC_TEXT;
 			return;
 		}
@@ -698,7 +717,7 @@ void fyai_terminal_view_resize(struct fyai_terminal_view *view, int rows,
 	view->rows = rows;
 	view->cols = cols;
 	/* Preserve screen-addressed rows until the application repaints them. */
-	fyvt_screen_enable_reflow(view->screen, !view->screen_mode);
+	fyvt_screen_enable_reflow(view->screen, view->mode == TTYSCR_LINE);
 	fyvt_set_size(view->vt, rows, cols);
 	fyvt_screen_enable_reflow(view->screen, true);
 	fyai_terminal_view_damage_all(view);
@@ -759,7 +778,7 @@ void fyai_terminal_reply_write(int fd, const char *data, size_t len)
 
 bool fyai_terminal_view_screen_mode(const struct fyai_terminal_view *view)
 {
-	return view && view->screen_mode;
+	return view && view->mode != TTYSCR_LINE;
 }
 
 bool fyai_terminal_view_binary(const struct fyai_terminal_view *view)
@@ -898,16 +917,16 @@ char *fyai_terminal_view_read(struct fyai_terminal_view *view,
 		 * What is new for a program that draws is the picture it
 		 * draws; the bytes that made it are cursor movements.
 		 */
-		if (view->alt_screen ||
-		    (view->screen_mode && !view->alt_screen_seen))
+		if (view->mode == TTYSCR_ALT_ACTIVE ||
+		    view->mode == TTYSCR_SCREEN)
 			return tty_screen_text(view, 0, view->rows, 0,
 					       view->cols, false, lenp);
 		return tty_log_text(view, view->log_read, true, lenp);
 	case FYAITR_ALL:
-		if (view->alt_screen)
+		if (view->mode == TTYSCR_ALT_ACTIVE)
 			return tty_screen_text(view, 0, view->rows, 0,
 					       view->cols, false, lenp);
-		if (view->screen_mode && !view->alt_screen_seen) {
+		if (view->mode == TTYSCR_SCREEN) {
 			char *text = tty_screen_text(view, 0, view->rows, 0,
 						     view->cols, true, lenp);
 
@@ -989,7 +1008,7 @@ bool fyai_terminal_view_scroll(struct fyai_terminal_view *view, int delta)
 	if (!view || !delta)
 		return false;
 	/* Alternate-screen programs do not have scrollback. */
-	scroll = view->alt_screen ? 0 : view->scroll + delta;
+	scroll = view->mode == TTYSCR_ALT_ACTIVE ? 0 : view->scroll + delta;
 	if (scroll > view->hist_count)
 		scroll = view->hist_count;
 	if (scroll < 0)
