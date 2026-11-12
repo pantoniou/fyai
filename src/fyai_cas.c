@@ -603,22 +603,11 @@ int fyai_cas_verify_hasher(int directory_fd, const struct fyai_cas_blob *blob,
 	return rc;
 }
 
-/*
- * Publish a source file. A known size means that the caller read the size of a
- * regular file at offset 0, and the file is not stat'ed or seeked again.
- */
-static int cas_put(int directory_fd, int source_fd, bool sized, uint64_t size,
-		   struct fyai_cas_blob *blob, struct fy_blake3_hasher *hasher,
-		   struct fyai_cas_copy_state *state)
+int fyai_cas_temp_open(int directory_fd, char temporary[FYAI_CAS_TEMP_SIZE])
 {
-	struct fyai_cas_blob result = { 0 };
 	unsigned char random[16];
-	char temporary[sizeof(".tmp-") + sizeof(random) * 2];
-	char name[FYAI_CAS_NAME_SIZE];
-	int fd = -1, rc = -1, saved, attempt;
-	bool created = false;
+	int fd, attempt;
 
-	/* A random temporary name: concurrent writers must not share a file. */
 	for (attempt = 0; attempt < 16; attempt++) {
 		if (RAND_bytes(random, sizeof(random)) != 1) {
 			errno = EIO;
@@ -628,15 +617,50 @@ static int cas_put(int directory_fd, int source_fd, bool sized, uint64_t size,
 		fyai_cas_hex(temporary + 5, random, sizeof(random));
 		fd = openat(directory_fd, temporary,
 			    O_RDWR | O_CREAT | O_EXCL | O_CLOEXEC | O_NOFOLLOW, 0600);
-		if (fd >= 0) {
-			created = true;
-			break;
-		}
+		if (fd >= 0)
+			return fd;
 		if (errno != EEXIST)
 			return -1;
 	}
-	if (!created)
+	return -1;
+}
+
+int fyai_cas_temp_seal(int fd, int rc, bool durable)
+{
+	int saved = errno;
+
+	if (!rc)
+		rc = fchmod(fd, 0444);
+	if (!rc && durable)
+		rc = fyai_cas_sync_file(fd);
+	if (rc)
+		saved = errno;
+	if (close(fd) < 0 && !rc) {
+		rc = -1;
+		saved = errno;
+	}
+	errno = saved;
+	return rc;
+}
+
+/*
+ * Publish a source file. A known size means that the caller read the size of a
+ * regular file at offset 0, and the file is not stat'ed or seeked again.
+ */
+static int cas_put(int directory_fd, int source_fd, bool sized, uint64_t size,
+		   struct fyai_cas_blob *blob, struct fy_blake3_hasher *hasher,
+		   struct fyai_cas_copy_state *state)
+{
+	struct fyai_cas_blob result = { 0 };
+	char temporary[FYAI_CAS_TEMP_SIZE];
+	char name[FYAI_CAS_NAME_SIZE];
+	int fd, rc = -1, saved;
+	bool created = false;
+
+	fd = fyai_cas_temp_open(directory_fd, temporary);
+	if (fd < 0)
 		return -1;
+	created = true;
 	if (sized && (size > (uint64_t)INT64_MAX || size > SIZE_MAX)) {
 		errno = EOVERFLOW;
 		rc = -1;
@@ -645,16 +669,7 @@ static int cas_put(int directory_fd, int source_fd, bool sized, uint64_t size,
 	} else {
 		rc = cas_copy_hash(source_fd, fd, &result, hasher, state);
 	}
-	if (!rc)
-		rc = fchmod(fd, 0444);
-	if (!rc && (!state || !state->defer_file_sync))
-		rc = fyai_cas_sync_file(fd);
-	saved = errno;
-	if (close(fd) < 0 && !rc) {
-		rc = -1;
-		saved = errno;
-	}
-	errno = saved;
+	rc = fyai_cas_temp_seal(fd, rc, !state || !state->defer_file_sync);
 	if (rc)
 		goto out;
 	/*

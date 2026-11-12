@@ -22,7 +22,6 @@
 
 #include <libfyaml/libfyaml-blake3.h>
 #include <libfyaml/libfyaml-endian.h>
-#include <openssl/rand.h>
 
 #include "fyai_manifest.h"
 #include "fyai_project.h"
@@ -779,8 +778,7 @@ int fyai_manifest_write(const struct fyai_manifest *manifest, int directory_fd, 
 	struct fy_blake3_hasher_cfg cfg = { .num_threads = -1 };
 	struct fy_blake3_hasher *hasher;
 	const uint8_t *digest;
-	unsigned char random[16];
-	char temporary[sizeof(".tmp-") + sizeof(random) * 2];
+	char temporary[FYAI_CAS_TEMP_SIZE];
 	struct stat existing;
 	size_t done = 0;
 	ssize_t amount;
@@ -808,14 +806,7 @@ int fyai_manifest_write(const struct fyai_manifest *manifest, int directory_fd, 
 	 * name: the name is unique per writer, and a reader never sees a partial
 	 * manifest.
 	 */
-	if (RAND_bytes(random, sizeof(random)) != 1) {
-		errno = EIO;
-		return -1;
-	}
-	memcpy(temporary, ".tmp-", 5);
-	fyai_cas_hex(temporary + 5, random, sizeof(random));
-	fd = openat(directory_fd, temporary, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC | O_NOFOLLOW,
-		    0600);
+	fd = fyai_cas_temp_open(directory_fd, temporary);
 	if (fd < 0)
 		return -1;
 	rc = 0;
@@ -829,19 +820,13 @@ int fyai_manifest_write(const struct fyai_manifest *manifest, int directory_fd, 
 		}
 		done += (size_t)amount;
 	}
-	if (!rc)
-		rc = fchmod(fd, 0444);
-	if (!rc && durable)
-		rc = fyai_cas_sync_file(fd);
+	rc = fyai_cas_temp_seal(fd, rc, durable);
 	saved = errno;
-	if (close(fd) < 0 && !rc) {
-		rc = -1;
+	if (!rc) {
+		rc = renameat(directory_fd, temporary, directory_fd, name);
 		saved = errno;
 	}
-	if (!rc)
-		rc = renameat(directory_fd, temporary, directory_fd, name);
 	if (rc) {
-		saved = rc && saved ? saved : errno;
 		unlinkat(directory_fd, temporary, 0);
 		errno = saved;
 		return -1;

@@ -169,4 +169,22 @@ int fyai_cas_verify(int directory_fd, const struct fyai_cas_blob *blob);
 /* Make the data of the open file @fd durable. Returns 0, or -1 with errno set. */
 int fyai_cas_sync_file(int fd);
 
+/* Size of the name of a temporary file, with its NUL: .tmp- and 32 hex digits. */
+#define FYAI_CAS_TEMP_SIZE (sizeof(".tmp-") + 16 * 2)
+
+/*
+ * Create an empty file of a random name in @directory_fd and return it open for
+ * writing and reading. The name goes to @temporary. A writer owns its file, so
+ * concurrent writers never share one. Returns -1 with errno set on failure.
+ */
+int fyai_cas_temp_open(int directory_fd, char temporary[FYAI_CAS_TEMP_SIZE]);
+
+/*
+ * End the writing of the file @fd of fyai_cas_temp_open(). When @rc is 0 make
+ * the file read-only, and make its data durable when @durable is set. Close
+ * @fd in every case. Returns @rc, or -1 when a step failed. errno holds the
+ * cause of the first failure.
+ */
+int fyai_cas_temp_seal(int fd, int rc, bool durable);
+
 #endif
