@@ -70,6 +70,13 @@ struct jsonrpc_conn {
 	size_t tx_off;
 	struct jsonrpc_request *pending;
 	struct jsonrpc_request *flush_wait;	/* notifications awaiting write */
+	/*
+	 * Independent facts, not phases. The input and the output of a stdio
+	 * peer end apart: an end of input leaves the output usable, and a
+	 * failed write can come before or after it, so one close reason would
+	 * lose one of them. protocol_failed asks the reader to close the
+	 * connection and is set by a local failed send as well.
+	 */
 	bool protocol_failed;			/* peer sent an invalid frame */
 	bool closed;
 	bool write_failed;			/* the peer takes no more output */
@@ -103,6 +110,13 @@ static bool jsonrpc_conn_framed(const struct jsonrpc_conn *conn)
 	       conn->transport == JSONRPC_TUNNEL;
 }
 
+/* A request settles one time: PENDING moves to OK or to FAILED. */
+enum jsonrpc_request_state {
+	JSONRPC_REQ_PENDING,
+	JSONRPC_REQ_OK,
+	JSONRPC_REQ_FAILED,
+};
+
 struct jsonrpc_request {
 	struct jsonrpc_conn *conn;
 	jsonrpc_complete_fn complete;
@@ -128,8 +142,8 @@ struct jsonrpc_request {
 	fy_generic result;
 	long status;
 	CURLcode code;
-	bool done;
-	bool ok;
+	enum jsonrpc_request_state state;
+	/* The owner asked to cancel while a transfer was in flight. */
 	bool cancel_requested;
 };
 
@@ -174,16 +188,15 @@ static void jsonrpc_stdio_sources_drop(struct jsonrpc_request *req)
 static void jsonrpc_finish(struct jsonrpc_request *req, bool ok,
 			   fy_generic result, long status, CURLcode code)
 {
-	if (req->done)
+	if (req->state != JSONRPC_REQ_PENDING)
 		return;
 	/* Remove the request before another frame can use its ID. */
 	jsonrpc_conn_unlink(req);
 	jsonrpc_stdio_sources_drop(req);
 	req->result = result;
-	req->ok = ok;
 	req->status = status;
 	req->code = code;
-	req->done = true;
+	req->state = ok ? JSONRPC_REQ_OK : JSONRPC_REQ_FAILED;
 	jsonrpc_log(req, ok);
 	/* The connection is going: no completion may reach it. */
 	if (req->detach)
@@ -1383,7 +1396,7 @@ err_out:
 
 void jsonrpc_request_cancel(struct jsonrpc_request *req)
 {
-	if (!req || req->done)
+	if (!req || req->state != JSONRPC_REQ_PENDING)
 		return;
 	req->cancel_requested = true;
 	if (jsonrpc_conn_framed(req->conn))
@@ -1394,12 +1407,12 @@ void jsonrpc_request_cancel(struct jsonrpc_request *req)
 
 bool jsonrpc_request_done(const struct jsonrpc_request *req)
 {
-	return req && req->done;
+	return req && req->state != JSONRPC_REQ_PENDING;
 }
 
 bool jsonrpc_request_ok(const struct jsonrpc_request *req)
 {
-	return req && req->ok;
+	return req && req->state == JSONRPC_REQ_OK;
 }
 
 fy_generic jsonrpc_request_result(const struct jsonrpc_request *req)
