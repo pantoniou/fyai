@@ -2312,6 +2312,28 @@ Do not write `fyai_event_error_check(el, !epoll_ctl(...), ...)`. Apply this
 rule to all error-check macros. If a subsystem reports through another handle,
 define one wrapper macro instead of repeating `->ctx`.
 
+Handle an error with a `goto` to one label at the end of the function, as the
+Linux kernel does. Do not free and return in each branch. Run the call, store
+the result, test it, and jump. The label releases what the function holds and
+returns the error:
+
+```c
+	rc = foo(x);
+	if (rc)
+		goto err_out;
+
+	return 0;
+err_out:
+	free(x);
+	return -1;
+```
+
+When a `ctx` is available, use `fyai_error_check()`: it reports the cause and
+jumps. Use a plain test and `goto` only where the failure is not a resource
+failure or is reported already. Name a label for what it does (`err_kill`,
+`err_respond`) when a function has more than one. A label that only returns
+can be a `return`.
+
 Use ASD-STE100 Simplified Technical English for changed documentation,
 retained comments, and commit messages.
 
