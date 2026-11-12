@@ -199,7 +199,10 @@ Done for the peer: `enum remote_peer_role` (pending, client, watcher, handed).
 `failed`, `native` and `lines_only` stay. `struct fyai_remote_run` joins
 `exited`, `err_closed`, `input_closed` and `reported` in `remote_run_settle()`
 from four callbacks, and `struct fyai_remote_session` still tests its reap
-condition over `exited`, `anonymous`, `snapshot`, `peer` and `watchers`.
+condition over `exited`, `anonymous`, `snapshot`, `peer` and `watchers`. The
+flags of the run are a join, not a sequence: the exit of the child, the end of
+its error stream and the close of its output must all happen, and `reported`
+latches the one report. They stay flags.
 
 ### 14. Tool job group
 
@@ -212,11 +215,11 @@ is rejected with a warning.
 
 ## Medium priority
 
-- Interrupt and terminate (`fyai.h`): `interrupt_pending`, `interrupt_seq`,
-  `interrupt_seen`, `terminate_pending`. States: IDLE, INTERRUPT, TERMINATING.
-  Several sites rebuild `interrupt_pending` from `seq != seen`.
-  `terminate_pending` is never cleared. Change: one cancel level with a
-  sequence counter.
+- Interrupt and terminate (`fyai.h`): checked, no change. `terminate_pending` is
+  a one-way request that ends the invocation (SIGTERM, or a cancel of an
+  agent), so it is never cleared. `interrupt_pending` is acknowledged and
+  cleared. Several sites still rebuild `interrupt_pending` from
+  `seq != seen`.
 - Scope lifetime (`scope_open`, `scope_pins`, `sandbox_scope`): the scope ends
   when `!scope_open && scope_pins == 0` and the scope is not `"session"`. A
   `pinned` bit repeats in `fyai_shell_session`, `fyai_monitor_run` and
@@ -230,11 +233,11 @@ is rejected with a warning.
   `closing`, and `reap_queued` on the server. States: HEAD, DISPATCHED,
   UPGRADED, CLOSING, DEAD. `struct fyai_ws` holds the parser state in
   `opcode`, `fin`, `masked`, `message`.
-- Terminal child (`struct tty_run`, `struct fyai_terminal_relay`): `done`,
-  `reaped`, `timed_out`, `cancelling`, `closing`. The result is derived from
-  flag precedence, and `cancelling && timed_out` is ambiguous. `relay_finish()`
-  can set `done` without `reaped`. Change: a state enum and a termination
-  reason.
+- Terminal child (`struct tty_run`, `struct fyai_terminal_relay`): checked, no
+  change for `tty_run`. The result states its precedence: `timed_out` wins,
+  and `cancelled` is `cancelling && !timed_out`, whichever came first. A
+  state enum would record the first cause and change that. `relay_finish()`
+  can still set `done` without `reaped`.
 - Terminal view screen mode (`screen_mode`, `alt_screen`, `alt_screen_seen`,
   `alt_screen_used`): the choice of surface is one predicate over three sticky
   flags. States: LINE, SCREEN, ALT_ACTIVE, ALT_EXITED.
