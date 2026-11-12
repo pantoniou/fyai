@@ -7,6 +7,7 @@
 
 #include "fyai.h"
 #include "fyai_agents.h"
+#include "fyai_diag.h"
 #include "fyai_event.h"
 #include "fyai_jsonrpc.h"
 #include "fyai_session.h"
@@ -22,6 +23,7 @@ FYAI_TEST_ENTRY(branch_ui, depth_detail, branch_ui_depth_detail)
 FYAI_TEST_ENTRY(branch_ui, subscription_activity, branch_ui_subscription_activity)
 FYAI_TEST_ENTRY(branch_ui, preview_extent, branch_ui_preview_extent)
 FYAI_TEST_ENTRY(branch_ui, tile_identity, branch_ui_tile_identity)
+FYAI_TEST_ENTRY(branch_ui, unknown_state, branch_ui_unknown_state)
 FYAI_TEST_ENTRY(branch_ui, agent_message_receipt, branch_ui_agent_message_receipt)
 
 static fy_generic serve_agent_control(struct jsonrpc_conn *conn,
@@ -319,6 +321,72 @@ int branch_ui_tile_identity(void)
 						 &model, &id, &started));
 	FYAI_TCHECK(!model && !id && !started);
 	fyai_agents_cleanup(&ctx);
+	fy_generic_builder_destroy(gb);
+	return 0;
+}
+
+static char unknown_state_text[256];
+
+static void unknown_state_tap(void *user, fy_generic item)
+{
+	FILE *fp;
+
+	(void)user;
+	fp = fmemopen(unknown_state_text, sizeof(unknown_state_text), "w");
+	if (!fp)
+		return;
+	fyai_diag_format_item(fp, item, false, false);
+	fclose(fp);
+}
+
+/* A state that the registry does not know leaves the record as it was. */
+int branch_ui_unknown_state(void)
+{
+	struct fy_generic_builder_cfg gbcfg = {
+		.flags = FYGBCF_SCOPE_LEADER | FYGBCF_DEDUP_ENABLED,
+	};
+	struct fy_generic_builder *gb = fy_generic_builder_create(&gbcfg);
+	struct fyai_cfg cfg = { .agent_max_live_agents = 2 };
+	struct fyai_ctx ctx = { .cfg = &cfg, .transient_gb = gb };
+	fy_generic params, result = fy_invalid, error = fy_invalid;
+	long long execution;
+	int rc;
+
+	FYAI_TCHECK(gb != NULL);
+	rc = fyai_diag_setup(&cfg.diag);
+	FYAI_TCHECK(!rc);
+	params = fy_gb_mapping(gb, "branch", "main/agent:one", "parent", 0LL);
+	(void)fyai_agents_serve(&ctx, NULL, "agent/admit", params,
+		fy_value(1LL), &result, &error);
+	execution = fy_get(result, "execution", 0LL);
+	FYAI_TCHECK(execution > 0);
+	params = fy_gb_mapping(gb, "execution", execution,
+		"sequence", 1LL, "state", "waiting for input");
+	(void)fyai_agents_serve(&ctx, NULL, "agent/event", params,
+		fy_invalid, &result, &error);
+	FYAI_TCHECK(!strcmp(fyai_agents_state(&ctx, "main/agent:one"),
+			    "waiting for input"));
+	params = fy_gb_mapping(gb, "execution", execution,
+		"sequence", 2LL, "state", "runing");
+	(void)fyai_agents_serve(&ctx, NULL, "agent/event", params,
+		fy_invalid, &result, &error);
+	FYAI_TCHECK(!strcmp(fyai_agents_state(&ctx, "main/agent:one"),
+			    "waiting for input"));
+	FYAI_TCHECK(fyai_diag_pending(&cfg.diag));
+	unknown_state_text[0] = '\0';
+	fyai_diag_drain_tap(unknown_state_tap, NULL);
+	fyai_diag_drain(&cfg.diag);
+	fyai_diag_drain_tap(NULL, NULL);
+	FYAI_TCHECK(strstr(unknown_state_text, "runing") &&
+		    strstr(unknown_state_text, "main/agent:one"));
+	params = fy_gb_mapping(gb, "execution", execution,
+		"sequence", 2LL, "state", "completed");
+	(void)fyai_agents_serve(&ctx, NULL, "agent/event", params,
+		fy_invalid, &result, &error);
+	FYAI_TCHECK(!strcmp(fyai_agents_state(&ctx, "main/agent:one"),
+			    "completed"));
+	fyai_agents_cleanup(&ctx);
+	fyai_diag_cleanup(&cfg.diag);
 	fy_generic_builder_destroy(gb);
 	return 0;
 }
