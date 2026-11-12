@@ -301,10 +301,6 @@ is rejected with a warning.
 - JSON-RPC connection (`closed`, `write_failed`, `protocol_failed`,
   `peer_closed`, `expect_close`): independent bits that lose the reason for
   the close. The request has `done`, `ok`, `cancel_requested`.
-- Waiter kind (`all`, `poll`, `sleep`, `on_event`): ANY, ALL, POLL, SLEEP and
-  SLEEP_UNTIL_EVENT. `fyai_waiters_poll()` detects completion by saving
-  `was_done` before the call. Illegal: `sleep` with `n > 0`; `on_event`
-  without `sleep`.
 - Agent message acknowledgement (`pending`, `cancelled`, `ask_parent`,
   `request`, `branch`): the lookup loops test four combinations of these to
   mean queued, outstanding or settled.
