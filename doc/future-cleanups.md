@@ -859,3 +859,206 @@ the same code.
 
 Done: the mock provider now serves on `fyai_httpd`, which takes request
 bodies, keeps a connection and lets a handler write its own answer.
+
+## Copies of arena data
+
+Status: survey by three read-only agents over `src/*.c`. About 440 `strdup`
+sites exist. Roughly 300 are correct (see "Keep"). The rest copy a generic into
+the C heap, or round-trip it through JSON text, only to pass it to a consumer
+that could hold the generic. Each lifetime claim comes from reading the code,
+except where the item says unverified. Size: S is a day or less, M is a few
+days. Check an item again before work on it.
+
+### Rules for this list
+
+- A `fy_generic` field with `fy_castp(&s->field, "")` at the use site replaces a
+  `char *` field with `strdup()` and `free()`. A short string is in the
+  generic word, so the cast must read the field and not a copy.
+- `ctx->gb` and `ctx->durable_gb` are not stable across `fyai_arena_reopen()`.
+  A generic in them must not be borrowed across a reopen. Copy it into
+  `ctx->cfg->gb` (process lifetime, deduplicated, never freed). The code does
+  this already: `fy_gb_intern_string(cfg->gb, ...)` in `fyai_mcp.c`,
+  `fyai_acp.c` and `fyai_cmd_store.c`.
+- `ctx->transient_gb` is released on an idle loop iteration. Nothing
+  asynchronous can borrow from it.
+- An object that lives longer than one call and holds many values owns a
+  builder, as `job->call_gb` and the `asks` record (`p->gb`) do
+  (`FYGBCF_SCOPE_LEADER | FYGBCF_DEDUP_ENABLED`).
+- A string that does not change for each turn or exchange is interned into
+  `cfg->gb` and kept as a `const char *`. Examples: a branch name, a model
+  name, an agent or session name, an id, a path, a persona, an endpoint, a
+  `cwd`. The builder deduplicates, so a repeated value costs nothing, and the
+  pointer is stable for the life of the process. No `free()` and no OOM check
+  remain. Use it in place of a `fy_generic` field when the consumer needs a
+  `const char *` and has no reason to hold a generic.
+- Use a `fy_generic` field (cast with `fy_castp(&s->field, "")`) when the value
+  is built in an arena the owner keeps, or is passed on to `fy_assoc()` or
+  `fy_mapping()` and thus needs no cast.
+- Do not intern a value that is new for each turn, exchange or event: the
+  agent `source`, rendered text, diffs, typed text, tool-result text, the text
+  of an event, a shell command line. `cfg->gb` never frees, so such values
+  would grow it for the life of the process.
+- Do not intern tokens and secrets. They must be zeroed (`fyai_secret_clear`)
+  and a builder never zeroes.
+
+### Recurring shapes (do first)
+
+1. A generic goes through JSON text only to cross a lifetime (L: M). The code
+   calls `emit_json_string()`, `strdup()`, `parse_json_string()` and `free()`.
+   One `fy_gb_internalize(gb, v)` into a builder that lives long enough
+   replaces the four calls.
+   - `fyai_agent.c:519-541` (`call_json`) and `:591-604` (`args_json`):
+     internalize into `cfg->gb` before the reopen. S.
+   - `fyai_tool_child.c:231` `agent_spawn_json`, read at `fyai_agent.c:608`:
+     the field becomes a generic. S.
+   - `fyai_tool_job.c` `entry->call_text` and `entry->result_text` of
+     `struct fyai_tool_job_group` (lines 2019-2353): the group owns a
+     builder, the entries are generics, the duplicate-call test is
+     `fy_equal()`. M.
+   - `fyai_claude_sdk.c:1558-1563, 1292-1312, 1435, 1592, 1684`
+     `d->args_json`, `input_json`, `updated_json` of `struct sdk_decision`:
+     emitted, copied, then parsed in five places. The decision owns a builder.
+     M. `struct sdk_server` has no builder, which is the root cause of about
+     15 copies in the file (see the SDK list below).
+2. A `run_text` tool returns `strdup(fy_sprintfa(...))` (M, about 13 tools).
+   `fyai_tool_run_one()` (`fyai_tools.c:2020-2036`) then does
+   `fy_gb_internalize(transient_gb, fy_value(result))` and `free()`. That is a
+   copy, a second copy and a free for a stack string. Register the tool as
+   `.run` and return `fy_value(ctx->transient_gb, ...)`. Tools: `shell`,
+   `shell_input`, `shell_output`, `shell_close`, `cancel`, `agent_input`
+   (`fyai_agent_view.c:526-563`), `agent_message` and `ask_parent`
+   (`fyai_agent.c:1089-1127`), `time`, `wait`, `read_file`, `write_file`,
+   `apply_patch`. The same applies to helpers that only serve them:
+   `fyai_asks_start()` (`fyai_asks.c:156-185`, one caller,
+   `fyai_tools.c:1405`), `fyai_todo_commit()` (`fyai_todo.c:214-228`, one
+   caller, `fyai_tools.c:1824`) and `fyai_monitor_background()`
+   (`fyai_monitor.c:378`). A failure becomes `fy_invalid` and not NULL.
+   `fyai_claude_sdk.c:2656` calls `run_text` for the read tool and needs an
+   adapter.
+3. The event queue holds `char *` (M-L, 15+ call sites).
+   `fyai_event_inject_queue()` and `fyai_event_inject_agent()`
+   (`fyai.c:2955-3037`) own `ev->text`, `from`, `message_id` and `reply_to`
+   as heap strings. Every injector builds one with `strdup`, `asprintf` or
+   `vasprintf`: `fyai_monitor.c:145-217` (eight calls of
+   `monitor_event(run, strdup(fy_sprintfa()))`, where `fyai_event_injectf()`
+   already exists), `fyai_asks.c:93-116`, `fyai_agent_view.c`, `fyai_wait.c`,
+   `fyai_agents.c:693`. At `fyai.c:1417-1428` the text becomes a message
+   generic anyway. Make `struct fyai_pending_event` hold generics, and make
+   the injectors take a generic. Check first that an event that is purged or
+   cancelled before use leaves no dead object in a durable arena. Do the
+   `fyai_event_injectf()` replacement in `fyai_monitor.c` at once. S.
+4. A ctx string field set from a generic of the root (M). `ctx->head_branch`
+   is `strdup(fyai_root_head_name(&r))` (`fyai_storage.c:826, 1840`). The copy
+   guards a short string that sits inline in a stack struct. A `fy_generic`
+   field set from `r.head` removes it. `fyai_ctx_head_branch()` returns
+   `fy_castp(&ctx->head_branch, "")`. Free sites: `fyai.c:2543`,
+   `fyai_storage.c:1023, 1836`, `fyai_branch.c:57, 1431, 1510`. Do the same
+   for `ctx->session_unstored` (`fyai_storage.c:923`, `fyai_claude_sdk.c:3373`).
+   `ctx->branch` and `cfg->branch` (`fyai_branch.c:52, 71, 76`, freed in
+   `fyai_config.c:1384, 3151`) must survive a reopen, so they are interned
+   into `cfg->gb` as `const char *`. `fyai_ctx_branch()` then hands out a
+   stable pointer. Today it dangles if `set_branch` frees the old one. M.
+5. A helper for the idiom. `fyai_ctx_keep_str(ctx, const char *)` returns a
+   `const char *` interned in `cfg->gb`; it is the default for every
+   per-session string of the class b list. It replaces the `strdup()`, `free()`
+   and OOM check for `agent_branch`, `run->name`, `run->branch` and the
+   fields of the lists below. `fyai_ctx_keep_generic(ctx, v)` is
+   `fy_gb_internalize(ctx->cfg->gb, v)`.
+
+### Class a: the copy is not needed
+
+The source generic outlives the consumer. Replace the copy with a generic or a
+borrowed pointer.
+
+| Site | Field | Note |
+|---|---|---|
+| `fyai_mcp.c:543, 545, 630, 636-637` | `oauth_client_id`, `oauth_redirect_uri`, `oauth_scopes`, `oauth_access_type`, `oauth_prompt` | Source is the config in `cfg->gb`; `oauth_scopes` is already in it. Generic fields, cast at 916-921, drop the free at 2231. S |
+| `fyai_mcp.c:1085, 1291, 1639, 1710` | `od->url` | Borrowed after the row above. Drops the free at 761 and 1261. S |
+| `fyai_browser.c:488` | `copy` | Two more copies follow in `browser_add_path()` and `browser_add()`. S |
+| `fyai_ui.c:1619-1646, 1737` | `struct ui_qtext` fields, `q->from` | Strings live as long as the store entry. `ui_ask_copy()` goes away. Unverified: that the model builder never recycles the entry of an open question. M |
+| `fyai_tool_job.c:980` | `session_name` | `session_call` is a local generic of the same function. Cast it. S |
+| `fyai_tool_job.c:1083, 1148, 1092` | `job->monitor`, `job->command`, `job->origin` | Generic or borrowed. `job->origin` copies `job->branch`. Unverified for a job that outlives its turn: use `call_gb`. S |
+| `fyai_acp.c:493-495` | `user_id` | The loop copy was the reason for the `strdup()`. S |
+| `fyai_display.c:3212-3213, 3269` | `struct fyai_read_map` | One mapping from id to path, built with `fy_assoc(tgb, ...)`. Delete the struct and its realloc code. S |
+| `fyai_display.c:186` | `fyai_export_call_add()` | One mapping from `call_id` to `output`. S |
+| `fyai_cmd_fsview.c:1945-1947` | `run->project`, `runtime`, `storage` | Fields of the view record in `ctx->gb`; `run->view` holds the record. S |
+| `fyai_branch.c:873` | `fyai_branch_pick_last()` | Return a generic. The caller at `fyai_storage.c:886` needs no copy. The peek caller at `:1322` destroys the arena and interns. S |
+| `fyai_mcp_import.c:74, 101, 211` | `strdup(fy_sprintfa())` | The callees do not keep the string. Use the stack buffer. S |
+| `fyai.c:1961` | `cause` | Unverified: needed only if `gate_refuse` clears `a->text` first. S |
+| `fyai_media.c:789-805` | `fyai_media_pending_display()` | Five callers free the result at once. Return a generic from the transient builder. Check that `fyai_output_record()` does not reset it. S |
+| `fyai_media.c:1250-1357` | `fyai_media_part_base64()`, `_data_url()` | Three copies per image (buffer, `asprintf`, `fy_value`). Take `gb`, return a generic, build the URL once. S/M |
+| `utils.h:196` | `fyai_bytes_from_generic()` | Two callers. Unverified: `fy_castp()` with a length may do. S |
+
+### Class b: one intern replaces the copy
+
+The source is transient and the consumer lives long. Intern into `cfg->gb`
+with `fyai_ctx_keep_str()` and keep a `const char *`. Every field below is a
+name, an id, a path or a bounded set, so none changes for each turn.
+
+- MCP OAuth (`fyai_mcp.c`): `oauth_issuer`, `oauth_resource` (1496-1497),
+  the three endpoints (1568-1571), `oauth_redirect_host` and `_path`
+  (572-573, a `curl_url_get` buffer), `oauth_client_id` (929, 1444). S each.
+- Claude SDK (`fyai_claude_sdk.c`), with a builder in `struct sdk_server`:
+  `d->claude_name`, `fyai_name`, `tool_use_id` (1560-1564), `p->rpc_id_json`
+  (1835), `in->command_id` and `srv->init_id` (1964, 2404, already passed to
+  `sdk_respond()` as a generic), hook `event` and `callback_id` (1179-1180),
+  `t->name` (2039), `img->media_type` and `name` (2554-2555), `in->origin_json`
+  (2724), `sdk_user_text()` (2578), `cfg->fresh_session_from` and
+  `fresh_session_name` (674-726). S each. `img->data` stays.
+- Agents and sessions: `run->name` (`fyai_agent.c:953`), `run->branch`
+  (`fyai_session.c:2240`, four frees), `fyai_agents.c:400-401, 458`
+  (`r->branch`, `r->model`), `fyai_agents.c:1530-1585` (the message ack, six
+  fields, M), `fyai_agents.c:1604`, `fyai_monitor.c:316`, `fyai_asks.c:167`
+  (into `p->gb`), `fyai_acp.c:915-917` (`worker->text`, `message_id`,
+  `agent_id`; its sibling fields are interned already), `fyai_acp.c:693-694`.
+- Remote: `fyai_remote_server.c:294, 519` (`session->branch`), `:1983`
+  (`peer->dir`), `fyai_remote_ui.c:388, 603` (`t->name`, `view->epoch`).
+- Display: `fyai_uidraw.c:416, 515, 585-586` (`language`, `title`,
+  `command`; bounded sets), `fyai_browser.c:342-421` (the scan builder is
+  local and destroyed, which is why the rows are copied; keep one builder for
+  the life of the browser and make `cwd`, `title` and `path` generics, M),
+  `fyai_tools.c:386` (`entry->id`).
+- Storage: `fyai_storage.c:1375` (`*branchp`, a `gb` is passed already),
+  `fyai_cmd_fsview.c:3195` (`run->name`).
+- `fyai_skill.c:1591` (`d->name`), `fyai_wait.c:345, 805, 816` (names and
+  reasons), `fyai_shell_session.c:475-491` (`name`, `branch`, `title`,
+  `description`: the API takes `const char *`, so the call sites stay). The
+  `command` of a session is new for each call and stays a copy.
+
+### Keep
+
+About 300 sites copy a value that is not arena data, or must have a mutable
+or zeroable copy. Do not change them:
+
+- mutable buffers: `strtok_r`, in-place path split (`fyai_catalog.c`
+  506-589), `settings_clean`, `fyai_media_take_mentions()`, line buffers
+  (`fyai_monitor.c:139`);
+- paths and environment: `getenv`, `getcwd`, `realpath`, `mkdtemp`, argv,
+  `-k key=val`, and `asprintf` path building;
+- credentials that `fyai_secret_clear()` zeroes: tokens and secrets of
+  `fyai_mcp.c` (931, 937-938, 1397-1446), `fyai_transport*.c`,
+  `fyai_ws_client.c`, auth;
+- strings given to a thread, a fork child or curl;
+- text typed by the user, rendered text and diffs (`b->viewed` of
+  `fyai_uidraw.c:453`, `entry->unified` of `fyai_tools.c:389`), and the agent
+  `source` (`fyai_agents.c:468`), which is replaced on every event;
+- formatted text (`asprintf`, `fy_sprintfa`) that a `char *` API returns, such
+  as `fyai_tool_error_cause()`, `fyai_schema_report_string()` and
+  `fyai_ask_text()`;
+- the transport and server code, which is C-heap by design;
+- `fyai_patch.c` (a text engine, 29 sites).
+
+### Suggested order
+
+1. Shape 2 (`run_text` to `.run`) and the `fyai_event_injectf()` replacement
+   in `fyai_monitor.c`: small, mechanical, no lifetime question.
+2. Shape 1: the three JSON round trips of the agent path, then the job group
+   and the SDK decision. This removes the largest copies.
+3. Class a, file by file, with the MCP OAuth fields first.
+4. Shape 4 (`head_branch`, `branch`) and shape 3 (the event queue). Both
+   touch many files. Do them after the helper of shape 5 exists.
+5. Class b with `fyai_ctx_keep_str()`, file by file. A field that is new for
+   each turn or call stays a copy.
+
+Each change is one patch with its test. An ASAN run shows a borrowed pointer
+that outlives its builder.
