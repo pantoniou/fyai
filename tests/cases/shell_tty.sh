@@ -114,17 +114,17 @@ grep -qE '^ANSWERED=[0-9]+(;[0-9]+)*$' "$TEST_DIR/stdout" ||
 # time limit. The run is backgrounded here so the case can signal it.
 # The result is the screen, which arrives when the command ends, thus the
 # command says that it started with a file, and the signal waits for it.
+# The command says it started through a FIFO that the case reads, so the case
+# wakes on the write. The read ends when the run does, which closes no writer
+# the case holds, so it carries a bound for a command that never starts.
+mkfifo "$TEST_DIR/started" || fail "cannot make the FIFO"
+exec 7<>"$TEST_DIR/started"
 "$FYAI_BIN" -k test-key --color off tool shell \
-	"{\"command\":\"echo started; touch $TEST_DIR/started; sleep 30\",\"tty\":true}" \
+	"{\"command\":\"echo started; echo go >$TEST_DIR/started; sleep 30\",\"tty\":true}" \
 	>"$TEST_DIR/interrupt.out" 2>&1 </dev/null &
 tty_pid=$!
-tries=$((100 * FYAI_TIMEOUT_SCALE))
-while [ ! -f "$TEST_DIR/started" ]; do
-	tries=$((tries - 1))
-	[ "$tries" -gt 0 ] || fail "the tty command did not start"
-	kill -0 "$tty_pid" 2>/dev/null || fail "the tty run ended before its command started"
-	sleep 0.05
-done
+read -r -t $((60 * FYAI_TIMEOUT_SCALE)) -u 7 _ || fail "the tty command did not start"
+exec 7<&-
 kill -INT "$tty_pid"
 wait "$tty_pid" || true
 grep -q "started" "$TEST_DIR/interrupt.out" || \

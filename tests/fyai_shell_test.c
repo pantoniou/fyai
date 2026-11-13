@@ -12,9 +12,16 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <poll.h>
 #include <time.h>
 #include <unistd.h>
 #include <sys/wait.h>
+#ifdef __linux__
+#include <sys/syscall.h>
+#endif
+#ifdef __APPLE__
+#include <sys/event.h>
+#endif
 
 #include "fyai.h"
 #include "fyai_event.h"
@@ -72,6 +79,51 @@ int shell_timeout_stops_command(void)
 	return 0;
 }
 
+/*
+ * Wait for @pid, which is no child of this process, to end: 1 when it ended,
+ * 0 at the bound, -1 when the host has no way to wait for a process.
+ */
+static int descendant_wait_gone(pid_t pid)
+{
+#if defined(__linux__) && defined(SYS_pidfd_open)
+	struct pollfd pfd;
+	int fd, rc;
+
+	fd = (int)syscall(SYS_pidfd_open, pid, 0);
+	if (fd < 0)
+		return errno == ESRCH ? 1 : -1;
+	pfd.fd = fd;
+	pfd.events = POLLIN;
+	do {
+		rc = poll(&pfd, 1, 10000);
+	} while (rc < 0 && errno == EINTR);
+	close(fd);
+	return rc > 0;
+#elif defined(__APPLE__)
+	struct kevent change, out;
+	struct timespec bound = { .tv_sec = 10 };
+	int kq, rc;
+
+	kq = kqueue();
+	if (kq < 0)
+		return -1;
+	EV_SET(&change, pid, EVFILT_PROC, EV_ADD | EV_ONESHOT, NOTE_EXIT, 0, NULL);
+	do {
+		rc = kevent(kq, &change, 1, &out, 1, &bound);
+	} while (rc < 0 && errno == EINTR);
+	close(kq);
+	/* A process that is gone already makes the registration fail. */
+	if (rc < 0)
+		return errno == ESRCH ? 1 : -1;
+	if (rc > 0 && (out.flags & EV_ERROR))
+		return out.data == ESRCH ? 1 : -1;
+	return rc > 0;
+#else
+	(void)pid;
+	return -1;
+#endif
+}
+
 int shell_timeout_stops_descendant(void)
 {
 	struct shell_command_opts opts = { .timeout_ms = 200 };
@@ -90,7 +142,10 @@ int shell_timeout_stops_descendant(void)
 	FYAI_TCHECK(child > 0 && end != result.stdout_data);
 
 	alive = 1;
-	for (i = 0; i < 200; i++) {
+	rc = descendant_wait_gone((pid_t)child);
+	if (rc > 0)
+		alive = 0;
+	for (i = 0; rc < 0 && i < 200; i++) {
 		rc = kill((pid_t)child, 0);
 		if (rc < 0 && errno == ESRCH) {
 			alive = 0;
