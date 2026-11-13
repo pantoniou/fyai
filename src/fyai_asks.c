@@ -19,7 +19,7 @@
 struct fyai_ask_pending {
 	struct fyai_ask_pending *next;
 	struct fyai_ctx *ctx;
-	char *name;
+	const char *name;
 	struct fy_generic_builder *gb;
 	fy_generic questions;
 };
@@ -51,7 +51,6 @@ static void asks_free(struct fyai_ask_pending *p)
 	if (!p)
 		return;
 	fy_generic_builder_destroy(p->gb);
-	free(p->name);
 	free(p);
 }
 
@@ -164,7 +163,7 @@ fy_generic fyai_asks_start(struct fyai_ctx *ctx,
 	fyai_error_check(ctx, p, err_out, "ask_user: cannot keep question '%s'",
 			 name);
 	p->ctx = ctx;
-	p->name = strdup(name);
+	p->name = fyai_ctx_keep_str(ctx, name);
 	fyai_error_check(ctx, p->name, err_free,
 			 "ask_user: cannot keep the name of question '%s'", name);
 	p->gb = fy_generic_builder_create(&cfg);

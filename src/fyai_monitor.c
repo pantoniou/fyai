@@ -43,7 +43,7 @@ struct fyai_monitor_run {
 	struct fyai_scope_pin pin;	/* it holds the scope of its exchange */
 	long long limit_ms;	/* the time limit that the monitor was started with */
 	struct fyai_tool_job_group *group;
-	char *name;
+	const char *name;
 	char *partial;		/* the line that has no end yet */
 	size_t partial_len;
 	unsigned int events;	/* above the maximum: later output is dropped */
@@ -76,7 +76,6 @@ static void monitor_free(struct fyai_monitor_run *run)
 	fyai_tool_job_group_destroy(run->group);
 	fyai_scope_unpin(run->ctx, &run->pin);
 	free(run->partial);
-	free(run->name);
 	free(run);
 }
 
@@ -313,7 +312,7 @@ static fy_generic monitor_start(struct fyai_ctx *ctx, fy_generic args,
 	run->ctx = ctx;
 	run->limit_ms = ms;
 	run->quiet = quiet;
-	run->name = strdup(name);
+	run->name = fyai_ctx_keep_str(ctx, name);
 	fyai_error_check(ctx, run->name, err,
 			 "monitor: could not keep the name");
 	run->group = fyai_tool_job_group_create_notify(ctx, monitor_complete,
