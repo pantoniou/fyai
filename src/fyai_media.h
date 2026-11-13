@@ -196,8 +196,13 @@ bool fyai_media_part_has_bytes(fy_generic part);
  * on one grammar continues on another.
  */
 char *fyai_media_part_base64(struct fyai_ctx *ctx, fy_generic part);
-/* The same bytes as a data URL, which two grammars carry the image in. */
-char *fyai_media_part_data_url(struct fyai_ctx *ctx, fy_generic part);
+/*
+ * The same bytes as a data URL string generic in @gb, which two grammars carry
+ * the image in; fy_invalid with a cause on failure.
+ */
+fy_generic fyai_media_part_data_url(struct fyai_ctx *ctx,
+				    struct fy_generic_builder *gb,
+				    fy_generic part);
 
 /*
  * The content sequence of an imported message, rebuilt in @gb. Each image

@@ -246,15 +246,13 @@ static fy_generic responses_input(struct fyai_ctx *ctx, fy_generic messages)
 static fy_generic responses_image_part(struct fyai_ctx *ctx, fy_generic part)
 {
 	struct fy_generic_builder *gb = ctx->transient_gb;
-	fy_generic out;
-	char *data;
+	fy_generic out, data;
 
-	data = fyai_media_part_data_url(ctx, part);
-	if (!data)
+	data = fyai_media_part_data_url(ctx, gb, part);
+	if (!fy_is_valid(data))
 		return fy_invalid;
 	out = fy_mapping(gb, "type", "input_image",
-			 "image_url", fy_value(gb, data));
-	free(data);
+			 "image_url", data);
 	return out;
 }
 

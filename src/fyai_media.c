@@ -1341,24 +1341,24 @@ err:
 	return fy_invalid;
 }
 
-char *fyai_media_part_data_url(struct fyai_ctx *ctx, fy_generic part)
+fy_generic fyai_media_part_data_url(struct fyai_ctx *ctx,
+				    struct fy_generic_builder *gb,
+				    fy_generic part)
 {
 	const char *type;
-	char *b64, *out;
-	int rc;
+	fy_generic out;
+	char *b64;
 
 	type = fy_get(part, "media_type", "");
 	if (!*type) {
 		fyai_error(ctx, "an image part names no media type");
-		return NULL;
+		return fy_invalid;
 	}
 	b64 = fyai_media_part_base64(ctx, part);
 	if (!b64)
-		return NULL;
-	rc = asprintf(&out, "data:%s;base64,%s", type, b64);
+		return fy_invalid;
+	out = fy_stringf(gb, "data:%s;base64,%s", type, b64);
 	free(b64);
-	if (rc < 0)
-		return NULL;
 	return out;
 }
 

@@ -160,16 +160,14 @@ static fy_generic chat_tool_def(struct fyai_ctx *ctx, fy_generic spec)
 static fy_generic chat_image_part(struct fyai_ctx *ctx, fy_generic part)
 {
 	struct fy_generic_builder *gb = ctx->transient_gb;
-	fy_generic out;
-	char *data;
+	fy_generic out, data;
 
-	data = fyai_media_part_data_url(ctx, part);
-	if (!data)
+	data = fyai_media_part_data_url(ctx, gb, part);
+	if (!fy_is_valid(data))
 		return fy_invalid;
 	out = fy_mapping(gb, "type", "image_url",
 			 "image_url", fy_mapping(gb,
-				"url", fy_value(gb, data)));
-	free(data);
+				"url", data));
 	return out;
 }
 
