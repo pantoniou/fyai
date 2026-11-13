@@ -102,16 +102,16 @@ struct fyai_mcp_ctx {
 	char *oauth_authorization_endpoint;
 	char *oauth_token_endpoint;
 	char *oauth_registration_endpoint;
-	char *oauth_client_id;
+	const char *oauth_client_id;
 	char *oauth_client_secret;
 	char *oauth_access_token;
 	char *oauth_refresh_token;
-	char *oauth_scopes;
-	char *oauth_redirect_uri;
+	const char *oauth_scopes;
+	const char *oauth_redirect_uri;
 	char *oauth_redirect_host;
 	char *oauth_redirect_path;
-	char *oauth_access_type;
-	char *oauth_prompt;
+	const char *oauth_access_type;
+	const char *oauth_prompt;
 	const char *last_error;
 	time_t oauth_expires_at;
 	enum mcp_token_auth_method oauth_token_auth_method;
@@ -540,9 +540,9 @@ static int mcp_oauth_configure_client(struct fyai_ctx *ctx,
 		return 0;
 	fyai_error_check(ctx, fy_is_mapping(client), err_out,
 			 "MCP OAuth client must be a mapping");
-	mcp->oauth_client_id = strdup(fy_get(client, "id", ""));
+	mcp->oauth_client_id = fyai_ctx_keep_str(ctx, fy_get(client, "id", ""));
 	mcp->oauth_redirect_uri =
-		strdup(fy_get(client, "redirect_uri", ""));
+		fyai_ctx_keep_str(ctx, fy_get(client, "redirect_uri", ""));
 	fyai_error_check(ctx, mcp->oauth_client_id &&
 			 *mcp->oauth_client_id &&
 			 mcp->oauth_redirect_uri &&
@@ -627,14 +627,13 @@ static int mcp_oauth_configure_client(struct fyai_ctx *ctx,
 	 * The JSON sequence is durable and unambiguous for store comparison.
 	 * The authorization URL converts it back to a space-separated list.
 	 */
-	mcp->oauth_scopes = strdup(scope_text);
-	fyai_error_check(ctx, mcp->oauth_scopes, err_out,
-			 "could not retain MCP OAuth scopes");
+	mcp->oauth_scopes = scope_text;
 	params = fy_get(auth, "authorization_params", fy_invalid);
 	if (fy_is_mapping(params)) {
 		mcp->oauth_access_type =
-			strdup(fy_get(params, "access_type", ""));
-		mcp->oauth_prompt = strdup(fy_get(params, "prompt", ""));
+			fyai_ctx_keep_str(ctx, fy_get(params, "access_type", ""));
+		mcp->oauth_prompt =
+			fyai_ctx_keep_str(ctx, fy_get(params, "prompt", ""));
 		fyai_error_check(ctx, mcp->oauth_access_type &&
 				 mcp->oauth_prompt, err_out,
 				 "could not retain OAuth authorization params");
@@ -924,9 +923,8 @@ static int mcp_oauth_store_load(struct fyai_mcp_ctx *mcp)
 		return 0;
 	}
 	if (!mcp->oauth_client_configured) {
-		free(mcp->oauth_client_id);
 		mcp_oauth_secret_free(&mcp->oauth_client_secret);
-		mcp->oauth_client_id = strdup(client_id);
+		mcp->oauth_client_id = fyai_ctx_keep_str(mcp->ctx, client_id);
 		mcp->oauth_client_secret =
 			strdup(fy_get(doc, "client_secret", ""));
 		if (!mcp->oauth_client_id || !mcp->oauth_client_secret)
@@ -1437,11 +1435,10 @@ static bool mcp_oauth_registration_complete(struct mcp_oauth_discovery *od,
 			"registration response has no client_id");
 		return true;
 	}
-	free(mcp->oauth_client_id);
 	mcp_oauth_secret_free(&mcp->oauth_client_secret);
 	free(mcp->oauth_access_token);
 	free(mcp->oauth_refresh_token);
-	mcp->oauth_client_id = strdup(client_id);
+	mcp->oauth_client_id = fyai_ctx_keep_str(mcp->ctx, client_id);
 	mcp->oauth_client_secret = *client_secret ?
 		strdup(client_secret) : NULL;
 	if (!mcp->oauth_client_id ||
@@ -2228,16 +2225,11 @@ err_out:
 	free(mcp->oauth_authorization_endpoint);
 	free(mcp->oauth_token_endpoint);
 	free(mcp->oauth_registration_endpoint);
-	free(mcp->oauth_client_id);
 	mcp_oauth_secret_free(&mcp->oauth_client_secret);
 	free(mcp->oauth_access_token);
 	free(mcp->oauth_refresh_token);
-	free(mcp->oauth_scopes);
-	free(mcp->oauth_redirect_uri);
 	free(mcp->oauth_redirect_host);
 	free(mcp->oauth_redirect_path);
-	free(mcp->oauth_access_type);
-	free(mcp->oauth_prompt);
 	free(mcp);
 	return -1;
 }
@@ -2414,7 +2406,7 @@ int fyai_mcp_logout(struct fyai_ctx *ctx, const char *name)
 	 * stable redirect and remain intact.
 	 */
 	if (!mcp->oauth_client_configured) {
-		mcp_oauth_secret_free(&mcp->oauth_client_id);
+		mcp->oauth_client_id = NULL;
 		mcp_oauth_secret_free(&mcp->oauth_client_secret);
 	}
 	mcp->oauth_expires_at = 0;
@@ -3316,16 +3308,11 @@ void fyai_mcp_stop_finish(struct fyai_ctx *ctx)
 		free(mcp->oauth_authorization_endpoint);
 		free(mcp->oauth_token_endpoint);
 		free(mcp->oauth_registration_endpoint);
-		free(mcp->oauth_client_id);
 		mcp_oauth_secret_free(&mcp->oauth_client_secret);
 		free(mcp->oauth_access_token);
 		free(mcp->oauth_refresh_token);
-		free(mcp->oauth_scopes);
-		free(mcp->oauth_redirect_uri);
 		free(mcp->oauth_redirect_host);
 		free(mcp->oauth_redirect_path);
-		free(mcp->oauth_access_type);
-		free(mcp->oauth_prompt);
 		free(mcp);
 	}
 	ctx->mcp = NULL;
