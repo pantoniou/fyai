@@ -95,8 +95,8 @@ struct sdk_rules {
 
 /* One callback of a hook of the SDK, for one event and matcher. */
 struct sdk_hook {
-	char *event;
-	char *callback_id;
+	const char *event;
+	const char *callback_id;
 	bool every;			/* no matcher: every tool */
 	regex_t re;
 };
@@ -166,7 +166,7 @@ struct sdk_wait {
 struct sdk_tunnel {
 	struct sdk_tunnel *next;
 	struct sdk_server *srv;
-	char *name;
+	const char *name;
 	struct jsonrpc_conn *conn;
 };
 
@@ -1134,8 +1134,6 @@ static void sdk_hooks_free(struct sdk_server *srv)
 	for (i = 0; i < srv->nhooks; i++) {
 		if (!srv->hooks[i].every)
 			regfree(&srv->hooks[i].re);
-		free(srv->hooks[i].event);
-		free(srv->hooks[i].callback_id);
 	}
 	free(srv->hooks);
 	srv->hooks = NULL;
@@ -1178,8 +1176,9 @@ static const char *sdk_hooks_parse(struct sdk_server *srv, fy_generic hooks)
 							    "expression",
 							    matcher));
 				srv->nhooks++;
-				h->event = strdup(ev);
-				h->callback_id = strdup(fy_castp(&id, ""));
+				h->event = fyai_ctx_keep_str(srv->ctx, ev);
+				h->callback_id = fyai_ctx_keep_str(srv->ctx,
+						fy_castp(&id, ""));
 				if (!h->event || !h->callback_id)
 					return "cannot keep the hooks";
 			}
@@ -2043,7 +2042,7 @@ static int sdk_mcp_start(struct sdk_server *srv, const char *config)
 					 "claude-sdk: cannot keep MCP server "
 					 "'%s'", nm);
 			t->srv = srv;
-			t->name = strdup(nm);
+			t->name = fyai_ctx_keep_str(ctx, nm);
 			t->next = srv->tunnels;
 			srv->tunnels = t;
 			fyai_error_check(ctx, t->name, err,
@@ -3698,7 +3697,6 @@ done:
 	}
 	while ((t = srv.tunnels)) {
 		srv.tunnels = t->next;
-		free(t->name);
 		free(t);
 	}
 	sdk_hooks_free(&srv);
