@@ -44,5 +44,15 @@ for f in "$cases_dir"/*.sh; do
 	fi
 done
 
+# The harness owns the EXIT trap. A trap that a case sets replaces the one of
+# the harness, or is replaced by it at fyai_test_setup, and a directory is left
+# behind: a case registers its cleanup with fyai_test_on_exit.
+for f in "$cases_dir"/*.sh; do
+	if grep -n '^[[:space:]]*trap .*[[:space:]]EXIT[[:space:]]*$' "$f" >&2; then
+		echo "case-lint: EXIT trap in a case, use fyai_test_on_exit: $f" >&2
+		bad=1
+	fi
+done
+
 [ "$bad" = 0 ] || exit 1
 echo "PASS: case-lint.sh"

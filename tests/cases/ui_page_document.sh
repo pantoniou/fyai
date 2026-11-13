@@ -8,7 +8,7 @@ set -eu
 . "$(dirname "$0")/../harness.sh"
 
 DOCS=$(mktemp -d)
-trap 'rm -rf "$DOCS"' EXIT
+fyai_test_on_exit 'rm -rf "$DOCS"'
 
 "$PYTHON" - "$TESTS_DIR/../data/page.yaml" "$DOCS" <<'PY' || fail "cannot write the page documents"
 import sys

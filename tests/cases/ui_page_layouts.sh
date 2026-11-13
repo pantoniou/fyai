@@ -7,7 +7,7 @@ set -eu
 . "$(dirname "$0")/../harness.sh"
 
 CAPTURES=$(mktemp -d)
-trap 'rm -rf "$CAPTURES"' EXIT
+fyai_test_on_exit 'rm -rf "$CAPTURES"'
 
 # The steps that wait for the size each shell is granted once the notice
 # stands under the screens, and for each head to be made again at the width of

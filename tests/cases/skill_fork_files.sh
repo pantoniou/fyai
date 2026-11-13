@@ -11,9 +11,7 @@ FYAI_TMPDIR_BASE="$(dirname "$FYAI_BIN")"
 fyai_test_setup
 # The scratch directory of a view must lie outside the project; this one is
 # the case's own, so what is left in it is what this case left.
-export TMPDIR="$FYAI_TMPDIR_BASE/$(basename "$TEST_DIR")-tmp"
-mkdir -p "$TMPDIR"
-trap 'rm -rf "$TMPDIR"' EXIT
+fyai_test_scratch
 
 mkdir -p "$TEST_DIR/skills/review/scripts"
 cat >"$TEST_DIR/skills/review/SKILL.md" <<'MD'

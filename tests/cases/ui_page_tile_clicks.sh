@@ -7,7 +7,7 @@ set -eu
 . "$(dirname "$0")/../harness.sh"
 
 CAPTURES=$(mktemp -d)
-trap 'rm -rf "$CAPTURES"' EXIT
+fyai_test_on_exit 'rm -rf "$CAPTURES"'
 
 # The shell writes SIZED in two parts, so only its output holds the word and
 # not the command in the head: the case waits for the output on the screen

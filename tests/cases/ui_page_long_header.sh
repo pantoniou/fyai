@@ -8,7 +8,7 @@ set -eu
 . "$(dirname "$0")/../harness.sh"
 
 CAPTURES=$(mktemp -d)
-trap 'rm -rf "$CAPTURES"' EXIT
+fyai_test_on_exit 'rm -rf "$CAPTURES"'
 LONG="$CAPTURES/a-directory-with-a-path-long-enough-to-run-the-header-past-its-edge"
 mkdir -p "$LONG"
 

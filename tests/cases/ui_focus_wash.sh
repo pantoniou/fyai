@@ -8,7 +8,7 @@ set -eu
 . "$(dirname "$0")/../harness.sh"
 
 CAPTURES=$(mktemp -d)
-trap 'rm -rf "$CAPTURES"' EXIT
+fyai_test_on_exit 'rm -rf "$CAPTURES"'
 
 # A bang shell takes the keys as it opens, so the ground is asked for
 # without any key having to be pressed.

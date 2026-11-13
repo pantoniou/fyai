@@ -71,6 +71,16 @@ fyai_test_scratch() {
 	export TMPDIR="$TEST_SCRATCH"
 }
 
+# fyai_test_on_exit COMMAND: run COMMAND when the case ends, before the sandbox
+# goes. A case never sets its own EXIT trap: the harness owns that trap, and a
+# trap set before or after fyai_test_setup replaces the other, which leaves the
+# directory of the case or of the sandbox behind.
+FYAI_TEST_EXIT_CMDS=()
+fyai_test_on_exit() {
+	FYAI_TEST_EXIT_CMDS+=("$1")
+	trap fyai_test_cleanup EXIT
+}
+
 fyai_test_cleanup() {
 	# A failing case must leave evidence: the next run destroys the
 	# sandbox (captures, mock log, requests). This trap runs on every
@@ -111,6 +121,13 @@ fyai_test_cleanup() {
 		fi
 	fi
 	mock_stop_quiet
+	# A new setup in the same case removes only its own sandbox.
+	if [ -z "${FYAI_TEST_RESETUP:-}" ]; then
+		for exit_cmd in ${FYAI_TEST_EXIT_CMDS[@]+"${FYAI_TEST_EXIT_CMDS[@]}"}; do
+			eval "$exit_cmd" || true
+		done
+		FYAI_TEST_EXIT_CMDS=()
+	fi
 	[ -z "${TEST_SCRATCH:-}" ] || rm -rf "$TEST_SCRATCH"
 	if [ -n "$TEST_DIR" ]; then
 		fyai_sanitizer_report
@@ -202,7 +219,7 @@ fyai_test_setup_bare() {
 	: "${FYAI_TMPDIR_BASE:=${TMPDIR:-/tmp}}"
 	if [ -n "$TEST_DIR" ]; then
 		cd "$FYAI_TMPDIR_BASE" || exit 99
-		fyai_test_cleanup
+		FYAI_TEST_RESETUP=1 fyai_test_cleanup
 	fi
 	TEST_DIR="$(mktemp -d "$FYAI_TMPDIR_BASE/fyai-test-XXXXXX")" || exit 99
 	export TEST_DIR

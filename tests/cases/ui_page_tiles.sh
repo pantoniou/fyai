@@ -8,7 +8,7 @@ set -eu
 . "$(dirname "$0")/../harness.sh"
 
 CAPTURES=$(mktemp -d)
-trap 'rm -rf "$CAPTURES"' EXIT
+fyai_test_on_exit 'rm -rf "$CAPTURES"'
 
 # A frame paints only the cells that changed, so a size that a shell prints is
 # not in the output bytes whole. The case waits for the tile head, then on the

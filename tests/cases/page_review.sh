@@ -38,7 +38,7 @@ if "\x1b" in sys.argv[1] or "transcript" in names:
 PY
 # --page reviews a document of the user: here the pane goes under the status.
 DOCS=$(mktemp -d)
-trap 'rm -rf "$DOCS"' EXIT
+fyai_test_on_exit 'rm -rf "$DOCS"'
 "$PYTHON" - "$TESTS_DIR/../data/page.yaml" "$DOCS" <<'PY' ||
 import sys
 

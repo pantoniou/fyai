@@ -9,7 +9,7 @@ set -eu
 # The captures outlive fyai_test_setup, which makes a scratch directory of
 # its own for each run.
 CAPTURES=$(mktemp -d)
-trap 'rm -rf "$CAPTURES"' EXIT
+fyai_test_on_exit 'rm -rf "$CAPTURES"'
 
 # Run one tool call with the pane at $1 and report where its band was drawn
 # against the prompt marker.

@@ -7,7 +7,7 @@ set -eu
 . "$(dirname "$0")/../harness.sh"
 
 CAPTURES=$(mktemp -d)
-trap 'rm -rf "$CAPTURES"' EXIT
+fyai_test_on_exit 'rm -rf "$CAPTURES"'
 
 # Each tile prints a marker in its screen and then runs cat to expose received
 # input. A click finds the marker. The second tile starts focused.
