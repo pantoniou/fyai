@@ -881,8 +881,15 @@ generics; a Claude SDK decision holds generics in a builder of its own and
 the hook and tunnel names are interned; the worker branch, terminal names
 and epoch of the remote files, the branch and model of an agent record, the
 names of a monitor and of a question, the events of a monitor (one format),
-`cfg->branch`, the read map of the history view and
+`cfg->branch`, the paths of a view run (borrowed from its record), the session
+name, monitor and origin of a tool job, the read map of the history view and
 `fyai_media_pending_display()` are done.
+
+Checked and kept: the question text of `fyai_ui.c` (`ui_ask_copy()`). The UI
+model store has two builders and a write resets one of them, so a string of
+a root is valid for one further write at most, and a question lives until the
+user answers it. The oracle path of `fyai_ui_ask_oracle()` passes arguments of
+the transient builder. The command line of a tool job is new for each call.
 
 Dropped: the event queue. Its text is formatted by the producer and is new for
 each event, so no arena string is copied, and it must not go into the
