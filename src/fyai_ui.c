@@ -1911,6 +1911,13 @@ static void ui_question_finish(struct fyai_ui *ui, bool answered)
 	fyai_ui_wake(ui->ctx);
 }
 
+/* True when every question has an answer and the review step is showing. The
+ * page reads this phase as its `review` flag. */
+static bool ui_question_reviewing(const struct ui_question *q)
+{
+	return q->cur >= q->nq;
+}
+
 /* The question the user is on. The caller has checked that it is not the
  * review. */
 static const struct ui_qtext *ui_question_current(const struct ui_question *q)
@@ -1945,7 +1952,7 @@ static void ui_ask_prev(struct fyai_ctx *ctx, const char *arg)
 	struct ui_question *q = ctx->ui->questions;
 
 	(void)arg;
-	if (q && q->cur < q->nq && q->cursor[q->cur] > 0) {
+	if (q && !ui_question_reviewing(q) && q->cursor[q->cur] > 0) {
 		q->cursor[q->cur]--;
 		ctx->ui->frame_pending = true;
 	}
@@ -1957,7 +1964,7 @@ static void ui_ask_next(struct fyai_ctx *ctx, const char *arg)
 {
 	struct ui_question *q = ctx->ui->questions;
 
-	if (!q || q->cur >= q->nq)
+	if (!q || ui_question_reviewing(q))
 		return;
 	if (q->cursor[q->cur] + 1 < ui_question_current(q)->nopts) {
 		q->cursor[q->cur]++;
@@ -1993,7 +2000,7 @@ static void ui_ask_choose(struct fyai_ctx *ctx, const char *arg)
 	char *end;
 
 	n = strtoul(arg, &end, 10);
-	if (q && q->cur < q->nq && end != arg && !*end && n >= 1 &&
+	if (q && !ui_question_reviewing(q) && end != arg && !*end && n >= 1 &&
 	    n <= ui_question_current(q)->nopts)
 		ui_question_pick(ctx->ui, q, n - 1);
 }
@@ -2004,7 +2011,7 @@ static void ui_ask_toggle(struct fyai_ctx *ctx, const char *arg)
 	struct ui_question *q = ctx->ui->questions;
 
 	(void)arg;
-	if (q && q->cur < q->nq)
+	if (q && !ui_question_reviewing(q))
 		ui_question_pick(ctx->ui, q, q->cursor[q->cur]);
 }
 
@@ -2024,7 +2031,7 @@ static void ui_ask_forward(struct fyai_ctx *ctx, const char *arg)
 	struct ui_question *q = ctx->ui->questions;
 
 	(void)arg;
-	if (q && q->cur < q->nq && q->given[q->cur])
+	if (q && !ui_question_reviewing(q) && q->given[q->cur])
 		ui_question_enter(ctx->ui, q, q->cur + 1);
 }
 
@@ -2060,7 +2067,7 @@ static void ui_ask_accept(struct fyai_ctx *ctx, const char *arg)
 	(void)arg;
 	if (!q)
 		return;
-	if (q->cur >= q->nq) {
+	if (ui_question_reviewing(q)) {
 		ui_question_finish(ui, true);
 		return;
 	}
@@ -2446,7 +2453,7 @@ static int ui_preview_update(struct fyai_ui *ui, const struct ui_question *q,
 	size_t opt;
 	int cap;
 
-	if (!q || q->cur >= q->nq) {
+	if (!q || ui_question_reviewing(q)) {
 		ui_preview_clear(ui);
 		return 0;
 	}
@@ -2495,7 +2502,7 @@ static void ui_question_state(const struct ui_question *q,
 	memset(ask, 0, sizeof(*ask));
 	ask->from = q->from;
 	ask->count = q->nq;
-	if (q->cur >= q->nq) {
+	if (ui_question_reviewing(q)) {
 		ask->index = q->nq - 1;
 		ask->review = true;
 		for (i = 0; i < q->nq; i++) {
@@ -2708,9 +2715,10 @@ static void ui_page_update(struct fyai_ui *ui)
 			markdown_glyph(ctx->cfg, "pane.edge", "\xe2\x96\x8c"));
 		ask.npreview = ui_preview_update(ui, q, cols, rows);
 		ask.preview = (const char *const *)ui->preview.rows;
-		ask.diff_text = q->cur < q->nq ? q->text[q->cur].diff : NULL;
-		ask.proposal_text = q->cur < q->nq ? q->text[q->cur].proposal : NULL;
-		ask.proposal = q->cur < q->nq &&
+		ask.diff_text = ui_question_reviewing(q) ? NULL : q->text[q->cur].diff;
+		ask.proposal_text = ui_question_reviewing(q) ? NULL :
+			q->text[q->cur].proposal;
+		ask.proposal = !ui_question_reviewing(q) &&
 			       !fy_str_empty(q->text[q->cur].proposal);
 		if (ask.npreview && !ask.proposal) {
 			ask.preview_title = q->text[q->cur].opt[q->cursor[q->cur]].label;
