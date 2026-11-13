@@ -135,16 +135,18 @@ struct sdk_decision {
 	bool after;
 	int waiting;			/* responses that are outstanding */
 	bool answered;			/* the gate has its answer */
-	char *claude_name;		/* the name that the SDK sees */
-	char *fyai_name;
-	char *args_json;		/* the arguments of the call */
-	char *input_json;		/* the input that the SDK sees */
-	char *tool_use_id;
+	/* Holds the names and the three generics below, until the decision ends. */
+	struct fy_generic_builder *gb;
+	const char *claude_name;	/* the name that the SDK sees */
+	const char *fyai_name;
+	fy_generic args;		/* the arguments of the call */
+	fy_generic input;		/* the input that the SDK sees */
+	const char *tool_use_id;
 	char *result_json;		/* after: the result of the call */
 	bool ok;
 	enum { SDK_NONE, SDK_ALLOW, SDK_DENY, SDK_ASK } verdict;
 	char *reason;
-	char *updated_json;		/* an input that replaces the input */
+	fy_generic updated;		/* an input that replaces the input */
 	char *context;			/* after: text for the model */
 	bool stop;
 	char *stop_reason;
@@ -1255,16 +1257,11 @@ static void sdk_text_add(char **dst, const char *text)
 
 static void sdk_decision_free(struct sdk_decision *d)
 {
-	free(d->claude_name);
-	free(d->fyai_name);
-	free(d->args_json);
-	free(d->input_json);
-	free(d->tool_use_id);
 	free(d->result_json);
 	free(d->reason);
-	free(d->updated_json);
 	free(d->context);
 	free(d->stop_reason);
+	fy_generic_builder_destroy(d->gb);
 	free(d);
 }
 
@@ -1284,17 +1281,31 @@ static void sdk_decision_release(struct sdk_server *srv,
 	sdk_decision_free(d);
 }
 
+/* The input that the SDK sees now, copied into @gb. */
+static fy_generic sdk_decision_input(struct sdk_decision *d,
+				     struct fy_generic_builder *gb)
+{
+	return fy_gb_internalize(gb, fy_is_mapping(d->updated) ? d->updated :
+				 d->input);
+}
+
+/* Keep @updated, an input that replaces the input, if it is one. */
+static void sdk_decision_update(struct sdk_decision *d, fy_generic updated)
+{
+	if (fy_is_mapping(updated))
+		d->updated = fy_gb_internalize(d->gb, updated);
+}
+
 static void sdk_allow(struct sdk_server *srv, struct sdk_decision *d)
 {
 	struct fyai_ctx *ctx = srv->ctx;
 	struct fy_generic_builder *gb = fyai_ctx_transient_gb(ctx);
 	fy_generic args = fy_invalid, input;
 
-	if (d->updated_json) {
-		input = parse_json_string(gb, d->updated_json);
+	if (fy_is_mapping(d->updated)) {
+		input = fy_gb_internalize(gb, d->updated);
 		args = sdk_tool_unview(gb, d->fyai_name,
-				       parse_json_string(gb, d->args_json),
-				       input);
+				       fy_gb_internalize(gb, d->args), input);
 	}
 	d->answered = true;
 	fyai_tool_gate_allow(ctx, d->gate_id, d->index, args);
@@ -1309,7 +1320,7 @@ static void sdk_deny(struct sdk_server *srv, struct sdk_decision *d,
 		srv->denials = fy_append(gb, srv->denials, fy_mapping(gb,
 			"tool_name", d->claude_name,
 			"tool_use_id", d->tool_use_id,
-			"tool_input", parse_json_string(gb, d->input_json)));
+			"tool_input", sdk_decision_input(d, gb)));
 	d->answered = true;
 	fyai_tool_gate_deny(srv->ctx, d->gate_id, d->index, message, stop);
 }
@@ -1330,7 +1341,6 @@ static void sdk_permission_done(struct sdk_server *srv, struct sdk_pending *p,
 {
 	struct sdk_decision *d = p->decision;
 	fy_generic updated;
-	const char *json;
 
 	d->waiting--;
 	if (error) {
@@ -1339,12 +1349,7 @@ static void sdk_permission_done(struct sdk_server *srv, struct sdk_pending *p,
 	} else if (fy_equal(fy_get(response, "behavior", fy_invalid),
 			    "allow")) {
 		updated = fy_get(response, "updatedInput", fy_invalid);
-		if (fy_is_mapping(updated)) {
-			json = emit_json_string(fyai_ctx_transient_gb(srv->ctx),
-						updated);
-			free(d->updated_json);
-			d->updated_json = json ? strdup(json) : NULL;
-		}
+		sdk_decision_update(d, updated);
 		sdk_allow(srv, d);
 	} else {
 		sdk_deny(srv, d, fy_get(response, "message",
@@ -1432,8 +1437,7 @@ static void sdk_permission(struct sdk_server *srv, struct sdk_decision *d,
 	fy_generic input;
 	const char *mode = srv->permission_mode;
 
-	input = parse_json_string(gb, d->updated_json ? d->updated_json :
-				  d->input_json);
+	input = sdk_decision_input(d, gb);
 	if (!ask) {
 		if (!strcmp(mode, "bypassPermissions") ||
 		    sdk_rules_match(&srv->allow, d->claude_name, d->fyai_name,
@@ -1480,7 +1484,7 @@ static void sdk_pre_hook_done(struct sdk_server *srv, struct sdk_pending *p,
 {
 	struct sdk_decision *d = p->decision;
 	fy_generic specific, updated;
-	const char *decision, *reason, *json;
+	const char *decision, *reason;
 
 	d->waiting--;
 	if (error) {
@@ -1507,12 +1511,7 @@ static void sdk_pre_hook_done(struct sdk_server *srv, struct sdk_pending *p,
 			d->verdict = SDK_ALLOW;
 		}
 		updated = fy_get(specific, "updatedInput", fy_invalid);
-		if (fy_is_mapping(updated)) {
-			json = emit_json_string(fyai_ctx_transient_gb(srv->ctx),
-						updated);
-			free(d->updated_json);
-			d->updated_json = json ? strdup(json) : NULL;
-		}
+		sdk_decision_update(d, updated);
 		if (fy_equal(fy_get(out, "continue", fy_invalid), false)) {
 			d->stop = true;
 			sdk_text_add(&d->stop_reason,
@@ -1541,12 +1540,21 @@ static struct sdk_decision *sdk_decision_new(struct sdk_server *srv,
 	struct fyai_ctx *ctx = srv->ctx;
 	struct fy_generic_builder *gb = fyai_ctx_transient_gb(ctx);
 	struct sdk_decision *d;
-	const char *name, *view, *args_json, *input_json;
+	struct fy_generic_builder_cfg bcfg = {
+		.flags = FYGBCF_SCOPE_LEADER,
+	};
+	const char *name, *view;
 	fy_generic args, input;
 
 	d = calloc(1, sizeof(*d));
 	if (!d)
 		return NULL;
+	d->gb = fy_generic_builder_create(&bcfg);
+	if (!d->gb) {
+		free(d);
+		return NULL;
+	}
+	d->updated = fy_invalid;
 	d->gate_id = id;
 	d->index = index;
 	d->after = after;
@@ -1555,15 +1563,14 @@ static struct sdk_decision *sdk_decision_new(struct sdk_server *srv,
 	if (!fy_is_mapping(args))
 		args = fy_map_empty;
 	view = sdk_tool_view(gb, name, args, &input);
-	args_json = emit_json_string(gb, args);
-	input_json = emit_json_string(gb, input);
-	d->claude_name = strdup(view);
-	d->fyai_name = strdup(name);
-	d->args_json = strdup(args_json ? args_json : "{}");
-	d->input_json = strdup(input_json ? input_json : "{}");
-	d->tool_use_id = strdup(fyai_tool_call_id(ctx, call));
-	if (!d->claude_name || !d->fyai_name || !d->args_json ||
-	    !d->input_json || !d->tool_use_id) {
+	d->claude_name = fy_gb_intern_string(d->gb, view);
+	d->fyai_name = fy_gb_intern_string(d->gb, name);
+	d->args = fy_gb_internalize(d->gb, args);
+	d->input = fy_gb_internalize(d->gb, fy_is_valid(input) ? input :
+				     fy_map_empty);
+	d->tool_use_id = fy_gb_intern_string(d->gb, fyai_tool_call_id(ctx, call));
+	if (!d->claude_name || !d->fyai_name || fy_is_invalid(d->args) ||
+	    fy_is_invalid(d->input) || !d->tool_use_id) {
 		sdk_decision_free(d);
 		return NULL;
 	}
@@ -1589,7 +1596,7 @@ static void sdk_gate_before(struct fyai_ctx *ctx, uint64_t id, size_t index,
 				    "the tool call could not be decided", true);
 		return;
 	}
-	input = parse_json_string(gb, d->input_json);
+	input = sdk_decision_input(d, gb);
 	rule = sdk_rules_match(&srv->deny, d->claude_name, d->fyai_name, input);
 	if (rule) {
 		sdk_deny(srv, d, fy_sprintfa("permission to use %s is denied",
@@ -1681,7 +1688,7 @@ static void sdk_gate_after(struct fyai_ctx *ctx, uint64_t id, size_t index,
 	}
 	input = fy_assoc(gb, sdk_hook_input(srv, event),
 			 "tool_name", d->claude_name,
-			 "tool_input", parse_json_string(gb, d->input_json),
+			 "tool_input", sdk_decision_input(d, gb),
 			 "tool_use_id", d->tool_use_id);
 	if (ok) {
 		input = fy_assoc(gb, input, "tool_response", result);
