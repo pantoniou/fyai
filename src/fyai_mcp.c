@@ -97,19 +97,19 @@ struct fyai_mcp_ctx {
 	const char *auth_token;
 	const char *protocol_version;
 	char *oauth_resource_metadata;
-	char *oauth_resource;
-	char *oauth_issuer;
-	char *oauth_authorization_endpoint;
-	char *oauth_token_endpoint;
-	char *oauth_registration_endpoint;
+	const char *oauth_resource;
+	const char *oauth_issuer;
+	const char *oauth_authorization_endpoint;
+	const char *oauth_token_endpoint;
+	const char *oauth_registration_endpoint;
 	const char *oauth_client_id;
 	char *oauth_client_secret;
 	char *oauth_access_token;
 	char *oauth_refresh_token;
 	const char *oauth_scopes;
 	const char *oauth_redirect_uri;
-	char *oauth_redirect_host;
-	char *oauth_redirect_path;
+	const char *oauth_redirect_host;
+	const char *oauth_redirect_path;
 	const char *oauth_access_type;
 	const char *oauth_prompt;
 	const char *last_error;
@@ -569,8 +569,9 @@ static int mcp_oauth_configure_client(struct fyai_ctx *ctx,
 			 "MCP OAuth redirect must use an HTTP loopback host");
 	(void)curl_url_get(url, CURLUPART_PATH, &path, 0);
 	(void)curl_url_get(url, CURLUPART_PORT, &port, 0);
-	mcp->oauth_redirect_host = strdup(host);
-	mcp->oauth_redirect_path = strdup(path && *path ? path : "/");
+	mcp->oauth_redirect_host = fyai_ctx_keep_str(ctx, host);
+	mcp->oauth_redirect_path =
+		fyai_ctx_keep_str(ctx, path && *path ? path : "/");
 	fyai_error_check(ctx, mcp->oauth_redirect_host &&
 			 mcp->oauth_redirect_path, err_url,
 			 "could not retain MCP OAuth redirect");
@@ -1488,10 +1489,8 @@ static void mcp_oauth_resource_complete(struct mcp_oauth_discovery *od,
 			"resource metadata has no resource identifier");
 		return;
 	}
-	free(mcp->oauth_issuer);
-	free(mcp->oauth_resource);
-	mcp->oauth_issuer = strdup(issuer);
-	mcp->oauth_resource = strdup(resource);
+	mcp->oauth_issuer = fyai_ctx_keep_str(mcp->ctx, issuer);
+	mcp->oauth_resource = fyai_ctx_keep_str(mcp->ctx, resource);
 	mcp_oauth_discovery_drop_http(od);
 	od->url = mcp_oauth_metadata_url(issuer);
 	if (!mcp->oauth_issuer || !mcp->oauth_resource || !od->url) {
@@ -1559,13 +1558,10 @@ static void mcp_oauth_discovery_complete(
 			"authorization metadata lacks required endpoints");
 		return;
 	}
-	free(mcp->oauth_authorization_endpoint);
-	free(mcp->oauth_token_endpoint);
-	free(mcp->oauth_registration_endpoint);
-	mcp->oauth_authorization_endpoint = strdup(authorize);
-	mcp->oauth_token_endpoint = strdup(token);
+	mcp->oauth_authorization_endpoint = fyai_ctx_keep_str(mcp->ctx, authorize);
+	mcp->oauth_token_endpoint = fyai_ctx_keep_str(mcp->ctx, token);
 	mcp->oauth_registration_endpoint = *registration ?
-		strdup(registration) : NULL;
+		fyai_ctx_keep_str(mcp->ctx, registration) : NULL;
 	if (!mcp->oauth_authorization_endpoint || !mcp->oauth_token_endpoint) {
 		mcp_oauth_discovery_fail(od, "could not retain OAuth endpoints");
 		return;
@@ -2220,16 +2216,9 @@ err_out:
 	mcp_stdio_stop(ctx, mcp);
 	mcp_oauth_discovery_destroy(mcp->oauth_discovery);
 	free(mcp->oauth_resource_metadata);
-	free(mcp->oauth_resource);
-	free(mcp->oauth_issuer);
-	free(mcp->oauth_authorization_endpoint);
-	free(mcp->oauth_token_endpoint);
-	free(mcp->oauth_registration_endpoint);
 	mcp_oauth_secret_free(&mcp->oauth_client_secret);
 	free(mcp->oauth_access_token);
 	free(mcp->oauth_refresh_token);
-	free(mcp->oauth_redirect_host);
-	free(mcp->oauth_redirect_path);
 	free(mcp);
 	return -1;
 }
@@ -3303,16 +3292,9 @@ void fyai_mcp_stop_finish(struct fyai_ctx *ctx)
 		if (mcp->curl)
 			curl_easy_cleanup(mcp->curl);
 		free(mcp->oauth_resource_metadata);
-		free(mcp->oauth_resource);
-		free(mcp->oauth_issuer);
-		free(mcp->oauth_authorization_endpoint);
-		free(mcp->oauth_token_endpoint);
-		free(mcp->oauth_registration_endpoint);
 		mcp_oauth_secret_free(&mcp->oauth_client_secret);
 		free(mcp->oauth_access_token);
 		free(mcp->oauth_refresh_token);
-		free(mcp->oauth_redirect_host);
-		free(mcp->oauth_redirect_path);
 		free(mcp);
 	}
 	ctx->mcp = NULL;
