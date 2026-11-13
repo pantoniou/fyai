@@ -1889,8 +1889,12 @@ struct fyai_view_run {
 	struct fyai_fsview spec;
 	fy_generic view;
 	char *name;
-	/* The strings that spec names. */
-	char *project, *runtime, *storage, *scratch, *execution;
+	/*
+	 * The strings that spec names. The paths are held as generics of the
+	 * view record, so spec points into this structure and the record.
+	 */
+	fy_generic project, runtime, storage;
+	char *scratch, *execution;
 	int lock;
 	bool started;
 };
@@ -1900,9 +1904,6 @@ static void view_run_release(struct fyai_view_run *run)
 	if (run->lock >= 0)
 		close(run->lock);
 	free(run->name);
-	free(run->project);
-	free(run->runtime);
-	free(run->storage);
 	free(run->scratch);
 	free(run->execution);
 }
@@ -1940,16 +1941,12 @@ static int view_open_run(struct fyai_ctx *ctx, const char *name, struct fyai_vie
 		fyai_error(ctx, "view '%s': invalid stored paths", name);
 		return -1;
 	}
-	run->project = strdup(fy_castp(&project, ""));
-	run->runtime = strdup(fy_castp(&runtime, ""));
-	run->storage = strdup(fy_castp(&storage, ""));
-	if (!run->project || !run->runtime || !run->storage) {
-		errno = ENOMEM;
-		return -2;
-	}
-	spec->project = run->project;
-	spec->runtime = run->runtime;
-	spec->storage = run->storage;
+	run->project = project;
+	run->runtime = runtime;
+	run->storage = storage;
+	spec->project = fy_castp(&run->project, "");
+	spec->runtime = fy_castp(&run->runtime, "");
+	spec->storage = fy_castp(&run->storage, "");
 	spec->arena = ctx->cfg->arena_dir;
 	spec->lazy = fy_equal(fy_get(*view, "durability", "durable"), "lazy");
 	spec->baseline = fy_get(*view, "baseline", fy_invalid);
