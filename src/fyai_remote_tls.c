@@ -198,7 +198,7 @@ int fyai_tls_generate(struct fyai_ctx *ctx, const char *path,
 	EVP_PKEY *key = NULL;
 	EVP_PKEY_CTX *kctx = NULL;
 	X509 *cert = NULL;
-	X509_NAME *subject;
+	X509_NAME *subject = NULL;
 	char text[256], *alt = NULL, *tmp = NULL;
 	unsigned char serial[8];
 	ASN1_INTEGER *sn;
@@ -226,10 +226,13 @@ int fyai_tls_generate(struct fyai_ctx *ctx, const char *path,
 	     X509_gmtime_adj(X509_getm_notBefore(cert), -86400) &&
 	     X509_gmtime_adj(X509_getm_notAfter(cert), 3650L * 86400L) &&
 	     X509_set_pubkey(cert, key);
-	subject = X509_get_subject_name(cert);
-	ok = ok && X509_NAME_add_entry_by_txt(subject, "CN", MBSTRING_ASC,
-					      (const unsigned char *)"fyai serve",
-					      -1, -1, 0) &&
+	/* X509_get_subject_name() is const since OpenSSL 4.0: build the name. */
+	subject = X509_NAME_new();
+	ok = ok && subject &&
+	     X509_NAME_add_entry_by_txt(subject, "CN", MBSTRING_ASC,
+					(const unsigned char *)"fyai serve",
+					-1, -1, 0) &&
+	     X509_set_subject_name(cert, subject) &&
 	     X509_set_issuer_name(cert, subject);
 	ok = ok && !tls_add_ext(cert, NID_basic_constraints, "critical,CA:FALSE") &&
 	     !tls_add_ext(cert, NID_key_usage, "critical,digitalSignature") &&
@@ -267,6 +270,7 @@ out:
 		unlink(tmp);
 		free(tmp);
 	}
+	X509_NAME_free(subject);
 	X509_free(cert);
 	EVP_PKEY_free(key);
 	EVP_PKEY_CTX_free(kctx);
@@ -401,7 +405,7 @@ SSL *fyai_tls_client_new(struct fyai_ctx *ctx, const char *host, const char *pin
 		inet_pton(AF_INET6, host, addr) == 1;
 	if (!pin) {
 		ok = is_ip ? X509_VERIFY_PARAM_set1_ip_asc(SSL_get0_param(ssl), host) :
-			     SSL_set1_host(ssl, host);
+			     X509_VERIFY_PARAM_set1_host(SSL_get0_param(ssl), host, 0);
 		fyai_error_check(ctx, ok == 1, out, "cannot set the host to check");
 	}
 	if (!is_ip)
