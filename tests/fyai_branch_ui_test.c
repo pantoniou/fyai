@@ -43,7 +43,7 @@ int branch_ui_agent_message_receipt(void)
 		.flags = FYGBCF_SCOPE_LEADER | FYGBCF_DEDUP_ENABLED,
 	};
 	struct fy_generic_builder *gb = fy_generic_builder_create(&gbcfg);
-	struct fyai_cfg cfg = { .agent_max_live_agents = 2 };
+	struct fyai_cfg cfg = { .gb = gb, .agent_max_live_agents = 2 };
 	struct fyai_ctx root = { .cfg = &cfg, .transient_gb = gb };
 	struct fyai_ctx child = { .cfg = &cfg, .transient_gb = gb,
 		.agent_execution = 1, .agent_branch = "main/agent:worker" };
@@ -139,7 +139,7 @@ int branch_ui_subscription_activity(void)
 		.flags = FYGBCF_SCOPE_LEADER | FYGBCF_DEDUP_ENABLED,
 	};
 	struct fy_generic_builder *gb = fy_generic_builder_create(&gbcfg);
-	struct fyai_cfg cfg = {};
+	struct fyai_cfg cfg = { .gb = gb };
 	struct fyai_ctx ctx = {
 		.cfg = &cfg, .transient_gb = gb, .agent_execution = 1,
 		.agent_branch = "main/agent:worker",
@@ -232,7 +232,7 @@ int branch_ui_admission_release(void)
 		.flags = FYGBCF_SCOPE_LEADER | FYGBCF_DEDUP_ENABLED,
 	};
 	struct fy_generic_builder *gb = fy_generic_builder_create(&gbcfg);
-	struct fyai_cfg cfg = { .agent_max_live_agents = 1 };
+	struct fyai_cfg cfg = { .gb = gb, .agent_max_live_agents = 1 };
 	struct fyai_ctx ctx = { .cfg = &cfg, .transient_gb = gb };
 	fy_generic params, result = fy_invalid, error = fy_invalid;
 	long long execution;
@@ -285,7 +285,7 @@ int branch_ui_tile_identity(void)
 		.flags = FYGBCF_SCOPE_LEADER | FYGBCF_DEDUP_ENABLED,
 	};
 	struct fy_generic_builder *gb = fy_generic_builder_create(&gbcfg);
-	struct fyai_cfg cfg = { .agent_max_live_agents = 2 };
+	struct fyai_cfg cfg = { .gb = gb, .agent_max_live_agents = 2 };
 	struct fyai_ctx ctx = { .cfg = &cfg, .transient_gb = gb };
 	fy_generic params, result = fy_invalid, error = fy_invalid;
 	long long execution, id, started;
@@ -346,7 +346,7 @@ int branch_ui_unknown_state(void)
 		.flags = FYGBCF_SCOPE_LEADER | FYGBCF_DEDUP_ENABLED,
 	};
 	struct fy_generic_builder *gb = fy_generic_builder_create(&gbcfg);
-	struct fyai_cfg cfg = { .agent_max_live_agents = 2 };
+	struct fyai_cfg cfg = { .gb = gb, .agent_max_live_agents = 2 };
 	struct fyai_ctx ctx = { .cfg = &cfg, .transient_gb = gb };
 	fy_generic params, result = fy_invalid, error = fy_invalid;
 	long long execution;

@@ -87,7 +87,8 @@ struct agent_record {
 	struct agent_record *next;
 	struct jsonrpc_conn *route;
 	long long execution, parent, sequence, started;
-	char *branch, *model, *source;
+	const char *branch, *model;
+	char *source;
 	enum agent_state state;
 	bool subscribed;
 };
@@ -379,8 +380,6 @@ static void agent_record_destroy(struct agent_record *r)
 {
 	if (!r)
 		return;
-	free(r->branch);
-	free(r->model);
 	free(r->source);
 	free(r);
 }
@@ -397,10 +396,9 @@ static struct agent_record *agents_add(struct fyai_agents *a,
 			   err_out, "agent admission names no valid branch");
 	r = calloc(1, sizeof(*r));
 	agents_error_check(a, r, err_out, "cannot allocate an agent record");
-	r->branch = strdup(branch);
-	r->model = strdup(fy_get(params, "model", ""));
+	r->branch = fyai_ctx_keep_str(a->ctx, branch);
+	r->model = fyai_ctx_keep_str(a->ctx, fy_get(params, "model", ""));
 	if (!r->branch || !r->model) {
-		fyai_error(a->ctx, "cannot record agent %s", branch);
 		agent_record_destroy(r);
 		return NULL;
 	}
@@ -426,6 +424,7 @@ static void agents_event(struct fyai_ctx *ctx, struct jsonrpc_conn *from,
 	long long execution, sequence;
 	fy_generic source;
 	const char *name, *model, *text;
+	const char *kept;
 	char *copy;
 	bool changed;
 	int rc, state;
@@ -455,11 +454,10 @@ static void agents_event(struct fyai_ctx *ctx, struct jsonrpc_conn *from,
 		agents_messages_admitted(a, r);
 	model = fy_get(params, "model", "");
 	if (!fy_str_empty(model) && strcmp(model, r->model)) {
-		copy = strdup(model);
-		fyai_error_check(ctx, copy, err_out,
+		kept = fyai_ctx_keep_str(ctx, model);
+		fyai_error_check(ctx, kept, err_out,
 				 "cannot record the model of agent %s", r->branch);
-		free(r->model);
-		r->model = copy;
+		r->model = kept;
 		changed = true;
 	}
 	source = fy_get(params, "source", fy_invalid);
