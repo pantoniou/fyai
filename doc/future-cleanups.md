@@ -779,8 +779,9 @@ is a series. Check an item again before work on it.
    transport assembly use `fyai_buf`.
 7. Done. `fyai_cas_temp_open()` and `fyai_cas_temp_seal()` serve the blob store
    and the manifest writer.
-8. A private loop (S). `fyai cast` play runs its own `poll` and `fytim_pump`
-   (`fyai_cast_player.c:790`). It is a stand-alone command, so the risk is low.
+8. Done. The player of `fyai cast` runs on the loop of the invocation: a
+   source on the descriptor of the terminal library and a timer for the next
+   due time.
 9. The parallel-construction oracles (L). They still run in a production
     repaint: `fyai_chrome.c:410`, `fyai_session.c:1957` and `:2002`,
     `fyai_ask.c:434`, `fyai_uidraw.c:44`, `:100` and `:487`, `fyai_output.c`,
