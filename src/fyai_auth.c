@@ -634,6 +634,7 @@ enum fyai_auth_login_state {
 	FYAILS_TOKEN_EXCHANGE,
 	FYAILS_JWKS,
 	FYAILS_CREDENTIAL_WAIT,
+	FYAILS_CANCELLING,		/* transfer cancelled; finish on its completion */
 	FYAILS_COMPLETED,
 	FYAILS_CANCELLED,
 	FYAILS_FAILED,
@@ -655,7 +656,6 @@ struct fyai_auth_login_request {
 	char *redirect;
 	int result;
 	enum fyai_auth_login_state state;
-	bool cancel_requested;
 };
 
 static bool fyai_auth_login_state_final(enum fyai_auth_login_state state)
@@ -804,7 +804,8 @@ static void fyai_auth_login_http_complete(struct fyai_curl_transfer *transfer,
 	code = fyai_curl_collect(transfer);
 	fyai_curl_transfer_destroy(transfer);
 	request->transfer = NULL;
-	if (request->cancel_requested || code == CURLE_ABORTED_BY_CALLBACK) {
+	if (request->state == FYAILS_CANCELLING ||
+	    code == CURLE_ABORTED_BY_CALLBACK) {
 		fyai_auth_login_finish(request, FYAILS_CANCELLED, -1);
 		return;
 	}
@@ -1092,8 +1093,8 @@ void fyai_auth_login_cancel(struct fyai_auth_login_request *request)
 {
 	if (!request || fyai_auth_login_state_final(request->state))
 		return;
-	request->cancel_requested = true;
 	if (request->transfer) {
+		request->state = FYAILS_CANCELLING;
 		fyai_curl_cancel(request->transfer);
 		return;
 	}

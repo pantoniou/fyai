@@ -2575,6 +2575,7 @@ enum fyai_mcp_call_state {
 	FYAIMCS_PRIMARY,
 	FYAIMCS_RECOVER_INITIALIZE,
 	FYAIMCS_RECOVER_NOTIFY,
+	FYAIMCS_CANCELLING,		/* cancel recorded; the phase is dropped */
 	FYAIMCS_COMPLETED,
 	FYAIMCS_CANCELLED,
 	FYAIMCS_FAILED,
@@ -2599,7 +2600,6 @@ struct fyai_mcp_call_request {
 	fy_generic result;
 	enum fyai_mcp_call_state state;
 	bool result_ok;
-	bool cancel_requested;
 	bool auth_retry_done;
 };
 
@@ -2740,7 +2740,7 @@ fyai_mcp_call_wait_tick(const struct fyai_event *ev)
 	struct fyai_ctx *ctx = request->ctx;
 	char msg[160];
 
-	if (request->cancel_requested) {
+	if (request->state == FYAIMCS_CANCELLING) {
 		fyai_mcp_call_wait_disarm(request);
 		fyai_mcp_call_finish(request, FYAIMCS_CANCELLED,
 			fy_value(ctx->transient_gb, "tool error: interrupted"),
@@ -2855,7 +2855,7 @@ static void fyai_mcp_call_req_done(struct jsonrpc_request *req, void *userdata)
 	jsonrpc_request_destroy(req);
 	request->req = NULL;
 
-	if (request->cancel_requested) {
+	if (request->state == FYAIMCS_CANCELLING) {
 		fyai_mcp_call_finish(request, FYAIMCS_CANCELLED,
 			fy_value(ctx->transient_gb, "tool error: interrupted"),
 			false);
@@ -3001,7 +3001,7 @@ void fyai_mcp_call_cancel(struct fyai_mcp_call_request *request)
 {
 	if (!request || fyai_mcp_call_state_final(request->state))
 		return;
-	request->cancel_requested = true;
+	request->state = FYAIMCS_CANCELLING;
 	if (request->req)
 		jsonrpc_request_cancel(request->req);
 }
