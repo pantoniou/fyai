@@ -873,9 +873,22 @@ Done: `fyai_ctx_keep_str()`; five tools return generics (`agent_message`,
 `ask_parent`, `agent_input`, `ask_user`, `todo_write`); `agent_branch`, the
 name of an agent run and the branch of a side question are interned; the call
 and the spawn state of a sub-agent cross a reopen without JSON text; the OAuth
-client, scopes, endpoints and loopback redirect of `fyai_mcp.c` are interned.
-The first four rows of the class a table of `fyai_mcp.c` are done, except the
-`od->url` copies.
+client, scopes, endpoints and loopback redirect of `fyai_mcp.c` are interned
+(the `od->url` copies are not); `ctx->branch`, `head_branch` and
+`session_unstored` are interned; the entries of a tool job group hold
+generics; a Claude SDK decision holds generics in a builder of its own and
+the hook and tunnel names are interned; the worker branch, terminal names
+and epoch of the remote files, the branch and model of an agent record, the
+names of a monitor and of a question, the read map of the history view and
+`fyai_media_pending_display()` are done.
+
+Dropped: the event queue. Its text is formatted by the producer and is new for
+each event, so no arena string is copied, and it must not go into the
+configuration builder. Only the eight `monitor_event(strdup(fy_sprintfa()))`
+calls of `fyai_monitor.c` could use `fyai_event_injectf()`. ACP (`worker->text`,
+`message_id`, `agent_id`) and `uidraw` titles and commands are new for each
+turn or call, so they stay copies. The export call list of `fyai_display.c`
+stays: a mapping copies at each add. `peer->dir` takes a `realpath` string.
 
 ### Rules for this list
 
