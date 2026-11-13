@@ -78,7 +78,7 @@ struct fyai_tool_job {
 	fy_generic result;
 	fy_generic display;		/* tool-resolved presentation, if any */
 	fy_generic diag;		/* diagnostics collected by the child */
-	char *origin;			/* who the child was, for a diagnostic */
+	const char *origin;		/* who the child was, for a diagnostic */
 	long long model_text;		/* the bytes of its terminal, for the model */
 	pid_t pid;
 	uint64_t transport_exec;	/* the transport's id for this sub-agent, or 0 */
@@ -133,7 +133,7 @@ struct fyai_tool_job {
 	fyai_event_ms_t elapsed_ms;
 	struct fyai_buf progress;	/* tail, for a timeout report */
 	char *branch;			/* sub-agent branch, allocated by us */
-	char *monitor;			/* monitor that this command feeds */
+	const char *monitor;		/* monitor that this command feeds */
 	struct fyai_event_source *deadline;
 	struct fyai_event_source *hang_deadline;
 	int term_signal;

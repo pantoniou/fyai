@@ -677,8 +677,6 @@ void fyai_tool_job_discard(struct fyai_tool_job *job)
 	fyai_view_run_free(job->view_run);
 	free(job->progress.data);
 	free(job->branch);
-	free(job->monitor);
-	free(job->origin);
 	fy_generic_builder_destroy(job->call_gb);
 	free(job);
 }
@@ -875,7 +873,7 @@ struct fyai_tool_job *fyai_tool_job_submit(struct fyai_ctx *ctx,
 	fy_generic session_call, session_command, session_desc;
 	struct fyai_event_loop *el;
 	char child_branch[FYAI_BRANCH_NAME_MAX + 1];
-	char *session_name = NULL;
+	const char *session_name = NULL;
 	char *session_title = NULL;
 	char *label = NULL;
 	bool have_session = false;
@@ -976,8 +974,8 @@ struct fyai_tool_job *fyai_tool_job_submit(struct fyai_ctx *ctx,
 				"on branch %s; write to it or choose another name",
 				asked, fyai_ctx_branch(ctx));
 		else
-			/* Own the name: the generic it came from is transient. */
-			session_name = strdup(asked);
+			/* session_call is a local, so the name lives to the end. */
+			session_name = asked;
 		fyai_tool_submit_check(ctx,
 				       session_name && !ctx->tool_submit_error,
 				       err,
@@ -1050,8 +1048,6 @@ struct fyai_tool_job *fyai_tool_job_submit(struct fyai_ctx *ctx,
 				 "could not open the terminal session");
 		job->session->job = job;
 		fyai_shell_session_start_size(job, args);
-		/* The session copied the name it was reserved under. */
-		free(session_name);
 		session_name = NULL;
 	}
 	/* A child that asked for a terminal must follow the window of the
@@ -1080,22 +1076,19 @@ struct fyai_tool_job *fyai_tool_job_submit(struct fyai_ctx *ctx,
 	job->btw = fy_get(args, "_fyai_btw", false);
 	monitor_v = fy_get(args, "_fyai_monitor", fy_invalid);
 	if (fy_is_string(monitor_v)) {
-		job->monitor = strdup(fy_castp(&monitor_v, ""));
+		job->monitor = fyai_ctx_keep_str(ctx, fy_castp(&monitor_v, ""));
 		fyai_error_check(ctx, job->monitor, err,
-				 "out of memory naming the monitor");
+				 "could not keep the name of the monitor");
 	}
 	job->native_shell = native_call;
 	/* A zeroed generic decodes as an empty sequence, not as invalid. */
 	job->diag = fy_invalid;
 	/* Save the identity that the parent adds to child diagnostics. */
-	if (job->branch) {
-		job->origin = strdup(job->branch);
-		rc = job->origin ? 0 : -1;
-	} else {
-		rc = asprintf(&job->origin, "%s %s", fyai_ctx_branch(ctx), name);
-	}
-	fyai_error_check(ctx, rc >= 0 && job->origin, err,
-			 "out of memory naming the tool job");
+	job->origin = fyai_ctx_keep_str(ctx, job->branch ? job->branch :
+					fy_sprintfa("%s %s", fyai_ctx_branch(ctx),
+						    name));
+	fyai_error_check(ctx, job->origin, err,
+			 "could not keep the identity of the tool job");
 	/* The trace pairs with the reap record below: a child that dies leaves
 	 * these two lines and nothing else. */
 	fyai_diag_tracef("spawn", "%s, pid %ld", job->origin, (long)job->pid);
@@ -1209,7 +1202,6 @@ live_open_done:
 	return job;
 
 err:
-	free(session_name);
 	fyai_view_run_free(view_run);
 	fyai_tool_job_discard(job);
 	return NULL;
@@ -1866,8 +1858,6 @@ fy_generic fyai_tool_job_collect(struct fyai_ctx *ctx,
 	fyai_tool_job_unlink(job->ctx, job);
 	free(job->progress.data);
 	free(job->branch);
-	free(job->monitor);
-	free(job->origin);
 	fy_generic_builder_destroy(job->call_gb);
 	free(job);
 	return result;
