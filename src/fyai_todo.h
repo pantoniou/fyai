@@ -34,9 +34,11 @@ bool fyai_todo_all_done(fy_generic todos);
 /*
  * Replace the stored list with @todos, normalized by fyai_todo_normalize(),
  * and publish the branch. Returns the text for the model, or a "tool error:"
- * text. Returns NULL after it reported why the list cannot be kept.
+ * text, built in @gb. Returns fy_invalid after it reported why the list cannot
+ * be kept.
  */
-char *fyai_todo_commit(struct fyai_ctx *ctx, fy_generic todos);
+fy_generic fyai_todo_commit(struct fyai_ctx *ctx, struct fy_generic_builder *gb,
+			    fy_generic todos);
 
 /* Drop the stored list and publish the branch. Returns 0, or -1. */
 int fyai_todo_clear(struct fyai_ctx *ctx);

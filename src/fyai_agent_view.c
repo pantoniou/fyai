@@ -506,8 +506,8 @@ static enum fyai_event_action fyai_agent_wait_poll(const struct fyai_event *ev)
 }
 
 /* Write the model's answer to a running sub-agent terminal. */
-char *fyai_agent_input_tool(struct fyai_ctx *ctx, fy_generic args,
-			    bool *okp)
+fy_generic fyai_agent_input_tool(struct fyai_ctx *ctx, fy_generic args,
+				 bool *okp)
 {
 	struct fyai_tool_job *job;
 	struct fyai_buf in = {};
@@ -523,14 +523,14 @@ char *fyai_agent_input_tool(struct fyai_ctx *ctx, fy_generic args,
 	name = fy_castp(&name_v, "");
 	job = fyai_agent_job_named(ctx, name);
 	if (!job)
-		return strdup(fy_sprintfa(
+		return fy_stringf(ctx->transient_gb,
 			"tool error: no sub-agent named '%s' is running; one "
 			"that has finished is reached with the agent tool",
-			name));
+			name);
 	if (job->pty < 0)
-		return strdup(fy_sprintfa(
+		return fy_stringf(ctx->transient_gb,
 			"tool error: the sub-agent '%s' has no terminal to "
-			"write to", name));
+			"write to", name);
 
 	input_v = fy_get(args, "input", fy_invalid);
 	text = fy_castp(&input_v, "");
@@ -552,19 +552,20 @@ char *fyai_agent_input_tool(struct fyai_ctx *ctx, fy_generic args,
 			continue;
 		}
 		free(in.data);
-		return strdup(fy_sprintfa(
+		return fy_stringf(ctx->transient_gb,
 			"tool error: could not write to the sub-agent '%s': %s",
-			name, strerror(errno)));
+			name, strerror(errno));
 	}
 	free(in.data);
 	/* It read what it was given: the next stop is a new question. */
 	job->wants_input = false;
 	*okp = true;
-	return strdup(fy_sprintfa("[agent '%s': the input was typed]", name));
+	return fy_stringf(ctx->transient_gb, "[agent '%s': the input was typed]", name);
 
 err:
 	free(in.data);
-	return NULL;
+	return fy_value(ctx->transient_gb,
+			"tool error: could not retain the input");
 }
 
 /* Open a display surface for a sub-agent terminal. */

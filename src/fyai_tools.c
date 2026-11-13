@@ -1387,7 +1387,6 @@ fy_generic fyai_ask_user_from(struct fyai_ctx *ctx, fy_generic args,
 	fy_generic questions, gname, result;
 	const char *name;
 	char why[160];
-	char *text;
 
 	questions = fyai_ask_normalize(ctx->transient_gb, args, why, sizeof(why));
 	if (fy_is_invalid(questions))
@@ -1402,12 +1401,11 @@ fy_generic fyai_ask_user_from(struct fyai_ctx *ctx, fy_generic args,
 		name = fy_castp(&gname, "");
 		/* A background question does not hold the turn. */
 		if (!from && fyai_asks_background(args)) {
-			text = fyai_asks_start(ctx, name, questions);
-			if (!text)
+			result = fyai_asks_start(ctx, ctx->transient_gb, name,
+						 questions);
+			if (fy_is_invalid(result))
 				return fy_value(ctx->transient_gb, "tool error: "
 						"the questions could not be asked");
-			result = fy_value(ctx->transient_gb, text);
-			free(text);
 			return result;
 		}
 		return fyai_ask_user_page(ctx, questions, from);
@@ -1813,7 +1811,6 @@ static fy_generic tool_todo_write(struct fyai_ctx *ctx, fy_generic args,
 {
 	fy_generic todos;
 	char why[1024];
-	char *text;
 
 	todos = fyai_todo_normalize(ctx->transient_gb, args, why, sizeof(why));
 	if (fy_is_invalid(todos)) {
@@ -1821,15 +1818,13 @@ static fy_generic tool_todo_write(struct fyai_ctx *ctx, fy_generic args,
 		return fy_value(ctx->transient_gb,
 				fy_sprintfa("tool error: todo_write: %s", why));
 	}
-	text = fyai_todo_commit(ctx, todos);
-	if (!text) {
+	todos = fyai_todo_commit(ctx, ctx->transient_gb, todos);
+	if (fy_is_invalid(todos)) {
 		*okp = false;
 		return fy_value(ctx->transient_gb,
 				"tool error: the todo list was not stored");
 	}
 	*okp = true;
-	todos = fy_value(ctx->transient_gb, text);
-	free(text);
 	return todos;
 }
 
@@ -1977,7 +1972,7 @@ const struct fyai_tool_def fyai_tools_defs[] = {
 	{ .name = "cancel", .run_text = fyai_cancel_tool,
 	  .head = tool_head_cancel, .flags = FYAI_TOOL_PARENT,
 	  .effect = FYAI_TOOL_EFFECT_PROCESS },
-	{ .name = "agent_input", .run_text = fyai_agent_input_tool,
+	{ .name = "agent_input", .run = fyai_agent_input_tool,
 	  .head = tool_head_agent_input,
 	  .flags = FYAI_TOOL_PARENT | FYAI_TOOL_NOT_FOR_CHILD,
 	  .effect = FYAI_TOOL_EFFECT_PROCESS },

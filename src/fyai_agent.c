@@ -1086,7 +1086,8 @@ static void tool_head_agent(struct fyai_ctx *ctx, FILE *mf,
 			*desc ? desc : "delegated task");
 }
 
-static char *tool_agent_message(struct fyai_ctx *ctx, fy_generic args, bool *okp)
+static fy_generic tool_agent_message(struct fyai_ctx *ctx, fy_generic args,
+				     bool *okp)
 {
 	fy_generic name = fy_get(args, "name", fy_invalid);
 	fy_generic message = fy_get(args, "message", fy_invalid);
@@ -1098,10 +1099,12 @@ static char *tool_agent_message(struct fyai_ctx *ctx, fy_generic args, bool *okp
 	const char *reply_to = fy_castp(&reply, "");
 
 	*okp = !fyai_agents_message(ctx, who, body, label, reply_to);
-	return strdup(*okp ?
-		fy_sprintfa("message sent; wait for '%s' to learn whether it was queued",
-			    label) :
-		"tool error: agent is not running or the message could not be sent");
+	if (!*okp)
+		return fy_value(ctx->transient_gb,
+				"tool error: agent is not running or the message could not be sent");
+	return fy_stringf(ctx->transient_gb,
+			  "message sent; wait for '%s' to learn whether it was queued",
+			  label);
 }
 
 static void tool_head_agent_message(struct fyai_ctx *ctx, FILE *mf,
@@ -1117,16 +1120,19 @@ static void tool_head_agent_message(struct fyai_ctx *ctx, FILE *mf,
 	fprintf(mf, "**agent message** [%s]\n\n", fy_castp(&name, ""));
 }
 
-static char *tool_ask_parent(struct fyai_ctx *ctx, fy_generic args, bool *okp)
+static fy_generic tool_ask_parent(struct fyai_ctx *ctx, fy_generic args,
+				  bool *okp)
 {
 	const char *name = fy_get(args, "name", "");
 	const char *question = fy_get(args, "question", "");
 
 	*okp = !fyai_agents_ask_parent(ctx, name, question);
-	return strdup(*okp ?
-		fy_sprintfa("question sent; wait for '%s' to receive the parent's answer",
-			    name) :
-		"tool error: ask_parent needs a live parent and a unique question name");
+	if (!*okp)
+		return fy_value(ctx->transient_gb,
+				"tool error: ask_parent needs a live parent and a unique question name");
+	return fy_stringf(ctx->transient_gb,
+			  "question sent; wait for '%s' to receive the parent's answer",
+			  name);
 }
 
 static void tool_head_ask_parent(struct fyai_ctx *ctx, FILE *mf,
@@ -1146,11 +1152,11 @@ const struct fyai_tool_def fyai_agent_defs[] = {
 	  .flags = FYAI_TOOL_MARKED | FYAI_TOOL_NOT_FOR_CHILD |
 		   FYAI_TOOL_INSTANT,
 	  .effect = FYAI_TOOL_EFFECT_PROCESS },
-	{ .name = "agent_message", .run_text = tool_agent_message,
+	{ .name = "agent_message", .run = tool_agent_message,
 	  .head = tool_head_agent_message,
 	  .flags = FYAI_TOOL_PARENT,
 	  .effect = FYAI_TOOL_EFFECT_PROCESS },
-	{ .name = "ask_parent", .run_text = tool_ask_parent,
+	{ .name = "ask_parent", .run = tool_ask_parent,
 	  .head = tool_head_ask_parent,
 	  .flags = FYAI_TOOL_PARENT | FYAI_TOOL_CHILD_ONLY,
 	  .effect = FYAI_TOOL_EFFECT_PROCESS },

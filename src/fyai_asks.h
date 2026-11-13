@@ -21,11 +21,11 @@ bool fyai_asks_background(fy_generic args);
 /*
  * Put @questions, normalized by fyai_ask_normalize(), to the user under @name,
  * or under a name made for it when @name is empty. Returns the text for the
- * model, or a "tool error:" text. Returns NULL after it reported why it
- * cannot ask.
+ * model, or a "tool error:" text, built in @gb. Returns fy_invalid after it
+ * reported why it cannot ask.
  */
-char *fyai_asks_start(struct fyai_ctx *ctx, const char *name,
-		      fy_generic questions);
+fy_generic fyai_asks_start(struct fyai_ctx *ctx, struct fy_generic_builder *gb,
+			   const char *name, fy_generic questions);
 
 /* Whether a question named @name waits for the user. */
 bool fyai_asks_exists(struct fyai_ctx *ctx, const char *name);

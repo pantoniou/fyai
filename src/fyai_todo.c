@@ -198,12 +198,13 @@ err_out:
 	return -1;
 }
 
-char *fyai_todo_commit(struct fyai_ctx *ctx, fy_generic todos)
+fy_generic fyai_todo_commit(struct fyai_ctx *ctx,
+			    struct fy_generic_builder *gb, fy_generic todos)
 {
 	fy_generic stored;
 
 	if (todo_publish(ctx, todos))
-		return NULL;
+		return fy_invalid;
 	/*
 	 * The publish wrote the entry and moved branch_prev to it; read the
 	 * list back from there. A turnless publish on a branch with no other
@@ -211,10 +212,10 @@ char *fyai_todo_commit(struct fyai_ctx *ctx, fy_generic todos)
 	 */
 	stored = todo_stored_generic(ctx);
 	if (fy_is_invalid(stored))
-		return strdup("tool error: the todo list was not stored");
+		return fy_value(gb, "tool error: the todo list was not stored");
 	stored = fy_gb_internalize(fyai_ctx_transient_gb(ctx), stored);
 	if (fy_is_invalid(stored))
-		return strdup("tool error: the todo list was not stored");
+		return fy_value(gb, "tool error: the todo list was not stored");
 	if (fyai_todo_all_done(stored)) {
 		/*
 		 * Nothing is left to do: drop the list so the panel goes
@@ -222,11 +223,10 @@ char *fyai_todo_commit(struct fyai_ctx *ctx, fy_generic todos)
 		 * "<branch>@{1}".
 		 */
 		if (todo_publish(ctx, fy_invalid))
-			return NULL;
-		return strdup("todo list completed: all items done");
+			return fy_invalid;
+		return fy_value(gb, "todo list completed: all items done");
 	}
-	return strdup(fy_sprintfa("todo list updated: %zu items",
-				  fy_len(stored)));
+	return fy_stringf(gb, "todo list updated: %zu items", fy_len(stored));
 }
 
 int fyai_todo_clear(struct fyai_ctx *ctx)

@@ -138,8 +138,9 @@ static void asks_default_name(struct fyai_ctx *ctx, char *buf, size_t size)
 	while (asks_find(ctx, buf));
 }
 
-char *fyai_asks_start(struct fyai_ctx *ctx, const char *name,
-		      fy_generic questions)
+fy_generic fyai_asks_start(struct fyai_ctx *ctx,
+			   struct fy_generic_builder *gb, const char *name,
+			   fy_generic questions)
 {
 	struct fy_generic_builder_cfg cfg = {
 		.flags = FYGBCF_SCOPE_LEADER | FYGBCF_DEDUP_ENABLED,
@@ -153,13 +154,12 @@ char *fyai_asks_start(struct fyai_ctx *ctx, const char *name,
 		name = made;
 	}
 	if (!asks_name_valid(name))
-		return strdup(fy_sprintfa("tool error: '%s' is not a usable "
-					  "question name; use letters, digits, "
-					  "'-' or '_'", name));
+		return fy_stringf(gb, "tool error: '%s' is not a usable "
+				  "question name; use letters, digits, "
+				  "'-' or '_'", name);
 	if (asks_find(ctx, name))
-		return strdup(fy_sprintfa("tool error: a question named '%s' "
-					  "is already open; use another name",
-					  name));
+		return fy_stringf(gb, "tool error: a question named '%s' "
+				  "is already open; use another name", name);
 	p = calloc(1, sizeof(*p));
 	fyai_error_check(ctx, p, err_out, "ask_user: cannot keep question '%s'",
 			 name);
@@ -180,17 +180,17 @@ char *fyai_asks_start(struct fyai_ctx *ctx, const char *name,
 	if (rc) {
 		asks_unlink(ctx, p);
 		asks_free(p);
-		return strdup("tool error: the questions could not be asked");
+		return fy_value(gb, "tool error: the questions could not be asked");
 	}
-	return strdup(fy_sprintfa("[question '%s' asked]\nIt does not hold "
-				  "your turn. Keep working; you are told when "
-				  "the user has answered. Use wait to hold a "
-				  "call for it.", name));
+	return fy_stringf(gb, "[question '%s' asked]\nIt does not hold "
+			  "your turn. Keep working; you are told when "
+			  "the user has answered. Use wait to hold a "
+			  "call for it.", name);
 
 err_free:
 	asks_free(p);
 err_out:
-	return NULL;
+	return fy_invalid;
 }
 
 bool fyai_asks_exists(struct fyai_ctx *ctx, const char *name)
