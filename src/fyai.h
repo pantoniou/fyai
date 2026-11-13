@@ -1212,6 +1212,8 @@ int fyai_event_inject(struct fyai_ctx *ctx, char *text);
 /* The same, with the text made from a format. Return 0, or -1 on failure. */
 int fyai_event_injectf(struct fyai_ctx *ctx, const char *fmt, ...)
 	__attribute__((format(printf, 2, 3)));
+int fyai_event_vinjectf(struct fyai_ctx *ctx, const char *fmt, va_list ap)
+	__attribute__((format(printf, 2, 0)));
 /*
  * What a queued event reports for. A wait event names its owner: the
  * report reaches the model after the poll that queued it, and the wait

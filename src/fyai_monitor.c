@@ -91,10 +91,18 @@ static bool monitor_name_valid(const char *name)
 	return true;
 }
 
-/* Queue @text for the model; the run reports a loss and goes on. */
-static void monitor_event(struct fyai_monitor_run *run, char *text)
+/* Queue a formatted event for the model; the run reports a loss and goes on. */
+static void monitor_event(struct fyai_monitor_run *run, const char *fmt, ...)
+	__attribute__((format(printf, 2, 3)));
+static void monitor_event(struct fyai_monitor_run *run, const char *fmt, ...)
 {
-	if (!text || fyai_event_inject(run->ctx, text))
+	va_list ap;
+	int rc;
+
+	va_start(ap, fmt);
+	rc = fyai_event_vinjectf(run->ctx, fmt, ap);
+	va_end(ap);
+	if (rc)
 		fyai_warning(run->ctx, "an event of the monitor '%s' was lost",
 			     run->name);
 }
@@ -141,14 +149,14 @@ void fyai_monitor_output(struct fyai_ctx *ctx, const char *name,
 	}
 	if (lines.len) {
 		if (++run->events > FYAI_MONITOR_MAX_EVENTS) {
-			monitor_event(run, strdup(fy_sprintfa(
+			monitor_event(run,
 				"[monitor '%s' stopped: more than %d events; "
 				"start it again with a narrower filter]",
-				run->name, FYAI_MONITOR_MAX_EVENTS)));
+				run->name, FYAI_MONITOR_MAX_EVENTS);
 			fyai_tool_job_group_cancel(run->group);
 		} else {
-			monitor_event(run, strdup(fy_sprintfa("[monitor '%s'] %s",
-						run->name, lines.data)));
+			monitor_event(run, "[monitor '%s'] %s", run->name,
+				      lines.data);
 		}
 	}
 done:
@@ -195,26 +203,26 @@ static void monitor_finish(void *userdata)
 	rc = fyai_tool_job_group_collect(run->group, 0, &result, &ok);
 	text = fy_is_string(result) ? fy_castp(&result, "") : "";
 	if (run->partial && run->partial_len)
-		monitor_event(run, strdup(fy_sprintfa("[monitor '%s'] %s",
-						      run->name, run->partial)));
+		monitor_event(run, "[monitor '%s'] %s", run->name,
+			      run->partial);
 	if (run->events > FYAI_MONITOR_MAX_EVENTS)
 		goto release;
 	if (run->quiet) {
-		monitor_event(run, strdup(fy_sprintfa("[shell '%s' ended: %s]",
-			run->name,
-			monitor_status(text, rc || !ok, status, sizeof(status)))));
+		monitor_event(run, "[shell '%s' ended: %s]", run->name,
+			      monitor_status(text, rc || !ok, status,
+					     sizeof(status)));
 		goto release;
 	}
 	if (strstr(text, "timed out after"))
-		monitor_event(run, strdup(fy_sprintfa("[monitor '%s' ended: "
-			"its time limit of %lld seconds passed; start it again "
-			"to go on]", run->name, run->limit_ms / 1000)));
+		monitor_event(run,
+			"[monitor '%s' ended: its time limit of %lld seconds "
+			"passed; start it again to go on]",
+			run->name, run->limit_ms / 1000);
 	else if (rc || !ok)
-		monitor_event(run, strdup(fy_sprintfa("[monitor '%s' ended with "
-			"a failure]", run->name)));
+		monitor_event(run, "[monitor '%s' ended with a failure]",
+			      run->name);
 	else
-		monitor_event(run, strdup(fy_sprintfa("[monitor '%s' ended]",
-						      run->name)));
+		monitor_event(run, "[monitor '%s' ended]", run->name);
 release:
 	monitor_unlink(run);
 	monitor_free(run);

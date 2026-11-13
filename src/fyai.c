@@ -3027,19 +3027,27 @@ int fyai_event_inject_agent(struct fyai_ctx *ctx, const char *text,
 		NULL, from, execution, message_id, reply_to);
 }
 
-int fyai_event_injectf(struct fyai_ctx *ctx, const char *fmt, ...)
+int fyai_event_vinjectf(struct fyai_ctx *ctx, const char *fmt, va_list ap)
 {
-	va_list ap;
 	char *text;
 	int rc;
 
-	va_start(ap, fmt);
 	rc = vasprintf(&text, fmt, ap);
-	va_end(ap);
 	fyai_error_check(ctx, rc >= 0, err, "could not format an event");
 	return fyai_event_inject(ctx, text);
 err:
 	return -1;
+}
+
+int fyai_event_injectf(struct fyai_ctx *ctx, const char *fmt, ...)
+{
+	va_list ap;
+	int rc;
+
+	va_start(ap, fmt);
+	rc = fyai_event_vinjectf(ctx, fmt, ap);
+	va_end(ap);
+	return rc;
 }
 
 /* Queue owned @text for the loop owner; the caller gives away @owner. */
