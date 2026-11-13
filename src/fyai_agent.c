@@ -867,10 +867,9 @@ err:
 struct fyai_agent_bg_run {
 	struct fyai_agent_bg_run *next;
 	struct fyai_ctx *ctx;
-	struct fyai_tool_job_group *group;
+	struct fyai_tool_job_group *group;	/* NULL once it has finished */
 	char *name;
 	char handle[FYAI_BRANCH_COMPONENT_MAX + 1];
-	bool finished;
 	struct fyai_scope_pin pin;	/* it holds the scope of its exchange */
 };
 
@@ -916,7 +915,6 @@ static void agent_bg_finish(void *userdata)
 release:
 	fyai_tool_job_group_destroy(run->group);
 	run->group = NULL;
-	run->finished = true;
 }
 
 static void agent_bg_complete(struct fyai_tool_job_group *group, void *userdata)
@@ -998,7 +996,7 @@ bool fyai_agent_background_running(struct fyai_ctx *ctx, const char *name)
 	struct fyai_agent_bg_run *run;
 
 	for (run = ctx->agent_bg_runs; run; run = run->next)
-		if (!run->finished &&
+		if (run->group &&
 		    (!strcmp(run->name, name) || !strcmp(run->handle, name)))
 			return true;
 	return false;

@@ -46,8 +46,7 @@ struct fyai_monitor_run {
 	char *name;
 	char *partial;		/* the line that has no end yet */
 	size_t partial_len;
-	unsigned int events;
-	bool stopped;		/* too many events: later output is dropped */
+	unsigned int events;	/* above the maximum: later output is dropped */
 	bool quiet;		/* a command in the background: only its end is reported */
 };
 
@@ -109,7 +108,8 @@ void fyai_monitor_output(struct fyai_ctx *ctx, const char *name,
 	char *nl, *buf, *line;
 	size_t total;
 
-	if (!run || run->stopped || run->quiet || !len)
+	if (!run || run->events > FYAI_MONITOR_MAX_EVENTS || run->quiet ||
+	    !len)
 		return;
 	/* Join the kept part and the chunk, then cut at each line end. */
 	total = run->partial_len + len;
@@ -142,7 +142,6 @@ void fyai_monitor_output(struct fyai_ctx *ctx, const char *name,
 	}
 	if (lines.len) {
 		if (++run->events > FYAI_MONITOR_MAX_EVENTS) {
-			run->stopped = true;
 			monitor_event(run, strdup(fy_sprintfa(
 				"[monitor '%s' stopped: more than %d events; "
 				"start it again with a narrower filter]",
@@ -199,7 +198,7 @@ static void monitor_finish(void *userdata)
 	if (run->partial && run->partial_len)
 		monitor_event(run, strdup(fy_sprintfa("[monitor '%s'] %s",
 						      run->name, run->partial)));
-	if (run->stopped)
+	if (run->events > FYAI_MONITOR_MAX_EVENTS)
 		goto release;
 	if (run->quiet) {
 		monitor_event(run, strdup(fy_sprintfa("[shell '%s' ended: %s]",
