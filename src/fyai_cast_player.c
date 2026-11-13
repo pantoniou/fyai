@@ -19,7 +19,6 @@
 #endif
 
 #include <errno.h>
-#include <poll.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -30,6 +29,7 @@
 #include "fyai.h"
 #include "fyai_cast_file.h"
 #include "fyai_cast_player.h"
+#include "fyai_event.h"
 #include "fyai_terminal_view.h"
 #include "utils.h"
 
@@ -84,7 +84,8 @@ struct player {
 	bool list;
 	size_t list_sel;
 	bool dirty;
-	bool quit;
+	volatile bool quit;
+	struct fyai_event_source *input_src, *timer_src;
 };
 
 static const struct player_button buttons[] = {
@@ -750,12 +751,50 @@ static int player_wait_ms(struct player *p)
 	return ms;
 }
 
+/* One service of the player: the terminal, the recording and the screen. */
+static enum fyai_event_action player_tick(const struct fyai_event *ev)
+{
+	struct player *p = ev->userdata;
+	int ms, rc;
+
+	if (fytim_pump(p->ft) != FYTIM_OK) {
+		p->quit = true;
+		return FYAIEA_STOP;
+	}
+	player_events(p);
+	player_advance(p);
+	if (p->controls && p->playing && fyai_monotonic_sec() >= p->hide_at) {
+		p->controls = false;
+		p->dirty = true;
+	}
+	if (p->dirty) {
+		player_draw(p);
+		rc = fytim_pump(p->ft);
+		if (rc != FYTIM_OK) {
+			fyai_warning(p->ctx, "cast: cannot draw the screen");
+			p->quit = true;
+			return FYAIEA_STOP;
+		}
+	}
+	if (p->quit)
+		return FYAIEA_STOP;
+	/* The next wake is the time the recording or the controls are due. */
+	ms = player_wait_ms(p);
+	rc = fyai_event_timer_rearm(p->timer_src, ms > 0 ? ms : 1, 0);
+	if (rc) {
+		fyai_warning(p->ctx, "cast: cannot arm the player timer");
+		p->quit = true;
+		return FYAIEA_STOP;
+	}
+	return FYAIEA_CONTINUE;
+}
+
 int fyai_cast_play_interactive(struct fyai_ctx *ctx, const char *path,
 			       double speed)
 {
 	struct fytim_cfg cfg;
 	struct player *p = calloc(1, sizeof(*p));
-	struct pollfd pfd;
+	struct fyai_event_loop *el;
 	int rc = -1, w = 0, h = 0, fd, op_rc;
 
 	fyai_error_check(ctx, p, out, "cast: out of memory");
@@ -790,27 +829,21 @@ int fyai_cast_play_interactive(struct fyai_ctx *ctx, const char *path,
 	p->playing = true;
 	p->ref_wall = fyai_monotonic_sec();
 	player_show_controls(p);
+	el = fyai_ctx_loop(ctx);
 	fd = fytim_poll_fd(p->ft);
-	while (!p->quit) {
-		pfd.fd = fd;
-		pfd.events = POLLIN;
-		(void)poll(&pfd, fd >= 0 ? 1 : 0, player_wait_ms(p));
-		if (fytim_pump(p->ft) != FYTIM_OK)
-			break;
-		player_events(p);
-		player_advance(p);
-		if (p->controls && p->playing && fyai_monotonic_sec() >= p->hide_at) {
-			p->controls = false;
-			p->dirty = true;
-		}
-		if (p->dirty) {
-			player_draw(p);
-			(void)fytim_pump(p->ft);
-		}
-	}
+	op_rc = fyai_event_add_fd(el, fd, FYAIEV_READ, player_tick, p,
+				  &p->input_src);
+	fyai_error_check(ctx, !op_rc, out, "cast: cannot watch the terminal");
+	op_rc = fyai_event_add_timer(el, 1, 0, player_tick, p, &p->timer_src);
+	fyai_error_check(ctx, !op_rc, out, "cast: cannot arm the player timer");
+	(void)fyai_event_loop_run_until(el, &p->quit, -1);
 	rc = 0;
 out:
 	if (p) {
+		if (p->input_src)
+			fyai_event_source_remove(p->input_src);
+		if (p->timer_src)
+			fyai_event_source_remove(p->timer_src);
 		if (p->sf)
 			fytim_surface_close(p->sf);
 		if (p->ft)
