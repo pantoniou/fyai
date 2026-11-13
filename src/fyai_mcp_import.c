@@ -68,27 +68,22 @@ static int mcp_import_store_secret(struct fyai_ctx *ctx, const char *name,
 				   const char *secret, char **oldp,
 				   size_t *old_lenp, bool *had_oldp)
 {
-	char *stored;
+	const char *stored;
 	int rc;
 
-	stored = strdup(fy_sprintfa("fyai:mcp-oauth-client/%s", name));
-	fyai_error_check(ctx, stored, err_out,
-			 "MCP OAuth import ran out of memory");
+	stored = fy_sprintfa("fyai:mcp-oauth-client/%s", name);
 	rc = fyai_secret_kernel_get(stored, oldp, old_lenp);
 	*had_oldp = rc == FYAI_SECRET_OK;
 	fyai_error_check(ctx, rc == FYAI_SECRET_OK ||
-			 rc == FYAI_SECRET_NOT_FOUND, err_free,
+			 rc == FYAI_SECRET_NOT_FOUND, err_out,
 			 "MCP OAuth secret backend is unavailable; "
 			 "use --secret-env");
 	rc = fyai_secret_kernel_set(stored, secret, strlen(secret));
-	fyai_error_check(ctx, rc == FYAI_SECRET_OK, err_free,
+	fyai_error_check(ctx, rc == FYAI_SECRET_OK, err_out,
 			 "MCP OAuth secret backend is unavailable; "
 			 "use --secret-env");
-	free(stored);
 	return 0;
 
-err_free:
-	free(stored);
 err_out:
 	return -1;
 }
@@ -96,16 +91,13 @@ err_out:
 static void mcp_import_restore_secret(const char *name, char *old,
 				      size_t old_len, bool had_old)
 {
-	char *stored;
+	const char *stored;
 
-	stored = strdup(fy_sprintfa("fyai:mcp-oauth-client/%s", name));
-	if (!stored)
-		return;
+	stored = fy_sprintfa("fyai:mcp-oauth-client/%s", name);
 	if (had_old)
 		(void)fyai_secret_kernel_set(stored, old, old_len);
 	else
 		(void)fyai_secret_kernel_delete(stored);
-	free(stored);
 }
 
 int fyai_mcp_import_client(struct fyai_ctx *ctx)
@@ -128,7 +120,7 @@ int fyai_mcp_import_client(struct fyai_ctx *ctx)
 	const char *secret_name;
 	char *text;
 	char *old_secret;
-	char *key;
+	const char *key;
 	size_t old_len;
 	size_t text_len;
 	size_t i;
@@ -208,11 +200,8 @@ int fyai_mcp_import_client(struct fyai_ctx *ctx)
 			"access_type", "offline",
 			"prompt", "consent"));
 	server = fy_mapping(gb, "endpoint", args->endpoint, "auth", auth);
-	key = strdup(fy_sprintfa("mcp/servers/%s", args->name));
-	fyai_error_check(ctx, key, err_restore,
-			 "MCP OAuth import ran out of memory");
+	key = fy_sprintfa("mcp/servers/%s", args->name);
 	rc = fyai_config_set_generic(ctx, key, server);
-	free(key);
 	fyai_error_check(ctx, !rc, err_restore,
 			 "could not commit MCP OAuth server configuration");
 	fyai_result(ctx, "mcp: imported OAuth client for %s\n", args->name);
