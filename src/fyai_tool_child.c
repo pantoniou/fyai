@@ -220,16 +220,12 @@ err:
 static int fyai_tool_child_spawn_take(struct fyai_ctx *ctx, fy_generic spawn)
 {
 	struct fyai_cfg *cfg = ctx->cfg;
-	const char *json, *key;
+	const char *key;
 
 	if (!fy_is_mapping(spawn))
 		return 0;
-	json = emit_json_string(fyai_ctx_transient_gb(ctx), spawn);
-	fyai_error_check(ctx, json, err,
-			 "could not keep the sub-agent spawn state");
-	free(ctx->agent_spawn_json);
-	ctx->agent_spawn_json = strdup(json);
-	fyai_error_check(ctx, ctx->agent_spawn_json, err,
+	ctx->agent_spawn = fy_gb_internalize(cfg->gb, spawn);
+	fyai_error_check(ctx, fy_is_mapping(ctx->agent_spawn), err,
 			 "could not keep the sub-agent spawn state");
 	ctx->agent_parent = fy_get(spawn, "parent", 0LL);
 	/* Credential isolation: the parent has registered this child. */

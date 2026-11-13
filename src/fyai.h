@@ -876,8 +876,11 @@ struct fyai_ctx {
 	const char *agent_branch;
 	/* The arena was reopened by fyai_agent_reopen_for_call(). */
 	bool arena_reopened;
-	/* The spawn state an executed sub-agent child received, as JSON. */
-	char *agent_spawn_json;
+	/*
+	 * The spawn state an executed sub-agent child received, held in the
+	 * configuration builder: the child serves one call and exits.
+	 */
+	fy_generic agent_spawn;
 	char *tool_submit_error;
 	fy_generic arena_branches;
 	fy_generic branch_prev;

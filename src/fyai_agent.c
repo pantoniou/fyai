@@ -500,6 +500,43 @@ static void agent_step_relay(struct fyai_ctx *ctx, fy_generic turn, void *data)
 }
 
 /*
+ * Reopen the arena and rebuild *@keep in the new transient builder. The
+ * transient builder is parented by the arena builder, so both are replaced.
+ * A builder of its own holds the value meanwhile.
+ */
+static int agent_reopen_keeping(struct fyai_ctx *ctx, fy_generic *keep)
+{
+	struct fy_generic_builder_cfg bcfg = {
+		.flags = FYGBCF_SCOPE_LEADER,
+	};
+	struct fy_generic_builder *hold;
+	fy_generic saved;
+	int rc;
+
+	hold = fy_generic_builder_create(&bcfg);
+	fyai_error_check(ctx, hold, err_out,
+			 "could not preserve the sub-agent call");
+	saved = fy_gb_internalize(hold, *keep);
+	fyai_error_check(ctx, fy_is_mapping(saved), err_hold,
+			 "could not preserve the sub-agent call");
+	fyai_cleanup_transient_builder(ctx);
+	rc = fyai_arena_reopen(ctx);
+	fyai_error_check(ctx, !rc, err_hold, "could not re-open the arena");
+	rc = fyai_setup_transient_builder(ctx);
+	fyai_error_check(ctx, !rc, err_hold,
+			 "could not prepare sub-agent storage");
+	*keep = fy_gb_internalize(ctx->transient_gb, saved);
+	fyai_error_check(ctx, fy_is_mapping(*keep), err_hold,
+			 "could not restore the sub-agent call");
+	fy_generic_builder_destroy(hold);
+	return 0;
+err_hold:
+	fy_generic_builder_destroy(hold);
+err_out:
+	return -1;
+}
+
+/*
  * Reopen the arena for the sub-agent call *@call and rebuild the call in the
  * new transient builder. The arena is mapped at the address of the old one,
  * which Fil-C releases when no frame points into it. Call this before the
@@ -507,38 +544,9 @@ static void agent_step_relay(struct fyai_ctx *ctx, fy_generic turn, void *data)
  */
 int fyai_agent_reopen_for_call(struct fyai_ctx *ctx, fy_generic *call)
 {
-	const char *json;
-	char *call_json;
 	int rc;
 
-	json = emit_json_string(ctx->transient_gb, *call);
-	if (!json) {
-		fyai_error(ctx, "could not preserve the sub-agent call");
-		return -1;
-	}
-	call_json = strdup(json);
-	if (!call_json) {
-		fyai_error(ctx, "could not preserve the sub-agent call");
-		return -1;
-	}
-	json = NULL;
-	fyai_cleanup_transient_builder(ctx);
-	rc = fyai_arena_reopen(ctx);
-	if (rc) {
-		fyai_error(ctx, "could not re-open the arena");
-	} else {
-		rc = fyai_setup_transient_builder(ctx);
-		if (rc)
-			fyai_error(ctx, "could not prepare sub-agent storage");
-	}
-	if (!rc) {
-		*call = parse_json_string(ctx->transient_gb, call_json);
-		if (!fy_is_mapping(*call)) {
-			fyai_error(ctx, "could not restore the sub-agent call");
-			rc = -1;
-		}
-	}
-	free(call_json);
+	rc = agent_reopen_keeping(ctx, call);
 	if (!rc)
 		ctx->arena_reopened = true;
 	return rc;
@@ -553,12 +561,10 @@ fy_generic fyai_agent_run(struct fyai_ctx *ctx, fy_generic args, bool *okp)
 	fy_generic persona_v, persona, persona_model;
 	fy_generic skill_v, skill_model, allow_tools, skill_name, skill_args;
 	fy_generic turn;
-	fy_generic report, spawn;
+	fy_generic report;
 	struct fyai_event_input input = {};
 	struct fyai_branch stored;
 	bool revive = false;
-	const char *json;
-	char *args_json = NULL;
 	const char *task;
 	const char *model_bare;
 	char *persona_names;
@@ -581,34 +587,13 @@ fy_generic fyai_agent_run(struct fyai_ctx *ctx, fy_generic args, bool *okp)
 	/* Re-open the arena before the forked child writes to it. */
 	if (ctx->agent_branch) {
 		if (!ctx->arena_reopened) {
-			/*
-			 * The transient builder is parented by the arena builder. Preserve
-			 * the call while both builders are replaced.
-			 */
-			json = emit_json_string(ctx->transient_gb, args);
-			fyai_error_check(ctx, json, err,
-					 "could not preserve the sub-agent call");
-			args_json = strdup(json);
-			fyai_error_check(ctx, args_json, err,
-					 "could not preserve the sub-agent call");
-			fyai_cleanup_transient_builder(ctx);
-			rc = fyai_arena_reopen(ctx);
-			fyai_error_check(ctx, !rc, err,
-					 "could not re-open the arena");
-			rc = fyai_setup_transient_builder(ctx);
-			fyai_error_check(ctx, !rc, err,
-					 "could not prepare sub-agent storage");
-			args = parse_json_string(ctx->transient_gb, args_json);
-			fyai_error_check(ctx, fy_is_mapping(args), err,
-					 "could not restore the sub-agent call");
-			free(args_json);
-			args_json = NULL;
+			rc = agent_reopen_keeping(ctx, &args);
+			if (rc)
+				goto err;
 		}
 		/* An executed child adopts the state that its parent sent. */
-		if (ctx->agent_spawn_json) {
-			spawn = parse_json_string(ctx->transient_gb,
-						  ctx->agent_spawn_json);
-			rc = fyai_agent_spawn_adopt(ctx, spawn);
+		if (fy_is_mapping(ctx->agent_spawn)) {
+			rc = fyai_agent_spawn_adopt(ctx, ctx->agent_spawn);
 			fyai_error_check(ctx, !rc, err,
 					 "could not adopt the parent state");
 		}
@@ -855,7 +840,6 @@ fy_generic fyai_agent_run(struct fyai_ctx *ctx, fy_generic args, bool *okp)
 
 err:
 	fyai_ui_close(ctx);
-	free(args_json);
 	return fy_invalid;
 }
 

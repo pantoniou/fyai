@@ -2560,8 +2560,7 @@ void fyai_cleanup(struct fyai_ctx *ctx)
 	free(ctx->session_unstored);
 	ctx->session_unstored = NULL;
 	ctx->agent_branch = NULL;
-	free(ctx->agent_spawn_json);
-	ctx->agent_spawn_json = NULL;
+	ctx->agent_spawn = fy_invalid;
 	free(ctx->tool_submit_error);
 	ctx->tool_submit_error = NULL;
 	fyai_request_cache_release(ctx);
@@ -2793,6 +2792,7 @@ int fyai_setup(struct fyai_ctx *ctx, struct fyai_cfg *cfg)
 	ctx->branch_prev = fy_invalid;
 	ctx->branch_desc = fy_invalid;
 	ctx->branch_agent = fy_invalid;
+	ctx->agent_spawn = fy_invalid;
 	ctx->branch_store = fy_invalid;
 	ctx->project_state = fy_invalid;
 	ctx->tool_changes = fy_seq_empty;
