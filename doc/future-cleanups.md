@@ -27,7 +27,7 @@ the code before a change.
 - A NULL pointer and a boolean record one fact. Examples: `session->job`,
   `job->csrc`, `term_src`, `session_id`, `group`.
 - A derived flag is computed again at each event. Examples:
-  `fyai_tool_job_update_done()`, `agent_state_active()`,
+  `fyai_tool_job_settle()`, `agent_active()`,
   `mcp_teardown_settled()`.
 - A kind is a set of booleans. Examples: `agent`, `exec`, `btw` and
   `native_shell` on a job; `poll`, `sleep` and `on_event` on a waiter.
@@ -38,7 +38,7 @@ the code before a change.
   `struct fyai_mcp_call_request` and lives and dies with the request.
 - A state enum exists, but side flags change its meaning. Examples:
   `stream_response`, `fyai_turn_run` and `fyai_model_step`.
-  `mcp_call_request` and `auth_login_request` were listed here; their only
+  `fyai_mcp_call_request` and `fyai_auth_login_request` were listed here; their only
   side flag, `cancel_requested`, is now the CANCELLING state.
 
 ## High priority
@@ -380,7 +380,7 @@ is rejected with a warning.
 
 All five entries are closed.
 
-- `mcp_call_request` and `auth_login_request` (done): `FYAIMCS_CANCELLING` and
+- `fyai_mcp_call_request` and `fyai_auth_login_request` (done): `FYAIMCS_CANCELLING` and
   `FYAILS_CANCELLING` replace `cancel_requested`. Both requests drop the phase
   when a cancel arrives: the next completion finishes as CANCELLED whatever
   phase it was in, so the cancel does not need to keep it. The JSON-RPC
@@ -428,31 +428,39 @@ All five entries are closed.
 `struct fyai_ctx` holds these clusters, each with one lifecycle and no common
 reset:
 
-1. The transport client, about 14 fields (item 5).
+1. The transport client: done, it is `ctx->transport`, a
+   `struct fyai_transport_state` of thirteen fields (item 5).
 2. The model transfer: `xfer_body`, `xfer_url`, `xfer_profile`, `xfer_status`,
-   `xfer_retry_after`, `xfer_error`. Only one request can be in flight, so
-   concurrent requests of `fyai_btw_run` or of agents can collide.
+   `xfer_retry_after`, `xfer_error`. A context has one request in flight
+   (`ctx->curl`). A sub-agent and a `/btw` run are forked children, so each has
+   its own copy of these fields and none is shared between concurrent runs.
+   The earlier claim that these runs collide on them is not supported by the
+   code.
 3. Turn control: `turn_end_requested`, `turn_stop`, `turn_cost_limit`,
-   `compacting`, `interrupt_*`, `terminate_pending`, `tool_diff_tracking`,
+   `compacting`, `interrupt_*`, `terminate_pending`, `tool_diff_tracking`
+   (written only by `fyai_turn_run_diff_begin()` and `fyai_turn_run_diff_end()`),
    `tool_gate*`, `relay_gate`, `relay_steps`, `output_schema`,
    `structured_output`. Each is per turn and a person clears it.
 4. Usage: `usage_*`, `last_call_*`, `switch_*`, `usage_agents*`. Two phases,
    the run and the last call, are mixed.
 5. The record of the next publish: `branch_op`, `branch_op_from`,
    `branch_store`, `branch_prev`, `branch_desc`, `branch_agent`,
-   `project_state`, `session_unstored`.
+   `project_state`, `session_unstored` (`fyai_branch_adopt()` clears it).
 
 A reset function for each sub-structure, called from `fyai_ctx_fork_disown()`
 and from the forked-child block, would remove the risk of a missed field.
 
 ## Suggested order
 
-1. Items 1 and 2 together.
-2. The retry cluster (item 3), with the curl transfer (item 7).
+Steps 1 to 3 and 5 are done (part 1 is finished). Step 4 is open.
+
+1. Items 1 and 2 together: done.
+2. The retry cluster (item 3), with the curl transfer (item 7): done.
 3. The small self-contained ones: the waiter kind, the agent record state, the
-   `uiwork_band` state and the job-group pair.
-4. The sub-structures of the context, with one reset function each.
-5. The event core, the PTY driver and the markdown stream, last.
+   `uiwork_band` state and the job-group pair: done.
+4. The sub-structures of the context, with one reset function each: open.
+5. The event core, the PTY driver and the markdown stream, last: checked, the
+   event core got invariant comments, the others need no change.
 
 ## Plan: separate the TUI from the core
 
@@ -498,10 +506,10 @@ that is connected to an in-process worker.
    are called from files other than the UI files. The most calls are in
    `fyai_tools.c` (90), `fyai.c` (47), `fyai_sink.c` (31), `fyai_browser.c`
    (30), `fyai_agents.c` (21) and `fyai_workpane.c` (20). Each call is one of:
-   a state write (becomes a store frame), an input read (`take_line`,
-   `peek_line`, `readline`; becomes a request frame), a question that needs
-   an answer (`fyai_ui_ask`; already a frame pair), or a drain
-   (`diag_drain`, `drain_output`; becomes a log entry).
+   a state write (becomes a store frame), an input read (`fyai_ui_take_line`,
+   `fyai_ui_peek_line`, `readline`; becomes a request frame), a question that needs
+   an answer (`fyai_ask_open`; already a frame pair), or a drain
+   (`fyai_diag_drain`, `fyai_ui_drain_output`; becomes a log entry).
 2. The sink is one per process. The core must run with the worker sink, so it
    makes Markdown source and no rows. The sink flow (`fyai_flow.c`) and the
    width-dependent code then belong to the TUI thread only.
@@ -607,7 +615,8 @@ layer in the TUI context, and not in an arena:
 - The TUI reads it. The core in an interactive run never does. A headless run
   (a verb, `--print`) still renders with the sink, so it reads the same file
   for its colour and Markdown settings. The renderer library takes one small
-  structure, `fyai_render_cfg`, from whoever renders.
+  structure, `fyai_render_cfg` (planned: it does not exist yet), from whoever
+  renders.
 - The layers are the file, then `--set display/...` of the command line, then
   the session. A project file (`.fyai/ui.yaml`) can come later. It is not
   needed now.
