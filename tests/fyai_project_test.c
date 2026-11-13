@@ -855,7 +855,9 @@ int project_capture_delta(void)
 	close(manifests);
 	close(source);
 	close(opts.objects_fd);
+	project_remove_tree(root);
 	close(root);
+	FYAI_TCHECK(!rmdir(path));
 	return 0;
 }
 
