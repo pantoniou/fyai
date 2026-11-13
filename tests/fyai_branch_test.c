@@ -15,6 +15,7 @@ FYAI_TEST_ENTRY(branch, select_empty, branch_select_empty)
 FYAI_TEST_ENTRY(branch, pick_last, branch_pick_last_newest)
 FYAI_TEST_ENTRY(branch, import_provenance, branch_import_provenance)
 FYAI_TEST_ENTRY(branch, adopt_ends_unstored, branch_adopt_ends_unstored)
+FYAI_TEST_ENTRY(branch, name_outlives_change, branch_name_outlives_change)
 
 /* An entry with both timestamps and a directory. */
 static fy_generic entry_new(struct fy_generic_builder *gb, long long created,
@@ -239,6 +240,39 @@ int branch_adopt_ends_unstored(void)
 	FYAI_TCHECK(!ctx.session_unstored);
 
 	fy_generic_builder_destroy(cfg.gb);
+	fy_generic_builder_destroy(gb);
+	return 0;
+}
+
+/* A branch name that was handed out stays valid when the branch changes. */
+int branch_name_outlives_change(void)
+{
+	struct fy_generic_builder *gb;
+	struct fyai_cfg cfg;
+	struct fyai_ctx ctx;
+	const char *first, *again;
+
+	gb = builder_new();
+	FYAI_TCHECK(gb);
+	memset(&cfg, 0, sizeof(cfg));
+	memset(&ctx, 0, sizeof(ctx));
+	cfg.gb = gb;
+	ctx.cfg = &cfg;
+	ctx.gb = gb;
+
+	FYAI_TCHECK(!fyai_ctx_set_branch(&ctx, "session/first"));
+	first = fyai_ctx_branch(&ctx);
+	FYAI_TCHECK(!fyai_ctx_set_branch(&ctx, "other"));
+	FYAI_TCHECK(!strcmp(first, "session/first"));
+	FYAI_TCHECK(!strcmp(fyai_ctx_branch(&ctx), "other"));
+
+	/* The same name is one string, so a repeated name costs nothing. */
+	FYAI_TCHECK(!fyai_ctx_set_branch(&ctx, "session/first"));
+	again = fyai_ctx_branch(&ctx);
+	FYAI_TCHECK(again == first);
+
+	FYAI_TCHECK(fyai_ctx_set_branch(&ctx, "bad name"));
+	FYAI_TCHECK(!strcmp(fyai_ctx_branch(&ctx), "session/first"));
 	fy_generic_builder_destroy(gb);
 	return 0;
 }
