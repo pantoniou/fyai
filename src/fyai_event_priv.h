@@ -32,7 +32,13 @@ struct fyai_defer {
 	void *userdata;
 };
 
-/* Escalating child shutdown, carried inline in the source that owns it. */
+/*
+ * Escalating child shutdown, carried inline in the source that owns it.
+ * @stage counts from 0 (grace) through 1 (after SIGTERM) to 2 (after SIGKILL)
+ * and only increases; the timeout callback and the stage entry write it, and
+ * both run on the loop. @active is set one time when the ladder is armed and
+ * is not read. @timer is non-NULL from arming until the child exits.
+ */
 struct fyai_event_term {
 	struct fyai_event_source *timer;
 	fyai_event_ms_t stage_ms[2];	/* grace, post-SIGTERM */
@@ -50,6 +56,17 @@ struct fyai_event_source {
 	fyai_event_cb cb;
 	void *userdata;
 	unsigned int events;		/* requested interest (FD sources) */
+	/*
+	 * Lifecycle bits. @removed is set by fyai_event_source_remove() during a
+	 * dispatch, or by the dispatch of a CHILD source before its callback; the
+	 * source is already disarmed in the backend and is freed when the
+	 * outermost dispatch returns. A removed source never fires again.
+	 * @oneshot is set with the interval of a timer (none means one shot)
+	 * and always for a CHILD.
+	 * @armed is owned by the backend: the source is registered with the
+	 * kernel. @reaped is owned by fyai_event_child_try_reap() and is set one
+	 * time, for a CHILD only.
+	 */
 	bool removed;			/* pending deferred destroy */
 	bool oneshot;			/* disarm rather than repeat */
 	bool armed;
