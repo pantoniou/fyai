@@ -78,7 +78,7 @@ static fy_generic view_find(struct fyai_ctx *ctx, const char *name)
 static int view_save(struct fyai_ctx *ctx, const char *name, fy_generic view)
 {
 	fy_generic store, views;
-	char *unstored;
+	const char *unstored;
 	int rc;
 
 	store = view_store(ctx);
@@ -98,8 +98,6 @@ static int view_save(struct fyai_ctx *ctx, const char *name, fy_generic view)
 	rc = fyai_publish_root(ctx, fy_invalid, fy_invalid, fy_invalid);
 	if (rc)
 		ctx->session_unstored = unstored;
-	else
-		free(unstored);
 	return rc;
 }
 

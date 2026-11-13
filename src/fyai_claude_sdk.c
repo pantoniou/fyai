@@ -3369,8 +3369,7 @@ static void sdk_clear(struct sdk_server *srv)
 	fyai_error_check(ctx, !rc, err,
 			 "claude-sdk: cannot select the new session");
 	/* The configuration goes with it; the conversation does not. */
-	free(ctx->session_unstored);
-	ctx->session_unstored = strdup(name);
+	ctx->session_unstored = fyai_ctx_keep_str(ctx, name);
 	fyai_error_check(ctx, ctx->session_unstored, err,
 			 "claude-sdk: cannot keep the new session name");
 	ctx->branch_desc = fy_invalid;

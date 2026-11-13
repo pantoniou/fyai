@@ -863,15 +863,15 @@ struct fyai_ctx {
 	char *settings_export_dir;
 	struct fyai_skill_dir *skill_dirs;
 	/* Active branch state and its next ref-log predecessor. */
-	char *branch;
+	const char *branch;
 	/* Stored HEAD, which can differ from the active branch. */
-	char *head_branch;
+	const char *head_branch;
 	/*
 	 * The fresh session that no publish stored yet, or NULL. While its
 	 * conversation holds no exchange, a publish on it stores nothing and
 	 * its configuration stays in this context.
 	 */
-	char *session_unstored;
+	const char *session_unstored;
 	/* Durable branch for a sub-agent conversation. */
 	const char *agent_branch;
 	/* The arena was reopened by fyai_agent_reopen_for_call(). */

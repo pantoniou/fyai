@@ -823,9 +823,9 @@ int fyai_setup_storage(struct fyai_ctx *ctx)
 			 * An explicit --branch selects where this invocation
 			 * works without moving HEAD.
 			 */
-			ctx->head_branch = strdup(name);
+			ctx->head_branch = fyai_ctx_keep_str(ctx, name);
 			fyai_error_check(ctx, ctx->head_branch, err_out,
-					 "out of memory reading HEAD");
+					 "could not keep HEAD");
 			if (!cfg->branch_explicit) {
 				rc = fyai_ctx_set_branch(ctx, name);
 				fyai_error_check(ctx, !rc, err_out,
@@ -920,7 +920,7 @@ int fyai_setup_storage(struct fyai_ctx *ctx)
 			rc = fyai_ctx_set_branch(ctx, session);
 			fyai_error_check(ctx, !rc, err_out,
 					 "could not select the new session");
-			ctx->session_unstored = strdup(session);
+			ctx->session_unstored = fyai_ctx_keep_str(ctx, session);
 			fyai_error_check(ctx, ctx->session_unstored, err_out,
 					 "could not keep the new session name");
 			ctx->branch_desc = fy_invalid;
@@ -1019,8 +1019,6 @@ int fyai_arena_reopen(struct fyai_ctx *ctx)
 	/* The turns that the cache names may move with the arena. */
 	fyai_request_cache_release(ctx);
 
-	/* A second setup would strdup over the first. */
-	free(ctx->head_branch);
 	ctx->head_branch = NULL;
 
 	/* Do not apply the parent's --new operation twice. */
@@ -1216,7 +1214,6 @@ static int fyai_root_publish_try(struct fyai_ctx *ctx)
 	ctx->arena_branches = branchesv;
 	if (ctx->session_unstored &&
 	    !strcmp(ctx->session_unstored, fyai_ctx_branch(ctx))) {
-		free(ctx->session_unstored);
 		ctx->session_unstored = NULL;
 	}
 	/* Chain the next publish to the entry that was written. */
@@ -1833,14 +1830,12 @@ int fyai_publish_branches(struct fyai_ctx *ctx, fy_generic base,
 		fyai_error_check(ctx, fy_is_valid(merged), err_out,
 				 "could not reconcile branch-table changes");
 		if (!head_changed) {
-			free(ctx->head_branch);
 			ctx->head_branch = NULL;
 			head_name = fyai_root_head_name(&current);
 			if (head_name) {
-				ctx->head_branch = strdup(head_name);
+				ctx->head_branch = fyai_ctx_keep_str(ctx, head_name);
 				fyai_error_check(ctx, ctx->head_branch, err_out,
-						 "out of memory reading "
-						 "concurrent HEAD");
+						 "could not keep the concurrent HEAD");
 			}
 		}
 		reconciled = true;

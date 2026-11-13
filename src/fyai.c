@@ -2549,15 +2549,8 @@ void fyai_cleanup(struct fyai_ctx *ctx)
 		free(ctx->user_agent);
 		ctx->user_agent = NULL;
 	}
-	if (ctx->branch) {
-		free(ctx->branch);
-		ctx->branch = NULL;
-	}
-	if (ctx->head_branch) {
-		free(ctx->head_branch);
-		ctx->head_branch = NULL;
-	}
-	free(ctx->session_unstored);
+	ctx->branch = NULL;
+	ctx->head_branch = NULL;
 	ctx->session_unstored = NULL;
 	ctx->agent_branch = NULL;
 	ctx->agent_spawn = fy_invalid;
@@ -3460,7 +3453,7 @@ static int fyai_interactive_handle_slash(struct fyai_ctx *ctx,
 					 bool record)
 {
 	fy_generic head;
-	char *branch;
+	const char *branch;
 	bool transcript, status;
 	int rc;
 
@@ -3475,7 +3468,7 @@ static int fyai_interactive_handle_slash(struct fyai_ctx *ctx,
 	if (transcript)
 		fyai_echo_user_turn(ctx, line);
 	head = ctx->last_message;
-	branch = ctx->branch ? strdup(ctx->branch) : NULL;
+	branch = ctx->branch;
 	fyai_ui_pane_status(ctx, status);
 	rc = fyai_session_slash(ctx, line);
 	fyai_ui_pane_status(ctx, false);
@@ -3484,7 +3477,6 @@ static int fyai_interactive_handle_slash(struct fyai_ctx *ctx,
 		fyai_interactive_record_command(ctx, line, head, branch);
 	else
 		free(fyai_ui_pane_take(ctx));
-	free(branch);
 	fyai_error_check(ctx, rc >= 0, out,
 			 "could not run the slash command");
 	if (transcript && ctx->cfg->markdown && ctx->stdout_tty)

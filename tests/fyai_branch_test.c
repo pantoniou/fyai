@@ -213,6 +213,8 @@ int branch_adopt_ends_unstored(void)
 	FYAI_TCHECK(gb);
 	memset(&cfg, 0, sizeof(cfg));
 	memset(&ctx, 0, sizeof(ctx));
+	cfg.gb = builder_new();
+	FYAI_TCHECK(cfg.gb);
 	ctx.cfg = &cfg;
 	ctx.gb = gb;
 	ctx.last_message = fy_invalid;
@@ -225,7 +227,7 @@ int branch_adopt_ends_unstored(void)
 	ctx.arena_branches = fy_mapping(gb,
 		"stored", entry_new(gb, 10, 20, "/w"));
 	FYAI_TCHECK(!fyai_ctx_set_branch(&ctx, "session/fresh"));
-	ctx.session_unstored = strdup("session/fresh");
+	ctx.session_unstored = fyai_ctx_keep_str(&ctx, "session/fresh");
 	FYAI_TCHECK(ctx.session_unstored);
 
 	/* A branch that is not stored is not adopted, and the session stays. */
@@ -236,7 +238,7 @@ int branch_adopt_ends_unstored(void)
 	FYAI_TCHECK(!strcmp(fyai_ctx_branch(&ctx), "stored"));
 	FYAI_TCHECK(!ctx.session_unstored);
 
-	free(ctx.branch);
+	fy_generic_builder_destroy(cfg.gb);
 	fy_generic_builder_destroy(gb);
 	return 0;
 }

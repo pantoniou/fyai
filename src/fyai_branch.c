@@ -45,18 +45,10 @@ const char *fyai_ctx_head_branch(const struct fyai_ctx *ctx)
 
 int fyai_ctx_checkout(struct fyai_ctx *ctx, const char *name)
 {
-	char *dup;
-
 	if (fyai_ctx_set_branch(ctx, name))
 		return -1;
-	dup = strdup(name);
-	if (!dup) {
-		fyai_error(ctx, "out of memory checking out '%s'", name);
-		return -1;
-	}
-	free(ctx->head_branch);
-	ctx->head_branch = dup;
-	return 0;
+	ctx->head_branch = fyai_ctx_keep_str(ctx, name);
+	return ctx->head_branch ? 0 : -1;
 }
 
 int fyai_cfg_set_branch(struct fyai_cfg *cfg, const char *name)
@@ -114,20 +106,17 @@ int fyai_cfg_set_root(struct fyai_cfg *cfg, const char *spec)
 
 int fyai_ctx_set_branch(struct fyai_ctx *ctx, const char *name)
 {
-	char *dup;
+	const char *kept;
 
 	/* Selection, and the path a sub-agent takes to its own branch. */
 	if (!fyai_branch_name_ref_valid(name)) {
 		fyai_error(ctx, "invalid branch name '%s'", name ? name : "");
 		return -1;
 	}
-	dup = strdup(name);
-	if (!dup) {
-		fyai_error(ctx, "out of memory setting branch '%s'", name);
+	kept = fyai_ctx_keep_str(ctx, name);
+	if (!kept)
 		return -1;
-	}
-	free(ctx->branch);
-	ctx->branch = dup;
+	ctx->branch = kept;
 	return 0;
 }
 
@@ -1428,10 +1417,9 @@ int fyai_branch_delete(struct fyai_ctx *ctx, const char *name, bool force)
 					 "could not reparent current branch");
 		}
 		if (ctx->head_branch && !strcmp(nm, ctx->head_branch)) {
-			free(ctx->head_branch);
-			ctx->head_branch = strdup(newname);
+			ctx->head_branch = fyai_ctx_keep_str(ctx, newname);
 			fyai_error_check(ctx, ctx->head_branch, err_out,
-					 "out of memory reparenting HEAD");
+					 "could not reparent HEAD");
 		}
 	}
 	fyai_error_check(ctx, fy_generic_mapping_get_pair_count(branches),
@@ -1507,10 +1495,9 @@ int fyai_branch_rename(struct fyai_ctx *ctx, const char *from, const char *to)
 					 "could not rename current branch");
 		}
 		if (ctx->head_branch && !strcmp(nm, ctx->head_branch)) {
-			free(ctx->head_branch);
-			ctx->head_branch = strdup(newname);
+			ctx->head_branch = fyai_ctx_keep_str(ctx, newname);
 			fyai_error_check(ctx, ctx->head_branch, err_out,
-					 "out of memory renaming HEAD");
+					 "could not rename HEAD");
 		}
 	}
 	/*
@@ -1549,7 +1536,6 @@ int fyai_branch_adopt(struct fyai_ctx *ctx, const char *name, bool keep_head)
 			 "could not adopt branch '%s'", name);
 
 	/* A stored branch ends the session that no publish stored. */
-	free(ctx->session_unstored);
 	ctx->session_unstored = NULL;
 	ctx->last_message = b.head;
 	ctx->arena_config = b.config;
