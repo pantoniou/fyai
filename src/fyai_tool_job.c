@@ -1965,18 +1965,27 @@ fyai_tool_job_group_create_notify(struct fyai_ctx *ctx,
 				  fyai_tool_group_complete_fn complete,
 				  void *userdata)
 {
+	struct fy_generic_builder_cfg bcfg = {
+		.flags = FYGBCF_SCOPE_LEADER,
+	};
 	struct fyai_tool_job_group *group;
 
 	if (!ctx)
 		return NULL;
 	group = calloc(1, sizeof(*group));
-	if (!group)
-		return NULL;
+	fyai_error_check(ctx, group, err_out, "cannot make a tool group");
+	group->gb = fy_generic_builder_create(&bcfg);
+	fyai_error_check(ctx, group->gb, err_group,
+			 "cannot make the builder of a tool group");
 	group->ctx = ctx;
 	group->complete = complete;
 	group->userdata = userdata;
 	group->max_parallel = ctx->cfg->parallel_tool_calls ? 16 : 1;
 	return group;
+err_group:
+	free(group);
+err_out:
+	return NULL;
 }
 
 struct fyai_tool_job_group *
@@ -1993,11 +2002,22 @@ fyai_tool_job_group_create_open(struct fyai_ctx *ctx,
 	return group;
 }
 
+/* Keep @result in the group. An invalid result is a failed submission. */
+static void fyai_tool_group_entry_store(struct fyai_tool_job_group *group,
+					struct fyai_tool_group_entry *entry,
+					fy_generic result)
+{
+	entry->result = fy_is_valid(result) ?
+		fy_gb_internalize(group->gb, result) : fy_invalid;
+	entry->has_result = fy_is_valid(entry->result);
+	entry->state = entry->has_result ? FYAITGS_PARKED :
+					   FYAITGS_SUBMIT_FAILED;
+}
+
 int fyai_tool_job_group_add(struct fyai_tool_job_group *group,
 			    fy_generic tool_call)
 {
-	const char *text;
-	char *copy;
+	fy_generic call;
 	bool parallel, instant;
 	int rc;
 	size_t i;
@@ -2015,17 +2035,14 @@ int fyai_tool_job_group_add(struct fyai_tool_job_group *group,
 		return -1;
 	/* The job runs the call that the tool call expands to. */
 	tool_call = fyai_tool_call_effective(group->ctx, tool_call);
-	text = emit_json_string(group->ctx->transient_gb, tool_call);
-	copy = text ? strdup(text) : NULL;
-	if (!copy)
+	call = fy_gb_internalize(group->gb, tool_call);
+	if (fy_is_invalid(call))
 		return -1;
-	for (i = 0; i < group->count; i++) {
-		if (!strcmp(group->entries[i].call_text, copy)) {
-			free(copy);
+	for (i = 0; i < group->count; i++)
+		if (fy_equal(group->entries[i].call, call))
 			return 0;
-		}
-	}
-	group->entries[group->count].call_text = copy;
+	group->entries[group->count].call = call;
+	group->entries[group->count].result = fy_invalid;
 	group->entries[group->count].parallel = parallel && !instant;
 	group->entries[group->count].state = FYAITGS_QUEUED;
 	if (!parallel) {
@@ -2051,16 +2068,13 @@ static void fyai_tool_job_group_dispatch(struct fyai_tool_job_group *group)
 	fy_generic args;
 	fy_generic result;
 	const char *name;
-	const char *text;
 	char *why;
 
 	while (group->phase != FYAITGP_CANCELLED && group->next < group->count &&
 	       group->active < group->max_parallel) {
 		entry = &group->entries[group->next++];
-		call = parse_json_string(group->ctx->transient_gb,
-					 entry->call_text);
-		name = fy_is_valid(call) ?
-			fyai_tool_call_name(group->ctx, call) : NULL;
+		call = entry->call;
+		name = fyai_tool_call_name(group->ctx, call);
 		if (name && (fyai_mcp_tool_name(name) ||
 			     !strcmp(name, "mcp_resource"))) {
 			args = fyai_tool_call_args(group->ctx, call);
@@ -2082,11 +2096,7 @@ static void fyai_tool_job_group_dispatch(struct fyai_tool_job_group *group)
 				fyai_skill_tool_allowed(group->ctx, name) ?
 				"tool error: MCP call failed" :
 				"tool error: tool is not allowed by this skill");
-			text = emit_json_string(group->ctx->transient_gb,
-						result);
-			entry->result_text = text ? strdup(text) : NULL;
-			entry->state = entry->result_text ?
-				FYAITGS_PARKED : FYAITGS_SUBMIT_FAILED;
+			fyai_tool_group_entry_store(group, entry, result);
 			group->parked++;
 			continue;
 		}
@@ -2113,23 +2123,14 @@ static void fyai_tool_job_group_dispatch(struct fyai_tool_job_group *group)
 					  why ? why : "tool error: the wait "
 					  "could not start");
 			free(why);
-			text = emit_json_string(group->ctx->transient_gb,
-						result);
-			entry->result_text = text ? strdup(text) : NULL;
-			entry->state = entry->result_text ?
-				FYAITGS_PARKED : FYAITGS_SUBMIT_FAILED;
+			fyai_tool_group_entry_store(group, entry, result);
 			group->parked++;
 			continue;
 		}
 		if (!entry->parallel) {
 			result = fyai_execute_tool_call(group->ctx, call,
 							&entry->result_ok);
-			text = fy_is_valid(result) ?
-				emit_json_string(group->ctx->transient_gb,
-						 result) : NULL;
-			entry->result_text = text ? strdup(text) : NULL;
-			entry->state = entry->result_text ?
-				FYAITGS_PARKED : FYAITGS_SUBMIT_FAILED;
+			fyai_tool_group_entry_store(group, entry, result);
 			group->parked++;
 			continue;
 		}
@@ -2139,12 +2140,8 @@ static void fyai_tool_job_group_dispatch(struct fyai_tool_job_group *group)
 			/* Return a submission error as the tool result. */
 			result = fy_value(group->ctx->transient_gb,
 					  fyai_tool_submit_error(group->ctx));
-			text = emit_json_string(group->ctx->transient_gb,
-						result);
-			entry->result_text = text ? strdup(text) : NULL;
+			fyai_tool_group_entry_store(group, entry, result);
 			entry->result_ok = false;
-			entry->state = entry->result_text ?
-				FYAITGS_PARKED : FYAITGS_SUBMIT_FAILED;
 			group->parked++;
 			continue;
 		}
@@ -2282,7 +2279,7 @@ fyai_tool_job_group_cancelled_result(struct fyai_tool_job_group *group,
 {
 	fy_generic call;
 
-	call = parse_json_string(group->ctx->transient_gb, entry->call_text);
+	call = entry->call;
 	if (fy_equal(fy_get(call, "type"), "shell_call"))
 		return fy_gb_internalize(group->ctx->transient_gb,
 			fy_sequence(fy_mapping(
@@ -2320,9 +2317,9 @@ int fyai_tool_job_group_collect(struct fyai_tool_job_group *group,
 		*result = fyai_mcp_call_collect(entry->mcp_request, okp);
 		fyai_mcp_call_destroy(entry->mcp_request);
 		entry->mcp_request = NULL;
-	} else if (entry->result_text) {
-		*result = parse_json_string(group->ctx->transient_gb,
-					    entry->result_text);
+	} else if (entry->has_result) {
+		*result = fy_gb_internalize(group->ctx->transient_gb,
+					    entry->result);
 		*okp = entry->result_ok;
 	} else if (group->phase == FYAITGP_CANCELLED) {
 		*result = fyai_tool_job_group_cancelled_result(group, entry);
@@ -2350,9 +2347,8 @@ void fyai_tool_job_group_destroy(struct fyai_tool_job_group *group)
 			fyai_tool_job_discard(entry->job);
 		fyai_mcp_call_destroy(entry->mcp_request);
 		fyai_waiter_destroy(entry->waiter);
-		free(entry->call_text);
-		free(entry->result_text);
 	}
 	free(group->entries);
+	fy_generic_builder_destroy(group->gb);
 	free(group);
 }

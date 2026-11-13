@@ -231,8 +231,9 @@ enum fyai_tool_group_state {
 };
 
 struct fyai_tool_group_entry {
-	char *call_text;
-	char *result_text;
+	fy_generic call;		/* held in the builder of the group */
+	fy_generic result;
+	bool has_result;
 	struct fyai_tool_job *job;
 	struct fyai_mcp_call_request *mcp_request;
 	struct fyai_waiter *waiter;	/* a wait for an event of this group */
@@ -255,6 +256,8 @@ enum fyai_tool_group_phase {
 
 struct fyai_tool_job_group {
 	struct fyai_ctx *ctx;
+	/* Holds the calls and results: the transient builder can go first. */
+	struct fy_generic_builder *gb;
 	struct fyai_tool_group_entry *entries;
 	struct fyai_event_source *animation_timer;
 	size_t count;
