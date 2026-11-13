@@ -211,23 +211,6 @@ int project_directory_validation(void)
 	return 0;
 }
 
-#ifdef __linux__
-struct project_progress_check {
-	pthread_t owner;
-	unsigned int phases;
-};
-
-static void project_progress_check(void *arg, const struct fyai_project_capture_stats *stats)
-{
-	struct project_progress_check *check = arg;
-
-	FYAI_TCHECK(pthread_equal(check->owner, pthread_self()));
-	check->phases |= 1U << stats->phase;
-	FYAI_TCHECK(stats->completed <= stats->files);
-	FYAI_TCHECK(stats->copies + stats->reflinks + stats->hardlinks + stats->metacopies <=
-		    stats->files);
-}
-
 static void project_remove_tree(int fd)
 {
 	struct dirent *entry;
@@ -252,6 +235,23 @@ static void project_remove_tree(int fd)
 			FYAI_TCHECK(!unlinkat(fd, entry->d_name, 0));
 	}
 	closedir(directory);
+}
+
+#ifdef __linux__
+struct project_progress_check {
+	pthread_t owner;
+	unsigned int phases;
+};
+
+static void project_progress_check(void *arg, const struct fyai_project_capture_stats *stats)
+{
+	struct project_progress_check *check = arg;
+
+	FYAI_TCHECK(pthread_equal(check->owner, pthread_self()));
+	check->phases |= 1U << stats->phase;
+	FYAI_TCHECK(stats->completed <= stats->files);
+	FYAI_TCHECK(stats->copies + stats->reflinks + stats->hardlinks + stats->metacopies <=
+		    stats->files);
 }
 
 int project_borrowed_git(void)
