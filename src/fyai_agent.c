@@ -868,7 +868,7 @@ struct fyai_agent_bg_run {
 	struct fyai_agent_bg_run *next;
 	struct fyai_ctx *ctx;
 	struct fyai_tool_job_group *group;	/* NULL once it has finished */
-	char *name;
+	const char *name;
 	char handle[FYAI_BRANCH_COMPONENT_MAX + 1];
 	struct fyai_scope_pin pin;	/* it holds the scope of its exchange */
 };
@@ -882,7 +882,6 @@ static void agent_bg_free(struct fyai_agent_bg_run *run)
 {
 	fyai_tool_job_group_destroy(run->group);
 	fyai_scope_unpin(run->ctx, &run->pin);
-	free(run->name);
 	free(run);
 }
 
@@ -950,7 +949,7 @@ fy_generic fyai_agent_background(struct fyai_ctx *ctx, fy_generic args,
 	fyai_error_check(ctx, run, err,
 			 "agent: could not allocate the background run");
 	run->ctx = ctx;
-	run->name = strdup(name);
+	run->name = fyai_ctx_keep_str(ctx, name);
 	fyai_branch_sanitize(name, "agent", run->handle, sizeof(run->handle));
 	fyai_error_check(ctx, run->name, err,
 			 "agent: could not retain the agent name");

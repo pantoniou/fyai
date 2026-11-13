@@ -2100,7 +2100,7 @@ struct fyai_btw_run {
 	struct fyai_btw_run *next;
 	struct fyai_ctx *ctx;
 	struct fyai_tool_job_group *group;
-	char *branch;
+	const char *branch;
 };
 
 static void session_btw_finish(void *userdata)
@@ -2128,7 +2128,6 @@ release:
 	if (*link)
 		*link = run->next;
 	fyai_tool_job_group_destroy(run->group);
-	free(run->branch);
 	free(run);
 }
 
@@ -2150,8 +2149,7 @@ void fyai_session_btw_close(struct fyai_ctx *ctx)
 		fyai_event_defer_cancel(fyai_ctx_loop(ctx), session_btw_finish,
 					 run);
 		fyai_tool_job_group_destroy(run->group);
-		free(run->branch);
-		free(run);
+			free(run);
 	}
 	ctx->btw_runs = NULL;
 	fyai_tools_btw_panels_close(ctx);
@@ -2168,8 +2166,7 @@ void fyai_session_btw_abandon(struct fyai_ctx *ctx)
 
 	for (run = ctx->btw_runs; run; run = next) {
 		next = run->next;
-		free(run->branch);
-		free(run);
+			free(run);
 	}
 	ctx->btw_runs = NULL;
 }
@@ -2237,7 +2234,7 @@ int fyai_session_btw(struct fyai_ctx *ctx, const char *arg)
 	fyai_error_check(ctx, run, err,
 			 "btw: could not allocate the side question");
 	run->ctx = ctx;
-	run->branch = strdup(branch);
+	run->branch = fyai_ctx_keep_str(ctx, branch);
 	fyai_error_check(ctx, run->branch, err_run,
 			 "btw: could not retain the branch name");
 	run->group = fyai_tool_job_group_create_notify(ctx,
@@ -2257,7 +2254,6 @@ int fyai_session_btw(struct fyai_ctx *ctx, const char *arg)
 err_group:
 	fyai_tool_job_group_destroy(run->group);
 err_run:
-	free(run->branch);
 	free(run);
 err:
 	return -1;
