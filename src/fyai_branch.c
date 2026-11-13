@@ -53,20 +53,19 @@ int fyai_ctx_checkout(struct fyai_ctx *ctx, const char *name)
 
 int fyai_cfg_set_branch(struct fyai_cfg *cfg, const char *name)
 {
-	char *dup;
+	const char *kept;
 
 	/* Selection, thus a sub-agent branch can be named. */
 	if (!fyai_branch_name_ref_valid(name)) {
 		fyai_cfg_error(cfg, "invalid branch name '%s'", name ? name : "");
 		return -1;
 	}
-	dup = strdup(name);
-	if (!dup) {
-		fyai_cfg_error(cfg, "out of memory setting branch '%s'", name);
+	kept = fy_gb_intern_string(cfg->gb, name);
+	if (!kept) {
+		fyai_cfg_error(cfg, "cannot keep branch '%s'", name);
 		return -1;
 	}
-	free(cfg->branch);
-	cfg->branch = dup;
+	cfg->branch = kept;
 	cfg->branch_explicit = true;
 	return 0;
 }

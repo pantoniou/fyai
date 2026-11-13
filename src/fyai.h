@@ -491,7 +491,7 @@ struct fyai_cfg {
 	bool no_auth;
 	bool new_conversation;
 	/* Active branch selection and whether the user selected it explicitly. */
-	char *branch;
+	const char *branch;
 	bool branch_explicit;
 	/*
 	 * Start this interactive session on a branch of its own, named when

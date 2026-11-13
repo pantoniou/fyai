@@ -1380,12 +1380,9 @@ int fyai_config_load(struct fyai_cfg *cfg,
 				   cfg->root_spec, gb, &root_repo, &cfg->catalog,
 				   &branch, &cfg->root_ref))
 		return -1;
-	if (branch && !cfg->branch_explicit) {
-		free(cfg->branch);
-		cfg->branch = branch;
-	} else {
-		free(branch);
-	}
+	if (branch && !cfg->branch_explicit)
+		cfg->branch = fy_gb_intern_string(cfg->gb, branch);
+	free(branch);
 
 	/* An explicitly named config file must exist and parse. */
 	if (cli_config) {
@@ -3148,7 +3145,6 @@ void fyai_config_cleanup(struct fyai_cfg *cfg)
 
 	/* Drains whatever no earlier boundary reported. */
 	fyai_diag_cleanup(&cfg->diag);
-	free(cfg->branch);
 	free(cfg->reload_branch);
 	free(cfg->reload_config);
 	free(cfg->reload_session);
