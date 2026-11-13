@@ -1,7 +1,7 @@
 # Future cleanups
 
 Status: part 1 is finished: every entry of its high and medium lists was
-changed or checked, and the result is in the entry. The low list and the
+changed or checked, and the result is in the entry. The low list is closed. The
 context clusters stay open. Part 2 is a plan. Part 1 lists implicit state
 machines. Part 2 plans the split of the TUI from the core. Nothing keeps
 compatibility with old arenas or old interfaces.
@@ -33,11 +33,13 @@ the code before a change.
   `native_shell` on a job; `poll`, `sleep` and `on_event` on a waiter.
 - A hand-written reset list stands in for a reset point. The block of the
   forked tool child (`fyai_tools.c`, about 50 assignments) does not reset
-  `terminate_pending`, `interrupt_*`, `compacting`, `auth_retry_done` and
-  `xfer_*`.
+  `terminate_pending`, `interrupt_*`, `compacting` and `xfer_*`.
+  `auth_retry_done` is not a field of `struct fyai_ctx`: it is a latch of
+  `struct fyai_mcp_call_request` and lives and dies with the request.
 - A state enum exists, but side flags change its meaning. Examples:
-  `stream_response`, `fyai_turn_run`, `fyai_model_step`, `mcp_call_request`
-  and `auth_login_request`.
+  `stream_response`, `fyai_turn_run` and `fyai_model_step`.
+  `mcp_call_request` and `auth_login_request` were listed here; their only
+  side flag, `cancel_requested`, is now the CANCELLING state.
 
 ## High priority
 
@@ -376,19 +378,50 @@ is rejected with a warning.
 
 ## Low priority
 
-- `mcp_call_request` and `auth_login_request` have enums. Add a CANCELLING
-  state to remove `cancel_requested`, and a RETRYING_AFTER_AUTH state in place
-  of `auth_retry_done`.
-- Event source and term ladder (`removed`, `oneshot`, `armed`, `reaped`;
-  `active`, `stage`): the code is core and well tested. The gain is
-  documentation.
-- `fyai_agent_bg_run.finished` repeats `group == NULL`. In
-  `fyai_monitor_run`, `stopped` repeats `events >= FYAI_MONITOR_MAX_EVENTS`.
-- Question phases ANSWERING and REVIEW are derived in `fyai_ui` and in the
-  page.
-- `fyai_flow` (`at_line_start` against `blank_rows`), `fyai_workpane_manager`
-  (`layout_pending`, `reconciling`), `sink_frames` (`greeted`, `failed`) and
-  the PTY driver (`reaped`, `eof`, `exit_clear`).
+All five entries are closed.
+
+- `mcp_call_request` and `auth_login_request` (done): `FYAIMCS_CANCELLING` and
+  `FYAILS_CANCELLING` replace `cancel_requested`. Both requests drop the phase
+  when a cancel arrives: the next completion finishes as CANCELLED whatever
+  phase it was in, so the cancel does not need to keep it. The JSON-RPC
+  request keeps its `cancel_requested` bool: its state is PENDING until the
+  transfer ends, and the cancel is an independent request recorded beside it.
+  `auth_retry_done` stays a bool: it is a one-way latch that counts the one
+  retry of a call, and it is independent of the phase.
+- Event source and term ladder (done, documentation only): `fyai_event_priv.h`
+  states the owner and the order of `removed`, `oneshot`, `armed` and `reaped`,
+  and of `stage`. `term.active` is written one time and never read; the code
+  uses `term.timer` for the same fact. It was not removed because this entry
+  changes no code of the core.
+- `fyai_agent_bg_run.finished` (done): `finished` was set only with
+  `group = NULL` and read in one place, so the reader tests `group`. In
+  `fyai_monitor_run`, `stopped` was set only when `events` passed
+  `FYAI_MONITOR_MAX_EVENTS` (the test is `>`, not `>=`) and `events` stops
+  counting after it, so `stopped` is gone and the two readers compare
+  `events`.
+- Question phases (done, UI only): the page does not derive a phase. It reads
+  the `review` flag of `struct fyai_page_ask` and the `input_mode` that the UI
+  states. The review phase was `cur >= nq`, written at ten sites of
+  `fyai_ui.c`; `ui_question_reviewing()` now states it. `ANSWERING` is not a
+  stored phase: `ask` against `ask_text` is the state of the typed text, which
+  the UI reads one time in the page state. No change to
+  `data/page-state.schema.yaml` or to the golden source. `fyai_ask.c` holds
+  the model of the questions, not the cursor of the UI, so it was not made the
+  owner.
+- Checked, no change:
+  - `fyai_flow`: `blank_rows` counts the blank rows at the tail and
+    `at_line_start` says that the tail is not an open row. The first does
+    not imply the second, and `fyai_flow_observe()` clears the count of an open
+    row; they are two facts.
+  - `fyai_workpane_manager`: `reconciling` is a guard against re-entry and
+    `layout_pending` is a dirty request that a reconcile clears. A request
+    and a guard are independent.
+  - `sink_frames`: `greeted` is a one-way latch of the first frame and
+    `failed` is a one-way latch of the first write error. Each is set once and
+    neither implies the other.
+  - PTY driver: `reaped` is a process fact, `eof` is a fact of the pseudo
+    terminal and `exit_clear` is script input. A child can end before the
+    output ends and the reverse.
 
 ## The context structure
 
@@ -415,8 +448,7 @@ and from the forked-child block, would remove the risk of a missed field.
 ## Suggested order
 
 1. Items 1 and 2 together.
-2. The retry cluster and `auth_retry_done` (item 3), with the curl transfer
-   (item 7).
+2. The retry cluster (item 3), with the curl transfer (item 7).
 3. The small self-contained ones: the waiter kind, the agent record state, the
    `uiwork_band` state and the job-group pair.
 4. The sub-structures of the context, with one reset function each.
