@@ -869,6 +869,14 @@ that could hold the generic. Each lifetime claim comes from reading the code,
 except where the item says unverified. Size: S is a day or less, M is a few
 days. Check an item again before work on it.
 
+Done: `fyai_ctx_keep_str()`; five tools return generics (`agent_message`,
+`ask_parent`, `agent_input`, `ask_user`, `todo_write`); `agent_branch`, the
+name of an agent run and the branch of a side question are interned; the call
+and the spawn state of a sub-agent cross a reopen without JSON text; the OAuth
+client, scopes, endpoints and loopback redirect of `fyai_mcp.c` are interned.
+The first four rows of the class a table of `fyai_mcp.c` are done, except the
+`od->url` copies.
+
 ### Rules for this list
 
 - A `fy_generic` field with `fy_castp(&s->field, "")` at the use site replaces a
