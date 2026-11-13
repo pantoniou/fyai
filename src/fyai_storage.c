@@ -750,7 +750,8 @@ int fyai_setup_storage(struct fyai_ctx *ctx)
 	char session[FYAI_BRANCH_NAME_MAX + 1];
 	char cwd[PATH_MAX];
 	const char *name;
-	char *last;
+	const char *last;
+	fy_generic lastg;
 	fy_generic root;
 	bool asked;
 	int rc;
@@ -869,6 +870,7 @@ int fyai_setup_storage(struct fyai_ctx *ctx)
 		 */
 		if (cfg->fresh_session) {
 			last = NULL;
+			lastg = fy_invalid;
 			if (cfg->fresh_session_from) {
 				found = fyai_branch_lookup(r.branches,
 						cfg->fresh_session_from, &lb);
@@ -876,15 +878,12 @@ int fyai_setup_storage(struct fyai_ctx *ctx)
 						 "no branch '%s' to start the "
 						 "session from",
 						 cfg->fresh_session_from);
-				last = strdup(cfg->fresh_session_from);
-				fyai_error_check(ctx, last, err_out,
-						 "could not keep the name of "
-						 "branch '%s'",
-						 cfg->fresh_session_from);
+				last = cfg->fresh_session_from;
 			} else if (!cfg->fresh_session_name &&
 				   getcwd(cwd, sizeof(cwd))) {
-				last = fyai_branch_pick_last(ctx, r.branches,
-							     cwd, false, NULL);
+				lastg = fyai_branch_pick_last(ctx, r.branches,
+							      cwd, false, NULL);
+				last = fy_castp(&lastg, (const char *)NULL);
 			}
 			if (last) {
 				fyai_branch_lookup(r.branches, last, &lb);
@@ -895,7 +894,6 @@ int fyai_setup_storage(struct fyai_ctx *ctx)
 				/* Skills follow the configuration. */
 				if (fy_is_valid(lb.config))
 					ctx->arena_skills = lb.skills;
-				free(last);
 			}
 			if (cfg->fresh_session_name) {
 				rc = snprintf(session, sizeof(session), "%s",
@@ -1298,6 +1296,18 @@ out:
 	return ret;
 }
 
+/* The pick as an allocated string: the arena of @branches goes away. */
+static char *pick_name_copy(fy_generic branches, const char *cwd, bool all,
+			    const char *prefix)
+{
+	fy_generic pick;
+	const char *s;
+
+	pick = fyai_branch_pick_last(NULL, branches, cwd, all, prefix);
+	s = fy_castp(&pick, (const char *)NULL);
+	return s ? strdup(s) : NULL;
+}
+
 char *fyai_peek_branch_pick(const char *arena_dir_opt, const char *root_spec,
 			    const char *cwd, bool all, const char *prefix)
 {
@@ -1316,8 +1326,7 @@ char *fyai_peek_branch_pick(const char *arena_dir_opt, const char *root_spec,
 		/* Validate the root before following the branch table. */
 		if (fyai_root_validate(allocator, root) &&
 		    fyai_root_decode(root, &r) >= 0)
-			name = fyai_branch_pick_last(NULL, r.branches, cwd,
-						     all, prefix);
+			name = pick_name_copy(r.branches, cwd, all, prefix);
 	}
 	fy_allocator_destroy(allocator);
 	return name;
@@ -1326,7 +1335,7 @@ char *fyai_peek_branch_pick(const char *arena_dir_opt, const char *root_spec,
 int fyai_peek_arena_config(const char *arena_dir_opt, const char *branch_opt,
 			   const char *root_spec, struct fy_generic_builder *gb,
 			   fy_generic *configp, fy_generic *catalogp,
-			   char **branchp, fy_generic_value *rootp)
+			   const char **branchp, fy_generic_value *rootp)
 {
 	struct fy_allocator *allocator;
 	struct fyai_branch b;
@@ -1369,7 +1378,7 @@ int fyai_peek_arena_config(const char *arena_dir_opt, const char *branch_opt,
 				name = FYAI_BRANCH_DEFAULT;
 			fyai_branch_lookup(r.branches, name, &b);
 			if (branchp) {
-				*branchp = strdup(name);
+				*branchp = fy_gb_intern_string(gb, name);
 				if (!*branchp)
 					ret = -1;
 			}

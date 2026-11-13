@@ -848,20 +848,17 @@ fy_generic fyai_branch_select_rows(struct fyai_ctx *ctx,
 	return out;
 }
 
-char *fyai_branch_pick_last(struct fyai_ctx *ctx, fy_generic branches,
-			    const char *cwd, bool all, const char *prefix)
+fy_generic fyai_branch_pick_last(struct fyai_ctx *ctx, fy_generic branches,
+				 const char *cwd, bool all, const char *prefix)
 {
 	struct branch_pick *picks;
-	char *name;
+	fy_generic name;
 	ssize_t n;
 
 	n = branch_collect(ctx, branches, cwd, all, prefix, &picks);
-	name = NULL;
-	if (n > 0) {
-		name = strdup(fy_castp(&picks[0].name, ""));
-		if (!name && ctx)
-			fyai_error(ctx, "cannot name the most recent branch");
-	}
+	name = fy_invalid;
+	if (n > 0)
+		name = picks[0].name;
 	free(picks);
 	return name;
 }

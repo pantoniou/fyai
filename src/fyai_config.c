@@ -1352,7 +1352,7 @@ int fyai_config_load(struct fyai_cfg *cfg,
 	fy_generic root_user;
 	fy_generic names;
 	char *user_path;
-	char *branch;
+	const char *branch;
 	size_t i;
 	int rc;
 
@@ -1381,8 +1381,7 @@ int fyai_config_load(struct fyai_cfg *cfg,
 				   &branch, &cfg->root_ref))
 		return -1;
 	if (branch && !cfg->branch_explicit)
-		cfg->branch = fy_gb_intern_string(cfg->gb, branch);
-	free(branch);
+		cfg->branch = branch;
 
 	/* An explicitly named config file must exist and parse. */
 	if (cli_config) {

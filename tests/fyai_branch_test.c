@@ -121,7 +121,7 @@ int branch_select_empty(void)
 	FYAI_TCHECK(gb);
 	rows = fyai_branch_select_rows(NULL, gb, fy_invalid, "/w", false);
 	FYAI_TCHECK(fy_is_valid(rows) && fy_empty(rows));
-	FYAI_TCHECK(!fyai_branch_pick_last(NULL, fy_invalid, "/w", false, NULL));
+	FYAI_TCHECK(fy_is_invalid(fyai_branch_pick_last(NULL, fy_invalid, "/w", false, NULL)));
 
 	rows = fyai_branch_select_rows(NULL, gb, fy_mapping(gb,
 			"there", entry_new(gb, 10, 100, "/elsewhere")),
@@ -136,7 +136,7 @@ int branch_pick_last_newest(void)
 {
 	struct fy_generic_builder *gb;
 	fy_generic branches;
-	char *name;
+	fy_generic name;
 
 	gb = builder_new();
 	FYAI_TCHECK(gb);
@@ -146,15 +146,13 @@ int branch_pick_last_newest(void)
 		"far", entry_new(gb, 10, 900, "/elsewhere"));
 
 	name = fyai_branch_pick_last(NULL, branches, "/w", false, NULL);
-	FYAI_TCHECK(name && !strcmp(name, "two"));
-	free(name);
+	FYAI_TCHECK(fy_is_valid(name) && !strcmp(fy_castp(&name, ""), "two"));
 
 	name = fyai_branch_pick_last(NULL, branches, "/w", true, NULL);
-	FYAI_TCHECK(name && !strcmp(name, "far"));
-	free(name);
+	FYAI_TCHECK(fy_is_valid(name) && !strcmp(fy_castp(&name, ""), "far"));
 
 	name = fyai_branch_pick_last(NULL, branches, "/nowhere", false, NULL);
-	FYAI_TCHECK(!name);
+	FYAI_TCHECK(fy_is_invalid(name));
 
 	fy_generic_builder_destroy(gb);
 	return 0;

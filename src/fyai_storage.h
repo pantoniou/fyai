@@ -82,7 +82,7 @@ bool fyai_config_has_raw_secret(fy_generic doc);
 
 /*
  * Read a branch configuration without a context. Internalize results into
- * @gb. @branchp receives an allocated copy of the selected branch name.
+ * @gb. @branchp receives the selected branch name, interned in @gb.
  */
 /*
  * The most recently updated resumable branch, without a context. @cwd and @all
@@ -95,7 +95,7 @@ char *fyai_peek_branch_pick(const char *arena_dir_opt, const char *root_spec,
 int fyai_peek_arena_config(const char *arena_dir_opt, const char *branch_opt,
 			   const char *root_spec, struct fy_generic_builder *gb,
 			   fy_generic *configp, fy_generic *catalogp,
-			   char **branchp, fy_generic_value *rootp);
+			   const char **branchp, fy_generic_value *rootp);
 /*
  * Compact the arena, after cutting the ref log to the count that the gc
  * arguments keep. Returns 0 when compacted, 1 when there is no arena, and
