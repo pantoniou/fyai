@@ -3180,93 +3180,24 @@ err_closed:
  * A read_file call and its result are separate canonical messages linked by a
  * call id (Responses `call_id`, Chat `tool_call_id`). Unlike the live loop,
  * the offline `history` walk sees them apart, so to fence a read result in the
-	 * file's language it first records id -> requested path for every read_file
- * call, then looks the path up when the matching output is rendered.
+ * file's language it first records id -> requested path for every read_file
+ * call, then looks the path up when the matching output is rendered. The
+ * mapping from call id to path is built in @tgb.
  */
-struct fyai_read_map {
-	struct fyai_read_ent {
-		char *id;
-		char *path;
-	} *ents;
-	size_t n;
-	size_t cap;
-};
-
-static void fyai_read_map_add(struct fyai_read_map *rm, const char *id,
-			      const char *path)
+static fy_generic fyai_read_map_scan(struct fy_generic_builder *tgb,
+				     fy_generic reads, fy_generic m)
 {
-	struct fyai_read_ent *e;
-	size_t nc;
-
-	if (!id || !*id || !path)
-		return;
-	if (rm->n == rm->cap) {
-		nc = rm->cap ? rm->cap * 2 : 8;
-		e = realloc(rm->ents, nc * sizeof(*e));
-		if (!e)
-			return;
-		rm->ents = e;
-		rm->cap = nc;
-	}
-	e = &rm->ents[rm->n];
-	e->id = strdup(id);
-	e->path = strdup(path);
-	if (e->id && e->path)
-		rm->n++;
-	else {
-		free(e->id);
-		free(e->path);
-	}
-}
-
-static const char *fyai_read_map_path(const struct fyai_read_map *rm,
-				      const char *id)
-{
-	size_t i;
-
-	if (!id || !*id)
-		return NULL;
-	for (i = 0; i < rm->n; i++)
-		if (!strcmp(rm->ents[i].id, id))
-			return rm->ents[i].path;
-	return NULL;
-}
-
-static void fyai_read_map_free(struct fyai_read_map *rm)
-{
-	size_t i;
-
-	for (i = 0; i < rm->n; i++) {
-		free(rm->ents[i].id);
-		free(rm->ents[i].path);
-	}
-	free(rm->ents);
-	rm->ents = NULL;
-	rm->n = 0;
-	rm->cap = 0;
-}
-
-/*
- * Record any read_file tool call carried by message @m (Responses native
- * function_call, or a Chat assistant tool_calls[] entry) as id -> path. The id
- * and path generics are held in locals so fy_castp reads stable storage - a
- * short (inline) string would dangle if read from the fy_get temporary before
- * fyai_read_map_add() copies it.
- */
-static void fyai_read_map_scan(struct fyai_read_map *rm,
-			       struct fy_generic_builder *tgb, fy_generic m)
-{
-	fy_generic args;
-	fy_generic gid;
-	fy_generic gpath;
+	fy_generic args, gid, gpath;
 
 	if (fy_not_equal(fy_get(m, "type"), "function_call") ||
 	    fy_not_equal(fy_get(m, "name"), "read_file"))
-		return;
+		return reads;
 	args = parse_json_string(tgb, fy_get(m, "arguments", ""));
 	gid = fy_get(m, "call_id");
 	gpath = fy_get(args, "path");
-	fyai_read_map_add(rm, fy_castp(&gid, ""), fy_castp(&gpath, ""));
+	if (!fy_is_string(gid) || fy_empty(gid) || !fy_is_string(gpath))
+		return reads;
+	return fy_assoc(tgb, reads, gid, gpath);
 }
 
 /*
@@ -3275,14 +3206,13 @@ static void fyai_read_map_scan(struct fyai_read_map *rm,
  * newly allocated language name (caller frees) or NULL when @c is not a
  * read_file output, the result is a tool error, or the extension is unknown.
  */
-static char *fyai_read_result_lang(const struct fyai_read_map *rm,
+static char *fyai_read_result_lang(fy_generic reads,
 				   const struct fyai_msg_class *c)
 {
 	fy_generic gid;
 	fy_generic gout;
-	const char *id;
+	fy_generic gpath;
 	const char *out;
-	const char *path;
 
 	if (fy_not_equal(c->type, "function_call_output"))
 		return NULL;
@@ -3295,11 +3225,10 @@ static char *fyai_read_result_lang(const struct fyai_read_map *rm,
 	if (!*out || fyai_tool_result_is_error(out))
 		return NULL;
 
-	id = fy_castp(&gid, "");
-	path = fyai_read_map_path(rm, id);
-	if (!path)
+	gpath = fy_get(reads, gid, fy_invalid);
+	if (!fy_is_string(gpath))
 		return NULL;
-	return markdown_lang_for_path(path);
+	return markdown_lang_for_path(fy_castp(&gpath, ""));
 }
 
 /*
@@ -3812,7 +3741,7 @@ struct fyai_display_render {
 	struct fyai_display_args *args;
 	struct fy_generic_builder *tgb;
 	const struct fyai_turn_stack *stack;
-	struct fyai_read_map *reads;
+	fy_generic reads;		/* call id to path, built in tgb */
 	FILE *mf;
 	char *md;
 	size_t mdlen;
@@ -3830,7 +3759,7 @@ static void fyai_display_scan_reads(struct fyai_display_render *view,
 	for (i = lo; i < hi; i++) {
 		msgs = fy_get(view->stack->items[i], "messages", fy_seq_empty);
 		fy_foreach(m, msgs)
-			fyai_read_map_scan(view->reads, view->tgb, m);
+			view->reads = fyai_read_map_scan(view->tgb, view->reads, m);
 	}
 }
 
@@ -4050,7 +3979,6 @@ static int fyai_display_reconstructed(struct fyai_ctx *ctx,
 				      size_t lo, size_t hi)
 {
 	struct fyai_display_render view;
-	struct fyai_read_map reads = { 0 };
 	int close_rc;
 	int rc;
 
@@ -4060,7 +3988,7 @@ static int fyai_display_reconstructed(struct fyai_ctx *ctx,
 	view.args = &ctx->cfg->cmd.args.display;
 	view.tgb = tgb;
 	view.stack = stack;
-	view.reads = &reads;
+	view.reads = fy_map_empty;
 	view.mf = open_memstream(&view.md, &view.mdlen);
 	rc = -1;
 	fyai_error_check(ctx, view.mf, out, "could not create the display buffer");
@@ -4081,7 +4009,6 @@ out:
 		}
 	}
 	free(view.md);
-	fyai_read_map_free(&reads);
 	return rc;
 }
 
