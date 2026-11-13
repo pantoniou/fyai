@@ -2447,6 +2447,19 @@ void fyai_cleanup_transient_builder(struct fyai_ctx *ctx)
 	ctx->transient_autorelease = false;
 }
 
+const char *fyai_ctx_keep_str(struct fyai_ctx *ctx, const char *s)
+{
+	const char *kept;
+
+	if (!s)
+		return NULL;
+	kept = fy_gb_intern_string(ctx->cfg->gb, s);
+	fyai_error_check(ctx, kept, err_out, "cannot keep '%s'", s);
+	return kept;
+err_out:
+	return NULL;
+}
+
 struct fy_generic_builder *fyai_ctx_transient_gb(struct fyai_ctx *ctx)
 {
 	if (ctx->transient_gb)
@@ -2546,7 +2559,6 @@ void fyai_cleanup(struct fyai_ctx *ctx)
 	}
 	free(ctx->session_unstored);
 	ctx->session_unstored = NULL;
-	free(ctx->agent_branch);
 	ctx->agent_branch = NULL;
 	free(ctx->agent_spawn_json);
 	ctx->agent_spawn_json = NULL;

@@ -632,8 +632,8 @@ void fyai_tool_child_serve_loop(struct fyai_ctx *ctx)
 			}
 			/* Keep the durable branch on the child context. */
 			if (fy_is_string(tc.branch))
-				ctx->agent_branch =
-					strdup(fy_castp(&tc.branch, ""));
+				ctx->agent_branch = fyai_ctx_keep_str(ctx,
+					fy_castp(&tc.branch, ""));
 #ifdef FILC_HAS_ZCALL_ON_FRESH_STACK
 			/*
 			 * Run a sub-agent call on a fresh stack: no frame of this

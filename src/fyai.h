@@ -873,7 +873,7 @@ struct fyai_ctx {
 	 */
 	char *session_unstored;
 	/* Durable branch for a sub-agent conversation. */
-	char *agent_branch;
+	const char *agent_branch;
 	/* The arena was reopened by fyai_agent_reopen_for_call(). */
 	bool arena_reopened;
 	/* The spawn state an executed sub-agent child received, as JSON. */
@@ -1138,6 +1138,16 @@ int fyai_setup_transient_builder(struct fyai_ctx *ctx);
  * when no active turn owns it.
  */
 struct fy_generic_builder *fyai_ctx_transient_gb(struct fyai_ctx *ctx);
+
+/*
+ * Keep @s for the life of the process. The copy is interned in the builder
+ * of the configuration, which no arena reopen touches and which deduplicates,
+ * so the pointer needs no free and the same value costs nothing twice. Use it
+ * for a name, an id or a path that does not change for each turn. Do not use
+ * it for text that is new for each turn, exchange or event, or for a secret.
+ * Returns NULL for NULL, and for a failure after it reports it.
+ */
+const char *fyai_ctx_keep_str(struct fyai_ctx *ctx, const char *s);
 
 /*
  * Run one complete tool-use loop on @turn; returns the final turn (or
