@@ -3039,7 +3039,7 @@ static int sdk_add_user(struct sdk_server *srv, const char *text)
 	struct fyai_ctx *ctx = srv->ctx;
 	struct fy_generic_builder *gb = fyai_ctx_transient_gb(ctx);
 	fy_generic user, turn;
-	char *shown;
+	const char *shown;
 	int rc;
 
 	/*
@@ -3054,7 +3054,6 @@ static int sdk_add_user(struct sdk_server *srv, const char *text)
 	turn = fyai_turn_append(ctx, ctx->last_message, fy_sequence(gb, user));
 	turn = fyai_output_record(ctx, turn, FYAI_OUTPUT_USER,
 				  shown ? shown : text);
-	free(shown);
 	fyai_error_check(ctx, fy_is_valid(turn), err,
 			 "claude-sdk: cannot add the user message");
 	ctx->last_message = fy_gb_internalize(ctx->gb, turn);

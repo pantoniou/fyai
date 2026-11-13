@@ -5045,7 +5045,7 @@ static void fyai_print_card(struct fyai_ctx *ctx, const char *line, bool live)
 
 void fyai_echo_user_turn(struct fyai_ctx *ctx, const char *line)
 {
-	char *shown;
+	const char *shown;
 
 	if (!ctx || !ctx->cfg->markdown || !ctx->stdout_tty)
 		return;
@@ -5056,7 +5056,6 @@ void fyai_echo_user_turn(struct fyai_ctx *ctx, const char *line)
 	 */
 	shown = fyai_media_pending_display(ctx, line);
 	fyai_print_user_turn(ctx, shown ? shown : line, true);
-	free(shown);
 }
 
 int fyai_render_display_output(struct fyai_ctx *ctx, const char *tag,

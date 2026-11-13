@@ -225,10 +225,12 @@ fy_generic fyai_media_take_pending(struct fyai_ctx *ctx);
 /*
  * @text with one reference row after it for each pending attachment: what the
  * user card shows, and what the stored output records so an offline view says
- * the same thing. The result is malloc'd, or NULL when nothing is pending and
- * the caller should show @text itself.
+
+ * the same thing. The result belongs to the transient builder and is valid
+ * until it is released, or NULL when nothing is pending and the caller should
+ * show @text itself.
  */
-char *fyai_media_pending_display(struct fyai_ctx *ctx, const char *text);
+const char *fyai_media_pending_display(struct fyai_ctx *ctx, const char *text);
 
 /*
  * Copy the bytes of @fd, or the file at @path, and add them to the next

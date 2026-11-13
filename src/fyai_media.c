@@ -786,7 +786,7 @@ fy_generic fyai_media_take_pending(struct fyai_ctx *ctx)
 	return fy_is_sequence(pending) ? pending : fy_seq_empty;
 }
 
-char *fyai_media_pending_display(struct fyai_ctx *ctx, const char *text)
+const char *fyai_media_pending_display(struct fyai_ctx *ctx, const char *text)
 {
 	struct fy_generic_builder *gb;
 	fy_generic content, shown, part;
@@ -802,7 +802,7 @@ char *fyai_media_pending_display(struct fyai_ctx *ctx, const char *text)
 		content = fy_append(gb, content, part);
 	shown = fyai_media_text_references(gb, content);
 	s = fy_castp(&shown, "");
-	return s ? strdup(s) : NULL;
+	return fy_gb_intern_string(gb, s);
 }
 
 /* Whether the next user message can take one more attachment. */

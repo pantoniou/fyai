@@ -1431,7 +1431,7 @@ fy_generic fyai_turn_append_event(struct fyai_ctx *ctx, fy_generic turn,
 static int fyai_turn_run_append_user(struct fyai_turn_run *run, const char *text)
 {
 	struct fyai_ctx *ctx = run->ctx;
-	char *shown;
+	const char *shown;
 
 	shown = fyai_media_pending_display(ctx, text);
 	run->turn = fyai_turn_append(ctx, run->turn,
@@ -1440,7 +1440,6 @@ static int fyai_turn_run_append_user(struct fyai_turn_run *run, const char *text
 		run->turn = fyai_output_record(ctx, run->turn,
 					       FYAI_OUTPUT_USER,
 					       shown ? shown : text);
-	free(shown);
 	return fy_is_valid(run->turn) ? 0 : -1;
 }
 
@@ -2744,7 +2743,8 @@ int fyai_setup(struct fyai_ctx *ctx, struct fyai_cfg *cfg)
 {
 	struct timespec t_setup;
 	fy_generic skill_msg;
-	char *prompt = NULL, *shown = NULL;
+	char *prompt = NULL;
+	const char *shown = NULL;
 	char *instr;
 	size_t i;
 	int rc;
@@ -2921,7 +2921,6 @@ int fyai_setup(struct fyai_ctx *ctx, struct fyai_cfg *cfg)
 				fy_castp(&skill_msg, prompt) : prompt)));
 		ctx->last_message = fyai_output_record(ctx, ctx->last_message,
 			FYAI_OUTPUT_USER, shown ? shown : prompt);
-		free(shown);
 		shown = NULL;
 		free(prompt);
 		prompt = NULL;
@@ -2945,7 +2944,6 @@ err:
 	 * the caller with the partially-initialized ctx - every field it touches
 	 * is either NULL (memset above) or a live handle fyai_cleanup() guards.
 	 */
-	free(shown);
 	free(prompt);
 	return -1;
 }
@@ -3597,7 +3595,7 @@ static fy_generic fyai_interactive_append_user_turn(struct fyai_ctx *ctx,
 {
 	fy_generic turn, message;
 	const char *text;
-	char *shown;
+	const char *shown;
 
 	shown = fyai_media_pending_display(ctx, line);
 	message = fyai_skill_user_message(ctx, fyai_ctx_transient_gb(ctx), line);
@@ -3606,7 +3604,6 @@ static fy_generic fyai_interactive_append_user_turn(struct fyai_ctx *ctx,
 			fy_sequence(fyai_make_user_message(ctx, text)));
 	turn = fyai_output_record(ctx, turn, FYAI_OUTPUT_USER,
 				  shown ? shown : line);
-	free(shown);
 	return turn;
 }
 
