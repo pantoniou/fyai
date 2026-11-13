@@ -111,7 +111,7 @@ struct fyai_remote_session {
 	bool exited;
 	/* A session that no branch names ends with its client. */
 	bool anonymous;
-	char *branch;
+	const char *branch;
 };
 
 /* In a server of projects: the project server of one project. */
@@ -282,7 +282,7 @@ static void remote_worker_frame(struct jsonrpc_conn *conn, fy_generic frame,
 	struct remote_wire wire = { 0 };
 	fy_generic response;
 	bool begin;
-	char *copy;
+	const char *copy;
 
 	(void)conn;
 	/* The registry learns the branch of the worker; no client sees it. */
@@ -291,12 +291,9 @@ static void remote_worker_frame(struct jsonrpc_conn *conn, fy_generic frame,
 		if (!branch || !fyai_branch_name_ref_valid(branch) ||
 		    (session->branch && !strcmp(session->branch, branch)))
 			return;
-		copy = strdup(branch);
-		if (!copy) {
-			fyai_error(ctx, "cannot keep the branch of a worker");
+		copy = fyai_ctx_keep_str(ctx, branch);
+		if (!copy)
 			return;
-		}
-		free(session->branch);
 		session->branch = copy;
 		remote_log(session->server, "worker %ld: branch '%s'",
 			   (long)session->pid, branch);
@@ -516,7 +513,7 @@ static int remote_spawn(struct fyai_remote_peer *peer, const char *branch,
 				 "cannot admit a worker to the transport");
 		rc = -1;
 	}
-	session->branch = branch ? strdup(branch) : NULL;
+	session->branch = fyai_ctx_keep_str(ctx, branch);
 	fyai_error_check(ctx, !branch || session->branch, out,
 			 "cannot keep the branch of a worker");
 	session->anonymous = !branch;
@@ -559,7 +556,6 @@ out:
 	}
 	if (session) {
 		jsonrpc_conn_destroy(session->worker);
-		free(session->branch);
 		free(session);
 	}
 	if (rc && pid > 0)
@@ -2002,7 +1998,6 @@ static void remote_session_free(struct fyai_remote_session *session)
 	fyai_event_source_remove(session->child);
 	if (!session->exited)
 		fyai_event_child_terminate(loop, session->pid, 0, 1000, NULL);
-	free(session->branch);
 	free(session);
 }
 

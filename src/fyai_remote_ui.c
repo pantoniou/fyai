@@ -48,7 +48,7 @@
  */
 struct remote_ui_term {
 	struct remote_ui_term *next;
-	char *name;
+	const char *name;
 	long long source;
 	size_t shown;
 	int rows, cols;
@@ -84,7 +84,7 @@ struct fyai_remote_ui {
 	/* The turns that the builder still holds although the replica dropped
 	 * them: a builder gives nothing back until it is made again. */
 	size_t garbage;
-	char *epoch;			/* the incarnation of the worker */
+	const char *epoch;		/* the incarnation of the worker */
 	struct fyai_event_source *deadline;
 	unsigned long long requests;
 	long long head;			/* the time of the stored head shown */
@@ -149,7 +149,6 @@ static void remote_ui_term_free(struct fyai_ctx *ctx, struct remote_ui_term *t)
 		fyai_ui_surface_close(ctx, t->surface);
 	}
 	fyai_terminal_view_destroy(t->view);
-	free(t->name);
 	free(t);
 }
 
@@ -385,7 +384,7 @@ static int remote_ui_terms(struct fyai_remote_ui *view, fy_generic root)
 		if (!t) {
 			t = calloc(1, sizeof(*t));
 			fyai_error_check(ctx, t, err, "cannot keep a terminal");
-			t->name = strdup(name);
+			t->name = fyai_ctx_keep_str(ctx, name);
 			t->agent = !strcmp(fy_get(item, "kind", ""), "agent");
 			t->source = fy_get(term, "source", 0LL);
 			t->rows = fy_get(term, "rows", 24);
@@ -599,8 +598,7 @@ static int remote_ui_history(struct fyai_remote_ui *view, fy_generic response)
 	if (view->epoch && strcmp(view->epoch, epoch))
 		view->nturns = 0;
 	if (!view->epoch || strcmp(view->epoch, epoch)) {
-		free(view->epoch);
-		view->epoch = strdup(epoch);
+		view->epoch = fyai_ctx_keep_str(ctx, epoch);
 		fyai_error_check(ctx, view->epoch, err,
 				 "cannot keep the stored turns");
 	}
@@ -1010,7 +1008,6 @@ void fyai_remote_ui_close(struct fyai_remote_ui *view)
 	}
 	fy_generic_builder_destroy(view->history_gb);
 	free(view->turns);
-	free(view->epoch);
 	fy_generic_builder_destroy(view->inbox_gb);
 	fy_generic_builder_destroy(view->held_gb);
 	free(view->error);
