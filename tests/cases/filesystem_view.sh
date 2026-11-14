@@ -190,7 +190,8 @@ pid, fd = os.forkpty()
 if pid == 0:
     os.execv(sys.argv[1], [sys.argv[1], 'view', 'enter', 'demo', 'sh', '-c',
                          'printf interrupt-ready; sleep 60'])
-deadline = time.monotonic() + 15
+# A deadline bounds a failure: scale it for a sanitized or a loaded run.
+deadline = time.monotonic() + 15 * int(os.environ.get('FYAI_TIMEOUT_SCALE', '1'))
 output = b''
 status = None
 try:
