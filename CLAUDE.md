@@ -2237,9 +2237,9 @@ steps of a case with state:
   FIFO for its standard error. A process that is not a child is waited for with
   `tests/wait_exit.py` (a pidfd, or a kqueue on macOS), which wakes at its
   exit. A program that waits for the case reads a FIFO, and the `touch` step of
-  the PTY driver opens it for writing. Keep the FIFO
-  outside the project: a capture of the project refuses a special file. A
-  deadline on such a read bounds a failure, and does not pace the case.
+  the PTY driver opens it for writing. Keep the FIFO outside the project: a
+  capture of the project refuses a special file. A deadline on such a read
+  bounds a failure, and does not pace the case.
 - Hold a mock reply with `wait_for: <marker>`. Without `wait_after_event`,
   the mock holds the whole reply until the marker exists in the run
   directory. The case creates the marker with a `touch:` step when the state
