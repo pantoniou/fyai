@@ -861,30 +861,31 @@ static void fyai_scope_ensure(struct fyai_ctx *ctx)
 		fyai_diag_tracef("scope", "begin, holder %ld", (long)ctx->cover.holder);
 }
 
-struct fyai_tool_job *fyai_tool_job_submit(struct fyai_ctx *ctx,
-					    fy_generic tool_call)
-{
-	struct fyai_tool_job *job = NULL;
-	struct fyai_view_run *view_run = NULL;
-	struct fyai_buf view = {0};
-	const char *name, *command;
-	const char *asked, *cmdtext;
-	fy_generic args, progress_args, agent_name, monitor_v;
-	bool agent_stored = false;
-	fy_generic session_call, session_command, session_desc;
-	struct fyai_event_loop *el;
-	char child_branch[FYAI_BRANCH_NAME_MAX + 1];
-	const char *session_name = NULL;
-	char *session_title = NULL;
-	char *label = NULL;
-	bool have_session = false;
-	bool have_branch = false;
+/*
+ * What the phases of a submit share. The name of a terminal session points
+ * into @session_call, so the state outlives every phase.
+ */
+struct fyai_job_submit {
+	fy_generic tool_call;
+	fy_generic args;
+	const char *name;
 	bool native_call;
-	bool eligible;
-	bool user_owned;
-	struct fy_generic_builder_cfg call_cfg = {};
-	int srows = 0, scols = 0;
-	int rc;
+	struct fyai_tool_job *job;
+	struct fyai_view_run *view_run;
+	char child_branch[FYAI_BRANCH_NAME_MAX + 1];
+	bool have_branch;
+	bool have_session;
+	fy_generic session_call;
+	const char *session_name;
+};
+
+/* Check that the call can run as a job, and say what it is. */
+static int fyai_tool_job_submit_validate(struct fyai_ctx *ctx,
+                                         struct fyai_job_submit *sub)
+{
+	fy_generic tool_call = sub->tool_call, args, progress_args;
+	const char *name;
+	bool native_call, eligible;
 
 	free(ctx->tool_submit_error);
 	ctx->tool_submit_error = NULL;
@@ -892,8 +893,11 @@ struct fyai_tool_job *fyai_tool_job_submit(struct fyai_ctx *ctx,
 	fyai_error_check(ctx, eligible, err,
 		"tool call is not eligible for asynchronous submission");
 	name = fyai_tool_call_name(ctx, tool_call);
+	sub->name = name;
 	native_call = fy_equal(fy_get(tool_call, "type"), "shell_call");
+	sub->native_call = native_call;
 	args = native_call ? tool_call : fyai_tool_call_args(ctx, tool_call);
+	sub->args = args;
 	fyai_error_check(ctx, fy_is_valid(args), err,
 			 "invalid tool call arguments");
 	if (!native_call && fyai_shell_args_lack_command(name, args)) {
@@ -917,6 +921,20 @@ struct fyai_tool_job *fyai_tool_job_submit(struct fyai_ctx *ctx,
 			free(header);
 		}
 	}
+	return 0;
+err:
+	return -1;
+}
+
+/* Reserve the sub-agent branch before the job is spawned. */
+static int fyai_tool_job_submit_agent(struct fyai_ctx *ctx,
+                                      struct fyai_job_submit *sub)
+{
+	fy_generic args = sub->args, agent_name;
+	const char *name = sub->name;
+	bool agent_stored = false;
+	int rc;
+
 	/* Reserve the sub-agent branch before the job is spawned. */
 	if (fy_equal(name, "agent")) {
 		rc = fyai_branches_refresh(ctx);
@@ -927,9 +945,9 @@ struct fyai_tool_job *fyai_tool_job_submit(struct fyai_ctx *ctx,
 		rc = fyai_branch_alloc_child(ctx, fyai_ctx_branch(ctx),
 				fy_castp(&agent_name, "agent"),
 				(unsigned int)ctx->cfg->agent_max_branch_depth,
-				child_branch, sizeof(child_branch),
+				sub->child_branch, sizeof(sub->child_branch),
 				&agent_stored);
-		if (!rc && fyai_tool_job_branch_live(ctx, child_branch)) {
+		if (!rc && fyai_tool_job_branch_live(ctx, sub->child_branch)) {
 			fyai_tool_submit_error_set(ctx,
 				"tool error: the sub-agent named '%s' is still "
 				"running; wait for its report or choose a "
@@ -939,32 +957,43 @@ struct fyai_tool_job *fyai_tool_job_submit(struct fyai_ctx *ctx,
 		}
 		fyai_tool_submit_check(ctx, !rc, err,
 				       "could not name the sub-agent branch");
-		have_branch = true;
+		sub->have_branch = true;
 		if (fyai_agent_isolated(ctx, args)) {
 			rc = fyai_agent_view_begin(ctx, fy_castp(&agent_name, "agent"),
-						   &view_run);
+						   &sub->view_run);
 			fyai_tool_submit_check(ctx, !rc, err,
 					       "could not isolate the sub-agent");
 		}
 	}
+	return 0;
+err:
+	return -1;
+}
+
+/* Reserve and validate the session name before spawning its job. */
+static int fyai_tool_job_submit_session(struct fyai_ctx *ctx,
+                                        struct fyai_job_submit *sub)
+{
+	fy_generic tool_call = sub->tool_call, args = sub->args;
+	const char *asked;
 
 	/* A named session must explicitly request a terminal. */
 	if (fyai_shell_named_call(ctx, tool_call) &&
 	    !fyai_shell_tty_requested(ctx, args)) {
-		session_call = fy_get(args, "name", fy_invalid);
+		sub->session_call = fy_get(args, "name", fy_invalid);
 		fyai_tool_submit_error_set(ctx,
 			"tool error: a shell that stays open needs a terminal; "
 			"add \"tty\": true to keep '%s' open, or drop \"name\" "
 			"to run the command to completion and read what it "
-			"wrote", fy_castp(&session_call, ""));
+			"wrote", fy_castp(&sub->session_call, ""));
 		fyai_tool_submit_check(ctx, false, err,
 				       "a session was asked for with no terminal");
 	}
 
 	/* Reserve and validate the session name before spawning its job. */
 	if (fyai_shell_session_call(ctx, tool_call)) {
-		session_call = fy_get(args, "name", fy_invalid);
-		asked = fy_castp(&session_call, "");
+		sub->session_call = fy_get(args, "name", fy_invalid);
+		asked = fy_castp(&sub->session_call, "");
 		if (!fyai_shell_session_name_valid(asked))
 			fyai_tool_submit_error_set(ctx,
 				"tool error: '%s' is not a usable session name; "
@@ -975,14 +1004,24 @@ struct fyai_tool_job *fyai_tool_job_submit(struct fyai_ctx *ctx,
 				"on branch %s; write to it or choose another name",
 				asked, fyai_ctx_branch(ctx));
 		else
-			/* session_call is a local, so the name lives to the end. */
-			session_name = asked;
+			/* The name points into sub->sub->session_call, which lives to the end. */
+			sub->session_name = asked;
 		fyai_tool_submit_check(ctx,
-				       session_name && !ctx->tool_submit_error,
+				       sub->session_name && !ctx->tool_submit_error,
 				       err,
 				       "could not name the terminal session");
-		have_session = true;
+		sub->have_session = true;
 	}
+	return 0;
+err:
+	return -1;
+}
+
+/* Refuse a forked sub-agent where credentials are isolated. */
+static int fyai_tool_job_submit_isolation(struct fyai_ctx *ctx,
+                                          struct fyai_job_submit *sub)
+{
+	const char *name = sub->name;
 
 	/*
 	 * A forked sub-agent would keep the address space of its parent, and it
@@ -996,6 +1035,23 @@ struct fyai_tool_job *fyai_tool_job_submit(struct fyai_ctx *ctx,
 			"arena and a root that is not pinned");
 	fyai_tool_submit_check(ctx, !ctx->tool_submit_error, err,
 			       "a sub-agent cannot be forked with credential isolation");
+	return 0;
+err:
+	return -1;
+}
+
+/* Spawn the job and open its terminal session. */
+static int fyai_tool_job_submit_spawn(struct fyai_ctx *ctx,
+                                      struct fyai_job_submit *sub)
+{
+	fy_generic args = sub->args;
+	const char *name = sub->name;
+	struct fyai_tool_job *job;
+	fy_generic session_command, session_desc;
+	char *session_title = NULL;
+	int srows = 0, scols = 0;
+	bool user_owned;
+	int rc;
 
 	fyai_diag_tracef("tool", "%s start", name);
 	/* The first call of an exchange makes the scope that its calls join. */
@@ -1005,6 +1061,7 @@ struct fyai_tool_job *fyai_tool_job_submit(struct fyai_ctx *ctx,
 	}
 
 	job = calloc(1, sizeof(*job));
+	sub->job = job;
 	fyai_error_check(ctx, job, err,
 			 "could not allocate tool job");
 	/* A sub-agent renders to a terminal of its own; the parent shows it. */
@@ -1014,14 +1071,14 @@ struct fyai_tool_job *fyai_tool_job_submit(struct fyai_ctx *ctx,
 				  fyai_uimodel_consumed(ctx)),
 				 fy_equal(name, "agent") &&
 				 fyai_agent_spawn_exec(ctx),
-				 view_run ? fyai_view_run_spec(view_run) : NULL, fy_equal(name, "agent"));
+				 sub->view_run ? fyai_view_run_spec(sub->view_run) : NULL, fy_equal(name, "agent"));
 	fyai_error_check(ctx, !rc, err,
 		"could not spawn tool job");
-	job->view_run = view_run;
-	view_run = NULL;
+	job->view_run = sub->view_run;
+	sub->view_run = NULL;
 	job->agent = fy_equal(name, "agent");
-		fyai_tool_job_link(ctx, job);
-	if (have_session) {
+	fyai_tool_job_link(ctx, job);
+	if (sub->have_session) {
 		user_owned = fy_get(args, "_fyai_user_owned", false);
 		fyai_shell_tty_size(ctx, args, &srows, &scols);
 		/* A screen drawn in the transcript has the rows of the setting
@@ -1035,7 +1092,7 @@ struct fyai_tool_job *fyai_tool_job_submit(struct fyai_ctx *ctx,
 		session_command = fy_get(args, "command", fy_invalid);
 		session_desc = fy_get(args, "description", fy_invalid);
 		session_title = fyai_format_shell_label(args);
-		job->session = fyai_shell_session_create(ctx, session_name,
+		job->session = fyai_shell_session_create(ctx, sub->session_name,
 					fy_castp(&session_command, ""),
 					session_title,
 					fy_castp(&session_desc, ""),
@@ -1049,16 +1106,32 @@ struct fyai_tool_job *fyai_tool_job_submit(struct fyai_ctx *ctx,
 				 "could not open the terminal session");
 		job->session->job = job;
 		fyai_shell_session_start_size(job, args);
-		session_name = NULL;
+		sub->session_name = NULL;
 	}
+	return 0;
+err:
+	return -1;
+}
+
+/* Fill in what the job carries from the call. */
+static int fyai_tool_job_submit_init(struct fyai_ctx *ctx,
+                                     struct fyai_job_submit *sub)
+{
+	fy_generic tool_call = sub->tool_call, args = sub->args;
+	const char *name = sub->name;
+	bool native_call = sub->native_call;
+	struct fyai_tool_job *job = sub->job;
+	struct fy_generic_builder_cfg call_cfg = {};
+	fy_generic monitor_v;
+
 	/* A child that asked for a terminal must follow the window of the
 	 * user, and only the parent can see it change. */
 	if (fyai_shell_tty_requested(ctx, native_call ?
 				     fy_get(tool_call, "action") : args))
 		(void)fyai_terminal_winch_open(ctx);
 	/* The spawn clears the job, so the name is carried in a local. */
-	if (have_branch) {
-		job->branch = strdup(child_branch);
+	if (sub->have_branch) {
+		job->branch = strdup(sub->child_branch);
 		fyai_error_check(ctx, job->branch, err,
 				 "out of memory naming the sub-agent branch");
 	}
@@ -1093,6 +1166,24 @@ struct fyai_tool_job *fyai_tool_job_submit(struct fyai_ctx *ctx,
 	/* The trace pairs with the reap record below: a child that dies leaves
 	 * these two lines and nothing else. */
 	fyai_diag_tracef("spawn", "%s, pid %ld", job->origin, (long)job->pid);
+	return 0;
+err:
+	return -1;
+}
+
+/* Open the live display of the job. */
+static int fyai_tool_job_submit_display(struct fyai_ctx *ctx,
+                                        struct fyai_job_submit *sub)
+{
+	fy_generic tool_call = sub->tool_call, args = sub->args;
+	const char *name = sub->name;
+	bool native_call = sub->native_call;
+	struct fyai_tool_job *job = sub->job;
+	struct fyai_event_loop *el;
+	struct fyai_buf view = {0};
+	const char *command, *cmdtext;
+	char *label = NULL;
+
 	/* Stream slow shell work on the sub-agent terminal. */
 	if (fy_equal(name, "shell") && !fyai_ui_active(ctx) &&
 	    ctx->cfg->agent_pty) {
@@ -1154,11 +1245,11 @@ struct fyai_tool_job *fyai_tool_job_submit(struct fyai_ctx *ctx,
 			if (fyai_agent_view_open(ctx, job))
 				fyai_error(ctx,
 					   "agent: could not show the sub-agent terminal");
-			goto live_open_done;
+			return 0;
 		}
 		/* A terminal session displays output on its own surface. */
-		if (have_session)
-			goto live_open_done;
+		if (sub->have_session)
+			return 0;
 		el = fyai_ctx_loop(ctx);
 		/* A call drawn in the transcript grows in place: it has no
 		 * jump of the page to hide. */
@@ -1167,10 +1258,25 @@ struct fyai_tool_job *fyai_tool_job_submit(struct fyai_ctx *ctx,
 		    !fyai_event_add_timer(el, ctx->cfg->work_open_delay_ms, 0,
 					 fyai_tool_job_band_delay, job,
 					 &job->band_delay))
-			goto live_open_done;
+			return 0;
 		fyai_tool_job_band_open(job);
 	}
-live_open_done:
+	return 0;
+err:
+	return -1;
+}
+
+/* Attach the job to the loop and arm its time limits. */
+static int fyai_tool_job_submit_arm(struct fyai_ctx *ctx,
+                                    struct fyai_job_submit *sub)
+{
+	fy_generic args = sub->args;
+	const char *name = sub->name;
+	bool native_call = sub->native_call;
+	struct fyai_tool_job *job = sub->job;
+	struct fyai_event_loop *el;
+	int rc;
+
 	rc = fyai_tool_job_attach(ctx, job);
 	fyai_error_check(ctx, !rc, err,
 			 "could not attach tool job to event loop");
@@ -1200,11 +1306,30 @@ live_open_done:
 		fyai_error_check(ctx, !rc, err,
 				 "could not arm the sub-agent hang limit");
 	}
-	return job;
+	return 0;
+err:
+	return -1;
+}
+
+struct fyai_tool_job *fyai_tool_job_submit(struct fyai_ctx *ctx,
+					    fy_generic tool_call)
+{
+	struct fyai_job_submit sub = { .tool_call = tool_call };
+
+	if (fyai_tool_job_submit_validate(ctx, &sub) ||
+	    fyai_tool_job_submit_agent(ctx, &sub) ||
+	    fyai_tool_job_submit_session(ctx, &sub) ||
+	    fyai_tool_job_submit_isolation(ctx, &sub) ||
+	    fyai_tool_job_submit_spawn(ctx, &sub) ||
+	    fyai_tool_job_submit_init(ctx, &sub) ||
+	    fyai_tool_job_submit_display(ctx, &sub) ||
+	    fyai_tool_job_submit_arm(ctx, &sub))
+		goto err;
+	return sub.job;
 
 err:
-	fyai_view_run_free(view_run);
-	fyai_tool_job_discard(job);
+	fyai_view_run_free(sub.view_run);
+	fyai_tool_job_discard(sub.job);
 	return NULL;
 }
 
