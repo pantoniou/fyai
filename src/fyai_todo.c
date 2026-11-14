@@ -306,11 +306,6 @@ char *fyai_todo_panel_source(fy_generic rows)
 	return out.data;
 }
 
-char *fyai_todo_panel(struct fyai_ctx *ctx)
-{
-	return fyai_todo_panel_source(todo_stored_generic(ctx));
-}
-
 void fyai_todo_model_update(struct fyai_ctx *ctx)
 {
 	struct fy_generic_builder *gb = fyai_uimodel_begin(ctx);

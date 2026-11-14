@@ -415,28 +415,6 @@ void fyai_tools_unzoom(struct fyai_ctx *ctx)
 	fyai_workpane_clear_zoom(ctx->workpane);
 }
 
-void fyai_tools_counts(struct fyai_ctx *ctx, int *userp, int *shellp,
-		       int *agentp)
-{
-	struct fyai_shell_session *sess;
-	struct fyai_tool_job *job;
-
-	*userp = *shellp = *agentp = 0;
-	if (!ctx)
-		return;
-	for (sess = ctx->shell_sessions; sess; sess = sess->next) {
-		if (sess->exited)
-			continue;
-		if (sess->user_owned)
-			(*userp)++;
-		else
-			(*shellp)++;
-	}
-	for (job = ctx->tool_jobs; job; job = job->next)
-		if (job->agent && job->phase != FYAI_JOB_DONE)
-			(*agentp)++;
-}
-
 void fyai_tools_config_changed(struct fyai_ctx *ctx)
 {
 	struct fyai_shell_session *sess;

@@ -47,12 +47,6 @@ int fyai_todo_clear(struct fyai_ctx *ctx);
 fy_generic fyai_todo_rows(struct fyai_ctx *ctx, struct fy_generic_builder *gb);
 
 /*
- * The stored list as UI Markdown for the page panel. The caller frees it.
- * NULL when the branch holds no list. It is the oracle of the panels store.
- */
-char *fyai_todo_panel(struct fyai_ctx *ctx);
-
-/*
  * @rows, the todo rows of the panels store, as UI Markdown for the page panel.
  * The caller frees it. NULL when there is no row.
  */

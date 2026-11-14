@@ -175,8 +175,6 @@ int fyai_tools_session_resize(struct fyai_ctx *ctx, const char *name,
 int fyai_tools_session_close(struct fyai_ctx *ctx, const char *name,
 			     bool force);
 int fyai_tools_session_dismiss(struct fyai_ctx *ctx, const char *name);
-void fyai_tools_counts(struct fyai_ctx *ctx, int *userp, int *shellp,
-		       int *agentp);
 /* Apply a changed configuration to the live sessions and jobs. */
 void fyai_tools_config_changed(struct fyai_ctx *ctx);
 /* Focus visible tile @sf. Return false if it cannot receive keyboard focus. */

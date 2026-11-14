@@ -250,7 +250,6 @@ struct fyai_ui {
 	/* The newest lines that fit the rows the page grants, or NULL. */
 	char *pending_fit;
 	/* The entry the todo panel was built from, to see it change. */
-	fy_generic_value todo_entry;
 	unsigned long long todo_seq;	/* of the panels store */
 	/* The rendered preview of the option under the cursor of a question. */
 	struct ui_rendered preview;
@@ -2677,13 +2676,10 @@ static int ui_page_frame_header(struct fyai_ui *ui, struct ui_page_frame *f)
 	st->header_right_cols = ui->panel_cols;
 	st->header_acts = ui->panel ? ui->panel_acts : NULL;
 	st->header_nacts = ui->panel_nacts;
-	/* The turn state comes from the session store; ui->busy is the
-	 * oracle of it while the legacy path still sets it. */
+	/* The turn state comes from the session store. */
 	turn = fy_get(fyai_uimodel_get(ctx, FYAI_UI_SESSION), "turn",
 		      fy_invalid);
 	busy = fy_get(turn, "busy", false);
-	fyai_uimodel_check(ctx, FYAI_UI_SESSION, "busy",
-			   busy ? "busy" : "idle", ui->busy ? "busy" : "idle");
 	if (busy) {
 		ui_elapsed_format(f->elapsed, sizeof(f->elapsed),
 				  fy_get(turn, "started", 0LL));
@@ -2845,7 +2841,6 @@ static int ui_page_frame_fit(struct fyai_ui *ui, struct ui_page_frame *f)
 	int cols = f->cols, rows = f->rows;
 	struct fyai_ctx *ctx = ui->ctx;
 	const char *typed;
-	char *legacy;
 	int rc;
 
 	/* The tiles that hold a surface, which the page draws itself. */
@@ -2863,15 +2858,9 @@ static int ui_page_frame_fit(struct fyai_ui *ui, struct ui_page_frame *f)
 		ui_note_clear(ui);
 	st->note_lines = (const char *const *)ui->note;
 	st->note_nlines = ui->note_nlines;
-	/*
-	 * The todo panel follows the panels store. The legacy reading of the
-	 * branch entry is the oracle of the store: each change of either
-	 * compares the two.
-	 */
-	if (fyai_uimodel_seq(ctx, FYAI_UI_PANELS) != ui->todo_seq ||
-	    ctx->branch_prev.v != ui->todo_entry) {
+	/* The todo panel follows the panels store. */
+	if (fyai_uimodel_seq(ctx, FYAI_UI_PANELS) != ui->todo_seq) {
 		ui->todo_seq = fyai_uimodel_seq(ctx, FYAI_UI_PANELS);
-		ui->todo_entry = ctx->branch_prev.v;
 		free(ui->todo_source);
 		ui->todo_rows = 0;
 		ui->todo_cols = 0;
@@ -2879,10 +2868,6 @@ static int ui_page_frame_fit(struct fyai_ui *ui, struct ui_page_frame *f)
 			fyai_uimodel_get(ctx, FYAI_UI_PANELS), "todo",
 			fy_seq_empty));
 		ui->todo_shown = ui->todo_source != NULL;
-		legacy = fyai_todo_panel(ctx);
-		fyai_uimodel_check(ctx, FYAI_UI_PANELS, "todo",
-				   ui->todo_source, legacy);
-		free(legacy);
 		ui->frame_pending = true;
 	}
 	if (ui->todo_source && ui->todo_cols != cols) {

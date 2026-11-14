@@ -385,13 +385,12 @@ int fyai_chrome_focus_cells(struct fyai_ctx *ctx, struct fytim_cell *cells,
 
 /*
  * The live user shells, model shells and sub-agents of the work store, in
- * @counts. The counts of the tools are the oracle of the store.
+ * @counts.
  */
 static void chrome_work_counts(struct fyai_ctx *ctx, int counts[3])
 {
 	fy_generic item;
 	const char *kind;
-	int legacy[3];
 
 	counts[0] = counts[1] = counts[2] = 0;
 	fy_foreach(item, fy_get(fyai_uimodel_get(ctx, FYAI_UI_WORK), "items",
@@ -407,10 +406,6 @@ static void chrome_work_counts(struct fyai_ctx *ctx, int counts[3])
 		else if (!strcmp(kind, "agent"))
 			counts[2]++;
 	}
-	fyai_tools_counts(ctx, &legacy[0], &legacy[1], &legacy[2]);
-	fyai_uimodel_check(ctx, FYAI_UI_WORK, "counts",
-		fy_sprintfa("%d %d %d", counts[0], counts[1], counts[2]),
-		fy_sprintfa("%d %d %d", legacy[0], legacy[1], legacy[2]));
 }
 
 int fyai_chrome_panel(struct fyai_ctx *ctx, struct fyai_buf *out,
