@@ -275,7 +275,7 @@ static fy_generic fyai_finish_tool_call(struct fyai_ctx *ctx, fy_generic turn,
 	bool isolated_tool;
 	int rc;
 
-	assert(ctx->transient_gb);
+	assert(ctx->transient->gb);
 
 	tool_call_type = fy_get(tool_call, "type");
 	name = fyai_tool_call_name(ctx, tool_call);
@@ -388,7 +388,7 @@ static fy_generic fyai_finish_tool_call(struct fyai_ctx *ctx, fy_generic turn,
 
 	out = fyai_turn_append(ctx, turn, fy_sequence(tool_message));
 
-	out = fy_gb_internalize(ctx->transient_gb, out);
+	out = fy_gb_internalize(ctx->transient->gb, out);
 	fyai_error_check(ctx, fy_is_valid(out), err,
 			 "could not append the tool result");
 	return out;
@@ -684,7 +684,7 @@ static int fyai_model_step_submit_request(struct fyai_model_step *step,
 	cfg = ctx->cfg;
 	/* A body that the request cache made needs no value. */
 	if (!request_body)
-		request_body = emit_request_body(ctx->transient_gb, request);
+		request_body = emit_request_body(ctx->transient->gb, request);
 	fyai_error_check(ctx, request_body, out,
 			 "could not serialize the model request");
 
@@ -881,7 +881,7 @@ static int fyai_model_step_start(struct fyai_model_step *step)
 		fyai_error_check(ctx, fy_is_valid(request), out,
 				 "could not build the model request");
 		if (cfg->chatgpt_auth)
-			request = fyai_auth_subscription_request(ctx->transient_gb,
+			request = fyai_auth_subscription_request(ctx->transient->gb,
 								 request);
 		fyai_error_check(ctx, fy_is_valid(request), out,
 				 "could not finish the model request");
@@ -891,7 +891,7 @@ static int fyai_model_step_start(struct fyai_model_step *step)
 
 		if (cfg->conversation_logging) {
 			(void)fyai_log_generic(ctx, "conversation",
-				fy_mapping(ctx->transient_gb,
+				fy_mapping(ctx->transient->gb,
 					"kind", "request",
 					"api", grammar->name,
 					"url", cfg->api_url,
@@ -1009,10 +1009,10 @@ static void fyai_model_step_request_complete(struct fyai_model_step *step,
 		return;
 	}
 
-	response_doc = fy_gb_internalize(ctx->transient_gb, response_doc);
+	response_doc = fy_gb_internalize(ctx->transient->gb, response_doc);
 	if (cfg->conversation_logging) {
 		(void)fyai_log_generic(ctx, "conversation",
-			fy_mapping(ctx->transient_gb,
+			fy_mapping(ctx->transient->gb,
 				"kind", "response",
 				"api", fyai_grammar(cfg)->name,
 				"body", fy_get(response_doc, "doc")));
@@ -1651,7 +1651,7 @@ static void fyai_turn_run_tool_diff(struct fyai_turn_run *run)
 		fyai_turn_run_diff_end(run);
 		return;
 	}
-	if (!fyai_project_state_diff(ctx, ctx->transient_gb, run->diff_before, after,
+	if (!fyai_project_state_diff(ctx, ctx->transient->gb, run->diff_before, after,
 					     FYAI_TOOL_DIFF_LIMIT, &text)) {
 		patch = fy_castp(&text, "");
 		if (*patch) {
@@ -1870,7 +1870,7 @@ void fyai_tool_gate_allow(struct fyai_ctx *ctx, uint64_t id, size_t index,
 		return;
 	a->allowed = true;
 	if (fy_is_mapping(args))
-		a->args = fy_gb_internalize(ctx->transient_gb, args);
+		a->args = fy_gb_internalize(ctx->transient->gb, args);
 	fyai_tool_gate_answered(run, a, NULL, false);
 }
 
@@ -1929,7 +1929,7 @@ static int fyai_turn_run_gate_refuse(struct fyai_turn_run *run,
 			continue;
 		run->turn = fyai_finish_tool_call(ctx, run->turn,
 			fy_get_at(run->gate_items, i),
-			fy_value(ctx->transient_gb, why), false, false);
+			fy_value(ctx->transient->gb, why), false, false);
 		fyai_error_check(ctx, fy_is_valid(run->turn), err,
 				 "could not answer a held tool call");
 		fyai_turn_run_observe(run);
@@ -1999,11 +1999,11 @@ static int fyai_turn_run_gate_resolve(struct fyai_turn_run *run)
 			fyai_error_check(ctx, fy_is_valid(item), err,
 					 "could not change the arguments of "
 					 "a tool call");
-			calls = fy_append(ctx->transient_gb, calls, item);
+			calls = fy_append(ctx->transient->gb, calls, item);
 			continue;
 		}
 		run->turn = fyai_finish_tool_call(ctx, run->turn, item,
-			fy_value(ctx->transient_gb, a->text), false, false);
+			fy_value(ctx->transient->gb, a->text), false, false);
 		fyai_error_check(ctx, fy_is_valid(run->turn), err,
 				 "could not answer a denied tool call");
 		fyai_turn_run_observe(run);
@@ -2079,7 +2079,7 @@ static int fyai_turn_run_collect_tools(struct fyai_turn_run *run)
 		/* The model answers for a call that has no result. */
 		if (rc || fy_is_invalid(result)) {
 			fyai_warning(ctx, "a tool call returned no result");
-			result = fy_value(ctx->transient_gb,
+			result = fy_value(ctx->transient->gb,
 					  "tool error: the call returned no result");
 			ok = false;
 		}
@@ -2089,14 +2089,14 @@ static int fyai_turn_run_collect_tools(struct fyai_turn_run *run)
 				 "could not append tool job result");
 		fyai_turn_run_observe(run);
 		if (ctx->tool_gate)
-			reports = fy_append(ctx->transient_gb, reports,
-				fy_mapping(ctx->transient_gb, "call", tool_call,
+			reports = fy_append(ctx->transient->gb, reports,
+				fy_mapping(ctx->transient->gb, "call", tool_call,
 					   "result", result, "ok", (_Bool)ok));
 		/* Present the completed exchange before opening the next band. */
 		fyai_ui_drain_output(ctx);
 	}
 	fyai_turn_run_drop_tool_group(run);
-	run->turn = fy_gb_internalize(ctx->transient_gb, run->turn);
+	run->turn = fy_gb_internalize(ctx->transient->gb, run->turn);
 	fyai_error_check(ctx, fy_is_valid(run->turn), err,
 			 "could not append the tool calls");
 	if (effect)
@@ -2446,18 +2446,15 @@ done:
 	return result;
 }
 
+/* The request cache keeps the body of the last request beside the builder. */
+static void fyai_transient_released(void *data)
+{
+	fyai_request_cache_forget(data);
+}
+
 void fyai_cleanup_transient_builder(struct fyai_ctx *ctx)
 {
-	if (ctx->transient_gb) {
-		fyai_request_cache_forget(ctx);
-		fy_generic_builder_destroy(ctx->transient_gb);
-		ctx->transient_gb = NULL;
-	}
-	if (ctx->transient_allocator) {
-		fy_allocator_destroy(ctx->transient_allocator);
-		ctx->transient_allocator = NULL;
-	}
-	ctx->transient_autorelease = false;
+	fyai_transient_cleanup(ctx->transient);
 }
 
 const char *fyai_ctx_keep_str(struct fyai_ctx *ctx, const char *s)
@@ -2475,40 +2472,12 @@ err_out:
 
 struct fy_generic_builder *fyai_ctx_transient_gb(struct fyai_ctx *ctx)
 {
-	if (ctx->transient_gb)
-		return ctx->transient_gb;
-	if (fyai_setup_transient_builder(ctx))
-		return NULL;
-	ctx->transient_autorelease = true;
-	return ctx->transient_gb;
+	return fyai_transient_get(ctx->transient);
 }
 
 int fyai_setup_transient_builder(struct fyai_ctx *ctx)
 {
-	struct fy_auto_allocator_cfg trans_cfg = {};
-	struct fy_generic_builder_cfg gb_cfg = {};
-
-	/* An explicit owner adopts a builder that fyai_ctx_transient_gb()
-	 * made: the idle loop must not release it while the owner works. */
-	if (ctx->transient_gb) {
-		ctx->transient_autorelease = false;
-		return 0;
-	}
-	/* now the transient */
-	memset(&trans_cfg, 0, sizeof(trans_cfg));
-	trans_cfg.scenario = FYAST_PER_TAG_FREE_DEDUP;
-	trans_cfg.estimated_max_size = 0;
-	ctx->transient_allocator = fy_allocator_create("auto", &trans_cfg);
-	assert(ctx->transient_allocator);
-
-	memset(&gb_cfg, 0, sizeof(gb_cfg));
-	gb_cfg.flags = FYGBCF_SCOPE_LEADER | FYGBCF_DEDUP_ENABLED | FYGBCF_CREATE_TAG;
-	gb_cfg.allocator = ctx->transient_allocator;
-	gb_cfg.parent = ctx->gb;
-	ctx->transient_gb = fy_generic_builder_create(&gb_cfg);
-	assert(ctx->transient_gb);
-
-	return 0;
+	return fyai_transient_setup(ctx->transient);
 }
 
 void fyai_cleanup(struct fyai_ctx *ctx)
@@ -2595,6 +2564,8 @@ void fyai_cleanup(struct fyai_ctx *ctx)
 	/* Destroy the loop after every borrower has dropped its sources. */
 	fyai_loop_release(ctx->loop);
 
+	/* The scratch builder stacks on the arena builder: it goes first. */
+	fyai_cleanup_transient_builder(ctx);
 	if (!fyai_cfg_no_storage(cfg))
 		fyai_close_storage(ctx);
 	fyai_uilog_release(ctx);
@@ -2646,7 +2617,7 @@ int fyai_request_state_apply(struct fyai_ctx *ctx)
 
 	if (!ctx->curl)
 		return 0;
-	assert(ctx->transient_gb);
+	assert(ctx->transient->gb);
 
 	if (ctx->headers) {
 		curl_slist_free_all(ctx->headers);
@@ -2764,6 +2735,12 @@ int fyai_setup(struct fyai_ctx *ctx, struct fyai_app *app)
 	memset(ctx, 0, sizeof(*ctx));
 	ctx->cfg = cfg;
 	ctx->loop = &app->loop;
+	ctx->transient = &app->transient;
+	/* The scratch builder stacks on the working builder, which the arena
+	 * replaces when it reopens: it reads it from the slot. */
+	ctx->transient->parent_gb = &ctx->gb;
+	ctx->transient->on_release = fyai_transient_released;
+	ctx->transient->on_release_data = ctx;
 	/* A wait that stands on the loop looks at an interrupt when it comes. */
 	ctx->loop->on_interrupt = fyai_loop_interrupt_hook;
 	ctx->loop->on_interrupt_data = ctx;
@@ -3507,15 +3484,13 @@ out:
 }
 
 /*
- * A turn owns ctx->transient_gb and the collected diagnostics. A line
+ * A turn owns ctx->transient->gb and the collected diagnostics. A line
  * that runs beside the turn must use neither. Enter sets both aside and
  * gives the line scratch storage. Leave restores them.
  */
 struct fyai_scratch_state {
-	struct fy_generic_builder *gb;
-	struct fy_allocator *allocator;
+	struct fyai_transient saved;
 	fy_generic held;
-	bool autorelease;
 	bool entered;
 };
 
@@ -3524,23 +3499,20 @@ static int fyai_scratch_enter(struct fyai_ctx *ctx,
 {
 	int rc;
 
-	st->gb = ctx->transient_gb;
-	st->allocator = ctx->transient_allocator;
-	st->autorelease = ctx->transient_autorelease;
+	st->saved = *ctx->transient;
 	st->held = fy_invalid;
 	st->entered = false;
-	ctx->transient_gb = NULL;
-	ctx->transient_allocator = NULL;
-	ctx->transient_autorelease = false;
+	/* A builder of its own: the dependencies stay, the builder is new. */
+	ctx->transient->gb = NULL;
+	ctx->transient->allocator = NULL;
+	ctx->transient->autorelease = false;
 	rc = fyai_setup_transient_builder(ctx);
 	if (rc) {
-		ctx->transient_gb = st->gb;
-		ctx->transient_allocator = st->allocator;
-		ctx->transient_autorelease = st->autorelease;
+		*ctx->transient = st->saved;
 		return rc;
 	}
 	/* A drain resets the sink storage, so hold the turn's diagnostics. */
-	st->held = fyai_diag_take_generic(fyai_ctx_diag(ctx), ctx->transient_gb);
+	st->held = fyai_diag_take_generic(fyai_ctx_diag(ctx), ctx->transient->gb);
 	st->entered = true;
 	return 0;
 }
@@ -3557,9 +3529,7 @@ static void fyai_scratch_leave(struct fyai_ctx *ctx,
 		fyai_diag_adopt(fyai_ctx_diag(ctx), st->held, NULL);
 	st->held = fy_invalid;
 	fyai_cleanup_transient_builder(ctx);
-	ctx->transient_gb = st->gb;
-	ctx->transient_allocator = st->allocator;
-	ctx->transient_autorelease = st->autorelease;
+	*ctx->transient = st->saved;
 }
 
 /* Run a bang command without creating a model turn. It is not a part of the
@@ -3982,7 +3952,7 @@ static int fyai_prompt_interactive_async(struct fyai_ctx *ctx)
 	/* No operation below this loop can start a nested event pump. */
 	for (;;) {
 		/* Release scratch storage that an idle operation created. */
-		if (ctx->transient_autorelease)
+		if (ctx->transient->autorelease)
 			fyai_cleanup_transient_builder(ctx);
 		fyai_browser_step(ctx);
 
@@ -4069,7 +4039,7 @@ static int fyai_prompt_interactive_async(struct fyai_ctx *ctx)
 		}
 		/* A side question may complete after its parent turn releases scratch. */
 		if ((ctx->btw_runs || ctx->agent_bg_runs || ctx->monitors) &&
-		    !ctx->transient_gb) {
+		    !ctx->transient->gb) {
 			rc = fyai_setup_transient_builder(ctx);
 			fyai_error_check(ctx, !rc, out,
 					 "could not retain side question storage");
@@ -4450,7 +4420,7 @@ int fyai_execute(struct fyai_ctx *ctx)
 	}
 
 	cleanup_transient = false;
-	if ((v->flags & FYAIVF_NEEDS_TRANSIENT_BUILDER) && !ctx->transient_gb) {
+	if ((v->flags & FYAIVF_NEEDS_TRANSIENT_BUILDER) && !ctx->transient->gb) {
 		rc = fyai_setup_transient_builder(ctx);
 		if (rc)
 			return EXIT_FAILURE;

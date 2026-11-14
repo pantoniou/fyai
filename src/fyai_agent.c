@@ -82,7 +82,7 @@ static fy_generic fyai_agent_final_text(struct fyai_ctx *ctx, fy_generic turn)
 			break;
 		}
 	}
-	return fy_gb_internalize(ctx->transient_gb, fy_value(""));
+	return fy_gb_internalize(ctx->transient->gb, fy_value(""));
 }
 
 /* Return the configured personas. */
@@ -145,12 +145,12 @@ int fyai_agent_persona_cfg(struct fyai_ctx *ctx, fy_generic persona,
 	tmp = *cfg;
 	overlay = persona;
 	if (fork_mode)
-		overlay = fy_disassoc(ctx->transient_gb, overlay, "model");
+		overlay = fy_disassoc(ctx->transient->gb, overlay, "model");
 	thinking = fy_get(persona, "thinking", fy_invalid);
 	if (fy_generic_is_bool(thinking))
-		overlay = fy_assoc(ctx->transient_gb, overlay,
-			fy_value(ctx->transient_gb, "display"),
-			fy_mapping(ctx->transient_gb, "thinking", thinking));
+		overlay = fy_assoc(ctx->transient->gb, overlay,
+			fy_value(ctx->transient->gb, "display"),
+			fy_mapping(ctx->transient->gb, "thinking", thinking));
 	model = fy_get(overlay, "model", fy_invalid);
 	reset_api_url = !fy_is_invalid(fy_get(overlay, "api", fy_invalid));
 
@@ -525,7 +525,7 @@ static int agent_reopen_keeping(struct fyai_ctx *ctx, fy_generic *keep)
 	rc = fyai_setup_transient_builder(ctx);
 	fyai_error_check(ctx, !rc, err_hold,
 			 "could not prepare sub-agent storage");
-	*keep = fy_gb_internalize(ctx->transient_gb, saved);
+	*keep = fy_gb_internalize(ctx->transient->gb, saved);
 	fyai_error_check(ctx, fy_is_mapping(*keep), err_hold,
 			 "could not restore the sub-agent call");
 	fy_generic_builder_destroy(hold);
@@ -568,7 +568,7 @@ static int agent_run_branch(struct fyai_ctx *ctx, struct agent_run *r)
 	struct fyai_branch stored;
 	int rc;
 
-	if (!ctx->transient_gb) {
+	if (!ctx->transient->gb) {
 		rc = fyai_setup_transient_builder(ctx);
 		fyai_error_check(ctx, !rc, err,
 				 "could not prepare sub-agent storage");
@@ -653,7 +653,7 @@ static int agent_run_persona(struct fyai_ctx *ctx, struct agent_run *r)
 	r->skill_v = fy_get(r->args, "_fyai_skill", fy_invalid);
 	skill_model = fy_get(r->skill_v, "model", fy_invalid);
 	if (fy_is_string(skill_model)) {
-		r->persona = fy_assoc(ctx->transient_gb,
+		r->persona = fy_assoc(ctx->transient->gb,
 				   fy_is_mapping(r->persona) ? r->persona : fy_map_empty,
 				   "model", skill_model);
 		fyai_error_check(ctx, fy_is_mapping(r->persona), err,
@@ -745,7 +745,7 @@ static int agent_run_setup(struct fyai_ctx *ctx, struct agent_run *r)
 	skill_name = fy_get(r->skill_v, "name", fy_invalid);
 	if (fy_is_string(skill_name)) {
 		skill_args = fy_get(r->skill_v, "args", fy_invalid);
-		task_v = fyai_skill_task(ctx, ctx->transient_gb,
+		task_v = fyai_skill_task(ctx, ctx->transient->gb,
 					 fy_castp(&skill_name, ""),
 					 fy_castp(&skill_args, ""));
 		fyai_error_check(ctx, fy_is_string(task_v), err,
@@ -965,7 +965,7 @@ static void agent_bg_complete(struct fyai_tool_job_group *group, void *userdata)
 fy_generic fyai_agent_background(struct fyai_ctx *ctx, fy_generic args,
 				 bool *okp)
 {
-	struct fy_generic_builder *gb = ctx->transient_gb;
+	struct fy_generic_builder *gb = ctx->transient->gb;
 	struct fyai_agent_bg_run *run = NULL;
 	fy_generic call, gname, result = fy_invalid;
 	const char *json, *name;
@@ -1087,11 +1087,11 @@ static fy_generic tool_agent(struct fyai_ctx *ctx, fy_generic args, bool *okp)
 	if (fy_is_valid(result_generic))
 		return result_generic;
 	/* A failed arena reopen leaves no transient builder. */
-	if (!ctx->transient_gb && fyai_setup_transient_builder(ctx))
+	if (!ctx->transient->gb && fyai_setup_transient_builder(ctx))
 		return fy_invalid;
 	/* Quote the cause without consuming the user's diagnostic. */
 	diag = fyai_diag_string(fyai_ctx_diag(ctx));
-	result_generic = fy_stringf(ctx->transient_gb,
+	result_generic = fy_stringf(ctx->transient->gb,
 		"tool error: sub-agent%s%s%s failed: %s",
 		who && *who ? " '" : "", who ? who : "",
 		who && *who ? "'" : "",
@@ -1137,9 +1137,9 @@ static fy_generic tool_agent_message(struct fyai_ctx *ctx, fy_generic args,
 
 	*okp = !fyai_agents_message(ctx, who, body, label, reply_to);
 	if (!*okp)
-		return fy_value(ctx->transient_gb,
+		return fy_value(ctx->transient->gb,
 				"tool error: agent is not running or the message could not be sent");
-	return fy_stringf(ctx->transient_gb,
+	return fy_stringf(ctx->transient->gb,
 			  "message sent; wait for '%s' to learn whether it was queued",
 			  label);
 }
@@ -1165,9 +1165,9 @@ static fy_generic tool_ask_parent(struct fyai_ctx *ctx, fy_generic args,
 
 	*okp = !fyai_agents_ask_parent(ctx, name, question);
 	if (!*okp)
-		return fy_value(ctx->transient_gb,
+		return fy_value(ctx->transient->gb,
 				"tool error: ask_parent needs a live parent and a unique question name");
-	return fy_stringf(ctx->transient_gb,
+	return fy_stringf(ctx->transient->gb,
 			  "question sent; wait for '%s' to receive the parent's answer",
 			  name);
 }

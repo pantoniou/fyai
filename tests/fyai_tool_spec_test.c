@@ -22,6 +22,7 @@
 #include <unistd.h>
 
 #include "fyai_test_registry.h"
+#include "fyai_test_diag.h"
 
 FYAI_TEST_ENTRY(tools, descriptions, tools_descriptions)
 FYAI_TEST_ENTRY(tools, filtered, tools_filtered)
@@ -44,19 +45,19 @@ static int tools_setup(void)
 	memset(&test_ctx, 0, sizeof(test_ctx));
 
 	test_ctx.cfg = &test_cfg;
-	test_ctx.transient_gb = fy_generic_builder_create(&gb_cfg);
-	if (!test_ctx.transient_gb)
+	fyai_test_transient_of(&test_ctx)->gb = fy_generic_builder_create(&gb_cfg);
+	if (!fyai_test_transient_of(&test_ctx)->gb)
 		return 1;
-	test_ctx.durable_gb = test_ctx.transient_gb;
-	test_ctx.gb = test_ctx.transient_gb;
-	test_cfg.gb = test_ctx.transient_gb;
+	test_ctx.durable_gb = fyai_test_transient_of(&test_ctx)->gb;
+	test_ctx.gb = fyai_test_transient_of(&test_ctx)->gb;
+	test_cfg.gb = fyai_test_transient_of(&test_ctx)->gb;
 	test_ctx.tools_spec = fy_invalid;
 	return 0;
 }
 
 static void tools_teardown(void)
 {
-	fy_generic_builder_destroy(test_ctx.transient_gb);
+	fy_generic_builder_destroy(fyai_test_transient_of(&test_ctx)->gb);
 }
 
 static int tools_run(void (*testfn)(void))

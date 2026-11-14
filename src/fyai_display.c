@@ -283,7 +283,7 @@ static int fyai_export_directive_flags(struct fyai_ctx *ctx, FILE *fp,
 				       fy_generic map,
 				       enum fy_op_emit_flags flags)
 {
-	struct fy_generic_builder *gb = ctx->transient_gb;
+	struct fy_generic_builder *gb = ctx->transient->gb;
 	fy_generic_sized_string text;
 	fy_generic emitted;
 
@@ -405,7 +405,7 @@ static fy_generic fyai_export_store_portable(struct fy_generic_builder *gb,
 static int fyai_export_store(struct fyai_ctx *ctx, FILE *fp,
 			     fy_generic store, fy_generic previous)
 {
-	struct fy_generic_builder *gb = ctx->transient_gb;
+	struct fy_generic_builder *gb = ctx->transient->gb;
 	fy_generic delta;
 	int rc;
 
@@ -439,7 +439,7 @@ static int fyai_export_tool_call(struct fyai_ctx *ctx, FILE *fp,
 				 const char *id, const char *name,
 				 fy_generic args)
 {
-	struct fy_generic_builder *gb = ctx->transient_gb;
+	struct fy_generic_builder *gb = ctx->transient->gb;
 	fy_generic description;
 	fy_generic result;
 	fy_generic map;
@@ -467,14 +467,14 @@ static int fyai_export_marker(struct fyai_ctx *ctx, FILE *fp,
 			      const char *kind)
 {
 	return fyai_export_directive(ctx, fp,
-		fy_mapping(ctx->transient_gb, "kind", kind));
+		fy_mapping(ctx->transient->gb, "kind", kind));
 }
 
 /* Emit a compaction operation without its provider output. */
 static int fyai_export_compact(struct fyai_ctx *ctx, FILE *fp,
 			       fy_generic instructions)
 {
-	struct fy_generic_builder *gb = ctx->transient_gb;
+	struct fy_generic_builder *gb = ctx->transient->gb;
 	fy_generic map;
 	int rc;
 
@@ -504,7 +504,7 @@ static int fyai_export_message(struct fyai_ctx *ctx, FILE *fp,
 			       const char *role, const char *text,
 			       fy_generic content)
 {
-	struct fy_generic_builder *gb = ctx->transient_gb;
+	struct fy_generic_builder *gb = ctx->transient->gb;
 	enum fy_op_emit_flags flags;
 	fy_generic directive, part;
 	int rc;
@@ -542,7 +542,7 @@ static int fyai_export_turn_messages(struct fyai_ctx *ctx, FILE *fp,
 				     const struct fyai_export_calls *calls,
 				     fy_generic messages)
 {
-	struct fy_generic_builder *gb = ctx->transient_gb;
+	struct fy_generic_builder *gb = ctx->transient->gb;
 	fy_generic message, content;
 	fy_generic args, gid, gname, role;
 	const char *role_text, *text, *args_text;
@@ -658,7 +658,7 @@ static int fyai_export_write(struct fyai_ctx *ctx, FILE *fp, const char *what,
 	memset(&stack, 0, sizeof(stack));
 	memset(&calls, 0, sizeof(calls));
 	memset(&entries, 0, sizeof(entries));
-	gb = ctx->transient_gb;
+	gb = ctx->transient->gb;
 	assert(gb);
 	rc = fyai_export_directive(ctx, fp,
 		fy_mapping(gb, "format", 2LL, "kind", "conversation"));
@@ -696,7 +696,7 @@ static int fyai_export_write(struct fyai_ctx *ctx, FILE *fp, const char *what,
 		rc = fyai_export_marker(ctx, fp, "publish");
 		fyai_error_check(ctx, !rc, out, "export: cannot write a boundary");
 		fputs("## Publish\n\n", fp);
-		store = fyai_export_store_portable(ctx->transient_gb,
+		store = fyai_export_store_portable(ctx->transient->gb,
 						   branch.store);
 		fyai_error_check(ctx, fy_is_valid(store), out,
 				 "export: cannot read the branch store");
@@ -1869,7 +1869,7 @@ int fyai_tool_call_view_source(struct fyai_ctx *ctx, const char *name,
 		*sourcep = fy_invalid;
 	mf = open_memstream(&md, &mdlen);
 	fyai_error_check(ctx, mf, out, "could not create the tool view");
-	fyai_emit_tool_call(ctx, mf, ctx->transient_gb, name, args, preview_lines,
+	fyai_emit_tool_call(ctx, mf, ctx->transient->gb, name, args, preview_lines,
 			    &blocks);
 	rc = fclose(mf);
 	mf = NULL;

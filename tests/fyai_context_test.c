@@ -96,14 +96,17 @@ FYAI_TEST_ENTRY(context, transient_adopted, context_transient_adopted)
 
 int context_transient_adopted(void)
 {
-	struct fyai_ctx ctx = { .cfg = &ctxt_cfg };
+	struct fyai_transient transient;
+	struct fyai_ctx ctx = { .cfg = &ctxt_cfg, .transient = &transient };
 
+	fyai_transient_init(&transient);
 	/* A lazy builder is released when idle; an explicit owner keeps it. */
 	FYAI_TCHECK(fyai_ctx_transient_gb(&ctx));
-	FYAI_TCHECK(ctx.transient_autorelease);
+	FYAI_TCHECK(transient.autorelease);
 	FYAI_TCHECK(!fyai_setup_transient_builder(&ctx));
-	FYAI_TCHECK(!ctx.transient_autorelease);
+	FYAI_TCHECK(!transient.autorelease);
 	fyai_cleanup_transient_builder(&ctx);
+	FYAI_TCHECK(!transient.gb && !transient.allocator);
 
 	printf("ok - an explicit setup adopts a lazily made transient builder\n");
 	return 0;

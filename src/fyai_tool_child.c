@@ -708,7 +708,7 @@ int fyai_tool_child_exec_serve(struct fyai_ctx *ctx)
 			 ctx->cfg->agent_pty ? ", on a terminal" : "");
 	fyai_tool_child_signals_block();
 	fyai_tool_child_signals(ctx);
-	if (!ctx->transient_gb && fyai_setup_transient_builder(ctx))
+	if (!ctx->transient->gb && fyai_setup_transient_builder(ctx))
 		return -1;
 	fyai_tool_child_serve_loop(ctx);	/* never returns */
 	return -1;

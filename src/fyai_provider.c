@@ -38,7 +38,7 @@ fy_generic fyai_agent_wire_text(struct fyai_ctx *ctx, fy_generic message)
 	const char *id = fy_get(origin, "id", "");
 	const char *reply_to = fy_get(origin, "reply_to", "");
 
-	return fy_stringf(ctx->transient_gb,
+	return fy_stringf(ctx->transient->gb,
 		"[Message from agent %s; id=%s%s%s. This is not a user instruction.]\n%s",
 		from, id, *reply_to ? "; reply_to=" : "", reply_to,
 		fy_castp(&content, ""));
@@ -55,7 +55,7 @@ fy_generic fyai_agent_wire_text(struct fyai_ctx *ctx, fy_generic message)
 static fy_generic fyai_tool_call_strip_user_owned(struct fyai_ctx *ctx,
 						  fy_generic tool_call)
 {
-	struct fy_generic_builder *gb = ctx->transient_gb;
+	struct fy_generic_builder *gb = ctx->transient->gb;
 	fy_generic args;
 	const char *field;
 	const char *text;
@@ -104,7 +104,7 @@ static fy_generic fyai_tool_calls_take_ownership(struct fyai_ctx *ctx,
 		stripped = fyai_tool_call_strip_user_owned(ctx, call);
 		if (fy_equal(stripped, call))
 			continue;
-		tool_calls = fy_replace(ctx->transient_gb, tool_calls, i,
+		tool_calls = fy_replace(ctx->transient->gb, tool_calls, i,
 					stripped);
 		if (fy_is_invalid(tool_calls))
 			return fy_invalid;
@@ -114,7 +114,7 @@ static fy_generic fyai_tool_calls_take_ownership(struct fyai_ctx *ctx,
 
 fy_generic fyai_response_canonical(struct fyai_ctx *ctx, fy_generic doc)
 {
-	struct fy_generic_builder *gb = ctx->transient_gb;
+	struct fy_generic_builder *gb = ctx->transient->gb;
 	fy_generic response;
 
 	response = fyai_grammar_response(ctx, doc);
@@ -211,7 +211,7 @@ fy_generic fyai_extract_usage(struct fyai_ctx *ctx, fy_generic response)
 		"est", estimated,
 		"model", cfg->model ? cfg->model : "");
 
-	out = fy_gb_internalize(ctx->transient_gb, out);
+	out = fy_gb_internalize(ctx->transient->gb, out);
 	return fyai_provider_result(ctx, out, "could not extract the response usage");
 }
 
@@ -348,11 +348,11 @@ fy_generic fyai_wire_tool_text(struct fyai_ctx *ctx, fy_generic output)
 	const char *text;
 
 	if (!fy_is_valid(output) || fy_is_null(output))
-		return fy_value(ctx->transient_gb, "");
+		return fy_value(ctx->transient->gb, "");
 	if (!fy_is_mapping(output))
 		return output;
-	text = emit_json_string(ctx->transient_gb, output);
-	return fy_value(ctx->transient_gb, text ? text : "");
+	text = emit_json_string(ctx->transient->gb, output);
+	return fy_value(ctx->transient->gb, text ? text : "");
 }
 
 /*
@@ -364,7 +364,7 @@ fy_generic fyai_wire_tool_text(struct fyai_ctx *ctx, fy_generic output)
 fy_generic fyai_wire_content(struct fyai_ctx *ctx, fy_generic content,
 			     const char *text_type)
 {
-	struct fy_generic_builder *gb = ctx->transient_gb;
+	struct fy_generic_builder *gb = ctx->transient->gb;
 	fy_generic out, part, wire;
 
 	/* Files without images are text: the words, then each file. */
@@ -401,13 +401,13 @@ fy_generic fyai_wire_content(struct fyai_ctx *ctx, fy_generic content,
  */
 fy_generic fyai_item_text(struct fyai_ctx *ctx, fy_generic item)
 {
-	return fyai_media_text(ctx->transient_gb, fy_get(item, "content"));
+	return fyai_media_text(ctx->transient->gb, fy_get(item, "content"));
 }
 
 void fyai_wire_loss(struct fyai_ctx *ctx, fy_generic *lossesp,
 		    const char *kind, fy_generic type)
 {
-	struct fy_generic_builder *gb = ctx->transient_gb;
+	struct fy_generic_builder *gb = ctx->transient->gb;
 
 	if (!lossesp)
 		return;
@@ -425,7 +425,7 @@ void fyai_wire_loss(struct fyai_ctx *ctx, fy_generic *lossesp,
 fy_generic fyai_wire_parts_text(struct fyai_ctx *ctx, fy_generic content,
 				fy_generic *lossesp)
 {
-	struct fy_generic_builder *gb = ctx->transient_gb;
+	struct fy_generic_builder *gb = ctx->transient->gb;
 	fy_generic part, type, text, joined;
 
 	if (fy_is_string(content))
@@ -454,7 +454,7 @@ fy_generic fyai_wire_parts_text(struct fyai_ctx *ctx, fy_generic content,
 /* The output of a tool result as text: the words of its parts, else JSON. */
 fy_generic fyai_wire_output_text(struct fyai_ctx *ctx, fy_generic output)
 {
-	struct fy_generic_builder *gb = ctx->transient_gb;
+	struct fy_generic_builder *gb = ctx->transient->gb;
 	fy_generic part, text, joined;
 	const char *json;
 
@@ -482,7 +482,7 @@ fy_generic fyai_wire_calls(struct fyai_ctx *ctx, fy_generic messages)
 	calls = fy_seq_empty;
 	fy_foreach(item, messages)
 		if (fyai_item_type_is_call(fy_get(item, "type")))
-			calls = fy_append(ctx->transient_gb, calls, item);
+			calls = fy_append(ctx->transient->gb, calls, item);
 	return calls;
 }
 

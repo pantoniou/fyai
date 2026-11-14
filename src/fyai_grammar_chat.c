@@ -31,7 +31,7 @@
 static fy_generic chat_flush(struct fyai_ctx *ctx, fy_generic out,
 			     fy_generic *heldp, fy_generic *pendingp)
 {
-	struct fy_generic_builder *gb = ctx->transient_gb;
+	struct fy_generic_builder *gb = ctx->transient->gb;
 	fy_generic msg;
 
 	if (fy_is_valid(*pendingp)) {
@@ -50,7 +50,7 @@ static fy_generic chat_flush(struct fyai_ctx *ctx, fy_generic out,
 
 static fy_generic chat_input(struct fyai_ctx *ctx, fy_generic messages)
 {
-	struct fy_generic_builder *gb = ctx->transient_gb;
+	struct fy_generic_builder *gb = ctx->transient->gb;
 	fy_generic out = fy_seq_empty;
 	fy_generic pending = fy_invalid;	/* the calls of an assistant turn */
 	fy_generic held = fy_invalid;		/* its text, before the calls */
@@ -159,7 +159,7 @@ static fy_generic chat_tool_def(struct fyai_ctx *ctx, fy_generic spec)
 
 static fy_generic chat_image_part(struct fyai_ctx *ctx, fy_generic part)
 {
-	struct fy_generic_builder *gb = ctx->transient_gb;
+	struct fy_generic_builder *gb = ctx->transient->gb;
 	fy_generic out, data;
 
 	data = fyai_media_part_data_url(ctx, gb, part);
@@ -190,7 +190,7 @@ static fy_generic chat_input_split(struct fyai_ctx *ctx, fy_generic messages,
 static fy_generic chat_build_request(struct fyai_ctx *ctx,
 				     const struct fyai_grammar_request *req)
 {
-	struct fy_generic_builder *gb = ctx->transient_gb;
+	struct fy_generic_builder *gb = ctx->transient->gb;
 	struct fyai_cfg *cfg = ctx->cfg;
 	fy_generic options;
 	fy_generic request;
@@ -500,7 +500,7 @@ static fy_generic chat_usage(struct fy_generic_builder *gb, fy_generic usage)
 static fy_generic chat_history(struct fyai_ctx *ctx, fy_generic wire,
 			       fy_generic *lossesp)
 {
-	struct fy_generic_builder *gb = ctx->transient_gb;
+	struct fy_generic_builder *gb = ctx->transient->gb;
 	fy_generic out, m, role, text, calls, call;
 
 	out = fy_seq_empty;
@@ -537,7 +537,7 @@ static fy_generic chat_history(struct fyai_ctx *ctx, fy_generic wire,
 /* The message is the wire record of the turn. */
 static fy_generic chat_response(struct fyai_ctx *ctx, fy_generic doc)
 {
-	struct fy_generic_builder *gb = ctx->transient_gb;
+	struct fy_generic_builder *gb = ctx->transient->gb;
 	fy_generic message, content, text, calls, messages;
 	bool final;
 

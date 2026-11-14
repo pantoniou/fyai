@@ -249,7 +249,7 @@ int fyai_session_clear(struct fyai_ctx *ctx)
 	 * turn starts a well-formed chain; the verb form has no transient
 	 * builder and leaves seeding to the next prompt run's setup.
 	 */
-	if (ctx->transient_gb && fyai_cfg_makes_requests(cfg)) {
+	if (ctx->transient->gb && fyai_cfg_makes_requests(cfg)) {
 		ctx->last_message = fyai_turn_append(ctx, fy_invalid,
 			fy_sequence(fyai_make_system_message(ctx,
 							     cfg->system_prompt)));
@@ -283,7 +283,7 @@ static int session_compact_responses(struct fyai_ctx *ctx, const char *hint)
 	fyai_error_check(ctx, fy_is_valid(input), out,
 			 "compact: cannot build the Responses input");
 
-	request = fy_mapping(ctx->transient_gb,
+	request = fy_mapping(ctx->transient->gb,
 		"model", cfg->model,
 		"instructions", hint && *hint ?
 			fy_stringf("%s\n\nWhen compacting, preserve information "
@@ -299,13 +299,13 @@ static int session_compact_responses(struct fyai_ctx *ctx, const char *hint)
 	fyai_error_check(ctx, endpoint_valid, out,
 			 "compact: cannot derive the Responses compact endpoint from %s",
 			 cfg->api_url);
-	body = emit_request_body(ctx->transient_gb, request);
+	body = emit_request_body(ctx->transient->gb, request);
 	fyai_error_check(ctx, body, out,
 			 "compact: cannot encode the Responses request");
 
 	if (cfg->conversation_logging)
 		(void)fyai_log_generic(ctx, "conversation",
-			fy_mapping(ctx->transient_gb,
+			fy_mapping(ctx->transient->gb,
 				"kind", "request",
 				"api", "responses-compact",
 				"url", url,
@@ -347,7 +347,7 @@ restore:
 			 "compact: Responses compact request failed");
 	if (cfg->conversation_logging)
 		(void)fyai_log_generic(ctx, "conversation",
-			fy_mapping(ctx->transient_gb,
+			fy_mapping(ctx->transient->gb,
 				"kind", "response",
 				"api", "responses-compact",
 				"body", response));
@@ -426,10 +426,10 @@ static int session_compact_responses_v2(struct fyai_ctx *ctx,
 	fy_foreach(message, messages) {
 		if (fy_equal(fy_get(message, "role"), "system"))
 			continue;
-		compact_messages = fy_append(ctx->transient_gb,
+		compact_messages = fy_append(ctx->transient->gb,
 					     compact_messages, message);
 	}
-	compact_messages = fy_append(ctx->transient_gb, compact_messages,
+	compact_messages = fy_append(ctx->transient->gb, compact_messages,
 				     fy_mapping("type", "compaction_trigger"));
 	fyai_error_check(ctx, fy_is_valid(compact_messages), out,
 			 "compact: cannot build the Responses input trigger");
@@ -508,7 +508,7 @@ int fyai_session_compact(struct fyai_ctx *ctx, const char *hint)
 		fyai_result(ctx, "compact: nothing to compact\n");
 		return 0;
 	}
-	assert(ctx->transient_gb);
+	assert(ctx->transient->gb);
 
 	if (cfg->chatgpt_auth)
 		cfg->response_compaction_supported = false;
@@ -935,7 +935,7 @@ static long long session_estimate_tokens_at(fy_generic head)
 static fy_generic session_compact_source(struct fyai_ctx *ctx,
 					 fy_generic messages)
 {
-	struct fy_generic_builder *gb = ctx->transient_gb;
+	struct fy_generic_builder *gb = ctx->transient->gb;
 	fy_generic out, trimmed, m, role, marker;
 	long long window, budget, cap, total, bytes;
 	size_t i, count, first;
@@ -1108,7 +1108,7 @@ static fy_generic session_prompt_text(struct fyai_ctx *ctx,
 		text = fy_stringf("%lld tokens (measured %s; ~%lld estimated)",
 				  p->measured,
 				  fyai_context_source_name(p->source), p->estimated);
-	return fy_gb_internalize(ctx->transient_gb, text);
+	return fy_gb_internalize(ctx->transient->gb, text);
 }
 
 /* The output allowance; the window, not the configuration, can set it. */
@@ -2017,16 +2017,16 @@ int fyai_session_btw(struct fyai_ctx *ctx, const char *arg)
 				     branch, sizeof(branch));
 	fyai_error_check(ctx, !rc, err,
 			 "btw: could not name the side branch");
-	args = fy_mapping(ctx->transient_gb,
-		"task", fy_value(ctx->transient_gb, arg),
-		"name", fy_value(ctx->transient_gb, name),
+	args = fy_mapping(ctx->transient->gb,
+		"task", fy_value(ctx->transient->gb, arg),
+		"name", fy_value(ctx->transient->gb, name),
 		"description", "side question",
 		"context", "fork",
 		"_fyai_btw", true);
-	json = emit_json_string(ctx->transient_gb, args);
+	json = emit_json_string(ctx->transient->gb, args);
 	fyai_error_check(ctx, json, err,
 			 "btw: could not encode the question");
-	call = fy_mapping(ctx->transient_gb, "type", "function_call",
+	call = fy_mapping(ctx->transient->gb, "type", "function_call",
 			  "name", "agent", "arguments", json);
 	run = calloc(1, sizeof(*run));
 	fyai_error_check(ctx, run, err,
@@ -2089,7 +2089,7 @@ int fyai_session_slash(struct fyai_ctx *ctx, const char *line)
 	fyai_ui_pane_begin(ctx);
 
 	/* Backends build turns/generics; give them a transient builder. */
-	own_transient = !ctx->transient_gb;
+	own_transient = !ctx->transient->gb;
 	if (own_transient && fyai_setup_transient_builder(ctx)) {
 		fyai_ui_pane_end(ctx, title, true, true);
 		return 0;

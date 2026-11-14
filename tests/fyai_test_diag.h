@@ -8,6 +8,7 @@
 #include "fyai.h"
 #include "fyai_diag.h"
 #include "fyai_loop.h"
+#include "fyai_transient.h"
 
 /*
  * A configuration that stands alone owns its diagnostics in a test: the sink
@@ -57,6 +58,23 @@ static inline struct fyai_loop *fyai_test_loop_of(struct fyai_ctx *ctx)
 	if (!ctx->loop->diag)
 		ctx->loop->diag = fyai_test_diag_storage();
 	return ctx->loop;
+}
+
+/*
+ * The transient builder component of a test context: the one that the test
+ * gave the context, else one of its own, made on first use. It stacks on the
+ * working builder of the context.
+ */
+static inline struct fyai_transient *fyai_test_transient_of(struct fyai_ctx *ctx)
+{
+	static struct fyai_transient own;
+
+	if (!ctx->transient) {
+		fyai_transient_init(&own);
+		own.parent_gb = &ctx->gb;
+		ctx->transient = &own;
+	}
+	return ctx->transient;
 }
 
 #endif

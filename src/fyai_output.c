@@ -271,7 +271,7 @@ int fyai_output_add_fragment(struct fyai_ctx *ctx, const char *kind,
 		"lang", lang && *lang ? fy_value(lang) : fy_null,
 		"tool", tool && *tool ? fy_value(tool) : fy_null);
 	fyai_uitranscript_fragment(ctx, fragment);
-	output->fragments = fy_append(ctx->transient_gb, output->fragments,
+	output->fragments = fy_append(ctx->transient->gb, output->fragments,
 				      fragment);
 	fyai_error_check(ctx, fy_is_valid(output->fragments), err,
 			 "could not append display fragment");
@@ -300,7 +300,7 @@ int fyai_output_add_tool_head_fragment(struct fyai_ctx *ctx, size_t start,
 		"ok", ok ? fy_true : fy_false,
 		"cause", !fy_str_empty(cause) ? fy_value(cause) : fy_null);
 	fyai_uitranscript_fragment(ctx, fragment);
-	output->fragments = fy_append(ctx->transient_gb, output->fragments,
+	output->fragments = fy_append(ctx->transient->gb, output->fragments,
 				      fragment);
 	fyai_error_check(ctx, fy_is_valid(output->fragments), err,
 			 "could not append tool head fragment");

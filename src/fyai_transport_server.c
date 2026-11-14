@@ -158,7 +158,7 @@ static void srv_event(struct fyai_transport_server *srv, uint64_t id,
 
 	if (!cfg->transport_logging)
 		return;
-	gb = srv->ctx->transient_gb ? srv->ctx->transient_gb : cfg->gb;
+	gb = srv->ctx->transient->gb ? srv->ctx->transient->gb : cfg->gb;
 	safe = fyai_redact_dup(&srv->redactor, detail ? detail : "");
 	if (!safe)
 		return;
@@ -437,7 +437,7 @@ static int req_debug_cb(CURL *easy, curl_infotype type, char *data, size_t size,
 		return 0;
 	memcpy(copy, data, size);
 	copy[size] = '\0';
-	gb = srv->ctx->transient_gb ? srv->ctx->transient_gb : cfg->gb;
+	gb = srv->ctx->transient->gb ? srv->ctx->transient->gb : cfg->gb;
 	/* Wire logging keeps the standard curl record and its redaction setting. */
 	if (cfg->wire_logging) {
 		wire = cfg->whitewash_api_keys ? strdup(copy) : copy;

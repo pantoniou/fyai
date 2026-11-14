@@ -1189,6 +1189,7 @@ static char *agents_history(struct fyai_ctx *ctx, const char *name)
 {
 	struct fyai_ctx view = *ctx;
 	struct fyai_cfg cfg;
+	struct fyai_transient transient;
 	struct fyai_branch branch;
 	struct fy_generic_builder_cfg gbcfg = {
 		.flags = FYGBCF_SCOPE_LEADER | FYGBCF_DEDUP_ENABLED,
@@ -1209,7 +1210,9 @@ static char *agents_history(struct fyai_ctx *ctx, const char *name)
 	fyai_uimodel_view_detach(&view);
 	view.display_output = NULL;
 	view.last_message = branch.head;
-	view.transient_gb = gb;
+	fyai_transient_init(&transient);
+	transient.gb = gb;
+	view.transient = &transient;
 	view.sink = fyai_sink_create_capture(&view);
 	if (view.sink) {
 		/* The recap returns the exchanges it showed. */

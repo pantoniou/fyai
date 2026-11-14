@@ -343,7 +343,7 @@ int media_import_content(void)
 	memset(&cfg, 0, sizeof(cfg));
 	memset(&ctx, 0, sizeof(ctx));
 	ctx.cfg = &cfg;
-	ctx.gb = ctx.transient_gb = ctx.durable_gb =
+	ctx.gb = fyai_test_transient_of(&ctx)->gb = ctx.durable_gb =
 		fy_generic_builder_create(&gb_cfg);
 	FYAI_TCHECK(ctx.gb);
 	cfg.gb = ctx.gb;
@@ -555,7 +555,7 @@ int media_pending_message(void)
 	memset(&cfg, 0, sizeof(cfg));
 	memset(&ctx, 0, sizeof(ctx));
 	ctx.cfg = &cfg;
-	ctx.gb = ctx.transient_gb = ctx.durable_gb =
+	ctx.gb = fyai_test_transient_of(&ctx)->gb = ctx.durable_gb =
 		fy_generic_builder_create(&gb_cfg);
 	FYAI_TCHECK(ctx.gb);
 	cfg.gb = ctx.gb;
@@ -637,7 +637,7 @@ int media_pinned_root(void)
 
 	memset(&cfg, 0, sizeof(cfg));
 	memset(&ctx, 0, sizeof(ctx));
-	ctx.gb = ctx.transient_gb = ctx.durable_gb =
+	ctx.gb = fyai_test_transient_of(&ctx)->gb = ctx.durable_gb =
 		fy_generic_builder_create(&gb_cfg);
 	FYAI_TCHECK(ctx.gb);
 	cfg.gb = ctx.gb;
@@ -716,7 +716,7 @@ int media_mentions(void)
 	memset(&cfg, 0, sizeof(cfg));
 	memset(&ctx, 0, sizeof(ctx));
 	ctx.cfg = &cfg;
-	ctx.gb = ctx.transient_gb = ctx.durable_gb =
+	ctx.gb = fyai_test_transient_of(&ctx)->gb = ctx.durable_gb =
 		fy_generic_builder_create(&gb_cfg);
 	FYAI_TCHECK(ctx.gb);
 	cfg.gb = ctx.gb;

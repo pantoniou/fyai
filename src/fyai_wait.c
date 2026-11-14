@@ -1028,7 +1028,7 @@ bool fyai_wait_sleep(struct fyai_ctx *ctx, long long ms)
 
 fy_generic fyai_wait_tool(struct fyai_ctx *ctx, fy_generic args, bool *okp)
 {
-	struct fy_generic_builder *gb = ctx->transient_gb;
+	struct fy_generic_builder *gb = ctx->transient->gb;
 	struct fyai_event_loop *el;
 	fy_generic reason, text;
 	const char *name, *reason_text;
@@ -1089,7 +1089,7 @@ fy_generic fyai_time_tool(struct fyai_ctx *ctx, bool *okp)
 
 	*okp = text != NULL;
 	if (!text)
-		return fy_value(ctx->transient_gb,
+		return fy_value(ctx->transient->gb,
 				"tool error: could not read the clock");
 	return fyai_tool_take_text(ctx, text);
 }

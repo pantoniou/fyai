@@ -67,7 +67,9 @@ FYAI_TEST_ENTRY(transport_server, ignores_copied_descriptor, transport_server_ig
 
 static struct fyai_cfg test_cfg;
 static struct fyai_loop test_loop = { .dump_fd = -1 };
-static struct fyai_ctx test_ctx = { .cfg = &test_cfg, .loop = &test_loop };
+static struct fyai_transient test_transient;
+static struct fyai_ctx test_ctx = { .cfg = &test_cfg, .loop = &test_loop,
+				    .transient = &test_transient };
 
 /* Agent side. */
 

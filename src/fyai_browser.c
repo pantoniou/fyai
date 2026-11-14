@@ -1672,6 +1672,7 @@ static char *browser_capture(struct fyai_browser *b, char *name,
 {
 	struct fyai_ctx view = *b->ctx;
 	struct fyai_cfg cfg;
+	struct fyai_transient transient;
 	struct fyai_branch branch;
 	struct fy_generic_builder_cfg gbcfg = {
 		.flags = FYGBCF_SCOPE_LEADER | FYGBCF_DEDUP_ENABLED,
@@ -1699,7 +1700,9 @@ static char *browser_capture(struct fyai_browser *b, char *name,
 	view.arena_branches = b->branches;
 	view.branch_prev = branch.entry;
 	view.last_message = branch.head;
-	view.transient_gb = gb;
+	fyai_transient_init(&transient);
+	transient.gb = gb;
+	view.transient = &transient;
 	if (cols > 0)
 		cfg.render_width = cols;
 	own_style = browser_preview_style(b, &cfg, gb, branch.config);
@@ -1756,6 +1759,7 @@ static char *browser_foreign_capture(struct fyai_browser *b,
 	};
 	struct fyai_ctx view = *b->ctx;
 	struct fyai_cfg cfg;
+	struct fyai_transient transient;
 	struct fy_generic_builder *gb;
 	FILE *fp = NULL;
 	const char *captured;
@@ -1771,7 +1775,9 @@ static char *browser_foreign_capture(struct fyai_browser *b,
 	fyai_uimodel_view_detach(&view);
 	view.display_output = NULL;
 	view.browser = NULL;
-	view.transient_gb = gb;
+	fyai_transient_init(&transient);
+	transient.gb = gb;
+	view.transient = &transient;
 	view.last_message = fy_invalid;
 	if (cols > 0)
 		cfg.render_width = cols;

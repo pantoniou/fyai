@@ -69,7 +69,7 @@ static fy_generic messages_append_block(struct fyai_ctx *ctx, fy_generic out,
 					const char *role, fy_generic block,
 					size_t index, size_t *openedp)
 {
-	struct fy_generic_builder *gb = ctx->transient_gb;
+	struct fy_generic_builder *gb = ctx->transient->gb;
 	fy_generic last, content;
 	size_t n;
 
@@ -117,7 +117,7 @@ static bool messages_has_tool_use(fy_generic out, fy_generic id)
  */
 static fy_generic messages_text_block(struct fyai_ctx *ctx, fy_generic text)
 {
-	return fy_mapping(ctx->transient_gb, "type", "text", "text", text);
+	return fy_mapping(ctx->transient->gb, "type", "text", "text", text);
 }
 
 /*
@@ -135,7 +135,7 @@ static fy_generic messages_text_block(struct fyai_ctx *ctx, fy_generic text)
 static fy_generic messages_blocks(struct fyai_ctx *ctx, fy_generic messages,
 				  size_t *openedp)
 {
-	struct fy_generic_builder *gb = ctx->transient_gb;
+	struct fy_generic_builder *gb = ctx->transient->gb;
 	fy_generic out = fy_seq_empty;
 	fy_generic m, content, input, output;
 	fy_generic type, role;
@@ -272,7 +272,7 @@ fy_generic fyai_messages_blocks(struct fyai_ctx *ctx, fy_generic messages)
 static fy_generic messages_input_split(struct fyai_ctx *ctx, fy_generic messages,
 				       size_t *stable, size_t *from)
 {
-	struct fy_generic_builder *gb = ctx->transient_gb;
+	struct fy_generic_builder *gb = ctx->transient->gb;
 	fy_generic out, m, content, tc;
 	size_t j, n, opened;
 
@@ -305,7 +305,7 @@ static fy_generic messages_input_split(struct fyai_ctx *ctx, fy_generic messages
 
 	*stable = n ? n - 1 : 0;
 	*from = n ? opened : fy_len(messages);
-	out = fy_gb_internalize(ctx->transient_gb, out);
+	out = fy_gb_internalize(ctx->transient->gb, out);
 	return fyai_provider_result(ctx, out, "could not build the Messages input");
 }
 
@@ -318,7 +318,7 @@ static fy_generic messages_input(struct fyai_ctx *ctx, fy_generic messages)
 
 static fy_generic messages_image_part(struct fyai_ctx *ctx, fy_generic part)
 {
-	struct fy_generic_builder *gb = ctx->transient_gb;
+	struct fy_generic_builder *gb = ctx->transient->gb;
 	fy_generic out;
 	char *data;
 
@@ -342,7 +342,7 @@ static fy_generic messages_image_part(struct fyai_ctx *ctx, fy_generic part)
 static fy_generic messages_build_request(struct fyai_ctx *ctx,
 					 const struct fyai_grammar_request *req)
 {
-	struct fy_generic_builder *gb = ctx->transient_gb;
+	struct fy_generic_builder *gb = ctx->transient->gb;
 	struct fyai_cfg *cfg = ctx->cfg;
 	fy_generic request, cache, block, system, choice;
 
@@ -731,7 +731,7 @@ static fy_generic messages_usage(struct fy_generic_builder *gb,
 static fy_generic messages_history(struct fyai_ctx *ctx, fy_generic wire,
 				   fy_generic *lossesp)
 {
-	struct fy_generic_builder *gb = ctx->transient_gb;
+	struct fy_generic_builder *gb = ctx->transient->gb;
 	fy_generic out, m, role, content, text, block, type;
 	const char *args;
 
@@ -779,7 +779,7 @@ static fy_generic messages_history(struct fyai_ctx *ctx, fy_generic wire,
  */
 static fy_generic messages_response(struct fyai_ctx *ctx, fy_generic doc)
 {
-	struct fy_generic_builder *gb = ctx->transient_gb;
+	struct fy_generic_builder *gb = ctx->transient->gb;
 	fy_generic content, history, calls, text, first, messages;
 	bool paused, final;
 

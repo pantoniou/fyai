@@ -144,7 +144,7 @@ static const char *auth_path(struct fyai_ctx *ctx, const char *name, bool create
 		return "";
 	if (create && (fyai_mkdir_p(dir) || mkdir_private(dir)))
 		return "";
-	return fy_gb_intern_string(ctx->transient_gb,
+	return fy_gb_intern_string(ctx->transient->gb,
 			fy_sprintfa("%s/%s", dir, name));
 }
 
@@ -207,7 +207,7 @@ static int auth_parse_content(struct fyai_ctx *ctx, struct fyai_credentials *c,
 
 	gb = auth_builder(ctx);
 	credentials_clear(c);
-	doc = parse_json_string_size(ctx->transient_gb, text, len);
+	doc = parse_json_string_size(ctx->transient->gb, text, len);
 	if (!fy_is_mapping(doc))
 		return -1;
 	c->registrations = fy_gb_internalize(gb, fy_get(doc, "registrations", fy_map_empty));
@@ -327,7 +327,7 @@ static const char *auth_json(struct fyai_ctx *ctx, struct fyai_credentials *c)
 {
 	fy_generic doc;
 
-	doc = fy_mapping(ctx->transient_gb,
+	doc = fy_mapping(ctx->transient->gb,
 		"type", "chatgpt", "issuer", AUTH_ISSUER,
 		"client_id", c->client_id ? c->client_id : "",
 		"ext_agent_host_id", c->host_id ? c->host_id : "",
@@ -343,9 +343,9 @@ static const char *auth_json(struct fyai_ctx *ctx, struct fyai_credentials *c)
 			fy_is_mapping(c->registrations) ? c->registrations : fy_map_empty,
 			c->client_id, fy_gb_internalize(auth_builder(ctx), doc));
 	}
-	doc = fy_assoc(ctx->transient_gb, doc, "registrations",
+	doc = fy_assoc(ctx->transient->gb, doc, "registrations",
 		fy_is_mapping(c->registrations) ? c->registrations : fy_map_empty);
-	return emit_json_string(ctx->transient_gb, doc);
+	return emit_json_string(ctx->transient->gb, doc);
 }
 
 #define AUTH_KEYRING_SERVICE "org.fyai.Auth"
@@ -791,7 +791,7 @@ static int auth_validate_tokens(struct fyai_ctx *ctx,
 	fy_generic claims;
 
 	gb = auth_builder(ctx);
-	claims = fyai_auth_verify_id_token(ctx->transient_gb, c->id_token, jwks,
+	claims = fyai_auth_verify_id_token(ctx->transient->gb, c->id_token, jwks,
 					 c->client_id, nonce, c->subject, time(NULL));
 	if (fy_is_invalid(claims)) {
 		fyai_error(ctx, "OpenAI ID token validation failed");
@@ -828,7 +828,7 @@ static void fyai_auth_login_http_complete(struct fyai_curl_transfer *transfer,
 	fyai_error_check(request->ctx, status / 100 == 2, failed,
 		"authentication request failed (HTTP %ld)", status);
 	if (request->state == FYAILS_TOKEN_EXCHANGE) {
-		doc = parse_json_string(request->ctx->transient_gb, request->response.data);
+		doc = parse_json_string(request->ctx->transient->gb, request->response.data);
 		rc = fyai_auth_parse_tokens(request->ctx, &request->credentials, doc, false);
 		fyai_error_check(request->ctx, !rc, failed, "invalid subscription token response");
 		request->state = FYAILS_JWKS;
@@ -836,7 +836,7 @@ static void fyai_auth_login_http_complete(struct fyai_curl_transfer *transfer,
 		fyai_error_check(request->ctx, !rc, failed, "could not fetch OpenAI signing keys");
 		return;
 	}
-	jwks = parse_json_string(request->ctx->transient_gb, request->response.data);
+	jwks = parse_json_string(request->ctx->transient->gb, request->response.data);
 	rc = auth_validate_tokens(request->ctx, &request->credentials, jwks, request->pkce.nonce);
 	if (rc)
 		goto failed;
@@ -904,9 +904,9 @@ static int auth_register_pending(struct fyai_ctx *ctx, struct fyai_credentials *
 	registration.expires_at = 0;
 	registration.registrations = fy_invalid;
 	encoded = auth_json(ctx, &registration);
-	record = parse_json_string(ctx->transient_gb, encoded);
+	record = parse_json_string(ctx->transient->gb, encoded);
 	/* A registration record has no registry of its own. */
-	record = fy_delete_at_path(ctx->transient_gb, record, "registrations");
+	record = fy_delete_at_path(ctx->transient->gb, record, "registrations");
 	active.host_id = pending->host_id;
 	active.registrations = fy_assoc(auth_builder(ctx),
 		fy_is_mapping(active.registrations) ? active.registrations : fy_map_empty,
@@ -1043,7 +1043,7 @@ struct fyai_auth_login_request *fyai_auth_login_submit(struct fyai_ctx *ctx,
 				fyai_error(ctx, "unknown ChatGPT registration; run `fyai auth accounts`");
 				goto failed;
 			}
-			selected_json = emit_json_string(ctx->transient_gb, selected);
+			selected_json = emit_json_string(ctx->transient->gb, selected);
 			if (!selected_json)
 				goto failed;
 			rc = auth_parse_content(ctx, &request->credentials,
@@ -1071,7 +1071,7 @@ struct fyai_auth_login_request *fyai_auth_login_submit(struct fyai_ctx *ctx,
 		      fyai_oauth_flow_port(request->flow));
 	if (rc < 0)
 		goto failed;
-	query = fy_mapping(ctx->transient_gb,
+	query = fy_mapping(ctx->transient->gb,
 		"client_id", fy_str_empty(request->credentials.client_id) ?
 			AUTH_DYNAMIC_CLIENT : request->credentials.client_id,
 		"ext_agent_host_id", request->credentials.host_id,
@@ -1080,10 +1080,10 @@ struct fyai_auth_login_request *fyai_auth_login_submit(struct fyai_ctx *ctx,
 		"state", request->pkce.state, "nonce", request->pkce.nonce,
 		"code_challenge_method", "S256", "code_challenge", request->pkce.challenge);
 	if (fy_str_empty(request->credentials.client_id))
-		query = fy_assoc(ctx->transient_gb, query, "agent_name_hint", "fyai");
+		query = fy_assoc(ctx->transient->gb, query, "agent_name_hint", "fyai");
 	/* Retained ID-token hints are omitted from printable authorization URLs. */
 	else if (!fy_str_empty(request->credentials.email))
-		query = fy_assoc(ctx->transient_gb, query, "login_hint", request->credentials.email);
+		query = fy_assoc(ctx->transient->gb, query, "login_hint", request->credentials.email);
 	encoded = auth_form(ctx, query);
 	if (!encoded)
 		goto failed;
@@ -1300,7 +1300,7 @@ static void fyai_auth_refresh_complete(
 			 "refresh failed (HTTP %ld); run `fyai auth login`",
 			 status);
 	if (!request->refreshing) {
-		request->jwks = parse_json_string(ctx->transient_gb, request->response.data);
+		request->jwks = parse_json_string(ctx->transient->gb, request->response.data);
 		fyai_error_check(ctx, fy_is_sequence(fy_get(request->jwks, "keys", fy_invalid)),
 			done, "invalid OpenAI signing keys");
 		free(request->response.data);
@@ -1317,7 +1317,7 @@ static void fyai_auth_refresh_complete(
 	}
 	request->credentials = ctx->auth;
 	rc = fyai_auth_parse_tokens(ctx, &request->credentials,
-		parse_json_string(ctx->transient_gb, request->response.data), true);
+		parse_json_string(ctx->transient->gb, request->response.data), true);
 	fyai_error_check(ctx, !rc, done, "invalid refreshed subscription tokens");
 	rc = auth_validate_tokens(ctx, &request->credentials, request->jwks, NULL);
 	fyai_error_check(ctx, !rc, done, "refreshed identity could not be verified");
@@ -1657,7 +1657,7 @@ static void auth_logout_fetched(void *owner)
 	}
 	if (f->code != CURLE_OK || f->response.status != 200)
 		goto unconfirmed;
-	discovery = parse_json_string(ctx->transient_gb, f->response.data);
+	discovery = parse_json_string(ctx->transient->gb, f->response.data);
 	endpoint = fy_get(discovery, "revocation_endpoint", "");
 	if (strncmp(endpoint, AUTH_ISSUER "/", strlen(AUTH_ISSUER "/")))
 		goto unconfirmed;

@@ -26,6 +26,7 @@
 #include "fyai_auth.h"
 #include "fyai_diag.h"
 #include "fyai_loop.h"
+#include "fyai_transient.h"
 #include "fyai_media.h"
 
 struct fyai_fenced_stream;	/* live progressive shell output (fyai_markdown.h) */
@@ -787,10 +788,8 @@ struct fyai_ctx {
 	 */
 	struct fy_generic_builder *gb;
 	struct fy_allocator *overlay_allocator;
-	struct fy_allocator *transient_allocator;
-	struct fy_generic_builder *transient_gb;
-	/* Release idle-operation scratch storage on the next loop iteration. */
-	bool transient_autorelease;
+	/* The transient builder component, owned by struct fyai_app. */
+	struct fyai_transient *transient;
 	/* The body of the last request, kept for the next (fyai_reqcache.c). */
 	struct fyai_request_cache *request_cache;
 	CURL *curl;

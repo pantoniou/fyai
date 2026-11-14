@@ -127,13 +127,13 @@ static void setup_builders(void)
 
 	memset(&acfg, 0, sizeof(acfg));
 	acfg.scenario = FYAST_PER_TAG_FREE_DEDUP;
-	test_ctx.transient_allocator = fy_allocator_create("auto", &acfg);
+	fyai_test_transient_of(&test_ctx)->allocator = fy_allocator_create("auto", &acfg);
 	memset(&gbc, 0, sizeof(gbc));
 	gbc.flags = FYGBCF_SCOPE_LEADER | FYGBCF_DEDUP_ENABLED | FYGBCF_CREATE_TAG;
-	gbc.allocator = test_ctx.transient_allocator;
+	gbc.allocator = fyai_test_transient_of(&test_ctx)->allocator;
 	gbc.parent = test_ctx.gb;
-	test_ctx.transient_gb = fy_generic_builder_create(&gbc);
-	FYAI_TCHECK(test_ctx.transient_gb);
+	fyai_test_transient_of(&test_ctx)->gb = fy_generic_builder_create(&gbc);
+	FYAI_TCHECK(fyai_test_transient_of(&test_ctx)->gb);
 }
 
 static struct fyai_event_loop *loop(void)
@@ -272,11 +272,11 @@ static fy_generic on_serve(struct jsonrpc_conn *conn, const char *method,
 	}
 	sv->requests++;
 	if (sv->fail_next) {
-		*errorp = fy_mapping(test_ctx.transient_gb,
+		*errorp = fy_mapping(fyai_test_transient_of(&test_ctx)->gb,
 				     "code", -32000LL, "message", "refused");
 		return fy_invalid;
 	}
-	return fy_mapping(test_ctx.transient_gb, "echo", sv->arg);
+	return fy_mapping(fyai_test_transient_of(&test_ctx)->gb, "echo", sv->arg);
 }
 
 /* Read one framed line the client wrote back to us. */
@@ -589,7 +589,7 @@ static void test_frames(void)
 		FYAI_TCHECK(rc > 0);
 	}
 	FYAI_TCHECK(!strcmp(log.last, "user"));
-	rc = jsonrpc_conn_send_frame(p.conn, fy_mapping(test_ctx.transient_gb,
+	rc = jsonrpc_conn_send_frame(p.conn, fy_mapping(fyai_test_transient_of(&test_ctx)->gb,
 						"type", "result"));
 	FYAI_TCHECK(!rc);
 	while (jsonrpc_conn_has_output(p.conn)) {
@@ -626,7 +626,7 @@ static void test_socket_frames(void)
 		FYAI_TCHECK(rc > 0);
 	}
 	FYAI_TCHECK(!strcmp(log.last, "user"));
-	FYAI_TCHECK(!jsonrpc_conn_send_frame(conn, fy_mapping(test_ctx.transient_gb,
+	FYAI_TCHECK(!jsonrpc_conn_send_frame(conn, fy_mapping(fyai_test_transient_of(&test_ctx)->gb,
 							   "type", "result")));
 	while (jsonrpc_conn_has_output(conn)) {
 		rc = fyai_event_loop_step(loop(), TEST_BOUND_MS);
@@ -678,7 +678,7 @@ static void test_image_frames(void)
 {
 	struct image_log log[2] = {};
 	struct jsonrpc_conn *conn[2];
-	struct fy_generic_builder *gb = test_ctx.transient_gb;
+	struct fy_generic_builder *gb = fyai_test_transient_of(&test_ctx)->gb;
 	size_t sizes[] = { 1, 5000, 300000 }, i;
 	char *text;
 	int fd[2], rc;
@@ -714,7 +714,7 @@ static void test_image_damaged(void)
 {
 	struct image_log log[2] = {};
 	struct jsonrpc_conn *conn[2];
-	struct fy_generic_builder *gb = test_ctx.transient_gb;
+	struct fy_generic_builder *gb = fyai_test_transient_of(&test_ctx)->gb;
 	unsigned char *image, *frame;
 	size_t size, i, bad = 0;
 	uint64_t len;
@@ -804,9 +804,9 @@ static void test_tunnel_request(void)
 	FYAI_TCHECK(log.count == 1 && log.id == 5);
 	FYAI_TCHECK(!strcmp(log.method, "tools/list"));
 	FYAI_TCHECK(!cr.done);
-	jsonrpc_conn_tunnel_receive(conn, fy_mapping(test_ctx.transient_gb,
+	jsonrpc_conn_tunnel_receive(conn, fy_mapping(fyai_test_transient_of(&test_ctx)->gb,
 		"jsonrpc", "2.0", "id", 5LL,
-		"result", fy_mapping(test_ctx.transient_gb, "value", 7LL)));
+		"result", fy_mapping(fyai_test_transient_of(&test_ctx)->gb, "value", 7LL)));
 	FYAI_TCHECK(cr.done && cr.ok);
 	FYAI_TCHECK(fy_get(cr.result, "value", 0LL) == 7);
 	jsonrpc_request_destroy(req);

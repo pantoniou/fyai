@@ -24,6 +24,7 @@
 
 #include "fyai_test.h"
 #include "fyai_test_registry.h"
+#include "fyai_test_diag.h"
 
 FYAI_TEST_ENTRY(settings, read, settings_read)
 FYAI_TEST_ENTRY(settings, search, settings_search)
@@ -39,7 +40,7 @@ static struct fyai_ctx test_ctx;
 
 static fy_generic doc(const char *text)
 {
-	return fy_parse(test_ctx.transient_gb, text,
+	return fy_parse(fyai_test_transient_of(&test_ctx)->gb, text,
 			FYOPPF_DISABLE_DIRECTORY | FYOPPF_MODE_YAML_1_2 |
 			FYOPPF_INPUT_TYPE_STRING, NULL);
 }
@@ -57,12 +58,12 @@ static int settings_setup(void)
 	memset(&test_cfg, 0, sizeof(test_cfg));
 	memset(&test_ctx, 0, sizeof(test_ctx));
 	test_ctx.cfg = &test_cfg;
-	test_ctx.transient_gb = fy_generic_builder_create(&gb_cfg);
-	if (!test_ctx.transient_gb)
+	fyai_test_transient_of(&test_ctx)->gb = fy_generic_builder_create(&gb_cfg);
+	if (!fyai_test_transient_of(&test_ctx)->gb)
 		return 1;
-	test_ctx.durable_gb = test_ctx.transient_gb;
-	test_ctx.gb = test_ctx.transient_gb;
-	test_cfg.gb = test_ctx.transient_gb;
+	test_ctx.durable_gb = fyai_test_transient_of(&test_ctx)->gb;
+	test_ctx.gb = fyai_test_transient_of(&test_ctx)->gb;
+	test_cfg.gb = fyai_test_transient_of(&test_ctx)->gb;
 	test_ctx.tools_spec = fy_invalid;
 	/* No catalogue in the branch: the embedded snapshot is read. */
 	test_ctx.arena_catalog = fy_invalid;
@@ -81,7 +82,7 @@ static int settings_setup(void)
 
 static void settings_teardown(void)
 {
-	fy_generic_builder_destroy(test_ctx.transient_gb);
+	fy_generic_builder_destroy(fyai_test_transient_of(&test_ctx)->gb);
 }
 
 /* The result is the JSON text the model gets; a refusal is plain text. */
@@ -91,7 +92,7 @@ static fy_generic run(const char *args, bool *okp)
 
 	r = fyai_tool_run_one(&test_ctx, "settings", doc(args), okp);
 	if (fy_is_string(r) && *fy_castp(&r, "") == '{')
-		r = parse_json_string(test_ctx.transient_gb, fy_castp(&r, ""));
+		r = parse_json_string(fyai_test_transient_of(&test_ctx)->gb, fy_castp(&r, ""));
 	return r;
 }
 
@@ -315,12 +316,12 @@ int settings_format(void)
 			      doc("{action: describe, path: temperature}"),
 			      &ok);
 	FYAI_TCHECK(ok && fy_is_string(r));
-	text = def->format_result(&test_ctx, test_ctx.transient_gb,
+	text = def->format_result(&test_ctx, fyai_test_transient_of(&test_ctx)->gb,
 				  doc("{action: describe}"), fy_castp(&r, ""));
 	FYAI_TCHECK(text && strstr(text, "`temperature`") &&
 		    strstr(text, "write") && strstr(text, "(branch)"));
 	free(text);
-	text = def->format_result(&test_ctx, test_ctx.transient_gb,
+	text = def->format_result(&test_ctx, fyai_test_transient_of(&test_ctx)->gb,
 		doc("{action: change}"),
 		"{\"status\": \"applied\", \"id\": \"c1\", "
 		"\"scope\": \"session\"}");
@@ -333,7 +334,7 @@ int settings_format(void)
 	FYAI_TCHECK(ok && strstr(fy_castp(&r, ""), "max_attempts"));
 
 	/* A value with backticks cannot close its span. */
-	text = def->format_result(&test_ctx, test_ctx.transient_gb,
+	text = def->format_result(&test_ctx, fyai_test_transient_of(&test_ctx)->gb,
 		doc("{action: get}"),
 		"{\"path\": \"system_prompt\", \"access\": \"review\", "
 		"\"layer\": \"branch\", \"value\": \"a ` b `` c\"}");
@@ -341,7 +342,7 @@ int settings_format(void)
 	free(text);
 
 	/* A change shows its outcome and the diff that fyai made. */
-	text = def->format_result(&test_ctx, test_ctx.transient_gb,
+	text = def->format_result(&test_ctx, fyai_test_transient_of(&test_ctx)->gb,
 		doc("{action: change}"),
 		"{\"status\": \"pending\", \"id\": \"p1\", \"diff\": "
 		"\"--- a/config.yaml\\n+++ b/config.yaml\\n"
@@ -409,7 +410,7 @@ int settings_catalog(void)
 	check_refused("{document: skills, action: get}",
 		      "document must be config or catalog");
 
-	text = def->format_result(&test_ctx, test_ctx.transient_gb,
+	text = def->format_result(&test_ctx, fyai_test_transient_of(&test_ctx)->gb,
 		doc("{document: catalog, action: search}"),
 		"{\"document\": \"catalog\", \"found\": 1, \"models\": "
 		"[{\"path\": \"models/m\", \"display_name\": \"M\", "
@@ -418,7 +419,7 @@ int settings_catalog(void)
 	FYAI_TCHECK(text && strstr(text, "`models/m`") &&
 		    strstr(text, "9 tokens") && strstr(text, "**in use**"));
 	free(text);
-	text = def->format_result(&test_ctx, test_ctx.transient_gb,
+	text = def->format_result(&test_ctx, fyai_test_transient_of(&test_ctx)->gb,
 		doc("{document: catalog, action: change}"),
 		"{\"document\": \"catalog\", \"status\": \"applied\", "
 		"\"id\": \"c1\", \"source\": \"https://example.test\", "
@@ -570,7 +571,7 @@ int settings_escape(void)
 	FYAI_TCHECK(!strcmp(out, "a/b~c"));
 	FYAI_TCHECK(fyai_path_segment_decode("a~2", 3, out, sizeof(out)) < 0);
 	FYAI_TCHECK(fyai_path_segment_decode("a~", 2, out, sizeof(out)) < 0);
-	FYAI_TCHECK(!strcmp(fyai_path_join(test_ctx.transient_gb, "keys",
+	FYAI_TCHECK(!strcmp(fyai_path_join(fyai_test_transient_of(&test_ctx)->gb, "keys",
 					   "Ctrl-/"), "keys/Ctrl-~1"));
 
 	/* A key with a '/' is read by its escaped path, and listed so. */

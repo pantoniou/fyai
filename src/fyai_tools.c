@@ -90,7 +90,7 @@ const char *fyai_tool_call_name(struct fyai_ctx *ctx, fy_generic tool_call)
 
 	v = fy_get(tool_call, "name");
 	return fyai_tool_name_canonical(
-		fy_gb_intern_string(ctx->transient_gb, fy_cast(v, "")));
+		fy_gb_intern_string(ctx->transient->gb, fy_cast(v, "")));
 }
 
 /*
@@ -238,7 +238,7 @@ char *fyai_format_tool_header(struct fyai_ctx *ctx, const char *tool,
 	mf = open_memstream(&md, &mdlen);
 	if (!mf)
 		return NULL;
-	fyai_emit_tool_call(ctx, mf, ctx->transient_gb, tool, args, preview_lines,
+	fyai_emit_tool_call(ctx, mf, ctx->transient->gb, tool, args, preview_lines,
 			    NULL);
 	fclose(mf);
 	return md;
@@ -249,7 +249,7 @@ int fyai_shell_view(struct fyai_ctx *ctx, const char *command,
 		    fy_generic args, char **title,
 		    struct fyai_buf *body)
 {
-	struct fy_generic_builder *gb = ctx->transient_gb;
+	struct fy_generic_builder *gb = ctx->transient->gb;
 	fy_generic desc, workdir, timeout;
 	fy_generic disp;
 
@@ -450,7 +450,7 @@ static int patch_band_view(struct fyai_ctx *ctx, fy_generic tool_call,
 		args = fy_mapping("patch", resolved);
 	return fyai_tool_call_view_source(ctx, "apply_patch", args,
 			fyai_tool_preview_lines(ctx->cfg, "apply_patch"),
-			title, body, ctx->transient_gb, sourcep);
+			title, body, ctx->transient->gb, sourcep);
 }
 
 void fyai_patch_band_refresh(struct fyai_ctx *ctx, fy_generic tool_call)
@@ -579,7 +579,7 @@ void fyai_print_tool_call(struct fyai_ctx *ctx, fy_generic tool_call,
 		args = fyai_tool_call_args(ctx, tool_call);
 		if (fyai_tool_call_view_source(ctx, name, args,
 					fyai_tool_preview_lines(cfg, name),
-					&header, &body, ctx->transient_gb,
+					&header, &body, ctx->transient->gb,
 					&source))
 			header = NULL;
 		fyai_sink_band_open(ctx->sink, true, header ? header : name,
@@ -1202,7 +1202,7 @@ static fy_generic fyai_run_shell_command(struct fyai_ctx *ctx, fy_generic args,
  */
 fy_generic fyai_ask_declined(struct fyai_ctx *ctx)
 {
-	return fyai_ask_result(ctx->transient_gb, fy_invalid, NULL, 0);
+	return fyai_ask_result(ctx->transient->gb, fy_invalid, NULL, 0);
 }
 
 /* Ask the parent to present the questions of a delegated sub-agent. */
@@ -1334,7 +1334,7 @@ struct fyai_ask_call *fyai_ask_call_start(struct fyai_ctx *ctx, fy_generic args,
 	c->gb = fy_generic_builder_create(&bcfg);
 	fyai_error_check(ctx, c->gb, err_free,
 			 "ask_user: cannot make the builder of the call");
-	args = fyai_tool_args_normalize(ctx->transient_gb, "ask_user", args);
+	args = fyai_tool_args_normalize(ctx->transient->gb, "ask_user", args);
 	c->questions = fyai_ask_normalize(c->gb, args, why, sizeof(why));
 	/* The text path reports a question that is not valid. */
 	if (fy_is_invalid(c->questions))
@@ -1434,7 +1434,7 @@ static fy_generic fyai_ask_user_lines(struct fyai_ctx *ctx, fy_generic questions
 				   "available (non-interactive; supply --answer)");
 			ctx->ask_abort = true;
 			fyai_ask_replies_free(replies, n);
-			return fy_value(ctx->transient_gb, "tool error: no answer "
+			return fy_value(ctx->transient->gb, "tool error: no answer "
 					"available (non-interactive)");
 		} else {
 			/* Editable input via linenoise. */
@@ -1457,7 +1457,7 @@ static fy_generic fyai_ask_user_lines(struct fyai_ctx *ctx, fy_generic questions
 		}
 		n++;
 	}
-	result = fyai_ask_result(ctx->transient_gb, questions,
+	result = fyai_ask_result(ctx->transient->gb, questions,
 				 declined ? NULL : replies, n);
 	fyai_ask_replies_free(replies, n);
 	return result;
@@ -1472,9 +1472,9 @@ fy_generic fyai_ask_user_from(struct fyai_ctx *ctx, fy_generic args,
 	const char *name;
 	char why[160];
 
-	questions = fyai_ask_normalize(ctx->transient_gb, args, why, sizeof(why));
+	questions = fyai_ask_normalize(ctx->transient->gb, args, why, sizeof(why));
 	if (fy_is_invalid(questions))
-		return fy_value(ctx->transient_gb,
+		return fy_value(ctx->transient->gb,
 				fy_sprintfa("tool error: ask_user: %s", why));
 	if (!from && fyai_agent_delegated(ctx) && ctx->tool_rpc)
 		return fyai_ask_user_upward(ctx, questions);
@@ -1487,10 +1487,10 @@ fy_generic fyai_ask_user_from(struct fyai_ctx *ctx, fy_generic args,
 	    fyai_ui_ask_available(ctx) && fyai_asks_background(args)) {
 		gname = fy_get(args, "name", fy_invalid);
 		name = fy_castp(&gname, "");
-		result = fyai_asks_start(ctx, ctx->transient_gb, name,
+		result = fyai_asks_start(ctx, ctx->transient->gb, name,
 					 questions);
 		if (fy_is_invalid(result))
-			return fy_value(ctx->transient_gb, "tool error: "
+			return fy_value(ctx->transient->gb, "tool error: "
 					"the questions could not be asked");
 		return result;
 	}
@@ -1500,7 +1500,7 @@ fy_generic fyai_ask_user_from(struct fyai_ctx *ctx, fy_generic args,
 static fy_generic fyai_ask_user(struct fyai_ctx *ctx, fy_generic args)
 {
 	if (fyai_agent_delegated(ctx))
-		return fy_value(ctx->transient_gb,
+		return fy_value(ctx->transient->gb,
 			"tool error: ask_user is available only in the root session; use ask_parent");
 	return fyai_ask_user_from(ctx, args, NULL);
 }
@@ -1543,7 +1543,7 @@ fy_generic fyai_execute_tool_call(struct fyai_ctx *ctx,
 	type = fy_get(tool_call, "type");
 	if (fy_equal(type, "shell_call") &&
 	    !fyai_skill_tool_allowed(ctx, "shell"))
-		return fy_value(ctx->transient_gb,
+		return fy_value(ctx->transient->gb,
 				"tool error: shell is not one of the tools of "
 				"this skill");
 	if (fy_equal(type, "shell_call")) {
@@ -1559,7 +1559,7 @@ fy_generic fyai_execute_tool_call(struct fyai_ctx *ctx,
 		shell_opts.max_bytes = fyai_shell_output_bytes(ctx, action);
 		outputs = fy_seq_empty;
 		if (fyai_shell_sandbox_begin(ctx, &sb, &sandbox))
-			return fy_value(ctx->transient_gb,
+			return fy_value(ctx->transient->gb,
 					"tool error: invalid sandbox configuration");
 		*okp = true;
 
@@ -1572,10 +1572,10 @@ fy_generic fyai_execute_tool_call(struct fyai_ctx *ctx,
 						&tty_result);
 				if (!tty_text) {
 					fyai_shell_sandbox_end(&sb);
-					return fy_value(ctx->transient_gb,
+					return fy_value(ctx->transient->gb,
 						"tool error: failed to run shell command on a terminal");
 				}
-				out_val = fy_gb_internalize(ctx->transient_gb,
+				out_val = fy_gb_internalize(ctx->transient->gb,
 							    fy_value(tty_text));
 				free(tty_text);
 				outcome = tty_result.timed_out ?
@@ -1608,7 +1608,7 @@ fy_generic fyai_execute_tool_call(struct fyai_ctx *ctx,
 							 &shell_opts)) {
 				fyai_shell_live_close(ctx);
 				fyai_shell_sandbox_end(&sb);
-				return fy_value(ctx->transient_gb, "tool error: failed to run shell command");
+				return fy_value(ctx->transient->gb, "tool error: failed to run shell command");
 			}
 			fyai_shell_live_close(ctx);
 
@@ -1620,7 +1620,7 @@ fy_generic fyai_execute_tool_call(struct fyai_ctx *ctx,
 			/* Internalize bounded streams before their buffers are freed. */
 			out_text = shell_result.stdout_data;
 			bounded = fyai_shell_bound_alloc(out_text, out_bytes);
-			out_val = fy_gb_internalize(ctx->transient_gb,
+			out_val = fy_gb_internalize(ctx->transient->gb,
 					fy_value(bounded ? bounded : out_text));
 			free(bounded);
 			if (data_is_binary(shell_result.stdout_data,
@@ -1633,7 +1633,7 @@ fy_generic fyai_execute_tool_call(struct fyai_ctx *ctx,
 			}
 			err_text = shell_result.stderr_data;
 			bounded = fyai_shell_bound_alloc(err_text, err_bytes);
-			err_val = fy_gb_internalize(ctx->transient_gb,
+			err_val = fy_gb_internalize(ctx->transient->gb,
 					fy_value(bounded ? bounded : err_text));
 			free(bounded);
 			if (data_is_binary(shell_result.stderr_data,
@@ -1676,14 +1676,14 @@ fy_generic fyai_execute_tool_call(struct fyai_ctx *ctx,
 	name = fy_get(tool_call, "name", "");
 	args = fyai_tool_call_args(ctx, tool_call);
 	if (fy_is_invalid(args))
-		return fy_value(ctx->transient_gb, "tool error: invalid JSON arguments");
+		return fy_value(ctx->transient->gb, "tool error: invalid JSON arguments");
 	if (!fyai_skill_tool_allowed(ctx, fyai_tool_name_canonical(name)))
-		return fy_value(ctx->transient_gb,
+		return fy_value(ctx->transient->gb,
 				fy_sprintfa("tool error: %s is not one of the "
 					    "tools of this skill", name));
 	/* A tool group submits an MCP call; no call runs one here. */
 	if (fyai_mcp_tool_name(name))
-		return fy_value(ctx->transient_gb,
+		return fy_value(ctx->transient->gb,
 				"tool error: MCP calls run in a tool group");
 
 	result_generic = fyai_tool_run_one(ctx, name, args, okp);
@@ -1691,7 +1691,7 @@ fy_generic fyai_execute_tool_call(struct fyai_ctx *ctx,
 	if (ctx->patch_display)
 		fyai_patch_display_record(ctx, tool_call, ctx->patch_display);
 out:
-	result_generic = fy_gb_internalize(ctx->transient_gb, result_generic);
+	result_generic = fy_gb_internalize(ctx->transient->gb, result_generic);
 	if (fy_is_invalid(result_generic))
 		fyai_error(ctx, "could not retain the tool result");
 	return result_generic;
@@ -1708,12 +1708,12 @@ static fy_generic fyai_tool_result_text(struct fyai_ctx *ctx, fy_generic result)
 
 	if (!fy_is_mapping(result) && !fy_is_sequence(result))
 		return result;
-	text = emit_json_string(ctx->transient_gb, result);
+	text = emit_json_string(ctx->transient->gb, result);
 	if (!text) {
 		fyai_error(ctx, "could not format the tool result");
-		return fy_value(ctx->transient_gb, "tool error: could not format the result");
+		return fy_value(ctx->transient->gb, "tool error: could not format the result");
 	}
-	return fy_value(ctx->transient_gb, text);
+	return fy_value(ctx->transient->gb, text);
 }
 
 /* The tools whose behaviour is a short function of the arguments. */
@@ -1741,9 +1741,9 @@ static fy_generic tool_write_file(struct fyai_ctx *ctx, fy_generic args,
 	err = errno;
 	*okp = !rc;
 	if (rc)
-		return fy_stringf(ctx->transient_gb, "tool error: write %s: %s",
+		return fy_stringf(ctx->transient->gb, "tool error: write %s: %s",
 				  path, strerror(err));
-	return fy_value(ctx->transient_gb, "ok");
+	return fy_value(ctx->transient->gb, "ok");
 }
 
 static fy_generic tool_apply_patch(struct fyai_ctx *ctx, fy_generic args,
@@ -1899,16 +1899,16 @@ static fy_generic tool_todo_write(struct fyai_ctx *ctx, fy_generic args,
 	fy_generic todos;
 	char why[1024];
 
-	todos = fyai_todo_normalize(ctx->transient_gb, args, why, sizeof(why));
+	todos = fyai_todo_normalize(ctx->transient->gb, args, why, sizeof(why));
 	if (fy_is_invalid(todos)) {
 		*okp = false;
-		return fy_value(ctx->transient_gb,
+		return fy_value(ctx->transient->gb,
 				fy_sprintfa("tool error: todo_write: %s", why));
 	}
-	todos = fyai_todo_commit(ctx, ctx->transient_gb, todos);
+	todos = fyai_todo_commit(ctx, ctx->transient->gb, todos);
 	if (fy_is_invalid(todos)) {
 		*okp = false;
-		return fy_value(ctx->transient_gb,
+		return fy_value(ctx->transient->gb,
 				"tool error: the todo list was not stored");
 	}
 	*okp = true;
@@ -2091,14 +2091,14 @@ fy_generic fyai_tool_take_text(struct fyai_ctx *ctx, char *text)
 	fy_generic result;
 
 	if (!text)
-		return fy_stringf(ctx->transient_gb, "tool error: %s",
+		return fy_stringf(ctx->transient->gb, "tool error: %s",
 				  strerror(errno));
 	/*
 	 * Internalize before freeing: fy_value() on a char * only references
 	 * the buffer, since a long string is not copied into the scratch
 	 * generic.
 	 */
-	result = fy_gb_internalize(ctx->transient_gb, fy_value(text));
+	result = fy_gb_internalize(ctx->transient->gb, fy_value(text));
 	free(text);
 	return result;
 }
@@ -2110,11 +2110,11 @@ fy_generic fyai_tool_run_one(struct fyai_ctx *ctx, const char *name,
 
 	*okp = false;
 	if (!def || !def->run)
-		return fy_gb_internalize(ctx->transient_gb,
+		return fy_gb_internalize(ctx->transient->gb,
 				fy_stringf("tool error: unknown tool %s", name));
-	args = fyai_tool_args_normalize(ctx->transient_gb, name, args);
+	args = fyai_tool_args_normalize(ctx->transient->gb, name, args);
 	if (fyai_shell_args_lack_command(name, args))
-		return fy_value(ctx->transient_gb, FYAI_SHELL_NO_COMMAND);
+		return fy_value(ctx->transient->gb, FYAI_SHELL_NO_COMMAND);
 	return def->run(ctx, args, okp);
 }
 
@@ -2231,7 +2231,7 @@ fy_generic fyai_tool_result_note(struct fyai_ctx *ctx, bool agent_call,
 static fy_generic fyai_cancel_tool(struct fyai_ctx *ctx, fy_generic args,
 				   bool *okp)
 {
-	struct fy_generic_builder *gb = ctx->transient_gb;
+	struct fy_generic_builder *gb = ctx->transient->gb;
 	struct fyai_tool_job *job;
 	fy_generic name_v, kind_v;
 	const char *name, *kind;
@@ -2591,7 +2591,7 @@ static fy_generic fyai_list_shells(struct fyai_ctx *ctx, struct fy_generic_build
  */
 static fy_generic fyai_list_tool(struct fyai_ctx *ctx, fy_generic args, bool *okp)
 {
-	struct fy_generic_builder *gb = ctx->transient_gb;
+	struct fy_generic_builder *gb = ctx->transient->gb;
 	const char *kind = fy_get(args, "kind", "");
 	fy_generic result = fy_map_empty;
 	bool all = !*kind;
@@ -2645,25 +2645,25 @@ static fy_generic fyai_view_tool(struct fyai_ctx *ctx, fy_generic args, bool *ok
 
 	*okp = false;
 	if (ctx->cfg->view_project)
-		return fy_value(ctx->transient_gb, "tool error: project_view is not available inside a view");
+		return fy_value(ctx->transient->gb, "tool error: project_view is not available inside a view");
 	/* The tool is not given to such an agent: refuse a call that names it anyway. */
 	if (ctx->cfg->agent_child && !ctx->agent_execution)
-		return fy_value(ctx->transient_gb, "tool error: project_view is not available to this agent");
+		return fy_value(ctx->transient->gb, "tool error: project_view is not available to this agent");
 	if (strcmp(action, "changes") && strcmp(action, "apply"))
-		return fy_value(ctx->transient_gb, "tool error: action is changes or apply");
+		return fy_value(ctx->transient->gb, "tool error: action is changes or apply");
 	if (!*name)
-		return fy_value(ctx->transient_gb, "tool error: name the sub-agent");
+		return fy_value(ctx->transient->gb, "tool error: name the sub-agent");
 	selected = calloc(count + 1, sizeof(*selected));
 	fyai_error_check(ctx, selected, err, "could not allocate the path list");
 	fy_foreach(path, paths)
 		selected[index++] = path;
 	mode = !strcmp(action, "changes") ? FYAI_VIEW_PULL_CHANGES :
 	       fy_get(args, "dry_run", false) ? FYAI_VIEW_PULL_DRY_RUN : FYAI_VIEW_PULL_APPLY;
-	rc = fyai_view_pull_agent(ctx, ctx->transient_gb, name, selected, count, mode, &result);
+	rc = fyai_view_pull_agent(ctx, ctx->transient->gb, name, selected, count, mode, &result);
 	free(selected);
 	if (rc) {
 		diag = fyai_diag_string(fyai_ctx_diag(ctx));
-		result = fy_gb_internalize(ctx->transient_gb,
+		result = fy_gb_internalize(ctx->transient->gb,
 			fy_stringf("tool error: %s", diag && *diag ? diag : "the view could not be read"));
 		free(diag);
 		return result;
@@ -2671,9 +2671,9 @@ static fy_generic fyai_view_tool(struct fyai_ctx *ctx, fy_generic args, bool *ok
 	/* A conflict is an outcome to read, not a failure of the call. */
 	ctx->cfg->exit_status = 0;
 	*okp = true;
-	return fy_gb_internalize(ctx->transient_gb, result);
+	return fy_gb_internalize(ctx->transient->gb, result);
 err:
-	return fy_value(ctx->transient_gb, "tool error: out of memory");
+	return fy_value(ctx->transient->gb, "tool error: out of memory");
 }
 
 int fyai_run_tool_verb(struct fyai_ctx *ctx)
@@ -2703,7 +2703,7 @@ int fyai_run_tool_verb(struct fyai_ctx *ctx)
 	if (!args_text || !*args_text)
 		args_text = "{}";
 
-	args = parse_json_string(ctx->transient_gb, args_text);
+	args = parse_json_string(ctx->transient->gb, args_text);
 	fyai_error_check(ctx, fy_is_valid(args), out,
 			 "invalid JSON arguments");
 
@@ -2721,7 +2721,7 @@ int fyai_run_tool_verb(struct fyai_ctx *ctx)
 			 "tool: could not apply sandbox policy");
 
 	result = fyai_tool_run_one(ctx, a->name, args, &ok);
-	result = fy_gb_internalize(ctx->transient_gb, result);
+	result = fy_gb_internalize(ctx->transient->gb, result);
 
 	if (fy_is_string(result))
 		/* Machine output: the verb result as it stands. */

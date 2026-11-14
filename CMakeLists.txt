@@ -643,6 +643,7 @@ set(FYAI_SOURCES
     src/fyai_buf.c
     src/utils.c
     src/fyai_app.c
+    src/fyai_transient.c
     src/fyai_shell_capture.c
     src/fyai_editor.c
     src/fyai_catalog.c

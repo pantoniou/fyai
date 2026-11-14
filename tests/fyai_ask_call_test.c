@@ -18,6 +18,7 @@
 #include "fyai_test.h"
 
 #include "fyai_test_registry.h"
+#include "fyai_test_diag.h"
 
 FYAI_TEST_ENTRY(ask_call, answered, ask_call_answered)
 FYAI_TEST_ENTRY(ask_call, declined, ask_call_declined)
@@ -61,7 +62,7 @@ static void env_open(struct env *e)
 	e->gb = fy_generic_builder_create(&bcfg);
 	FYAI_TCHECK(e->gb);
 	e->cfg.gb = e->gb;
-	e->ctx.transient_gb = e->gb;
+	fyai_test_transient_of(&e->ctx)->gb = e->gb;
 	FYAI_TCHECK(!fyai_uimodel_create(&e->ctx));
 	FYAI_TCHECK(!fyai_uimodel_subscribe(&e->ctx, model_seen, e));
 }

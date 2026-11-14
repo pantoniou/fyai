@@ -96,7 +96,7 @@ static int rc_emit_items(struct fyai_ctx *ctx, struct fyai_request_cache *cache,
 	int rc;
 
 	for (i = from; i < to; i++) {
-		text = emit_request_body(ctx->transient_gb, fy_get_at(wire, i));
+		text = emit_request_body(ctx->transient->gb, fy_get_at(wire, i));
 		fyai_error_check(ctx, text, err,
 				 "could not serialize an item of the request");
 		cache->emitted += strlen(text);
@@ -195,9 +195,9 @@ static char *rc_stack_text(struct fyai_ctx *ctx,
 			items[k++] = fy_get_at(list, j);
 	}
 	if (k == count) {
-		seq = fy_gb_sequence_create(ctx->transient_gb, count, items);
+		seq = fy_gb_sequence_create(ctx->transient->gb, count, items);
 		if (fy_is_valid(seq)) {
-			text = emit_request_body(ctx->transient_gb, seq);
+			text = emit_request_body(ctx->transient->gb, seq);
 			copy = text ? strdup(text) : NULL;
 		}
 	}
@@ -247,7 +247,7 @@ void fyai_request_cache_forget(struct fyai_ctx *ctx)
 	char *check = NULL;
 	size_t i, n = 0;
 
-	if (!rc || (rc->owner && rc->owner != ctx->transient_gb))
+	if (!rc || (rc->owner && rc->owner != ctx->transient->gb))
 		return;
 	if (!rc->valid || !rc->owner || !rc->body || !ctx->gb) {
 		rc_forget_all(rc);
@@ -321,7 +321,7 @@ bool fyai_request_cache_usable(struct fyai_ctx *ctx, fy_generic previous)
 	if (fy_is_valid(previous) && !fy_is_null(previous))
 		return false;
 	if (ctx->request_cache && ctx->request_cache->owner &&
-	    ctx->request_cache->owner != ctx->transient_gb)
+	    ctx->request_cache->owner != ctx->transient->gb)
 		return false;
 	return fyai_grammar_input_splits(ctx);
 }
@@ -360,7 +360,7 @@ static fy_generic rc_messages(struct fyai_ctx *ctx,
 			items[k++] = fy_get_at(list, j);
 		off -= take;
 	}
-	stream = fy_gb_sequence_create(ctx->transient_gb, total, items);
+	stream = fy_gb_sequence_create(ctx->transient->gb, total, items);
 	free(items);
 	return stream;
 err:
@@ -414,7 +414,7 @@ static int rc_emit_pair(struct fyai_ctx *ctx, struct fyai_request_cache *rc,
 			struct fyai_buf *out, size_t prefix,
 			fy_generic key, const char *value_text, fy_generic value)
 {
-	struct fy_generic_builder *gb = ctx->transient_gb;
+	struct fy_generic_builder *gb = ctx->transient->gb;
 	const char *key_text, *text;
 	int rv;
 
@@ -459,7 +459,7 @@ static int rc_split_request(struct fyai_ctx *ctx, struct fyai_request_cache *rc,
 			    struct fyai_grammar_request *req,
 			    const char **headp, const char **tailp)
 {
-	struct fy_generic_builder *gb = ctx->transient_gb;
+	struct fy_generic_builder *gb = ctx->transient->gb;
 	struct fyai_buf head = { 0 }, tail = { 0 };
 	fy_generic request, probe, key, value;
 	bool found = false;
@@ -685,7 +685,7 @@ int fyai_request_cache_body(struct fyai_ctx *ctx, fy_generic turn,
 	rc->turn = stack.items[index].v;
 	rc->skip = new_skip;
 	rc->valid = true;
-	rc->owner = ctx->transient_gb;
+	rc->owner = ctx->transient->gb;
 	if (hit)
 		rc->hits++;
 	else

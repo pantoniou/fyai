@@ -55,6 +55,7 @@ static void expect_true(const char *what, bool cond)
  */
 struct sink_fixture {
 	struct fyai_cfg cfg;
+	struct fyai_transient transient;
 	struct fyai_ctx ctx;
 };
 
@@ -65,6 +66,7 @@ static void fixture_open(struct sink_fixture *f)
 	f->cfg.markdown_mode = "stream";
 	f->cfg.color = "off";
 	f->ctx.cfg = &f->cfg;
+	f->ctx.transient = &f->transient;
 	f->ctx.last_message = fy_invalid;
 	f->ctx.tools = fy_invalid;
 	f->ctx.tools_spec = fy_invalid;
@@ -349,6 +351,7 @@ static void test_protocol_fd_stays_clean(void)
 	/* A forked tool child: descriptor 1 is the response pipe. */
 	f.cfg.tool_child = true;
 	f.ctx.cfg = &f.cfg;
+	f.ctx.transient = &f.transient;
 	f.ctx.last_message = fy_invalid;
 	f.ctx.tools = fy_invalid;
 	f.ctx.tools_spec = fy_invalid;
@@ -447,6 +450,7 @@ static void test_reflow_follows_width(void)
 	f.cfg.color = "off";
 	f.cfg.render_width = 60;
 	f.ctx.cfg = &f.cfg;
+	f.ctx.transient = &f.transient;
 	f.ctx.stdout_tty = true;	/* enable live terminal rendering */
 	f.ctx.last_message = fy_invalid;
 	f.ctx.tools = fy_invalid;

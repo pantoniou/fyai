@@ -1426,7 +1426,7 @@ fyai_shell_session_of(struct fyai_ctx *ctx, fy_generic args, fy_generic *errp)
 	 * A session lives for one invocation. A name from an earlier one names
 	 * nothing, so report that rather than let the model wait for output.
 	 */
-	*errp = fy_stringf(ctx->transient_gb,
+	*errp = fy_stringf(ctx->transient->gb,
 		"tool error: no shell named '%s' is open on branch %s; "
 		"open one with the shell tool and a name",
 		fy_castp(&name, ""), fyai_ctx_branch(ctx));
@@ -1551,7 +1551,7 @@ out:
 fy_generic fyai_shell_close_tool(struct fyai_ctx *ctx, fy_generic args,
 				 bool *okp)
 {
-	struct fy_generic_builder *gb = ctx->transient_gb;
+	struct fy_generic_builder *gb = ctx->transient->gb;
 	struct fyai_shell_session *sess;
 	struct fyai_event_loop *el;
 	fy_generic err;

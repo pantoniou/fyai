@@ -18,6 +18,7 @@
 #include "utils.h"
 
 #include "fyai_test_registry.h"
+#include "fyai_test_diag.h"
 
 FYAI_TEST_ENTRY(schema, type, schema_type)
 FYAI_TEST_ENTRY(schema, boolean_schema, schema_boolean_schema)
@@ -57,7 +58,7 @@ static fy_generic parse(const char *json)
 {
 	fy_generic v;
 
-	v = parse_json_string(test_ctx.transient_gb, json);
+	v = parse_json_string(fyai_test_transient_of(&test_ctx)->gb, json);
 	if (fy_is_invalid(v)) {
 		fprintf(stderr, "failed to parse fixture: %s\n", json);
 		exit(1);
@@ -77,7 +78,7 @@ static fy_generic instance(const char *json)
 
 static fy_generic validate(fy_generic sch, fy_generic inst)
 {
-	return fyai_schema_validate(test_ctx.transient_gb, sch, inst);
+	return fyai_schema_validate(fyai_test_transient_of(&test_ctx)->gb, sch, inst);
 }
 
 static void must_pass(const char *label, fy_generic sch, fy_generic inst)
@@ -659,14 +660,14 @@ static int schema_run(void (*testfn)(void))
 	memset(&test_ctx, 0, sizeof(test_ctx));
 
 	test_ctx.cfg = &test_cfg;
-	test_ctx.transient_gb = fy_generic_builder_create(&gb_cfg);
-	if (!test_ctx.transient_gb)
+	fyai_test_transient_of(&test_ctx)->gb = fy_generic_builder_create(&gb_cfg);
+	if (!fyai_test_transient_of(&test_ctx)->gb)
 		return 1;
-	test_ctx.durable_gb = test_ctx.transient_gb;
+	test_ctx.durable_gb = fyai_test_transient_of(&test_ctx)->gb;
 
 	testfn();
 
-	fy_generic_builder_destroy(test_ctx.transient_gb);
+	fy_generic_builder_destroy(fyai_test_transient_of(&test_ctx)->gb);
 	return 0;
 }
 

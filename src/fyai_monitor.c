@@ -260,7 +260,7 @@ static fy_generic monitor_auto_name(struct fyai_ctx *ctx,
 static fy_generic monitor_start(struct fyai_ctx *ctx, fy_generic args,
 				bool quiet, bool *okp)
 {
-	struct fy_generic_builder *gb = ctx->transient_gb;
+	struct fy_generic_builder *gb = ctx->transient->gb;
 	struct fyai_monitor_run *run = NULL;
 	fy_generic gname, call, shell_args, result = fy_invalid;
 	long long ms;

@@ -69,7 +69,7 @@ __attribute__((unused)) static void store_setup_expiring(char *dir, long long ex
 
 	if (!cfg.gb) {
 		cfg.gb = fy_generic_builder_create(&config);
-		ctx.transient_gb = cfg.gb;
+		fyai_test_transient_of(&ctx)->gb = cfg.gb;
 	}
 	/* The tests own the store: never the keyring or the keychain of the host. */
 	FYAI_TCHECK(!setenv("FYAI_AUTH_STORAGE", "file", 1));

@@ -175,7 +175,7 @@ bool fyai_grammar_reasoning_set(const struct fyai_cfg *cfg)
 fy_generic fyai_grammar_add_stream(struct fyai_ctx *ctx, fy_generic request,
 				   fy_generic options)
 {
-	struct fy_generic_builder *gb = ctx->transient_gb;
+	struct fy_generic_builder *gb = ctx->transient->gb;
 
 	if (!ctx->cfg->stream)
 		return request;

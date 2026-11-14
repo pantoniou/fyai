@@ -2774,13 +2774,13 @@ mcp_tool_output(struct fyai_ctx *ctx, fy_generic result)
 	fy_foreach(item, content) {
 		text = fy_get(item, "text", "");
 		if (*text)
-			output = fy_append(ctx->transient_gb, output, text);
+			output = fy_append(ctx->transient->gb, output, text);
 	}
 	if (fy_len(output) == 1)
 		return fy_get(output, 0);
 	if (fy_len(output))
 		return output;
-	return fy_gb_internalize(ctx->transient_gb, result);
+	return fy_gb_internalize(ctx->transient->gb, result);
 }
 
 static void
@@ -2811,13 +2811,13 @@ fyai_mcp_call_submit_phase(struct fyai_mcp_call_request *request)
 	case FYAIMCS_PRIMARY:
 		method = request->method;
 		id = request->id;
-		params = parse_json_string(ctx->transient_gb,
+		params = parse_json_string(ctx->transient->gb,
 					   request->params_text);
 		break;
 	case FYAIMCS_RECOVER_INITIALIZE:
 		method = "initialize";
 		id = jsonrpc_conn_next_id(request->mcp->conn);
-		params = fy_mapping(ctx->transient_gb,
+		params = fy_mapping(ctx->transient->gb,
 			"protocolVersion", request->mcp->protocol_version,
 			"capabilities", fy_map_empty,
 			"clientInfo", fy_mapping("name", "fyai",
@@ -2870,7 +2870,7 @@ fyai_mcp_call_wait_tick(const struct fyai_event *ev)
 	if (request->state == FYAIMCS_CANCELLING) {
 		fyai_mcp_call_wait_disarm(request);
 		fyai_mcp_call_finish(request, FYAIMCS_CANCELLED,
-			fy_value(ctx->transient_gb, "tool error: interrupted"),
+			fy_value(ctx->transient->gb, "tool error: interrupted"),
 			false);
 		return FYAIEA_CONTINUE;
 	}
@@ -2880,7 +2880,7 @@ fyai_mcp_call_wait_tick(const struct fyai_event *ev)
 		request->state = FYAIMCS_PRIMARY;
 		if (fyai_mcp_call_submit_phase(request))
 			fyai_mcp_call_finish(request, FYAIMCS_FAILED,
-				fy_value(ctx->transient_gb,
+				fy_value(ctx->transient->gb,
 					 "tool error: MCP call failed"),
 				false);
 		break;
@@ -2890,7 +2890,7 @@ fyai_mcp_call_wait_tick(const struct fyai_event *ev)
 			 "tool error: MCP server '%s' is unavailable",
 			 request->mcp->name);
 		fyai_mcp_call_finish(request, FYAIMCS_FAILED,
-				     fy_value(ctx->transient_gb, msg), false);
+				     fy_value(ctx->transient->gb, msg), false);
 		break;
 	case MCP_SRV_CONNECTING:
 		request->wait_remaining_ms -= FYAI_MCP_CALL_WAIT_TICK_MS;
@@ -2899,7 +2899,7 @@ fyai_mcp_call_wait_tick(const struct fyai_event *ev)
 			snprintf(msg, sizeof(msg), "tool error: MCP server '%s' "
 				 "did not become ready", request->mcp->name);
 			fyai_mcp_call_finish(request, FYAIMCS_FAILED,
-					     fy_value(ctx->transient_gb, msg),
+					     fy_value(ctx->transient->gb, msg),
 					     false);
 		}
 		break;
@@ -2984,7 +2984,7 @@ static void fyai_mcp_call_req_done(struct jsonrpc_request *req, void *userdata)
 
 	if (request->state == FYAIMCS_CANCELLING) {
 		fyai_mcp_call_finish(request, FYAIMCS_CANCELLED,
-			fy_value(ctx->transient_gb, "tool error: interrupted"),
+			fy_value(ctx->transient->gb, "tool error: interrupted"),
 			false);
 		return;
 	}
@@ -2996,11 +2996,11 @@ static void fyai_mcp_call_req_done(struct jsonrpc_request *req, void *userdata)
 			if (!request->raw_result)
 				result = mcp_tool_output(ctx, result);
 			else {
-				encoded = emit_json_string(ctx->transient_gb,
+				encoded = emit_json_string(ctx->transient->gb,
 							   result);
 				if (!encoded || strlen(encoded) > 65536) {
 					result_error = true;
-					result = fy_value(ctx->transient_gb,
+					result = fy_value(ctx->transient->gb,
 						"tool error: MCP resource response "
 						"exceeds 64 KiB");
 				}
@@ -3069,7 +3069,7 @@ failed:
 		fy_sprintfa("tool error: %s", request->mcp->last_error) :
 		"tool error: MCP call failed";
 	fyai_mcp_call_finish(request, FYAIMCS_FAILED,
-		fy_value(ctx->transient_gb, tool_error),
+		fy_value(ctx->transient->gb, tool_error),
 		false);
 }
 
@@ -3091,9 +3091,9 @@ fyai_mcp_call_submit(struct fyai_ctx *ctx, const char *name,
 		return NULL;
 	if (fyai_mcp_deferred(ctx) && !fyai_mcp_tool_active(ctx, name))
 		return NULL;
-	params = fy_mapping(ctx->transient_gb,
+	params = fy_mapping(ctx->transient->gb,
 			    "name", tool_name, "arguments", args);
-	params_text = emit_json_string(ctx->transient_gb, params);
+	params_text = emit_json_string(ctx->transient->gb, params);
 	fyai_error_check(ctx, params_text, err_out,
 			 "could not encode MCP call parameters");
 	request = calloc(1, sizeof(*request));
@@ -3185,10 +3185,10 @@ fyai_mcp_resource_submit(struct fyai_ctx *ctx, fy_generic args,
 	else
 		return NULL;
 	params = !strcmp(operation, "read") ?
-		fy_mapping(ctx->transient_gb, "uri", uri) :
-		*cursor ? fy_mapping(ctx->transient_gb, "cursor", cursor) :
+		fy_mapping(ctx->transient->gb, "uri", uri) :
+		*cursor ? fy_mapping(ctx->transient->gb, "cursor", cursor) :
 		fy_map_empty;
-	json = emit_json_string(ctx->transient_gb, params);
+	json = emit_json_string(ctx->transient->gb, params);
 	if (!json)
 		return NULL;
 	request = calloc(1, sizeof(*request));
@@ -3220,7 +3220,7 @@ static fy_generic mcp_resource_tool(struct fyai_ctx *ctx, fy_generic args,
 {
 	(void)args;
 	*okp = false;
-	return fy_value(ctx->transient_gb,
+	return fy_value(ctx->transient->gb,
 			"tool error: mcp_resource runs in a tool group");
 }
 

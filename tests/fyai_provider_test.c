@@ -21,6 +21,7 @@
 
 #include "fyai_test_registry.h"
 #include "fyai_test_scratch.h"
+#include "fyai_test_diag.h"
 
 FYAI_TEST_ENTRY(provider, responses_input, provider_responses_input)
 FYAI_TEST_ENTRY(provider, chat_input, provider_chat_input)
@@ -53,7 +54,7 @@ static fy_generic parse(const char *json)
 {
 	fy_generic v;
 
-	v = parse_json_string(test_ctx.transient_gb, json);
+	v = parse_json_string(fyai_test_transient_of(&test_ctx)->gb, json);
 	if (fy_is_invalid(v)) {
 		fprintf(stderr, "failed to parse fixture: %s\n", json);
 		exit(1);
@@ -78,7 +79,7 @@ static const char *emit(fy_generic v)
 {
 	const char *s;
 
-	s = emit_request_body(test_ctx.transient_gb, v);
+	s = emit_request_body(fyai_test_transient_of(&test_ctx)->gb, v);
 	if (!s) {
 		fprintf(stderr, "failed to emit generic\n");
 		exit(1);
@@ -553,7 +554,7 @@ static void test_messages_input(void)
 /* Per-token extents from logprob entries: bytes-driven lengths, offsets. */
 static void test_token_extents(void)
 {
-	struct fy_generic_builder *gb = test_ctx.transient_gb;
+	struct fy_generic_builder *gb = fyai_test_transient_of(&test_ctx)->gb;
 	fy_generic entries, extents, ext, chunks;
 	size_t pos;
 
@@ -671,18 +672,18 @@ static int provider_run(void (*testfn)(void))
 	memset(&test_ctx, 0, sizeof(test_ctx));
 
 	test_ctx.cfg = &test_cfg;
-	test_ctx.transient_gb = fy_generic_builder_create(&gb_cfg);
-	if (!test_ctx.transient_gb)
+	fyai_test_transient_of(&test_ctx)->gb = fy_generic_builder_create(&gb_cfg);
+	if (!fyai_test_transient_of(&test_ctx)->gb)
 		return 1;
-	test_ctx.gb = test_ctx.transient_gb;
-	test_ctx.durable_gb = test_ctx.transient_gb;
-	test_cfg.gb = test_ctx.transient_gb;
+	test_ctx.gb = fyai_test_transient_of(&test_ctx)->gb;
+	test_ctx.durable_gb = fyai_test_transient_of(&test_ctx)->gb;
+	test_cfg.gb = fyai_test_transient_of(&test_ctx)->gb;
 	test_ctx.tools_spec = fy_invalid;
 	test_ctx.media_pending = fy_seq_empty;
 
 	testfn();
 
-	fy_generic_builder_destroy(test_ctx.transient_gb);
+	fy_generic_builder_destroy(fyai_test_transient_of(&test_ctx)->gb);
 	return 0;
 }
 
@@ -822,7 +823,7 @@ static fy_generic call_args(fy_generic call)
 	fy_generic args;
 
 	args = fy_get(call, "arguments", fy_invalid);
-	return parse_json_string(test_ctx.transient_gb, fy_castp(&args, ""));
+	return parse_json_string(fyai_test_transient_of(&test_ctx)->gb, fy_castp(&args, ""));
 }
 
 static void test_strip_chat(void)

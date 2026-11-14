@@ -14,6 +14,7 @@
 #include "fyai_test.h"
 #include "fyai_test_registry.h"
 #include "utils.h"
+#include "fyai_test_diag.h"
 
 FYAI_TEST_ENTRY(auth, id_token_signature, auth_id_token_signature)
 FYAI_TEST_ENTRY(auth, id_token_claims, auth_id_token_claims)
@@ -214,7 +215,7 @@ int auth_plan_permission(void)
 	bool ready;
 
 	cfg.gb = fy_generic_builder_create(&config);
-	ctx.transient_gb = cfg.gb;
+	fyai_test_transient_of(&ctx)->gb = cfg.gb;
 	tokens = fy_mapping(cfg.gb, "access_token", "oauth-access",
 		"refresh_token", "refresh-1", "id_token", "id-token",
 		"expires_in", 3600LL, "token_type", "Bearer",
@@ -363,7 +364,7 @@ int auth_billing_route(void)
 	FYAI_TCHECK(created);
 	cfg.auth_state_dir = created;
 	cfg.gb = fy_generic_builder_create(&config);
-	ctx.transient_gb = cfg.gb;
+	fyai_test_transient_of(&ctx)->gb = cfg.gb;
 	record = fy_mapping(cfg.gb, "type", "chatgpt", "client_id", "oaiapp_test",
 		"ext_agent_host_id", "urn:uuid:00000000-0000-4000-8000-000000000000",
 		"subject", "user-test", "scope", "resource.invoke chatgpt.tokens.use.direct",

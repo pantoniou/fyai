@@ -262,7 +262,7 @@ static struct fy_generic_builder *native_setup(long long action_timeout_ms,
 	gb = fy_generic_builder_create(&gb_cfg);
 	if (!gb)
 		return NULL;
-	test_ctx.transient_gb = gb;
+	fyai_test_transient_of(&test_ctx)->gb = gb;
 	test_ctx.gb = gb;
 	test_ctx.durable_gb = gb;
 
@@ -279,7 +279,7 @@ static void native_teardown(struct fy_generic_builder *gb)
 {
 	shell_teardown();
 	fy_generic_builder_destroy(gb);
-	test_ctx.transient_gb = NULL;
+	fyai_test_transient_of(&test_ctx)->gb = NULL;
 	test_ctx.gb = NULL;
 	test_ctx.durable_gb = NULL;
 }

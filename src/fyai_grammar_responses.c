@@ -116,11 +116,11 @@ static fy_generic responses_shell_output(struct fyai_ctx *ctx,
 	if (!fy_is_sequence(output))
 		return m;
 	fy_foreach(entry, output) {
-		sanitized = responses_shell_outcome(ctx->transient_gb, entry);
-		outputs = fy_append(ctx->transient_gb, outputs,
+		sanitized = responses_shell_outcome(ctx->transient->gb, entry);
+		outputs = fy_append(ctx->transient->gb, outputs,
 				    sanitized);
 	}
-	return fy_null_filtered_mapping(ctx->transient_gb,
+	return fy_null_filtered_mapping(ctx->transient->gb,
 			"type", fy_get(m, "type", "shell_call_output"),
 			"call_id", fy_get(m, "call_id", ""),
 			"output", outputs,
@@ -165,9 +165,9 @@ static fy_generic responses_input(struct fyai_ctx *ctx, fy_generic messages)
 		if (!native_shell && fy_equal(type, "shell_call")) {
 			cmdv = fy_get_at_path(m, "action", "commands", 0);
 			cmd = fy_castp(&cmdv, "");
-			args = emit_json_string(ctx->transient_gb,
+			args = emit_json_string(ctx->transient->gb,
 						fy_mapping("command", cmd));
-			input = fy_append(ctx->transient_gb, input,
+			input = fy_append(ctx->transient->gb, input,
 					fy_mapping(
 						"type", "function_call",
 						"call_id", fy_get(m, "call_id", ""),
@@ -178,11 +178,11 @@ static fy_generic responses_input(struct fyai_ctx *ctx, fy_generic messages)
 		if (!native_shell && fy_equal(type, "shell_call_output")) {
 			output = fy_get(m, "output");
 			if (!fy_is_string(output)) {
-				text = emit_json_string(ctx->transient_gb,
+				text = emit_json_string(ctx->transient->gb,
 							output);
 				output = fy_value(text ? text : "");
 			}
-			input = fy_append(ctx->transient_gb, input,
+			input = fy_append(ctx->transient->gb, input,
 					fy_mapping(
 						"type", "function_call_output",
 						"call_id", fy_get(m, "call_id", ""),
@@ -194,7 +194,7 @@ static fy_generic responses_input(struct fyai_ctx *ctx, fy_generic messages)
 		 * Remove canonical outcome fields that the endpoint rejects.
 		 */
 		if (native_shell && fy_equal(type, "shell_call_output")) {
-			input = fy_append(ctx->transient_gb, input,
+			input = fy_append(ctx->transient->gb, input,
 				responses_shell_output(ctx, m));
 			continue;
 		}
@@ -202,10 +202,10 @@ static fy_generic responses_input(struct fyai_ctx *ctx, fy_generic messages)
 		/* Other native Responses items (function_call,
 		 * function_call_output, message, ...): pass through. */
 		if (fy_equal(type, "function_call_output"))
-			m = fy_assoc(ctx->transient_gb, m, "output",
+			m = fy_assoc(ctx->transient->gb, m, "output",
 				     fyai_wire_tool_text(ctx, fy_get(m, "output", fy_invalid)));
 		if (fy_is_string(type)) {
-			input = fy_append(ctx->transient_gb, input, m);
+			input = fy_append(ctx->transient->gb, input, m);
 			continue;
 		}
 
@@ -220,7 +220,7 @@ static fy_generic responses_input(struct fyai_ctx *ctx, fy_generic messages)
 
 		/* Plain role message: Responses rejects null content. */
 		if (fy_equal(role, "agent")) {
-			input = fy_append(ctx->transient_gb, input,
+			input = fy_append(ctx->transient->gb, input,
 				fy_mapping("role", "user", "content",
 					fyai_agent_wire_text(ctx, m)));
 			continue;
@@ -235,17 +235,17 @@ static fy_generic responses_input(struct fyai_ctx *ctx, fy_generic messages)
 					       "could not build the Responses input");
 		tmp = fy_mapping("role", fy_is_string(role) ? role : fy_value("user"),
 				 "content", content);
-		input = fy_append(ctx->transient_gb, input, tmp);
+		input = fy_append(ctx->transient->gb, input, tmp);
 	}
 
-	input = fy_gb_internalize(ctx->transient_gb, input);
+	input = fy_gb_internalize(ctx->transient->gb, input);
 	return fyai_provider_result(ctx, input, "could not build the Responses input");
 }
 
 
 static fy_generic responses_image_part(struct fyai_ctx *ctx, fy_generic part)
 {
-	struct fy_generic_builder *gb = ctx->transient_gb;
+	struct fy_generic_builder *gb = ctx->transient->gb;
 	fy_generic out, data;
 
 	data = fyai_media_part_data_url(ctx, gb, part);
@@ -259,7 +259,7 @@ static fy_generic responses_image_part(struct fyai_ctx *ctx, fy_generic part)
 static fy_generic responses_build_request(struct fyai_ctx *ctx,
 					  const struct fyai_grammar_request *req)
 {
-	struct fy_generic_builder *gb = ctx->transient_gb;
+	struct fy_generic_builder *gb = ctx->transient->gb;
 	struct fyai_cfg *cfg = ctx->cfg;
 	fy_generic request, reasoning, options;
 
@@ -526,7 +526,7 @@ static fy_generic responses_usage(struct fy_generic_builder *gb,
  */
 static fy_generic responses_response(struct fyai_ctx *ctx, fy_generic doc)
 {
-	struct fy_generic_builder *gb = ctx->transient_gb;
+	struct fy_generic_builder *gb = ctx->transient->gb;
 	fy_generic output, item, part, content, calls, chunks, text, messages;
 	const char *direct;
 	bool final;
@@ -572,7 +572,7 @@ static fy_generic responses_response(struct fyai_ctx *ctx, fy_generic doc)
 static fy_generic responses_history(struct fyai_ctx *ctx, fy_generic wire,
 				    fy_generic *lossesp)
 {
-	struct fy_generic_builder *gb = ctx->transient_gb;
+	struct fy_generic_builder *gb = ctx->transient->gb;
 	fy_generic out, item, type, role, args;
 	const char *json;
 

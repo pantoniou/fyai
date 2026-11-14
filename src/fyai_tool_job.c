@@ -1768,7 +1768,7 @@ static fy_generic fyai_shell_result_retime(struct fyai_ctx *ctx,
 			err = fy_castp(&gerr, "");
 			entry = fy_mapping(
 				"stdout", fy_get(entry, "stdout", ""),
-				"stderr", fy_stringf(ctx->transient_gb,
+				"stderr", fy_stringf(ctx->transient->gb,
 						     "%s%s%s", err,
 						     *err ? "\n" : "", note),
 				"outcome", fy_mapping(
@@ -1778,7 +1778,7 @@ static fy_generic fyai_shell_result_retime(struct fyai_ctx *ctx,
 		}
 		outputs = fy_append(outputs, entry);
 	}
-	return fy_gb_internalize(ctx->transient_gb, outputs);
+	return fy_gb_internalize(ctx->transient->gb, outputs);
 }
 
 fy_generic fyai_tool_job_collect(struct fyai_ctx *ctx,
@@ -1814,7 +1814,7 @@ fy_generic fyai_tool_job_collect(struct fyai_ctx *ctx,
 		if (!*okp) {
 			/* Quote the cause without consuming the diagnostic. */
 			cause = fyai_diag_string(fyai_ctx_diag(ctx));
-			out = fy_stringf(ctx->transient_gb,
+			out = fy_stringf(ctx->transient->gb,
 				"tool error: the terminal session could not be "
 				"opened: %s", cause && *cause ? cause :
 				"no reason was recorded");
@@ -1822,7 +1822,7 @@ fy_generic fyai_tool_job_collect(struct fyai_ctx *ctx,
 			free(cause);
 			return out;
 		}
-		return fy_stringf(ctx->transient_gb,
+		return fy_stringf(ctx->transient->gb,
 			"[terminal session '%s' started: %s]\n"
 			"Read it with shell_output, drive it with shell_input, "
 			"end it with shell_close.", job->session->name,
@@ -1893,7 +1893,7 @@ fy_generic fyai_tool_job_collect(struct fyai_ctx *ctx,
 		result = job->result;
 	if (fy_is_invalid(result) && job->term_signal) {
 		if (job->native_shell)
-			result = fy_gb_internalize(ctx->transient_gb,
+			result = fy_gb_internalize(ctx->transient->gb,
 				fy_sequence(fy_mapping(
 					"stdout", "",
 					"stderr", "",
@@ -1901,7 +1901,7 @@ fy_generic fyai_tool_job_collect(struct fyai_ctx *ctx,
 						"type", "signal",
 						"signal", job->term_signal))));
 		else
-			result = fy_value(ctx->transient_gb,
+			result = fy_value(ctx->transient->gb,
 					  "tool error: interrupted");
 	}
 	/* The parent knows whether its time limit expired. */
@@ -1936,7 +1936,7 @@ fy_generic fyai_tool_job_collect(struct fyai_ctx *ctx,
 			if (genuine)
 				captured = fy_castp(&result, "");
 			keep = fyai_tool_drop_interrupt(captured);
-			result = fy_gb_internalize(ctx->transient_gb,
+			result = fy_gb_internalize(ctx->transient->gb,
 				fy_stringf("%.*s%s%s", (int)keep, captured,
 					   keep ? "\n" : "", reason));
 		} else if (genuine) {
@@ -1948,7 +1948,7 @@ fy_generic fyai_tool_job_collect(struct fyai_ctx *ctx,
 			 * Keep the native result shape after a timeout. The model
 			 * always receives a sequence of {stdout, stderr, outcome}.
 			 */
-			result = fy_gb_internalize(ctx->transient_gb,
+			result = fy_gb_internalize(ctx->transient->gb,
 				fy_sequence(fy_mapping(
 					"stdout", captured,
 					"stderr", note,
@@ -1965,7 +1965,7 @@ fy_generic fyai_tool_job_collect(struct fyai_ctx *ctx,
 			    job->origin ? job->origin : "agent", job->timeout_ms,
 			    (long long)job->elapsed_ms);
 		if (fy_is_string(result))
-			result = fy_stringf(ctx->transient_gb, "%s\n\n"
+			result = fy_stringf(ctx->transient->gb, "%s\n\n"
 				"[Agent exceeded its %u ms advisory limit; "
 				"completed after %lld ms.]",
 				fy_castp(&result, ""), job->timeout_ms,
@@ -2208,7 +2208,7 @@ static void fyai_tool_job_group_dispatch(struct fyai_tool_job_group *group)
 				group->active++;
 				continue;
 			}
-			result = fy_value(group->ctx->transient_gb,
+			result = fy_value(group->ctx->transient->gb,
 				fyai_skill_tool_allowed(group->ctx, name) ?
 				"tool error: MCP call failed" :
 				"tool error: tool is not allowed by this skill");
@@ -2235,7 +2235,7 @@ static void fyai_tool_job_group_dispatch(struct fyai_tool_job_group *group)
 				}
 				continue;
 			}
-			result = fy_value(group->ctx->transient_gb,
+			result = fy_value(group->ctx->transient->gb,
 					  why ? why : "tool error: the wait "
 					  "could not start");
 			free(why);
@@ -2266,7 +2266,7 @@ static void fyai_tool_job_group_dispatch(struct fyai_tool_job_group *group)
 			fyai_tool_job_submit(group->ctx, call) : NULL;
 		if (!entry->job) {
 			/* Return a submission error as the tool result. */
-			result = fy_value(group->ctx->transient_gb,
+			result = fy_value(group->ctx->transient->gb,
 					  fyai_tool_submit_error(group->ctx));
 			fyai_tool_group_entry_store(group, entry, result);
 			entry->result_ok = false;
@@ -2423,14 +2423,14 @@ fyai_tool_job_group_cancelled_result(struct fyai_tool_job_group *group,
 
 	call = entry->call;
 	if (fy_equal(fy_get(call, "type"), "shell_call"))
-		return fy_gb_internalize(group->ctx->transient_gb,
+		return fy_gb_internalize(group->ctx->transient->gb,
 			fy_sequence(fy_mapping(
 				"stdout", "",
 				"stderr", "",
 				"outcome", fy_mapping(
 					"type", "signal",
 					"signal", SIGTERM))));
-	return fy_value(group->ctx->transient_gb, "tool error: interrupted");
+	return fy_value(group->ctx->transient->gb, "tool error: interrupted");
 }
 
 int fyai_tool_job_group_collect(struct fyai_tool_job_group *group,
@@ -2452,11 +2452,11 @@ int fyai_tool_job_group_collect(struct fyai_tool_job_group *group,
 		text = fyai_waiter_result(entry->waiter, okp);
 		fyai_waiter_destroy(entry->waiter);
 		entry->waiter = NULL;
-		*result = fy_gb_internalize(group->ctx->transient_gb,
+		*result = fy_gb_internalize(group->ctx->transient->gb,
 					    fy_value(text ? text : ""));
 		free(text);
 	} else if (entry->ask) {
-		*result = fy_gb_internalize(group->ctx->transient_gb,
+		*result = fy_gb_internalize(group->ctx->transient->gb,
 					    fyai_ask_call_result(entry->ask));
 		*okp = entry->result_ok;
 		fyai_ask_call_destroy(entry->ask);
@@ -2466,7 +2466,7 @@ int fyai_tool_job_group_collect(struct fyai_tool_job_group *group,
 		fyai_mcp_call_destroy(entry->mcp_request);
 		entry->mcp_request = NULL;
 	} else if (entry->has_result) {
-		*result = fy_gb_internalize(group->ctx->transient_gb,
+		*result = fy_gb_internalize(group->ctx->transient->gb,
 					    entry->result);
 		*okp = entry->result_ok;
 	} else if (group->phase == FYAITGP_CANCELLED) {

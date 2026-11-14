@@ -738,7 +738,7 @@ static void stream_store_token_extents(struct stream_response *stream,
 	if (fy_is_invalid(extents) || !fy_len(extents))
 		return;
 
-	ctx->last_token_extents = fy_gb_internalize(ctx->transient_gb, extents);
+	ctx->last_token_extents = fy_gb_internalize(ctx->transient->gb, extents);
 }
 
 /* Read jitter from the operating system entropy source. */
@@ -973,7 +973,7 @@ static enum fyai_event_action stream_retry_fire(const struct fyai_event *ev)
 		/* CANCELLING is the only state a cancel may settle from. */
 		stream_state_transition(stream, FYAISS_CANCELLING);
 		stream_state_transition(stream, FYAISS_CANCELLED);
-		stream->result = fyai_with_diag(ctx->transient_gb,
+		stream->result = fyai_with_diag(ctx->transient->gb,
 						fy_invalid, "interrupted");
 		stream_request_notify(stream);
 		return FYAIEA_CONTINUE;
@@ -1012,7 +1012,7 @@ static void stream_request_complete(struct fyai_xfer *transfer, void *userdata)
 	stream->transfer = NULL;
 
 	if (stream->cancel_requested || res == CURLE_ABORTED_BY_CALLBACK) {
-		ret = fyai_with_diag(ctx->transient_gb, fy_invalid, "interrupted");
+		ret = fyai_with_diag(ctx->transient->gb, fy_invalid, "interrupted");
 		stream_state_transition(stream, FYAISS_CANCELLED);
 		goto done;
 	}
@@ -1105,7 +1105,7 @@ static void stream_request_complete(struct fyai_xfer *transfer, void *userdata)
 
 done:
 	if (fy_is_valid(ret))
-		ret = fy_gb_internalize(ctx->transient_gb, ret);
+		ret = fy_gb_internalize(ctx->transient->gb, ret);
 	stream->result = ret;
 	stream_request_notify(stream);
 }
@@ -1160,7 +1160,7 @@ void fyai_stream_request_cancel(fyai_stream_request *request)
 		request->retry.phase = FYAI_RETRY_IDLE;
 		stream_state_transition(request, FYAISS_CANCELLING);
 		stream_state_transition(request, FYAISS_CANCELLED);
-		request->result = fyai_with_diag(request->ctx->transient_gb,
+		request->result = fyai_with_diag(request->ctx->transient->gb,
 						 fy_invalid, "interrupted");
 		stream_request_notify(request);
 	}
@@ -1271,7 +1271,7 @@ static enum fyai_event_action buffered_retry_fire(const struct fyai_event *ev)
 	if (!request->cancel_requested && !buffered_request_start(request))
 		return FYAIEA_CONTINUE;
 	if (request->cancel_requested)
-		request->result = fyai_with_diag(request->ctx->transient_gb,
+		request->result = fyai_with_diag(request->ctx->transient->gb,
 						 fy_invalid, "interrupted");
 	request->done = true;
 	buffered_request_notify(request);
@@ -1309,7 +1309,7 @@ static void buffered_request_complete(struct fyai_xfer *transfer, void *userdata
 	request->transfer = NULL;
 
 	if (res == CURLE_ABORTED_BY_CALLBACK) {
-		request->result = fyai_with_diag(ctx->transient_gb,
+		request->result = fyai_with_diag(ctx->transient->gb,
 						 fy_invalid,
 						 "interrupted");
 		goto done;
@@ -1348,7 +1348,7 @@ static void buffered_request_complete(struct fyai_xfer *transfer, void *userdata
 	if (!request->response.data)
 		goto done;
 
-	response_doc = parse_response(ctx->transient_gb,
+	response_doc = parse_response(ctx->transient->gb,
 				      request->response.data);
 	if (fy_is_invalid(response_doc)) {
 		parse_diag_report(ctx, response_doc, "malformed JSON",
@@ -1398,7 +1398,7 @@ void fyai_buffered_request_cancel(struct fyai_buffered_request *request)
 		fyai_event_source_remove(request->retry.timer);
 		request->retry.timer = NULL;
 		request->retry.phase = FYAI_RETRY_IDLE;
-		request->result = fyai_with_diag(request->ctx->transient_gb,
+		request->result = fyai_with_diag(request->ctx->transient->gb,
 						 fy_invalid, "interrupted");
 		request->done = true;
 		buffered_request_notify(request);

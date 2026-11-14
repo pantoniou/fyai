@@ -2118,14 +2118,14 @@ static const char *sdk_set_model(struct sdk_server *srv, const char *model)
 	 * The request is in the transient builder: use it, and release only a
 	 * builder that this change made.
 	 */
-	own = !ctx->transient_gb;
+	own = !ctx->transient->gb;
 	rc = fyai_setup_transient_builder(ctx);
 	if (rc)
 		return "cannot prepare the change";
 	/* As in Claude Code, the model changes for this process alone. */
 	saved = ctx->cfg->config_session;
 	rc = fyai_config_invocation_set(ctx, "model",
-					fy_value(ctx->transient_gb, model));
+					fy_value(ctx->transient->gb, model));
 	if (!rc)
 		rc = fyai_auth_resolve(ctx);
 	if (!rc)
@@ -2140,7 +2140,7 @@ static const char *sdk_set_model(struct sdk_server *srv, const char *model)
 	if (own)
 		fyai_cleanup_transient_builder(ctx);
 	else
-		ctx->transient_autorelease = true;
+		ctx->transient->autorelease = true;
 	if (!rc)
 		return NULL;
 	return fy_gb_intern_string(ctx->cfg->gb,
@@ -3470,7 +3470,7 @@ static int sdk_cmd_setup(struct fyai_cmd_call *call, struct sdk_server *srv)
 	/* A change of the configuration during the session keeps them. */
 	rc = fyai_setup_transient_builder(ctx);
 	if (!rc)
-		rc = sdk_settings(ctx->transient_gb, call->args,
+		rc = sdk_settings(ctx->transient->gb, call->args,
 				  sdk_session_setting, ctx);
 	fyai_cleanup_transient_builder(ctx);
 	if (rc)		/* the setter says why */

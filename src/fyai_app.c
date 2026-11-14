@@ -27,6 +27,7 @@ int fyai_app_init(struct fyai_app *app)
 		return -1;
 	app->cfg.diag = &app->diag;
 	fyai_loop_init(&app->loop, &app->diag);
+	fyai_transient_init(&app->transient);
 	return 0;
 }
 
@@ -36,6 +37,7 @@ void fyai_app_cleanup(struct fyai_app *app)
 		return;
 	/* The loop and the configuration report into the diagnostics, so they
 	 * go first. */
+	fyai_transient_cleanup(&app->transient);
 	fyai_loop_cleanup(&app->loop);
 	fyai_config_cleanup(&app->cfg);
 	app->cfg.diag = NULL;

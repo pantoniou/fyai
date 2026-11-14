@@ -203,7 +203,7 @@ int fyai_log_generic(struct fyai_ctx *ctx, const char *name, fy_generic doc)
 	if (!path)
 		return -1;
 
-	gb = ctx->transient_gb ? ctx->transient_gb : cfg->gb;
+	gb = ctx->transient->gb ? ctx->transient->gb : cfg->gb;
 	emitted = fy_emit(gb, doc,
 		FYOPEF_DISABLE_DIRECTORY |
 		FYOPEF_OUTPUT_TYPE_STRING |
@@ -257,7 +257,7 @@ void fyai_log_wire_text(struct fyai_ctx *ctx, const char *type,
 		fyai_redactor_clear(&redactor);
 		log_data = copy;
 	}
-	gb = ctx->transient_gb ? ctx->transient_gb : cfg->gb;
+	gb = ctx->transient->gb ? ctx->transient->gb : cfg->gb;
 	doc = fy_mapping(gb,
 		"kind", "curl",
 		"type", type ? type : "",

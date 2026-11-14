@@ -19,6 +19,7 @@
 #include "utils.h"
 
 #include "fyai_test_registry.h"
+#include "fyai_test_diag.h"
 
 FYAI_TEST_ENTRY(grammar, request_cache_bench, grammar_request_cache_bench)
 FYAI_TEST_ENTRY(grammar, lookup, grammar_lookup)
@@ -58,7 +59,7 @@ static fy_generic parse(const char *json)
 {
 	fy_generic v;
 
-	v = parse_json_string(test_ctx.transient_gb, json);
+	v = parse_json_string(fyai_test_transient_of(&test_ctx)->gb, json);
 	if (fy_is_invalid(v))
 		fail("failed to parse fixture: %s%s", json, "");
 	return v;
@@ -68,7 +69,7 @@ static const char *emit(fy_generic v)
 {
 	const char *s;
 
-	s = emit_json_string(test_ctx.transient_gb, v);
+	s = emit_json_string(fyai_test_transient_of(&test_ctx)->gb, v);
 	if (!s)
 		fail("failed to emit a generic%s%s", "", "");
 	return s;
@@ -217,7 +218,7 @@ static fy_generic input(const struct fyai_grammar *grammar,
  */
 static fy_generic uncached(fy_generic messages)
 {
-	struct fy_generic_builder *gb = test_ctx.transient_gb;
+	struct fy_generic_builder *gb = fyai_test_transient_of(&test_ctx)->gb;
 	fy_generic out, m, content, blocks, block;
 
 	out = fy_seq_empty;
@@ -247,7 +248,7 @@ static fy_generic tail(fy_generic seq, size_t start)
 	size_t i;
 
 	for (i = start; i < fy_len(seq); i++)
-		out = fy_append(test_ctx.transient_gb, out, fy_get_at(seq, i));
+		out = fy_append(fyai_test_transient_of(&test_ctx)->gb, out, fy_get_at(seq, i));
 	return out;
 }
 
@@ -291,13 +292,13 @@ static fy_generic head(fy_generic seq, size_t n)
 	size_t i;
 
 	for (i = 0; i < n && i < fy_len(seq); i++)
-		out = fy_append(test_ctx.transient_gb, out, fy_get_at(seq, i));
+		out = fy_append(fyai_test_transient_of(&test_ctx)->gb, out, fy_get_at(seq, i));
 	return out;
 }
 
 static fy_generic concat(fy_generic a, fy_generic b)
 {
-	return fy_concat(test_ctx.transient_gb, a, b);
+	return fy_concat(fyai_test_transient_of(&test_ctx)->gb, a, b);
 }
 
 static bool compacts(const struct fyai_grammar *grammar)
@@ -541,7 +542,7 @@ static void test_cross_prefix_stable(void)
  */
 static const char *canonical_of(fy_generic r)
 {
-	struct fy_generic_builder *gb = test_ctx.transient_gb;
+	struct fy_generic_builder *gb = fyai_test_transient_of(&test_ctx)->gb;
 	fy_generic calls, call, in;
 
 	calls = fy_seq_empty;
@@ -831,7 +832,7 @@ static const char *cache_post(const struct fyai_grammar *grammar)
 
 	use_grammar(grammar);
 	cache_request(&req);
-	req.input = fy_sequence(test_ctx.transient_gb, CACHE_SENTINEL);
+	req.input = fy_sequence(fyai_test_transient_of(&test_ctx)->gb, CACHE_SENTINEL);
 	text = emit(fyai_grammar_build_request(&test_ctx, &req));
 	at = strstr(text, "\"" CACHE_SENTINEL "\"");
 	if (!at)
@@ -975,7 +976,7 @@ static void test_request_cache(void)
 		 * is equal: other tools make it again, and the messages stay.
 		 */
 		fyai_request_cache_forget(&test_ctx);
-		test_ctx.tools = fy_sequence(test_ctx.transient_gb, parse(tools_plain),
+		test_ctx.tools = fy_sequence(fyai_test_transient_of(&test_ctx)->gb, parse(tools_plain),
 					     parse(tools_plain));
 		free(cache_check(grammar, turns[CACHE_TURNS - 1],
 				 "other tools in the next exchange", true));
@@ -993,7 +994,7 @@ static void test_request_cache(void)
 		test_cfg.config_doc = fy_invalid;
 
 		/* A tool text that looks like an input item is not cut. */
-		test_ctx.tools = fy_sequence(test_ctx.transient_gb,
+		test_ctx.tools = fy_sequence(fyai_test_transient_of(&test_ctx)->gb,
 					     CACHE_SENTINEL);
 		free(cache_check(grammar, turns[CACHE_TURNS - 1],
 				 "a tool that names the sentinel", false));
@@ -1140,19 +1141,19 @@ static int grammar_run(void (*testfn)(void))
 	memset(&test_ctx, 0, sizeof(test_ctx));
 
 	test_ctx.cfg = &test_cfg;
-	test_ctx.transient_gb = fy_generic_builder_create(&gb_cfg);
-	if (!test_ctx.transient_gb)
+	fyai_test_transient_of(&test_ctx)->gb = fy_generic_builder_create(&gb_cfg);
+	if (!fyai_test_transient_of(&test_ctx)->gb)
 		return 1;
-	test_ctx.gb = test_ctx.transient_gb;
-	test_ctx.durable_gb = test_ctx.transient_gb;
-	test_cfg.gb = test_ctx.transient_gb;
+	test_ctx.gb = fyai_test_transient_of(&test_ctx)->gb;
+	test_ctx.durable_gb = fyai_test_transient_of(&test_ctx)->gb;
+	test_cfg.gb = fyai_test_transient_of(&test_ctx)->gb;
 	test_cfg.catalog = fy_invalid;
 	test_ctx.tools_spec = fy_invalid;
 	test_ctx.media_pending = fy_seq_empty;
 
 	testfn();
 
-	fy_generic_builder_destroy(test_ctx.transient_gb);
+	fy_generic_builder_destroy(fyai_test_transient_of(&test_ctx)->gb);
 	return 0;
 }
 

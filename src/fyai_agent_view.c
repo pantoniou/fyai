@@ -524,12 +524,12 @@ fy_generic fyai_agent_input_tool(struct fyai_ctx *ctx, fy_generic args,
 	name = fy_castp(&name_v, "");
 	job = fyai_agent_job_named(ctx, name);
 	if (!job)
-		return fy_stringf(ctx->transient_gb,
+		return fy_stringf(ctx->transient->gb,
 			"tool error: no sub-agent named '%s' is running; one "
 			"that has finished is reached with the agent tool",
 			name);
 	if (job->pty < 0)
-		return fy_stringf(ctx->transient_gb,
+		return fy_stringf(ctx->transient->gb,
 			"tool error: the sub-agent '%s' has no terminal to "
 			"write to", name);
 
@@ -553,7 +553,7 @@ fy_generic fyai_agent_input_tool(struct fyai_ctx *ctx, fy_generic args,
 			continue;
 		}
 		free(in.data);
-		return fy_stringf(ctx->transient_gb,
+		return fy_stringf(ctx->transient->gb,
 			"tool error: could not write to the sub-agent '%s': %s",
 			name, strerror(errno));
 	}
@@ -561,11 +561,11 @@ fy_generic fyai_agent_input_tool(struct fyai_ctx *ctx, fy_generic args,
 	/* It read what it was given: the next stop is a new question. */
 	job->wants_input = false;
 	*okp = true;
-	return fy_stringf(ctx->transient_gb, "[agent '%s': the input was typed]", name);
+	return fy_stringf(ctx->transient->gb, "[agent '%s': the input was typed]", name);
 
 err:
 	free(in.data);
-	return fy_value(ctx->transient_gb,
+	return fy_value(ctx->transient->gb,
 			"tool error: could not retain the input");
 }
 
@@ -780,11 +780,11 @@ void fyai_agent_view_finish(struct fyai_ctx *ctx, struct fyai_tool_job *job,
 		return;
 	}
 	if (rc)
-		*result = fy_stringf(ctx->transient_gb, "%s\n\n[The sub-agent ran in the view "
+		*result = fy_stringf(ctx->transient->gb, "%s\n\n[The sub-agent ran in the view "
 				     "'%s', but its changes could not be captured; see the "
 				     "diagnostics.]", fy_castp(result, ""), name);
 	else
-		*result = fy_stringf(ctx->transient_gb, "%s\n\n[The sub-agent ran in the view "
+		*result = fy_stringf(ctx->transient->gb, "%s\n\n[The sub-agent ran in the view "
 				     "'%s'. Its changes are not in the project; %s\nReview "
 				     "them with the project_view tool, as '%s', or `view diff %s`.]",
 				     fy_castp(result, ""), name,

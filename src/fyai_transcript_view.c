@@ -890,6 +890,7 @@ static int view_render_exchange(void *user, size_t index, int width,
 	struct fy_generic_builder *gb;
 	struct fyai_ctx view;
 	struct fyai_cfg cfg;
+	struct fyai_transient transient;
 	FILE *fp = NULL;
 	int rc = -1;
 
@@ -904,7 +905,9 @@ static int view_render_exchange(void *user, size_t index, int width,
 	fyai_uimodel_view_detach(&view);
 	view.display_output = NULL;
 	view.browser = NULL;
-	view.transient_gb = gb;
+	fyai_transient_init(&transient);
+	transient.gb = gb;
+	view.transient = &transient;
 	cfg.render_width = width;
 	fp = open_memstream(textp, lenp);
 	fyai_error_check(ctx, fp, out, "cannot render the transcript view");
