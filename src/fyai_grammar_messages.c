@@ -27,7 +27,7 @@ static fy_generic messages_tool_def(struct fyai_ctx *ctx, fy_generic spec)
 {
 	fy_generic function = fy_get(spec, "function");
 
-	return fy_mapping(ctx->gb,
+	return fy_mapping(ctx->arena->gb,
 		"name", fy_get(function, "name", ""),
 		"description", fy_get(function, "description", ""),
 		"input_schema", fy_get(function, "parameters"));
@@ -52,7 +52,7 @@ static fy_generic messages_make_tools(struct fyai_ctx *ctx)
 				fy_mapping("type", "web_search_20250305",
 						   "name", "web_search"));
 
-	messages_tools = fy_gb_internalize(ctx->gb, messages_tools);
+	messages_tools = fy_gb_internalize(ctx->arena->gb, messages_tools);
 	return fyai_provider_result(ctx, messages_tools,
 			       "could not build the Messages tool definitions");
 }

@@ -87,8 +87,8 @@ int fyai_cmd_image_paste(struct fyai_cmd_call *call, fy_generic *result)
 	/* The helper publishes under "clipboard"; a stated name replaces it. */
 	if (name && *name && fy_is_sequence(pending) && !fy_empty(pending)) {
 		last = fy_get_at(pending, fy_len(pending) - 1);
-		last = fy_assoc(ctx->gb, last, "name", name);
-		pending = fy_replace(ctx->gb, pending, fy_len(pending) - 1, last);
+		last = fy_assoc(ctx->arena->gb, last, "name", name);
+		pending = fy_replace(ctx->arena->gb, pending, fy_len(pending) - 1, last);
 		ctx->media_pending = pending;
 	}
 	*result = media_add_result(call, pending);

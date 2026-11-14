@@ -84,9 +84,9 @@ static int view_save(struct fyai_ctx *ctx, const char *name, fy_generic view)
 
 	store = view_store(ctx);
 	views = fy_get(store, "views", fy_map_empty);
-	views = fy_is_valid(view) ? fy_assoc(ctx->gb, views, fy_value(ctx->gb, name), view) :
-				    fy_disassoc(ctx->gb, views, fy_value(ctx->gb, name));
-	ctx->branch_store = fy_assoc(ctx->gb, store, "views", views);
+	views = fy_is_valid(view) ? fy_assoc(ctx->arena->gb, views, fy_value(ctx->arena->gb, name), view) :
+				    fy_disassoc(ctx->arena->gb, views, fy_value(ctx->arena->gb, name));
+	ctx->branch_store = fy_assoc(ctx->arena->gb, store, "views", views);
 	if (!fy_is_valid(ctx->branch_store)) {
 		errno = ENOMEM;
 		return -1;
@@ -124,7 +124,7 @@ static fy_generic view_summary(struct fy_generic_builder *gb, const char *name, 
 
 static int view_writable(struct fyai_ctx *ctx)
 {
-	if (ctx->cfg->root_spec || ctx->gb != ctx->durable_gb) {
+	if (ctx->cfg->root_spec || ctx->arena->gb != ctx->arena->durable_gb) {
 		fyai_error(ctx, "view: a writable durable arena is required; --root "
 				      "and --transient are read-only for views");
 		return -1;
@@ -190,7 +190,7 @@ static int view_recover(struct fyai_ctx *ctx, fy_generic *view, const struct fya
 	if (fy_equal(fy_get(*view, "validated_boot", fy_invalid), boot))
 		return 0;
 	expected = fy_get(*view, "result", fy_get(*view, "baseline", fy_invalid));
-	rc = fyai_fsview_recover(ctx->gb, spec, expected, error, error_size);
+	rc = fyai_fsview_recover(ctx->arena->gb, spec, expected, error, error_size);
 	if (rc) {
 		if (error && error_size)
 			snprintf(error, error_size,
@@ -198,7 +198,7 @@ static int view_recover(struct fyai_ctx *ctx, fy_generic *view, const struct fya
 				 "be lost or corrupted; update or recreate it");
 		return -1;
 	}
-	*view = fy_assoc(ctx->gb, *view, "validated_boot", fy_value(ctx->gb, boot));
+	*view = fy_assoc(ctx->arena->gb, *view, "validated_boot", fy_value(ctx->arena->gb, boot));
 	if (!fy_is_mapping(*view)) {
 		errno = ENOMEM;
 		return -1;
@@ -551,7 +551,7 @@ static int view_capture_publish(struct view_capture *c)
 					  manifest_name);
 	if (rc)
 		return -1;
-	snapshot = fyai_fsview_reference(ctx->gb, c->manifest.root, c->manifest.object_count,
+	snapshot = fyai_fsview_reference(ctx->arena->gb, c->manifest.root, c->manifest.object_count,
 					 manifest_name);
 	fyai_manifest_close(&c->manifest);
 	rc = view_initialize_upper(c->root, c->opts.baseline_fd);
@@ -559,19 +559,19 @@ static int view_capture_publish(struct view_capture *c)
 		rc = fyai_fsview_sync_backing(c->runtime, c->storage);
 	if (rc)
 		return -1;
-	*record = fy_mapping(ctx->gb,
+	*record = fy_mapping(ctx->arena->gb,
 		"version", 1LL,
-		"name", fy_value(ctx->gb, name),
-		"project", fy_value(ctx->gb, c->resolved),
-		"storage", fy_value(ctx->gb, c->storage),
-		"runtime", fy_value(ctx->gb, c->runtime),
+		"name", fy_value(ctx->arena->gb, name),
+		"project", fy_value(ctx->arena->gb, c->resolved),
+		"storage", fy_value(ctx->arena->gb, c->storage),
+		"runtime", fy_value(ctx->arena->gb, c->runtime),
 		"baseline", snapshot,
-		"durability", fy_value(ctx->gb, c->durability),
+		"durability", fy_value(ctx->arena->gb, c->durability),
 		"synchronized", (bool)!strcmp(c->durability, "durable"),
-		"validated_boot", fy_value(ctx->gb, c->boot),
+		"validated_boot", fy_value(ctx->arena->gb, c->boot),
 		"state", "ready",
 		"materialization", c->opts.metacopy ? "metacopy" : "copy",
-		"capture", fy_assoc(ctx->gb, view_capture_statistics(ctx->gb, &c->statistics),
+		"capture", fy_assoc(ctx->arena->gb, view_capture_statistics(ctx->arena->gb, &c->statistics),
 				    "attempts", (long long)c->attempt));
 	rc = view_save(ctx, name, *record);
 	if (rc)
@@ -869,7 +869,7 @@ static int view_diff_recover(struct fyai_ctx *ctx, const char *name, fy_generic 
 		goto out;
 	}
 	rc = view_recover(ctx, view, &spec, error, sizeof(error));
-	if (!rc && !ctx->cfg->root_spec && ctx->gb == ctx->durable_gb)
+	if (!rc && !ctx->cfg->root_spec && ctx->arena->gb == ctx->arena->durable_gb)
 		rc = view_save(ctx, name, *view);
 out:
 	saved = errno;
@@ -929,7 +929,7 @@ static fy_generic view_entry_of_head(struct fyai_ctx *ctx, struct fyai_branch *b
 			found = cur.entry;
 		else if (fy_is_valid(found))
 			break;
-		if (!fyai_branch_entry_contained(ctx->durable_allocator, cur.prev, 1) ||
+		if (!fyai_branch_entry_contained(ctx->arena->durable_allocator, cur.prev, 1) ||
 		    !fyai_branch_decode(cur.prev, &next))
 			break;
 		cur = next;
@@ -979,7 +979,7 @@ static int view_state_find(struct fyai_ctx *ctx, const char *spec, struct view_s
 	entry = b.entry;
 	if (kind == '@') {
 		for (i = 0; i < n; i++) {
-			if (!fyai_branch_entry_contained(ctx->durable_allocator, b.prev, 1) ||
+			if (!fyai_branch_entry_contained(ctx->arena->durable_allocator, b.prev, 1) ||
 			    !fyai_branch_decode(b.prev, &b)) {
 				view_state_error(quiet, ctx, "%s: the ref log has no entry %lld", name, n);
 				return -1;
@@ -1008,7 +1008,7 @@ static int view_state_find(struct fyai_ctx *ctx, const char *spec, struct view_s
 		if (fy_is_mapping(e.project))
 			return view_state_set(ctx, state, e.project,
 					      fy_get(e.project, "storage", ""), spec, quiet);
-		if (!fyai_branch_entry_contained(ctx->durable_allocator, e.prev, 1))
+		if (!fyai_branch_entry_contained(ctx->arena->durable_allocator, e.prev, 1))
 			break;
 		entry = e.prev;
 	}
@@ -1327,18 +1327,18 @@ static void view_applied_record(struct fyai_ctx *ctx, const char *name,
 {
 	fy_generic view, captured, applied;
 
-	if (ctx->cfg->root_spec || ctx->gb != ctx->durable_gb)
+	if (ctx->cfg->root_spec || ctx->arena->gb != ctx->arena->durable_gb)
 		return;
 	if (fyai_project_state_enabled(ctx) && !fyai_project_state_capture(ctx, &captured) &&
 	    fy_is_mapping(captured))
 		ctx->project_state = captured;
 	view = target->is_view ? view_find(ctx, name) : fy_invalid;
 	if (fy_is_mapping(view)) {
-		applied = fy_mapping(ctx->gb, "root", fy_get(target->reference, "root", ""), "at",
+		applied = fy_mapping(ctx->arena->gb, "root", fy_get(target->reference, "root", ""), "at",
 				     (long long)fyai_branch_timestamp(), "applied",
 				     (long long)summary->applied, "conflicts",
 				     (long long)summary->conflicts);
-		view_save(ctx, name, fy_assoc(ctx->gb, view, "applied", applied));
+		view_save(ctx, name, fy_assoc(ctx->arena->gb, view, "applied", applied));
 	} else if (fy_is_mapping(ctx->project_state)) {
 		fyai_branch_op_set(ctx, FYAI_BRANCH_OP_COMMAND, NULL);
 		fyai_publish_state(ctx);
@@ -2073,7 +2073,7 @@ static int view_open_run(struct fyai_ctx *ctx, const char *name, struct fyai_vie
 	rc = view_recover(ctx, view, spec, error, error_size);
 	if (rc)
 		return -2;
-	*view = fy_assoc(ctx->gb, *view, "state", "running");
+	*view = fy_assoc(ctx->arena->gb, *view, "state", "running");
 	rc = view_save(ctx, name, *view);
 	return rc ? -2 : 0;
 }
@@ -2151,14 +2151,14 @@ int fyai_cmd_view_enter(struct fyai_cmd_call *call, fy_generic *result)
 		rc = -1;
 		goto out;
 	}
-	snapshot = fyai_fsview_snapshot(call->ctx->gb, &run.spec, error, sizeof(error));
+	snapshot = fyai_fsview_snapshot(call->ctx->arena->gb, &run.spec, error, sizeof(error));
 	if (!fy_is_valid(snapshot)) {
 		rc = -1;
 		goto out;
 	}
-	updated = fy_assoc(call->ctx->gb, run.view, "result", snapshot);
-	updated = fy_assoc(call->ctx->gb, updated, "state", "ready");
-	updated = fy_assoc(call->ctx->gb, updated, "synchronized", (bool)!run.spec.lazy);
+	updated = fy_assoc(call->ctx->arena->gb, run.view, "result", snapshot);
+	updated = fy_assoc(call->ctx->arena->gb, updated, "state", "ready");
+	updated = fy_assoc(call->ctx->arena->gb, updated, "synchronized", (bool)!run.spec.lazy);
 	rc = view_save(call->ctx, name, updated);
 	if (rc)
 		goto out;
@@ -2168,7 +2168,7 @@ int fyai_cmd_view_enter(struct fyai_cmd_call *call, fy_generic *result)
 out:
 	saved = errno;
 	if (run.started && !complete) {
-		updated = fy_assoc(call->ctx->gb, run.view, "state", "incomplete");
+		updated = fy_assoc(call->ctx->arena->gb, run.view, "state", "incomplete");
 		view_save(call->ctx, name, updated);
 	}
 	free(argv);
@@ -2253,14 +2253,14 @@ static int view_run_job(struct fyai_ctx *ctx, const char *name, struct view_job 
 		goto out;
 	}
 	if (job->record) {
-		snapshot = fyai_fsview_snapshot(ctx->gb, &run.spec, error, sizeof(error));
+		snapshot = fyai_fsview_snapshot(ctx->arena->gb, &run.spec, error, sizeof(error));
 		if (!fy_is_valid(snapshot)) {
 			rc = -1;
 			goto out;
 		}
-		updated = fy_assoc(ctx->gb, run.view, "result", snapshot);
-		updated = fy_assoc(ctx->gb, updated, "state", "ready");
-		updated = fy_assoc(ctx->gb, updated, "synchronized", (bool)!run.spec.lazy);
+		updated = fy_assoc(ctx->arena->gb, run.view, "result", snapshot);
+		updated = fy_assoc(ctx->arena->gb, updated, "state", "ready");
+		updated = fy_assoc(ctx->arena->gb, updated, "synchronized", (bool)!run.spec.lazy);
 		rc = view_save(ctx, name, updated);
 		if (rc)
 			goto out;
@@ -2270,7 +2270,7 @@ static int view_run_job(struct fyai_ctx *ctx, const char *name, struct view_job 
 out:
 	saved = errno;
 	if (run.started && !complete) {
-		updated = fy_assoc(ctx->gb, run.view, "state", "incomplete");
+		updated = fy_assoc(ctx->arena->gb, run.view, "state", "incomplete");
 		view_save(ctx, name, updated);
 	}
 	view_run_release(&run);
@@ -2994,7 +2994,7 @@ int fyai_cmd_view_sync(struct fyai_cmd_call *call, fy_generic *result)
 		rc = fyai_fsview_sync_backing(spec.runtime, spec.storage);
 	if (rc)
 		goto out;
-	view = fy_assoc(call->ctx->gb, view, "synchronized", true);
+	view = fy_assoc(call->ctx->arena->gb, view, "synchronized", true);
 	rc = view_save(call->ctx, name, view);
 	if (!rc)
 		*result = view_summary(call->gb, name, view);
@@ -3090,9 +3090,9 @@ int fyai_cmd_view_mount(struct fyai_cmd_call *call, fy_generic *result)
 	if (rc)
 		goto out;
 	mounted = true;
-	updated = fy_assoc(call->ctx->gb, view, "mount",
-			   view_mount_record(call->ctx->gb, resolved, &identity));
-	updated = fy_assoc(call->ctx->gb, updated, "state", "mounted");
+	updated = fy_assoc(call->ctx->arena->gb, view, "mount",
+			   view_mount_record(call->ctx->arena->gb, resolved, &identity));
+	updated = fy_assoc(call->ctx->arena->gb, updated, "state", "mounted");
 	rc = view_save(call->ctx, name, updated);
 	if (rc)
 		goto out;
@@ -3167,15 +3167,15 @@ int fyai_cmd_view_unmount(struct fyai_cmd_call *call, fy_generic *result)
 		saved = errno;
 		if (identity.cover_id != (uint64_t)fy_get(mount, "cover_id", 0LL)) {
 			updated = fy_assoc(
-				call->ctx->gb, view, "mount",
-				view_mount_record(call->ctx->gb, fy_castp(&path, ""), &identity));
+				call->ctx->arena->gb, view, "mount",
+				view_mount_record(call->ctx->arena->gb, fy_castp(&path, ""), &identity));
 			view_save(call->ctx, name, updated);
 		}
 		errno = saved;
 		goto out;
 	}
-	updated = fy_disassoc(call->ctx->gb, view, "mount");
-	updated = fy_assoc(call->ctx->gb, updated, "state", "ready");
+	updated = fy_disassoc(call->ctx->arena->gb, view, "mount");
+	updated = fy_assoc(call->ctx->arena->gb, updated, "state", "ready");
 	rc = view_save(call->ctx, name, updated);
 	if (rc)
 		goto out;
@@ -3292,7 +3292,7 @@ err:
 	return 0;
 fail:
 	if (run->started)
-		view_save(ctx, name, fy_assoc(ctx->gb, run->view, "state", "incomplete"));
+		view_save(ctx, name, fy_assoc(ctx->arena->gb, run->view, "state", "incomplete"));
 	view_run_release(run);
 	free(run);
 	return -1;
@@ -3315,17 +3315,17 @@ int fyai_view_run_finish(struct fyai_ctx *ctx, struct fyai_view_run *run, char *
 	int saved;
 
 	*summary = NULL;
-	snapshot = fyai_fsview_snapshot(ctx->gb, &run->spec, error, sizeof(error));
+	snapshot = fyai_fsview_snapshot(ctx->arena->gb, &run->spec, error, sizeof(error));
 	if (!fy_is_valid(snapshot)) {
 		saved = errno;
-		view_save(ctx, run->name, fy_assoc(ctx->gb, run->view, "state", "incomplete"));
+		view_save(ctx, run->name, fy_assoc(ctx->arena->gb, run->view, "state", "incomplete"));
 		fyai_error(ctx, "view '%s': cannot capture the result%s%s: %s", run->name,
 			   *error ? " at " : "", error, strerror(saved));
 		return -1;
 	}
-	updated = fy_assoc(ctx->gb, run->view, "result", snapshot);
-	updated = fy_assoc(ctx->gb, updated, "state", "ready");
-	updated = fy_assoc(ctx->gb, updated, "synchronized", (bool)!run->spec.lazy);
+	updated = fy_assoc(ctx->arena->gb, run->view, "result", snapshot);
+	updated = fy_assoc(ctx->arena->gb, updated, "state", "ready");
+	updated = fy_assoc(ctx->arena->gb, updated, "synchronized", (bool)!run->spec.lazy);
 	if (view_save(ctx, run->name, updated))
 		return -1;
 	*summary = view_run_summary(ctx, run, snapshot);
@@ -3350,14 +3350,14 @@ static int view_run_checkpoint(struct fyai_ctx *ctx, struct fyai_view_run *run)
 	fy_generic snapshot, updated;
 	int saved;
 
-	snapshot = fyai_fsview_snapshot(ctx->gb, &run->spec, error, sizeof(error));
+	snapshot = fyai_fsview_snapshot(ctx->arena->gb, &run->spec, error, sizeof(error));
 	if (!fy_is_valid(snapshot)) {
 		saved = errno;
 		fyai_error(ctx, "view '%s': cannot capture the result%s%s: %s", run->name,
 			   *error ? " at " : "", error, strerror(saved));
 		return -1;
 	}
-	updated = fy_assoc(ctx->gb, run->view, "result", snapshot);
+	updated = fy_assoc(ctx->arena->gb, run->view, "result", snapshot);
 	if (view_save(ctx, run->name, updated))
 		return -1;
 	run->view = updated;
@@ -3578,7 +3578,7 @@ static int view_session_pending(struct fyai_ctx *ctx, long long *applied, long l
 	fy_generic result;
 	int rc;
 
-	rc = fyai_view_pull(ctx, ctx->gb, "session", NULL, NULL, 0, FYAI_VIEW_PULL_DRY_RUN, &result);
+	rc = fyai_view_pull(ctx, ctx->arena->gb, "session", NULL, NULL, 0, FYAI_VIEW_PULL_DRY_RUN, &result);
 	/* A conflict is an outcome to read; it does not end the run with a status. */
 	ctx->cfg->exit_status = status;
 	if (rc)
@@ -3722,14 +3722,14 @@ restart:
 	}
 	if (rc) {
 		saved = errno;
-		view_save(ctx, run->name, fy_assoc(ctx->gb, run->view, "state", "incomplete"));
+		view_save(ctx, run->name, fy_assoc(ctx->arena->gb, run->view, "state", "incomplete"));
 		fyai_error(ctx, "view 'session': cannot run the session: %s", strerror(saved));
 		goto out;
 	}
 	why = fyai_child_start_text(&output.start, NULL, run->spec.project, startup,
 				    sizeof(startup));
 	if (why) {
-		view_save(ctx, run->name, fy_assoc(ctx->gb, run->view, "state", "incomplete"));
+		view_save(ctx, run->name, fy_assoc(ctx->arena->gb, run->view, "state", "incomplete"));
 		fyai_error(ctx, "view 'session': %s", why);
 		rc = -1;
 		goto out;
@@ -3772,7 +3772,7 @@ restart:
 	if (output.exit_code == 0 && fy_get(section, "apply_on_exit", true) &&
 	    !view_session_pending(ctx, &applied, &conflicts) && applied && !conflicts) {
 		status = cfg->exit_status;
-		rc = fyai_view_pull(ctx, ctx->gb, "session", NULL, NULL, 0, FYAI_VIEW_PULL_APPLY,
+		rc = fyai_view_pull(ctx, ctx->arena->gb, "session", NULL, NULL, 0, FYAI_VIEW_PULL_APPLY,
 				    &result);
 		cfg->exit_status = status;
 		if (!rc) {
@@ -3882,7 +3882,7 @@ bool fyai_view_isolation_available(struct fyai_ctx *ctx)
 	char *root;
 	bool available;
 
-	if (ctx->cfg->transient || ctx->cfg->root_spec || ctx->gb != ctx->durable_gb ||
+	if (ctx->cfg->transient || ctx->cfg->root_spec || ctx->arena->gb != ctx->arena->durable_gb ||
 	    ctx->cfg->view_project)
 		return false;
 	root = project_state_root(ctx);
@@ -3903,15 +3903,15 @@ void fyai_tool_change_record(struct fyai_ctx *ctx, fy_generic before, fy_generic
 {
 	fy_generic section = fy_get(ctx->cfg->config_doc, "view", fy_invalid);
 	long long depth = fy_get(section, "undo_depth", 16LL);
-	fy_generic kept = fy_sequence(ctx->gb), item;
+	fy_generic kept = fy_sequence(ctx->arena->gb), item;
 	size_t count = fy_len(ctx->tool_changes), skip, i = 0;
 
 	/* The new group is kept, so the older ones fill the rest of the depth. */
 	skip = count >= (size_t)depth ? count - (size_t)depth + 1 : 0;
 	fy_foreach(item, ctx->tool_changes)
 		if (i++ >= skip)
-			kept = fy_append(ctx->gb, kept, item);
-	ctx->tool_changes = fy_append(ctx->gb, kept, fy_mapping(ctx->gb, "before", before, "after", after));
+			kept = fy_append(ctx->arena->gb, kept, item);
+	ctx->tool_changes = fy_append(ctx->arena->gb, kept, fy_mapping(ctx->arena->gb, "before", before, "after", after));
 }
 
 int fyai_tool_change_undo(struct fyai_ctx *ctx, struct fy_generic_builder *gb, long long back,
@@ -3960,10 +3960,10 @@ int fyai_tool_change_undo(struct fyai_ctx *ctx, struct fy_generic_builder *gb, l
 	if (summary.conflicts) {
 		ctx->cfg->exit_status = 1;
 	} else {
-		kept = fy_sequence(ctx->gb);
+		kept = fy_sequence(ctx->arena->gb);
 		fy_foreach(item, ctx->tool_changes)
 			if (i++ != index)
-				kept = fy_append(ctx->gb, kept, item);
+				kept = fy_append(ctx->arena->gb, kept, item);
 		ctx->tool_changes = kept;
 	}
 out:
@@ -4135,7 +4135,7 @@ int fyai_project_state_capture(struct fyai_ctx *ctx, fy_generic *ref)
 	int rc = -1, saved, gc_lock = -1;
 
 	*ref = fy_invalid;
-	fyai_ignore_spec_load(&ignore, fyai_ignore_record(ctx->gb, ctx->cfg->config_doc));
+	fyai_ignore_spec_load(&ignore, fyai_ignore_record(ctx->arena->gb, ctx->cfg->config_doc));
 	opts.ignore = &ignore;
 	root = project_state_root(ctx);
 	if (!root)
@@ -4164,9 +4164,9 @@ int fyai_project_state_capture(struct fyai_ctx *ctx, fy_generic *ref)
 	rc = fyai_fsview_manifest_publish(storage, &manifest, durable, manifest_name);
 	if (rc)
 		goto out;
-	*ref = fy_assoc(ctx->gb, fyai_fsview_reference(ctx->gb, manifest.root, manifest.object_count,
+	*ref = fy_assoc(ctx->arena->gb, fyai_fsview_reference(ctx->arena->gb, manifest.root, manifest.object_count,
 						       manifest_name),
-			"storage", fy_value(ctx->gb, storage));
+			"storage", fy_value(ctx->arena->gb, storage));
 	if (!fy_is_mapping(*ref)) {
 		*ref = fy_invalid;
 		errno = ENOMEM;

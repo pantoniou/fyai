@@ -844,7 +844,7 @@ static int settings_change_build(struct settings_walk *w,
 						   value);
 			any_session = true;
 		} else {
-			stored = settings_doc_set(ctx->gb, stored, path, value);
+			stored = settings_doc_set(ctx->arena->gb, stored, path, value);
 			any_stored = true;
 		}
 		if (!fy_is_valid(stored) || !fy_is_valid(session)) {
@@ -942,12 +942,12 @@ static fy_generic settings_store_build(struct fyai_ctx *ctx,
 	fy_generic store;
 
 	fyai_branch_decode(ctx->branch_prev, &prev);
-	store = fyai_branch_store_build(ctx->gb, &prev);
-	store = fy_assoc(ctx->gb, store, member,
-			 fy_gb_internalize(ctx->gb, log));
+	store = fyai_branch_store_build(ctx->arena->gb, &prev);
+	store = fy_assoc(ctx->arena->gb, store, member,
+			 fy_gb_internalize(ctx->arena->gb, log));
 	if (member2)
-		store = fy_assoc(ctx->gb, store, member2,
-				 fy_gb_internalize(ctx->gb, log2));
+		store = fy_assoc(ctx->arena->gb, store, member2,
+				 fy_gb_internalize(ctx->arena->gb, log2));
 	return store;
 }
 
@@ -1320,7 +1320,7 @@ int fyai_settings_proposal_decide(struct fyai_ctx *ctx,
 	const char *explanation, *cid = NULL;
 
 	settings_walk_init(&w, ctx, gb);
-	fyai_error_check(ctx, ctx->gb, err_out, "no arena; run fyai init");
+	fyai_error_check(ctx, ctx->arena->gb, err_out, "no arena; run fyai init");
 	if (settings_proposal_prepare(&w, id, &c, &explanation))
 		return -1;
 	proposals = fyai_settings_log(ctx, "config_proposals");
@@ -1555,7 +1555,7 @@ int fyai_settings_revert(struct fyai_ctx *ctx, struct fy_generic_builder *gb,
 	char why[1024];
 
 	settings_walk_init(&w, ctx, gb);
-	fyai_error_check(ctx, ctx->gb, err_out, "no arena; run fyai init");
+	fyai_error_check(ctx, ctx->arena->gb, err_out, "no arena; run fyai init");
 	entry = settings_change_entry(ctx, id);
 	if (!fy_is_mapping(entry))
 		return -1;
@@ -1592,7 +1592,7 @@ int fyai_settings_keep(struct fyai_ctx *ctx, struct fy_generic_builder *gb,
 
 	settings_walk_init(&w, ctx, gb);
 	memset(&c, 0, sizeof(c));
-	fyai_error_check(ctx, ctx->gb, err_out, "no arena; run fyai init");
+	fyai_error_check(ctx, ctx->arena->gb, err_out, "no arena; run fyai init");
 	entry = settings_change_entry(ctx, id);
 	if (!fy_is_mapping(entry))
 		return -1;
@@ -1678,7 +1678,7 @@ fyai_settings_review_open(struct fyai_ctx *ctx, struct fy_generic_builder *gb,
 	struct fyai_settings_review *r;
 	struct settings_walk w;
 
-	fyai_error_check(ctx, ctx->gb, err_out, "no arena; run fyai init");
+	fyai_error_check(ctx, ctx->arena->gb, err_out, "no arena; run fyai init");
 	r = calloc(1, sizeof(*r));
 	fyai_error_check(ctx, r, err_out,
 			 "cannot keep the review of proposal '%s'", id);
@@ -1762,7 +1762,7 @@ static fy_generic settings_change_run(struct settings_walk *w, fy_generic args,
 
 	*okp = false;
 	memset(&c, 0, sizeof(c));
-	if (!ctx->gb)
+	if (!ctx->arena->gb)
 		return fy_value(w->gb, "settings: no arena; the change cannot "
 				"be kept");
 	if (cfg->model_access < FYAI_MODEL_REVIEW)
@@ -2028,7 +2028,7 @@ static fy_generic settings_catalog_change(struct settings_walk *w,
 	char why[1024];
 
 	*okp = false;
-	if (!w->ctx->gb)
+	if (!w->ctx->arena->gb)
 		return fy_value(w->gb, "settings: no arena; run fyai init");
 	if (w->ctx->cfg->model_access < FYAI_MODEL_REVIEW)
 		return fy_value(w->gb, "settings: model_access allows reads only");

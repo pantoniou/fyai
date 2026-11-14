@@ -830,7 +830,7 @@ static uint64_t media_max_bytes(const struct fyai_ctx *ctx)
 }
 
 /*
- * Add @image to the next user message. The part is built in ctx->gb, which
+ * Add @image to the next user message. The part is built in ctx->arena->gb, which
  * holds the bytes, so it lives as long as the message that takes it.
  */
 static int media_attach_image(struct fyai_ctx *ctx,
@@ -838,13 +838,13 @@ static int media_attach_image(struct fyai_ctx *ctx,
 {
 	fy_generic part;
 
-	part = fyai_media_image_part(ctx->gb, image);
+	part = fyai_media_image_part(ctx->arena->gb, image);
 	fyai_media_image_release(image);
 	if (!fy_is_valid(part)) {
 		fyai_error(ctx, "could not record the attachment");
 		return -1;
 	}
-	ctx->media_pending = fy_append(ctx->gb, ctx->media_pending, part);
+	ctx->media_pending = fy_append(ctx->arena->gb, ctx->media_pending, part);
 	return 0;
 }
 
@@ -855,7 +855,7 @@ int fyai_media_attach_fd(struct fyai_ctx *ctx, int fd, const char *declared,
 
 	if (media_attach_check(ctx))
 		return -1;
-	if (fyai_media_image_read(ctx, ctx->gb, fd, media_max_bytes(ctx),
+	if (fyai_media_image_read(ctx, ctx->arena->gb, fd, media_max_bytes(ctx),
 				  declared, name, &image))
 		return -1;
 	return media_attach_image(ctx, &image);
@@ -875,7 +875,7 @@ int fyai_media_attach_bytes(struct fyai_ctx *ctx, const void *data,
 			   "%llu byte limit", len, (unsigned long long)max_bytes);
 		return -1;
 	}
-	if (fyai_media_image_bytes(ctx, ctx->gb, data, len, declared, name,
+	if (fyai_media_image_bytes(ctx, ctx->arena->gb, data, len, declared, name,
 				   &image))
 		return -1;
 	return media_attach_image(ctx, &image);
@@ -1053,10 +1053,10 @@ static int media_attach_text(struct fyai_ctx *ctx, const char *path, int fd,
 		fyai_error(ctx, "could not attach '%s'", path);
 		return -1;
 	}
-	part = fy_mapping(ctx->gb,
+	part = fy_mapping(ctx->arena->gb,
 		"type", FYAI_MEDIA_PART_TEXT,
-		"text", fy_value(ctx->gb, block),
-		"file", fy_value(ctx->gb, path),
+		"text", fy_value(ctx->arena->gb, block),
+		"file", fy_value(ctx->arena->gb, path),
 		"bytes", (long long)size,
 		"lines", lines);
 	free(block);
@@ -1064,7 +1064,7 @@ static int media_attach_text(struct fyai_ctx *ctx, const char *path, int fd,
 		fyai_error(ctx, "could not record '%s'", path);
 		return -1;
 	}
-	ctx->media_pending = fy_append(ctx->gb, ctx->media_pending, part);
+	ctx->media_pending = fy_append(ctx->arena->gb, ctx->media_pending, part);
 	return 0;
 }
 

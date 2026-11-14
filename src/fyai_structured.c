@@ -42,7 +42,7 @@ static fy_generic structured_run(struct fyai_ctx *ctx, fy_generic args,
 		free(problems);
 		return fy_value(gb, text);
 	}
-	ctx->structured_output = fy_gb_internalize(ctx->gb, args);
+	ctx->structured_output = fy_gb_internalize(ctx->arena->gb, args);
 	if (fy_is_invalid(ctx->structured_output))
 		return fy_value(gb, "the structured output could not be kept");
 	ctx->turn_end_requested = true;

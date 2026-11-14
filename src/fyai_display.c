@@ -1030,12 +1030,12 @@ fy_generic fyai_stats_data(struct fyai_ctx *ctx, struct fy_generic_builder *gb)
 	int switches;
 
 	memset(&arena, 0, sizeof(arena));
-	have_arena = ctx->durable_allocator &&
-		!fy_allocator_get_usage(ctx->durable_allocator, FY_ALLOC_TAG_DEFAULT,
+	have_arena = ctx->arena->durable_allocator &&
+		!fy_allocator_get_usage(ctx->arena->durable_allocator, FY_ALLOC_TAG_DEFAULT,
 					&arena);
-	generation = ctx->durable_allocator ?
-		fy_allocator_generation(ctx->durable_allocator) : 0;
-	chunks = ctx->durable_allocator ? fy_allocator_chunk_count(ctx->durable_allocator) : 0;
+	generation = ctx->arena->durable_allocator ?
+		fy_allocator_generation(ctx->arena->durable_allocator) : 0;
+	chunks = ctx->arena->durable_allocator ? fy_allocator_chunk_count(ctx->arena->durable_allocator) : 0;
 	input = 0;
 	cached = 0;
 	cache_write = 0;
@@ -4766,7 +4766,7 @@ fy_generic fyai_list_reflog_data(struct fyai_ctx *ctx,
 					fy_get(entry, "from", "")),
 				   "project", fy_value(gb, brief)));
 		/* Validate the next link before following it. */
-		if (!fyai_branch_entry_contained(ctx->durable_allocator,
+		if (!fyai_branch_entry_contained(ctx->arena->durable_allocator,
 						 b.prev, 1))
 			break;
 		entry = b.prev;

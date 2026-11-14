@@ -54,7 +54,7 @@ int fyai_cmd_reload(struct fyai_cmd_call *call, fy_generic *result)
 			 "reload: transient state cannot survive a restart");
 	fyai_error_check(ctx, !ctx->cfg->root_pinned, err,
 			 "reload: a pinned root cannot be republished");
-	fyai_error_check(ctx, ctx->durable_allocator && ctx->durable_gb, err,
+	fyai_error_check(ctx, ctx->arena->durable_allocator && ctx->arena->durable_gb, err,
 			 "reload: no arena is open to retain the session");
 	fyai_error_check(ctx, !fyai_tools_active(ctx), err,
 			 "reload: close live shells and sub-agents before restarting");

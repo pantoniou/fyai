@@ -263,8 +263,8 @@ static struct fy_generic_builder *native_setup(long long action_timeout_ms,
 	if (!gb)
 		return NULL;
 	fyai_test_transient_of(&test_ctx)->gb = gb;
-	test_ctx.gb = gb;
-	test_ctx.durable_gb = gb;
+	fyai_test_arena_of(&test_ctx)->gb = gb;
+	fyai_test_arena_of(&test_ctx)->durable_gb = gb;
 
 	*callp = fy_mapping(gb,
 		"type", "shell_call",
@@ -280,8 +280,8 @@ static void native_teardown(struct fy_generic_builder *gb)
 	shell_teardown();
 	fy_generic_builder_destroy(gb);
 	fyai_test_transient_of(&test_ctx)->gb = NULL;
-	test_ctx.gb = NULL;
-	test_ctx.durable_gb = NULL;
+	fyai_test_arena_of(&test_ctx)->gb = NULL;
+	fyai_test_arena_of(&test_ctx)->durable_gb = NULL;
 }
 
 /* Return the elapsed time of one native shell call in milliseconds. */

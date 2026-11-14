@@ -298,7 +298,7 @@ int fyai_catalog_commit(struct fyai_ctx *ctx, fy_generic doc,
 {
 	fy_generic effective, new_config;
 
-	if (!ctx->durable_gb) {
+	if (!ctx->arena->durable_gb) {
 		fyai_error(ctx, "no arena; run fyai init");
 		return -1;
 	}
@@ -311,7 +311,7 @@ int fyai_catalog_commit(struct fyai_ctx *ctx, fy_generic doc,
 	effective = fy_is_null(doc) ?
 		fyai_catalog_effective(fy_invalid, ctx->cfg->gb) : doc;
 	new_config = fy_is_valid(ctx->arena_config) ?
-		fyai_config_sync_catalog(ctx->gb, effective, ctx->arena_config) :
+		fyai_config_sync_catalog(ctx->arena->gb, effective, ctx->arena_config) :
 		fy_invalid;
 	if (fy_is_valid(store))
 		ctx->branch_store = store;
@@ -327,7 +327,7 @@ int fyai_catalog_import(struct fyai_ctx *ctx, const char *path)
 {
 	fy_generic doc;
 
-	doc = fy_parse_file(ctx->gb, FYAI_YAML_PARSE_FLAGS, path);
+	doc = fy_parse_file(ctx->arena->gb, FYAI_YAML_PARSE_FLAGS, path);
 	if (!fy_is_mapping(doc)) {
 		fyai_error(ctx, "cannot parse %s", path);
 		return -1;
@@ -555,7 +555,7 @@ static int catalog_put(struct fyai_ctx *ctx, const char *path, fy_generic value)
 	n = catalog_path_split(copy, segs);
 	doc = fy_invalid;
 	if (n > 0)
-		doc = catalog_path_put(ctx->gb, catalog_current(ctx), segs, n,
+		doc = catalog_path_put(ctx->arena->gb, catalog_current(ctx), segs, n,
 				       value);
 	free(copy);
 	fyai_error_check(ctx, n > 0, err_out, "invalid catalogue path '%s'",
@@ -580,7 +580,7 @@ int fyai_catalog_patch_models_prepare(struct fyai_ctx *ctx,
 	const char *path;
 	int n;
 
-	if (!ctx->durable_gb) {
+	if (!ctx->arena->durable_gb) {
 		fyai_error(ctx, "no arena; run fyai init");
 		return -1;
 	}
@@ -602,9 +602,9 @@ int fyai_catalog_patch_models_prepare(struct fyai_ctx *ctx,
 			return -1;
 		}
 		value = fy_get(item, "delete", false) ? fy_invalid :
-			fy_gb_internalize(ctx->gb,
+			fy_gb_internalize(ctx->arena->gb,
 				fy_get(item, "value", fy_invalid));
-		doc = catalog_path_put(ctx->gb, doc, segs, n, value);
+		doc = catalog_path_put(ctx->arena->gb, doc, segs, n, value);
 		free(copy);
 		if (!fy_is_valid(doc)) {
 			fyai_error(ctx, "catalogue path '%s' cannot be changed", path);
@@ -621,11 +621,11 @@ int fyai_catalog_set(struct fyai_ctx *ctx, const char *path, const char *value)
 {
 	fy_generic v;
 
-	if (!ctx->durable_gb) {
+	if (!ctx->arena->durable_gb) {
 		fyai_error(ctx, "no arena; run fyai init");
 		return -1;
 	}
-	v = fy_parse(ctx->gb, value,
+	v = fy_parse(ctx->arena->gb, value,
 		     FYAI_YAML_PARSE_FLAGS | FYOPPF_INPUT_TYPE_STRING, NULL);
 	if (fy_is_invalid(v)) {
 		fyai_error(ctx, "cannot parse value '%s'", value);
@@ -636,7 +636,7 @@ int fyai_catalog_set(struct fyai_ctx *ctx, const char *path, const char *value)
 
 int fyai_catalog_delete(struct fyai_ctx *ctx, const char *path)
 {
-	if (!ctx->durable_gb) {
+	if (!ctx->arena->durable_gb) {
 		fyai_error(ctx, "no arena; run fyai init");
 		return -1;
 	}
@@ -768,7 +768,7 @@ static int catalog_update_apply(struct fyai_ctx *ctx, const char *cmd,
 	fyai_error_check(ctx, len, err, "%s wrote no catalogue", cmd);
 	text.data = data;
 	text.size = len;
-	doc = fy_parse(ctx->gb, text, FYAI_YAML_PARSE_FLAGS |
+	doc = fy_parse(ctx->arena->gb, text, FYAI_YAML_PARSE_FLAGS |
 		       FYOPPF_INPUT_TYPE_STRING | FYOPPF_COLLECT_DIAG, NULL);
 	if (fy_is_invalid(doc)) {
 		parse_diag_report(ctx, doc, "not YAML",
@@ -784,14 +784,14 @@ static int catalog_update_apply(struct fyai_ctx *ctx, const char *cmd,
 	 */
 	if (selected) {
 		cur = catalog_current(ctx);
-		merged = catalog_seq_merge(ctx->gb, fy_get(cur, "providers"),
+		merged = catalog_seq_merge(ctx->arena->gb, fy_get(cur, "providers"),
 				fy_get(doc, "providers", fy_seq_empty));
 		if (fy_is_valid(merged))
-			merged = fy_assoc(ctx->gb, cur, "providers", merged);
-		models = catalog_seq_merge(ctx->gb, fy_get(cur, "models"),
+			merged = fy_assoc(ctx->arena->gb, cur, "providers", merged);
+		models = catalog_seq_merge(ctx->arena->gb, fy_get(cur, "models"),
 				fy_get(doc, "models", fy_seq_empty));
 		if (fy_is_valid(merged) && fy_is_valid(models))
-			merged = fy_assoc(ctx->gb, merged, "models", models);
+			merged = fy_assoc(ctx->arena->gb, merged, "models", models);
 		fyai_error_check(ctx, fy_is_valid(merged) &&
 				 fy_is_valid(models), err,
 				 "could not merge the output of %s into the "
@@ -820,7 +820,7 @@ int fyai_catalog_update(struct fyai_ctx *ctx, const char *const *providers,
 	int rc;
 
 	rc = -1;
-	fyai_error_check(ctx, ctx->durable_gb, out, "no arena; run fyai init");
+	fyai_error_check(ctx, ctx->arena->durable_gb, out, "no arena; run fyai init");
 	cmd = catalog_update_command(ctx, providers, count, curated);
 	if (!cmd)
 		goto out;
@@ -899,7 +899,7 @@ fyai_catalog_update_submit(struct fyai_ctx *ctx, const char *const *providers,
 			 "catalogue update");
 	request->ctx = ctx;
 	request->selected = count > 0;
-	fyai_error_check(ctx, ctx->durable_gb, err, "no arena; run fyai init");
+	fyai_error_check(ctx, ctx->arena->durable_gb, err, "no arena; run fyai init");
 	request->cmd = catalog_update_command(ctx, providers, count, curated);
 	if (!request->cmd)
 		goto err;

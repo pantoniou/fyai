@@ -48,8 +48,8 @@ static int tools_setup(void)
 	fyai_test_transient_of(&test_ctx)->gb = fy_generic_builder_create(&gb_cfg);
 	if (!fyai_test_transient_of(&test_ctx)->gb)
 		return 1;
-	test_ctx.durable_gb = fyai_test_transient_of(&test_ctx)->gb;
-	test_ctx.gb = fyai_test_transient_of(&test_ctx)->gb;
+	fyai_test_arena_of(&test_ctx)->durable_gb = fyai_test_transient_of(&test_ctx)->gb;
+	fyai_test_arena_of(&test_ctx)->gb = fyai_test_transient_of(&test_ctx)->gb;
 	test_cfg.gb = fyai_test_transient_of(&test_ctx)->gb;
 	test_ctx.tools_spec = fy_invalid;
 	return 0;
@@ -246,7 +246,7 @@ static void test_filtered(void)
 
 static void test_personas(void)
 {
-	fy_generic config_doc = personas_doc(test_ctx.gb);
+	fy_generic config_doc = personas_doc(fyai_test_arena_of(&test_ctx)->gb);
 	fy_generic tools, tool, fn, params, props, persona, desc;
 	const char *want =
 		"Optional named persona for the sub-agent. Available:\n"
@@ -275,7 +275,7 @@ static void test_cache(void)
 	require(fy_equal(first, test_ctx.tools_spec),
 		"the context must keep the cached tool set");
 
-	personas = personas_doc(test_ctx.gb);
+	personas = personas_doc(fyai_test_arena_of(&test_ctx)->gb);
 	test_cfg.config_doc = personas;
 	test_cfg.config_generation++;
 	second = make_tools_filtered(&test_ctx);
@@ -389,8 +389,8 @@ static void test_templates(void)
 	require(!template_has(tools, "isolated by default"), "the default text is present");
 	require(fy_is_valid(tool_by_name(tools, "project_view")), "project_view is missing");
 
-	test_cfg.config_doc = fy_mapping(test_ctx.gb, "agent",
-					 fy_mapping(test_ctx.gb, "isolation", "view"));
+	test_cfg.config_doc = fy_mapping(fyai_test_arena_of(&test_ctx)->gb, "agent",
+					 fy_mapping(fyai_test_arena_of(&test_ctx)->gb, "isolation", "view"));
 	test_cfg.config_generation++;
 	tools = make_tools_filtered(&test_ctx);
 	require(template_has(tools, "isolated by default"), "the enabled text is missing");
@@ -476,22 +476,22 @@ static void test_result_format(void)
 
 	def = fyai_tool_find("list");
 	require(def && def->format_result, "list result formatter missing");
-	args = fy_mapping(test_ctx.gb, "kind", "agents");
-	text = def->format_result(&test_ctx, test_ctx.gb, args,
+	args = fy_mapping(fyai_test_arena_of(&test_ctx)->gb, "kind", "agents");
+	text = def->format_result(&test_ctx, fyai_test_arena_of(&test_ctx)->gb, args,
 		"{\"agents\":[{\"name\":\"beta\",\"state\":\"running\",\"view\":false}]}");
 	require(text && strstr(text, "| Name | State | View |") &&
 		strstr(text, "| beta | running | no |") &&
 		!strstr(text, "{\"agents\""), "list result is a table");
 	free(text);
-	text = def->format_result(&test_ctx, test_ctx.gb, args,
+	text = def->format_result(&test_ctx, fyai_test_arena_of(&test_ctx)->gb, args,
 		"{\"agents\":[]}");
 	require(text && strstr(text, "_none_"), "empty list has a readable note");
 	free(text);
 
 	def = fyai_tool_find("project_view");
 	require(def && def->format_result, "project_view result formatter missing");
-	args = fy_mapping(test_ctx.gb, "action", "apply");
-	text = def->format_result(&test_ctx, test_ctx.gb, args,
+	args = fy_mapping(fyai_test_arena_of(&test_ctx)->gb, "action", "apply");
+	text = def->format_result(&test_ctx, fyai_test_arena_of(&test_ctx)->gb, args,
 		"{\"applied\":1,\"satisfied\":0,\"conflicts\":0,\"skipped\":0,"
 		"\"changes\":[{\"path\":\"a.c\",\"status\":\"changed\","
 		"\"action\":\"applied\",\"reason\":\"\",\"before\":{\"large\":\"hidden\"}}]}");
@@ -500,8 +500,8 @@ static void test_result_format(void)
 		strstr(text, "| a.c | changed | applied |") &&
 		!strstr(text, "large"), "project_view result summarizes changes");
 	free(text);
-	args = fy_mapping(test_ctx.gb, "action", "changes");
-	text = def->format_result(&test_ctx, test_ctx.gb, args,
+	args = fy_mapping(fyai_test_arena_of(&test_ctx)->gb, "action", "changes");
+	text = def->format_result(&test_ctx, fyai_test_arena_of(&test_ctx)->gb, args,
 		"{\"changes\":[{\"path\":\"b.c\",\"status\":\"added\","
 		"\"before\":{\"large\":\"hidden\"}}]}");
 	require(text && strstr(text, "| Path | Status |") &&

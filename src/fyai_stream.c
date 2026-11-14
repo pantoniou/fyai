@@ -214,7 +214,7 @@ static int stream_response_init(struct stream_response *stream,
 	gb_cfg.flags = FYGBCF_CREATE_ALLOCATOR |
 		       FYGBCF_SCOPE_LEADER |
 		       FYGBCF_DEDUP_ENABLED;
-	gb_cfg.parent = ctx->gb;
+	gb_cfg.parent = ctx->arena->gb;
 
 	stream->ctx = ctx;
 	stream->parse.ctx = ctx;

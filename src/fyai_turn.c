@@ -297,15 +297,15 @@ fy_generic fyai_make_user_message(struct fyai_ctx *ctx, const char *text)
 
 	images = fyai_media_take_pending(ctx);
 	if (fy_empty(images))
-		return fy_mapping(ctx->gb, "role", "user", "content", text);
+		return fy_mapping(ctx->arena->gb, "role", "user", "content", text);
 
 	content = fy_seq_empty;
 	if (!fy_str_empty(text))
-		content = fy_sequence(ctx->gb,
-			fy_mapping(ctx->gb, "type", FYAI_MEDIA_PART_TEXT,
+		content = fy_sequence(ctx->arena->gb,
+			fy_mapping(ctx->arena->gb, "type", FYAI_MEDIA_PART_TEXT,
 				   "text", text));
-	content = fy_concat(ctx->gb, content, images);
-	return fy_mapping(ctx->gb, "role", "user", "content", content);
+	content = fy_concat(ctx->arena->gb, content, images);
+	return fy_mapping(ctx->arena->gb, "role", "user", "content", content);
 }
 
 /*
@@ -316,23 +316,23 @@ fy_generic fyai_make_user_message(struct fyai_ctx *ctx, const char *text)
  */
 fy_generic fyai_make_instruction_message(struct fyai_ctx *ctx, const char *text)
 {
-	return fy_mapping(ctx->gb, "role", "user", "content", text);
+	return fy_mapping(ctx->arena->gb, "role", "user", "content", text);
 }
 
 fy_generic fyai_make_agent_message(struct fyai_ctx *ctx, const char *text,
 				   const char *from, long long execution,
 				   const char *id, const char *reply_to)
 {
-	return fy_mapping(ctx->gb,
+	return fy_mapping(ctx->arena->gb,
 		"role", "agent", "content", text,
-		"origin", fy_mapping(ctx->gb,
+		"origin", fy_mapping(ctx->arena->gb,
 			"branch", from, "execution", execution,
 			"id", id, "reply_to", reply_to ? reply_to : ""));
 }
 
 fy_generic fyai_make_system_message(struct fyai_ctx *ctx, const char *text)
 {
-	return fy_mapping(ctx->gb,
+	return fy_mapping(ctx->arena->gb,
 		"role", "system",
 		"content", text);
 }

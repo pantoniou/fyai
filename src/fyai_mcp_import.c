@@ -129,7 +129,7 @@ int fyai_mcp_import_client(struct fyai_ctx *ctx)
 	int rc;
 
 	args = &ctx->cfg->cmd.args.mcp;
-	gb = ctx->gb;
+	gb = ctx->arena->gb;
 	text = NULL;
 	old_secret = NULL;
 	old_len = 0;

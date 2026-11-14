@@ -8,6 +8,7 @@
 #include "fyai_branch.h"
 #include "fyai_test.h"
 #include "fyai_test_registry.h"
+#include "fyai_test_diag.h"
 
 FYAI_TEST_ENTRY(branch, select_order, branch_select_order)
 FYAI_TEST_ENTRY(branch, select_directory, branch_select_directory)
@@ -215,7 +216,7 @@ int branch_adopt_ends_unstored(void)
 	cfg.gb = builder_new();
 	FYAI_TCHECK(cfg.gb);
 	ctx.cfg = &cfg;
-	ctx.gb = gb;
+	fyai_test_arena_of(&ctx)->gb = gb;
 	ctx.last_message = fy_invalid;
 	ctx.arena_config = fy_invalid;
 	ctx.arena_catalog = fy_invalid;
@@ -256,7 +257,7 @@ int branch_name_outlives_change(void)
 	memset(&ctx, 0, sizeof(ctx));
 	cfg.gb = gb;
 	ctx.cfg = &cfg;
-	ctx.gb = gb;
+	fyai_test_arena_of(&ctx)->gb = gb;
 
 	FYAI_TCHECK(!fyai_ctx_set_branch(&ctx, "session/first"));
 	first = fyai_ctx_branch(&ctx);

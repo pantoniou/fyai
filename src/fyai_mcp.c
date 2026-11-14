@@ -367,8 +367,8 @@ static fy_generic fyai_mcp_tool_search(struct fyai_ctx *ctx, fy_generic args,
 		if (!fyai_mcp_tool_active(ctx, name)) {
 			if (!fy_is_valid(ctx->mcp_active_tools))
 				ctx->mcp_active_tools = fy_seq_empty;
-			ctx->mcp_active_tools = fy_append(ctx->gb,
-				ctx->mcp_active_tools, fy_value(ctx->gb, name));
+			ctx->mcp_active_tools = fy_append(ctx->arena->gb,
+				ctx->mcp_active_tools, fy_value(ctx->arena->gb, name));
 		}
 		count++;
 	}
@@ -1914,13 +1914,13 @@ static void mcp_startup_collect(struct fyai_mcp_ctx *mcp, fy_generic result)
 		/* Each level is built apart: a nested builder call expands to
 		 * megabytes. */
 		dflt = fy_mapping("type", "object");
-		fn = fy_mapping(ctx->gb,
+		fn = fy_mapping(ctx->arena->gb,
 			"name", fy_sprintfa(MCP_PREFIX "%s__%s", mcp->name,
 					    tool_name),
 			"description", fy_get(tool, "description", ""),
 			"parameters", fy_get(tool, "inputSchema", dflt));
-		entry = fy_mapping(ctx->gb, "type", "function", "function", fn);
-		mcp->tools = fy_append(ctx->gb, mcp->tools, entry);
+		entry = fy_mapping(ctx->arena->gb, "type", "function", "function", fn);
+		mcp->tools = fy_append(ctx->arena->gb, mcp->tools, entry);
 	}
 }
 
@@ -2383,8 +2383,8 @@ void fyai_mcp_publish_tools(struct fyai_ctx *ctx)
 	for (mcp = ctx->mcp; mcp; mcp = mcp->next)
 		if (mcp->state == MCP_SRV_READY &&
 		    fy_is_valid(mcp->tools))
-			out = fy_concat(ctx->gb, out, mcp->tools);
-	ctx->mcp_tools = fy_gb_internalize(ctx->gb, out);
+			out = fy_concat(ctx->arena->gb, out, mcp->tools);
+	ctx->mcp_tools = fy_gb_internalize(ctx->arena->gb, out);
 	ctx->tools_spec = fy_invalid;
 }
 

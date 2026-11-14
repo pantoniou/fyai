@@ -27,6 +27,7 @@
 #include "fyai_diag.h"
 #include "fyai_loop.h"
 #include "fyai_transient.h"
+#include "fyai_arena.h"
 #include "fyai_media.h"
 
 struct fyai_fenced_stream;	/* live progressive shell output (fyai_markdown.h) */
@@ -776,18 +777,8 @@ struct fyai_transport_state {
 
 struct fyai_ctx {
 	struct fyai_cfg *cfg;
-	struct fy_allocator *durable_allocator;
-	struct fy_generic_builder *durable_gb;
-	/*
-	 * The working state/config builder: durable_gb normally, or an in-memory
-	 * builder stacked over it when cfg->transient is set. All canonical
-	 * config and turn state is built through ctx->gb; in transient mode the
-	 * refs-publish is skipped so nothing reaches the durable arena. When it
-	 * differs from durable_gb, @overlay_allocator backs it and both are
-	 * released in fyai_close_storage.
-	 */
-	struct fy_generic_builder *gb;
-	struct fy_allocator *overlay_allocator;
+	/* The arena component, owned by struct fyai_app (src/fyai_arena.h). */
+	struct fyai_arena *arena;
 	/* The transient builder component, owned by struct fyai_app. */
 	struct fyai_transient *transient;
 	/* The body of the last request, kept for the next (fyai_reqcache.c). */
@@ -909,7 +900,6 @@ struct fyai_ctx {
 	 * and cleared when the project states can no longer be taken.
 	 */
 	bool tool_diff_tracking;
-	uint64_t refs_head;
 	struct curl_slist *headers;
 	char *auth_header;
 	/* Refresh requests whose token request is out after a cancel. */

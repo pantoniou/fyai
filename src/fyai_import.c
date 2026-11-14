@@ -658,7 +658,7 @@ int fyai_import_view(struct fyai_ctx *ctx, const char *path)
 	im.ctx = ctx;
 	im.store = fy_invalid;
 	im.pending = fy_seq_empty;
-	im.gb = ctx->gb;
+	im.gb = ctx->arena->gb;
 	im.ignore_compact = ctx->cfg->cmd.args.import.ignore_compact;
 	name = path ? path : "standard input";
 	/* Do not append an import to an explicitly selected conversation. */

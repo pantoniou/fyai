@@ -55,7 +55,7 @@ int fyai_turn_times_collect(struct fyai_ctx *ctx, fy_generic entry,
 	 */
 	n = 0;
 	for (step = 0; step < FYAI_MERGE_REFLOG_MAX; step++) {
-		if (!fyai_branch_entry_contained(ctx->durable_allocator,
+		if (!fyai_branch_entry_contained(ctx->arena->durable_allocator,
 						 entry, 1))
 			break;
 		if (!fyai_branch_decode(entry, &b))
@@ -230,7 +230,7 @@ static int exchange_cmp(const void *a, const void *b)
 static fy_generic turn_rechain(struct fyai_ctx *ctx, fy_generic turn,
 			       fy_generic prev)
 {
-	return fy_assoc(ctx->gb, turn, "previous",
+	return fy_assoc(ctx->arena->gb, turn, "previous",
 			fy_is_valid(prev) ? prev : fy_null);
 }
 
@@ -330,7 +330,7 @@ int fyai_branch_join(struct fyai_ctx *ctx, const char *source,
 		}
 	}
 
-	head = fy_gb_internalize(ctx->gb, head);
+	head = fy_gb_internalize(ctx->arena->gb, head);
 	fyai_error_check(ctx, fy_is_valid(head), out,
 			 "could not store the joined conversation");
 
@@ -377,7 +377,7 @@ int fyai_join_onto_head(struct fyai_ctx *ctx, fy_generic theirs,
 	have_system = true;	/* theirs already opens with one */
 	ret = replay(ctx, &head, &ours, 0, ours.count, &have_system);
 	fyai_error_check(ctx, !ret, out, "could not replay this turn");
-	head = fy_gb_internalize(ctx->gb, head);
+	head = fy_gb_internalize(ctx->arena->gb, head);
 	fyai_error_check(ctx, fy_is_valid(head), out,
 			 "could not store the replayed turn");
 	*outp = head;

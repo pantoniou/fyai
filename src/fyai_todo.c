@@ -151,7 +151,7 @@ static int todo_publish(struct fyai_ctx *ctx, fy_generic todos)
 	fy_generic store, item, rebuilt, content, status, priority;
 	const char *text, *state, *prio;
 
-	if (!ctx->durable_gb) {
+	if (!ctx->arena->durable_gb) {
 		fyai_error(ctx, "todo_write: no arena; run fyai init");
 		return -1;
 	}
@@ -168,24 +168,24 @@ static int todo_publish(struct fyai_ctx *ctx, fy_generic todos)
 		text = fy_castp(&content, "");
 		state = fy_castp(&status, "");
 		prio = fy_castp(&priority, "");
-		rebuilt = fy_append(ctx->gb, rebuilt,
-			fy_mapping(ctx->gb,
-				"content", fy_value(ctx->gb, text),
-				"status", fy_value(ctx->gb, state),
-				"priority", fy_value(ctx->gb, prio)));
+		rebuilt = fy_append(ctx->arena->gb, rebuilt,
+			fy_mapping(ctx->arena->gb,
+				"content", fy_value(ctx->arena->gb, text),
+				"status", fy_value(ctx->arena->gb, state),
+				"priority", fy_value(ctx->arena->gb, prio)));
 		fyai_error_check(ctx, fy_is_valid(rebuilt), err_out,
 				 "todo_write: cannot keep the todo list");
 	}
-	todos = fy_gb_internalize(ctx->gb, rebuilt);
+	todos = fy_gb_internalize(ctx->arena->gb, rebuilt);
 	fyai_error_check(ctx, fy_is_valid(todos), err_out,
 			 "todo_write: cannot keep the todo list");
 	fyai_branch_decode(ctx->branch_prev, &prev);
 	/* The commit path below carries only known members: stage the list
 	 * there so the publish does not drop it. */
 	prev.todos = todos;
-	store = fyai_branch_store_build(ctx->gb, &prev);
+	store = fyai_branch_store_build(ctx->arena->gb, &prev);
 	if (fy_is_invalid(todos))
-		store = fy_disassoc(ctx->gb, store, "todos");
+		store = fy_disassoc(ctx->arena->gb, store, "todos");
 	fyai_error_check(ctx, fy_is_valid(store), err_out,
 			 "todo_write: cannot build the branch store");
 	ctx->branch_store = store;

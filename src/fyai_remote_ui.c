@@ -669,7 +669,7 @@ static int remote_ui_history(struct fyai_remote_ui *view, fy_generic response)
 		/* The transient builder has the builder of the turns as its
 		 * parent: it goes before that builder does. */
 		fyai_cleanup_transient_builder(ctx);
-		ctx->gb = gb;
+		ctx->arena->gb = gb;
 	}
 	ctx->last_message = fy_is_null(head) ? fy_invalid : head;
 	/* A session opens on the screen its conversation left. After that,
@@ -1005,7 +1005,7 @@ void fyai_remote_ui_close(struct fyai_remote_ui *view)
 	fyai_cleanup_transient_builder(ctx);
 	if (view->history_gb) {
 		ctx->last_message = fy_invalid;
-		ctx->gb = NULL;
+		ctx->arena->gb = NULL;
 	}
 	fy_generic_builder_destroy(view->history_gb);
 	free(view->turns);

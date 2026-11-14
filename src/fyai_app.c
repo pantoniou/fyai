@@ -27,7 +27,9 @@ int fyai_app_init(struct fyai_app *app)
 		return -1;
 	app->cfg.diag = &app->diag;
 	fyai_loop_init(&app->loop, &app->diag);
+	fyai_arena_init(&app->arena);
 	fyai_transient_init(&app->transient);
+	app->transient.parent_gb = &app->arena.gb;
 	return 0;
 }
 
@@ -37,7 +39,9 @@ void fyai_app_cleanup(struct fyai_app *app)
 		return;
 	/* The loop and the configuration report into the diagnostics, so they
 	 * go first. */
+	/* The transient builder stacks on the arena, so it goes first. */
 	fyai_transient_cleanup(&app->transient);
+	fyai_arena_release(&app->arena);
 	fyai_loop_cleanup(&app->loop);
 	fyai_config_cleanup(&app->cfg);
 	app->cfg.diag = NULL;

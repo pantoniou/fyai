@@ -26,7 +26,7 @@ static fy_generic responses_tool_def(struct fyai_ctx *ctx, fy_generic spec)
 {
 	fy_generic function = fy_get(spec, "function");
 
-	return fy_mapping(ctx->gb,
+	return fy_mapping(ctx->arena->gb,
 		"type", "function",
 		"name", fy_get(function, "name", ""),
 		"description", fy_get(function, "description", ""),
@@ -74,7 +74,7 @@ static fy_generic responses_make_tools(struct fyai_ctx *ctx)
 				fy_mapping("type", cfg->web_search_type ?
 					cfg->web_search_type : "web_search"));
 
-	response_tools = fy_gb_internalize(ctx->gb, response_tools);
+	response_tools = fy_gb_internalize(ctx->arena->gb, response_tools);
 	return fyai_provider_result(ctx, response_tools,
 			       "could not build the Responses tool definitions");
 }

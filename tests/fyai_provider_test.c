@@ -675,8 +675,8 @@ static int provider_run(void (*testfn)(void))
 	fyai_test_transient_of(&test_ctx)->gb = fy_generic_builder_create(&gb_cfg);
 	if (!fyai_test_transient_of(&test_ctx)->gb)
 		return 1;
-	test_ctx.gb = fyai_test_transient_of(&test_ctx)->gb;
-	test_ctx.durable_gb = fyai_test_transient_of(&test_ctx)->gb;
+	fyai_test_arena_of(&test_ctx)->gb = fyai_test_transient_of(&test_ctx)->gb;
+	fyai_test_arena_of(&test_ctx)->durable_gb = fyai_test_transient_of(&test_ctx)->gb;
 	test_cfg.gb = fyai_test_transient_of(&test_ctx)->gb;
 	test_ctx.tools_spec = fy_invalid;
 	test_ctx.media_pending = fy_seq_empty;
@@ -988,7 +988,7 @@ static void test_image_input(void)
 		fprintf(stderr, "image: could not attach the fixture\n");
 		exit(1);
 	}
-	messages = fy_sequence(test_ctx.gb,
+	messages = fy_sequence(fyai_test_arena_of(&test_ctx)->gb,
 			fyai_make_user_message(&test_ctx, "what is wrong here?"));
 
 	/* The canonical message holds the bytes themselves, not base64. */

@@ -663,7 +663,7 @@ static int schema_run(void (*testfn)(void))
 	fyai_test_transient_of(&test_ctx)->gb = fy_generic_builder_create(&gb_cfg);
 	if (!fyai_test_transient_of(&test_ctx)->gb)
 		return 1;
-	test_ctx.durable_gb = fyai_test_transient_of(&test_ctx)->gb;
+	fyai_test_arena_of(&test_ctx)->durable_gb = fyai_test_transient_of(&test_ctx)->gb;
 
 	testfn();
 

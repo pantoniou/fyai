@@ -217,7 +217,7 @@ static int gc_collect_branch(struct gc *gc, fy_generic entry)
 				rc = roots && !strv_add(&roots->runtimes, runtime) ? 0 : -1;
 			}
 		}
-		if (!fyai_branch_entry_contained(gc->ctx->durable_allocator, b.prev, 1))
+		if (!fyai_branch_entry_contained(gc->ctx->arena->durable_allocator, b.prev, 1))
 			break;
 		entry = b.prev;
 	}

@@ -343,38 +343,38 @@ int media_import_content(void)
 	memset(&cfg, 0, sizeof(cfg));
 	memset(&ctx, 0, sizeof(ctx));
 	ctx.cfg = &cfg;
-	ctx.gb = fyai_test_transient_of(&ctx)->gb = ctx.durable_gb =
+	fyai_test_arena_of(&ctx)->gb = fyai_test_transient_of(&ctx)->gb = fyai_test_arena_of(&ctx)->durable_gb =
 		fy_generic_builder_create(&gb_cfg);
-	FYAI_TCHECK(ctx.gb);
-	cfg.gb = ctx.gb;
+	FYAI_TCHECK(fyai_test_arena_of(&ctx)->gb);
+	cfg.gb = fyai_test_arena_of(&ctx)->gb;
 	cfg.media_max_bytes = 1024;
 	cfg.media_max_per_message = 2;
 	rc = fyai_test_diag_setup(&cfg);
 	FYAI_TCHECK(!rc);
 
-	rc = fyai_media_image_bytes(&ctx, ctx.gb, png_head, sizeof(png_head),
+	rc = fyai_media_image_bytes(&ctx, fyai_test_arena_of(&ctx)->gb, png_head, sizeof(png_head),
 				    NULL, "shot", &image);
 	FYAI_TCHECK(!rc);
-	part = fyai_media_image_part(ctx.gb, &image);
+	part = fyai_media_image_part(fyai_test_arena_of(&ctx)->gb, &image);
 	/* The same part without its bytes. */
 	image.data = fy_invalid;
-	ref = fyai_media_image_part(ctx.gb, &image);
+	ref = fyai_media_image_part(fyai_test_arena_of(&ctx)->gb, &image);
 	fyai_media_image_release(&image);
 	FYAI_TCHECK(fyai_media_part_has_bytes(part));
 	FYAI_TCHECK(fyai_media_part_is_image(ref));
 	FYAI_TCHECK(!fyai_media_part_has_bytes(ref));
-	content = fy_sequence(ctx.gb,
-		fy_mapping(ctx.gb, "type", "text", "text", "look"), part);
+	content = fy_sequence(fyai_test_arena_of(&ctx)->gb,
+		fy_mapping(fyai_test_arena_of(&ctx)->gb, "type", "text", "text", "look"), part);
 
 	/* The bytes are !!binary in YAML and read back as the same bytes. */
-	emitted = fy_emit(ctx.gb, content, FYOPEF_DISABLE_DIRECTORY |
+	emitted = fy_emit(fyai_test_arena_of(&ctx)->gb, content, FYOPEF_DISABLE_DIRECTORY |
 			  FYOPEF_MODE_YAML_1_2 | FYOPEF_STYLE_PRETTY |
 			  FYOPEF_BINARY_BASE64, NULL);
 	FYAI_TCHECK(fy_is_string(emitted));
-	parsed = fy_parse(ctx.gb, emitted, FYOPPF_DISABLE_DIRECTORY |
+	parsed = fy_parse(fyai_test_arena_of(&ctx)->gb, emitted, FYOPPF_DISABLE_DIRECTORY |
 			  FYOPPF_MODE_YAML_1_2 | FYOPPF_INPUT_TYPE_STRING, NULL);
 	FYAI_TCHECK(fy_is_sequence(parsed));
-	out = fyai_media_import_content(&ctx, ctx.gb, parsed);
+	out = fyai_media_import_content(&ctx, fyai_test_arena_of(&ctx)->gb, parsed);
 	FYAI_TCHECK(fy_is_sequence(out) && fy_len(out) == 2);
 	FYAI_TCHECK(fy_equal(fy_get_at_path(out, 0, "text"), "look"));
 	FYAI_TCHECK(fy_equal(fy_get_at(out, 1), part));
@@ -387,16 +387,16 @@ int media_import_content(void)
 	 * A file part holds its text in the part, as a text part does: an
 	 * export writes it into the directive, and an import keeps it as it is.
 	 */
-	file = fy_mapping(ctx.gb, "type", "text",
+	file = fy_mapping(fyai_test_arena_of(&ctx)->gb, "type", "text",
 			  "text", "File: a.txt\n```\nx\n```", "file", "a.txt",
 			  "bytes", 2LL, "lines", 1LL);
-	out = fyai_media_import_content(&ctx, ctx.gb, fy_sequence(ctx.gb, file));
+	out = fyai_media_import_content(&ctx, fyai_test_arena_of(&ctx)->gb, fy_sequence(fyai_test_arena_of(&ctx)->gb, file));
 	FYAI_TCHECK(fy_is_sequence(out) && fy_equal(fy_get_at(out, 0), file));
 	FYAI_TCHECK(fyai_media_part_is_file(fy_get_at(out, 0)));
 
 	/* A digest that is not the digest of the bytes. */
-	out = fyai_media_import_content(&ctx, ctx.gb, fy_sequence(ctx.gb,
-		fy_assoc(ctx.gb, part, "digest", "00")));
+	out = fyai_media_import_content(&ctx, fyai_test_arena_of(&ctx)->gb, fy_sequence(fyai_test_arena_of(&ctx)->gb,
+		fy_assoc(fyai_test_arena_of(&ctx)->gb, part, "digest", "00")));
 	FYAI_TCHECK(fy_is_invalid(out));
 	text = fyai_diag_string(fyai_ctx_diag(&ctx));
 	FYAI_TCHECK(text && strstr(text, "digest"));
@@ -404,31 +404,31 @@ int media_import_content(void)
 	fyai_diag_reset(fyai_ctx_diag(&ctx));
 
 	/* A size that the header of the bytes does not state. */
-	out = fyai_media_import_content(&ctx, ctx.gb, fy_sequence(ctx.gb,
-		fy_assoc(ctx.gb, part, "width", 1LL)));
+	out = fyai_media_import_content(&ctx, fyai_test_arena_of(&ctx)->gb, fy_sequence(fyai_test_arena_of(&ctx)->gb,
+		fy_assoc(fyai_test_arena_of(&ctx)->gb, part, "width", 1LL)));
 	FYAI_TCHECK(fy_is_invalid(out));
 	fyai_diag_reset(fyai_ctx_diag(&ctx));
 
 	/* A reference with no bytes. */
-	out = fyai_media_import_content(&ctx, ctx.gb, fy_sequence(ctx.gb, ref));
+	out = fyai_media_import_content(&ctx, fyai_test_arena_of(&ctx)->gb, fy_sequence(fyai_test_arena_of(&ctx)->gb, ref));
 	FYAI_TCHECK(fy_is_invalid(out));
 	fyai_diag_reset(fyai_ctx_diag(&ctx));
 
 	/* More bytes than the limit. */
 	cfg.media_max_bytes = 8;
-	out = fyai_media_import_content(&ctx, ctx.gb, content);
+	out = fyai_media_import_content(&ctx, fyai_test_arena_of(&ctx)->gb, content);
 	FYAI_TCHECK(fy_is_invalid(out));
 	fyai_diag_reset(fyai_ctx_diag(&ctx));
 	cfg.media_max_bytes = 1024;
 
 	/* More images than one message takes. */
-	out = fyai_media_import_content(&ctx, ctx.gb,
-		fy_sequence(ctx.gb, part, part, part));
+	out = fyai_media_import_content(&ctx, fyai_test_arena_of(&ctx)->gb,
+		fy_sequence(fyai_test_arena_of(&ctx)->gb, part, part, part));
 	FYAI_TCHECK(fy_is_invalid(out));
 	fyai_diag_reset(fyai_ctx_diag(&ctx));
 
 	fyai_test_diag_cleanup(&cfg);
-	fy_generic_builder_destroy(ctx.gb);
+	fy_generic_builder_destroy(fyai_test_arena_of(&ctx)->gb);
 	return 0;
 }
 
@@ -555,10 +555,10 @@ int media_pending_message(void)
 	memset(&cfg, 0, sizeof(cfg));
 	memset(&ctx, 0, sizeof(ctx));
 	ctx.cfg = &cfg;
-	ctx.gb = fyai_test_transient_of(&ctx)->gb = ctx.durable_gb =
+	fyai_test_arena_of(&ctx)->gb = fyai_test_transient_of(&ctx)->gb = fyai_test_arena_of(&ctx)->durable_gb =
 		fy_generic_builder_create(&gb_cfg);
-	FYAI_TCHECK(ctx.gb);
-	cfg.gb = ctx.gb;
+	FYAI_TCHECK(fyai_test_arena_of(&ctx)->gb);
+	cfg.gb = fyai_test_arena_of(&ctx)->gb;
 	cfg.media_max_bytes = 1024 * 1024;
 	cfg.media_max_per_message = 2;
 	ctx.media_pending = fy_seq_empty;
@@ -583,7 +583,7 @@ int media_pending_message(void)
 	FYAI_TCHECK(fy_equal(fy_get_at_path(content, 1, "name"), "shot"));
 
 	/* The readers in the rest of the program still see the words. */
-	text = fyai_media_text(ctx.gb, content);
+	text = fyai_media_text(fyai_test_arena_of(&ctx)->gb, content);
 	FYAI_TCHECK(fy_equal(text, "what is wrong here?"));
 	FYAI_TCHECK(fyai_media_content_has_images(content));
 	FYAI_TCHECK(!fyai_media_pending_any(&ctx));
@@ -611,7 +611,7 @@ int media_pending_message(void)
 	fyai_diag_reset(fyai_ctx_diag(&ctx));
 	fyai_media_pending_clear(&ctx);
 
-	fy_generic_builder_destroy(ctx.gb);
+	fy_generic_builder_destroy(fyai_test_arena_of(&ctx)->gb);
 	return 0;
 }
 
@@ -637,10 +637,10 @@ int media_pinned_root(void)
 
 	memset(&cfg, 0, sizeof(cfg));
 	memset(&ctx, 0, sizeof(ctx));
-	ctx.gb = fyai_test_transient_of(&ctx)->gb = ctx.durable_gb =
+	fyai_test_arena_of(&ctx)->gb = fyai_test_transient_of(&ctx)->gb = fyai_test_arena_of(&ctx)->durable_gb =
 		fy_generic_builder_create(&gb_cfg);
-	FYAI_TCHECK(ctx.gb);
-	cfg.gb = ctx.gb;
+	FYAI_TCHECK(fyai_test_arena_of(&ctx)->gb);
+	cfg.gb = fyai_test_arena_of(&ctx)->gb;
 	cfg.root_pinned = true;
 	cfg.media_max_bytes = 1024 * 1024;
 	cfg.media_max_per_message = 4;
@@ -657,7 +657,7 @@ int media_pinned_root(void)
 	FYAI_TCHECK(!fyai_media_pending_any(&ctx));
 
 	fyai_diag_reset(fyai_ctx_diag(&ctx));
-	fy_generic_builder_destroy(ctx.gb);
+	fy_generic_builder_destroy(fyai_test_arena_of(&ctx)->gb);
 	return 0;
 }
 
@@ -716,10 +716,10 @@ int media_mentions(void)
 	memset(&cfg, 0, sizeof(cfg));
 	memset(&ctx, 0, sizeof(ctx));
 	ctx.cfg = &cfg;
-	ctx.gb = fyai_test_transient_of(&ctx)->gb = ctx.durable_gb =
+	fyai_test_arena_of(&ctx)->gb = fyai_test_transient_of(&ctx)->gb = fyai_test_arena_of(&ctx)->durable_gb =
 		fy_generic_builder_create(&gb_cfg);
-	FYAI_TCHECK(ctx.gb);
-	cfg.gb = ctx.gb;
+	FYAI_TCHECK(fyai_test_arena_of(&ctx)->gb);
+	cfg.gb = fyai_test_arena_of(&ctx)->gb;
 	cfg.media_max_bytes = 1024 * 1024;
 	cfg.media_max_per_message = 8;
 	ctx.media_pending = fy_seq_empty;
@@ -737,13 +737,13 @@ int media_mentions(void)
 	FYAI_TCHECK(fyai_media_part_is_image(fy_get_at(ctx.media_pending, 1)));
 
 	/* the readers: the words, what the model reads, and the row */
-	content = fy_sequence(ctx.gb,
-		fy_mapping(ctx.gb, "type", "text", "text", "hi"), part);
-	FYAI_TCHECK(fy_equal(fyai_media_text(ctx.gb, content), "hi"));
-	text = fyai_media_model_text(ctx.gb, content);
+	content = fy_sequence(fyai_test_arena_of(&ctx)->gb,
+		fy_mapping(fyai_test_arena_of(&ctx)->gb, "type", "text", "text", "hi"), part);
+	FYAI_TCHECK(fy_equal(fyai_media_text(fyai_test_arena_of(&ctx)->gb, content), "hi"));
+	text = fyai_media_model_text(fyai_test_arena_of(&ctx)->gb, content);
 	FYAI_TCHECK(strstr(fy_castp(&text, ""), "hi\n\nFile: "));
 	FYAI_TCHECK(strstr(fy_castp(&text, ""), "\n```\na\nb\n```"));
-	text = fyai_media_text_references(ctx.gb, content);
+	text = fyai_media_text_references(fyai_test_arena_of(&ctx)->gb, content);
 	FYAI_TCHECK(strstr(fy_castp(&text, ""), "hi\n\n[file: "));
 	FYAI_TCHECK(strstr(fy_castp(&text, ""), ", 2 lines, 4 B]"));
 	styled = fyai_media_rows_styled("[file: x, 1 line, 3 B]");
@@ -821,7 +821,7 @@ int media_mentions(void)
 
 	fyai_media_pending_clear(&ctx);
 	fyai_test_diag_cleanup(&cfg);
-	fy_generic_builder_destroy(ctx.gb);
+	fy_generic_builder_destroy(fyai_test_arena_of(&ctx)->gb);
 	return 0;
 }
 

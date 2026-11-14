@@ -986,7 +986,7 @@ static void test_request_cache(void)
 				 "the first tools again", true));
 
 		/* A change of the configuration makes the text again. */
-		test_cfg.config_doc = fy_mapping(test_ctx.gb, "model", "another-model");
+		test_cfg.config_doc = fy_mapping(fyai_test_arena_of(&test_ctx)->gb, "model", "another-model");
 		free(cache_check(grammar, turns[CACHE_TURNS - 1],
 				 "another configuration", false));
 		free(cache_check(grammar, turns[CACHE_TURNS - 1],
@@ -1144,8 +1144,8 @@ static int grammar_run(void (*testfn)(void))
 	fyai_test_transient_of(&test_ctx)->gb = fy_generic_builder_create(&gb_cfg);
 	if (!fyai_test_transient_of(&test_ctx)->gb)
 		return 1;
-	test_ctx.gb = fyai_test_transient_of(&test_ctx)->gb;
-	test_ctx.durable_gb = fyai_test_transient_of(&test_ctx)->gb;
+	fyai_test_arena_of(&test_ctx)->gb = fyai_test_transient_of(&test_ctx)->gb;
+	fyai_test_arena_of(&test_ctx)->durable_gb = fyai_test_transient_of(&test_ctx)->gb;
 	test_cfg.gb = fyai_test_transient_of(&test_ctx)->gb;
 	test_cfg.catalog = fy_invalid;
 	test_ctx.tools_spec = fy_invalid;

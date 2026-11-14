@@ -598,15 +598,15 @@ static int fyai_open_arena(struct fyai_ctx *ctx, const char *arena_dir)
 	}
 #endif
 	fyai_unreserve_arena_ranges(&dur_cfg);
-	ctx->durable_allocator = fy_allocator_create("durable", &dur_cfg);
-	if (!ctx->durable_allocator)
+	ctx->arena->durable_allocator = fy_allocator_create("durable", &dur_cfg);
+	if (!ctx->arena->durable_allocator)
 		return -1;
 
 	memset(&gb_cfg, 0, sizeof(gb_cfg));
 	gb_cfg.flags = FYGBCF_SCOPE_LEADER | FYGBCF_DEDUP_ENABLED;
-	gb_cfg.allocator = ctx->durable_allocator;
-	ctx->durable_gb = fy_generic_builder_create(&gb_cfg);
-	if (!ctx->durable_gb)
+	gb_cfg.allocator = ctx->arena->durable_allocator;
+	ctx->arena->durable_gb = fy_generic_builder_create(&gb_cfg);
+	if (!ctx->arena->durable_gb)
 		return -1;
 
 	/*
@@ -619,21 +619,21 @@ static int fyai_open_arena(struct fyai_ctx *ctx, const char *arena_dir)
 		memset(&ov_gb_cfg, 0, sizeof(ov_gb_cfg));
 
 		ov_cfg.scenario = FYAST_PER_TAG_FREE_DEDUP;
-		ctx->overlay_allocator = fy_allocator_create("auto", &ov_cfg);
-		if (!ctx->overlay_allocator)
+		ctx->arena->overlay_allocator = fy_allocator_create("auto", &ov_cfg);
+		if (!ctx->arena->overlay_allocator)
 			return -1;
 		ov_gb_cfg.flags = FYGBCF_SCOPE_LEADER | FYGBCF_DEDUP_ENABLED |
 				  FYGBCF_CREATE_TAG;
-		ov_gb_cfg.allocator = ctx->overlay_allocator;
-		ov_gb_cfg.parent = ctx->durable_gb;
-		ctx->gb = fy_generic_builder_create(&ov_gb_cfg);
-		if (!ctx->gb)
+		ov_gb_cfg.allocator = ctx->arena->overlay_allocator;
+		ov_gb_cfg.parent = ctx->arena->durable_gb;
+		ctx->arena->gb = fy_generic_builder_create(&ov_gb_cfg);
+		if (!ctx->arena->gb)
 			return -1;
 	} else {
-		ctx->gb = ctx->durable_gb;
+		ctx->arena->gb = ctx->arena->durable_gb;
 	}
 
-	ctx->refs_head = fy_allocator_refs_get(ctx->durable_allocator);
+	ctx->arena->refs_head = fy_allocator_refs_get(ctx->arena->durable_allocator);
 	return 0;
 }
 
@@ -653,7 +653,7 @@ static fy_generic fyai_seed_config(struct fyai_ctx *ctx, const char *who)
 	};
 	fy_generic config, report;
 
-	config = fy_parse(ctx->gb, sample,
+	config = fy_parse(ctx->arena->gb, sample,
 			  FYAI_YAML_PARSE_FLAGS | FYOPPF_INPUT_TYPE_STRING,
 			  NULL);
 	if (!fy_is_valid(config)) {
@@ -771,23 +771,23 @@ int fyai_setup_storage(struct fyai_ctx *ctx)
 	rc = fyai_open_arena(ctx, cfg->arena_dir);
 	fyai_error_check(ctx, !rc, err_out, "could not open arena");
 
-	if (cfg->root_pinned && ctx->refs_head) {
+	if (cfg->root_pinned && ctx->arena->refs_head) {
 		/* Confirm that the arena still contains the pinned root. */
-		root = fyai_root_find(ctx->durable_allocator, ctx->refs_head,
+		root = fyai_root_find(ctx->arena->durable_allocator, ctx->arena->refs_head,
 				      cfg->root_ref);
 		fyai_error_check(ctx, fy_is_valid(root), err_out,
 				 "--root '%s' names no root in %s; "
 				 "gc may have dropped it",
 				 cfg->root_spec ? cfg->root_spec : "",
 				 cfg->arena_dir);
-		ctx->refs_head = cfg->root_ref;
+		ctx->arena->refs_head = cfg->root_ref;
 	}
 
 	/*
 	 * A fresh or never-initialized arena: create the project on request,
 	 * so the run continues on a published root and a real configuration.
 	 */
-	if (!ctx->refs_head && !cfg->root_pinned) {
+	if (!ctx->arena->refs_head && !cfg->root_pinned) {
 		if (!asked) {
 			rc = storage_bootstrap_ask(ctx);
 			if (rc)		/* storage_bootstrap_ask() says why */
@@ -803,13 +803,13 @@ int fyai_setup_storage(struct fyai_ctx *ctx)
 			goto err_out;
 	}
 
-	if (ctx->refs_head) {
-		root = (fy_generic){ .v = ctx->refs_head };
+	if (ctx->arena->refs_head) {
+		root = (fy_generic){ .v = ctx->arena->refs_head };
 		/*
 		 * Validate before trusting: mapping-ness, arena containment of the
 		 * root and its referenced parts, version and integrity checksum.
 		 */
-		if (!fyai_root_validate(ctx->durable_allocator, root) ||
+		if (!fyai_root_validate(ctx->arena->durable_allocator, root) ||
 		    fyai_root_decode(root, &r) < 0) {
 			fyai_error(ctx, "unrecognized arena root at %s; re-run fyai init",
 				   cfg->arena_dir);
@@ -973,14 +973,14 @@ fy_generic fyai_branches_snapshot(struct fyai_ctx *ctx)
 	fy_generic root;
 	fy_generic_value refs;
 
-	refs = ctx->refs_head;
-	if (ctx->durable_allocator && !ctx->cfg->root_pinned &&
+	refs = ctx->arena->refs_head;
+	if (ctx->arena->durable_allocator && !ctx->cfg->root_pinned &&
 	    !ctx->cfg->transient)
-		refs = fy_allocator_refs_get(ctx->durable_allocator);
+		refs = fy_allocator_refs_get(ctx->arena->durable_allocator);
 	if (!refs)
 		return fy_invalid;
 	root = (fy_generic){ .v = refs };
-	return fyai_root_validate(ctx->durable_allocator, root) ? root : fy_invalid;
+	return fyai_root_validate(ctx->arena->durable_allocator, root) ? root : fy_invalid;
 }
 
 int fyai_branches_refresh(struct fyai_ctx *ctx)
@@ -990,16 +990,16 @@ int fyai_branches_refresh(struct fyai_ctx *ctx)
 	struct fyai_root r;
 	fy_generic root;
 
-	if (!ctx->durable_allocator || ctx->cfg->root_pinned)
+	if (!ctx->arena->durable_allocator || ctx->cfg->root_pinned)
 		return 0;
-	head = fy_allocator_refs_get(ctx->durable_allocator);
-	if (!head || head == ctx->refs_head)
+	head = fy_allocator_refs_get(ctx->arena->durable_allocator);
+	if (!head || head == ctx->arena->refs_head)
 		return 0;
 	root = (fy_generic){ .v = head };
-	if (!fyai_root_validate(ctx->durable_allocator, root) ||
+	if (!fyai_root_validate(ctx->arena->durable_allocator, root) ||
 	    fyai_root_decode(root, &r) < 0)
 		return -1;
-	ctx->refs_head = head;
+	ctx->arena->refs_head = head;
 	ctx->arena_branches = r.branches;
 	/* Keep the branch predecessor in the root that was adopted. */
 	fyai_branch_lookup(r.branches, fyai_ctx_branch(ctx), &cur);
@@ -1077,7 +1077,7 @@ static fy_generic fyai_branches_commit(struct fyai_ctx *ctx)
 	bool same;
 
 	name = fyai_ctx_branch(ctx);
-	now = fy_value(ctx->gb, (long long)fyai_branch_timestamp());
+	now = fy_value(ctx->arena->gb, (long long)fyai_branch_timestamp());
 	fyai_branch_decode(ctx->branch_prev, &prev);
 
 	/* Infer an unlabeled publish from whether the head changed. */
@@ -1107,7 +1107,7 @@ static fy_generic fyai_branches_commit(struct fyai_ctx *ctx)
 	nb.created = fy_is_valid(prev.created) ? prev.created : now;
 	nb.updated = now;
 	if (fy_is_invalid(nb.cwd))
-		nb.cwd = fyai_branch_cwd_generic(ctx->gb);
+		nb.cwd = fyai_branch_cwd_generic(ctx->arena->gb);
 	nb.description = ctx->branch_desc;
 	nb.agent = ctx->branch_agent;
 	/*
@@ -1118,22 +1118,22 @@ static fy_generic fyai_branches_commit(struct fyai_ctx *ctx)
 	nb.todos = fy_get(nb.store, "todos", fy_invalid);
 	if (!fy_is_sequence(nb.todos))
 		nb.todos = fy_invalid;
-	nb.op = fy_value(ctx->gb, op);
+	nb.op = fy_value(ctx->arena->gb, op);
 	nb.from = ctx->branch_op_from ?
-		fy_value(ctx->gb, ctx->branch_op_from) : fy_invalid;
+		fy_value(ctx->arena->gb, ctx->branch_op_from) : fy_invalid;
 	nb.prev = ctx->branch_prev;
 	/* An entry with no capture of its own keeps the state of its predecessor. */
 	if (fy_is_mapping(ctx->project_state))
 		nb.project = ctx->project_state;
 	fyai_branch_op_set(ctx, NULL, NULL);
 
-	entry = fyai_branch_build(ctx->gb, &nb);
+	entry = fyai_branch_build(ctx->arena->gb, &nb);
 	if (!fy_is_valid(entry)) {
 		fyai_error(ctx, "could not build the entry for branch '%s'",
 			   name);
 		return fy_invalid;
 	}
-	entry = fyai_branches_set(ctx->gb, ctx->arena_branches, name, entry);
+	entry = fyai_branches_set(ctx->arena->gb, ctx->arena_branches, name, entry);
 	if (!fy_is_valid(entry))
 		fyai_error(ctx, "could not place branch '%s' in the branch "
 			   "table", name);
@@ -1170,7 +1170,7 @@ static int fyai_root_publish_try(struct fyai_ctx *ctx)
 		return 0;
 	}
 
-	headv = fy_value(ctx->gb, fyai_ctx_head_branch(ctx));
+	headv = fy_value(ctx->arena->gb, fyai_ctx_head_branch(ctx));
 	if (!fy_is_valid(headv)) {
 		fyai_error(ctx, "could not store HEAD '%s'",
 			   fyai_ctx_head_branch(ctx));
@@ -1189,9 +1189,9 @@ static int fyai_root_publish_try(struct fyai_ctx *ctx)
 	 * publish. NOTE: gc must bound how far back this chain is retained, else
 	 * following prev keeps all history reachable.
 	 */
-	prevv = ctx->refs_head ? (fy_generic){ .v = ctx->refs_head } : fy_null;
-	root = fyai_root_build(ctx->gb, branchesv, headv,
-			       fy_value(ctx->gb,
+	prevv = ctx->arena->refs_head ? (fy_generic){ .v = ctx->arena->refs_head } : fy_null;
+	root = fyai_root_build(ctx->arena->gb, branchesv, headv,
+			       fy_value(ctx->arena->gb,
 					(long long)fyai_branch_timestamp()), prevv);
 	if (!fy_is_valid(root)) {
 		fyai_error(ctx, "could not build the state root; the arena may "
@@ -1201,14 +1201,14 @@ static int fyai_root_publish_try(struct fyai_ctx *ctx)
 	desired = (uint64_t)root.v;
 	branch_publish_test_gate();
 	fyai_prof_stamp(&t_cas);
-	rc = fy_allocator_refs_publish(ctx->durable_allocator, ctx->refs_head,
+	rc = fy_allocator_refs_publish(ctx->arena->durable_allocator, ctx->arena->refs_head,
 				       desired, FY_ALLOC_REFS_CHECKPOINT);
 	fyai_prof_since(rc ? "commit_cas_lost" : "commit_cas_won", &t_cas);
 	if (rc < 0)
 		fyai_error(ctx, "the arena refused the state root");
 	if (rc)
 		return rc;
-	ctx->refs_head = desired;
+	ctx->arena->refs_head = desired;
 	ctx->arena_branches = branchesv;
 	if (ctx->session_unstored &&
 	    !strcmp(ctx->session_unstored, fyai_ctx_branch(ctx))) {
@@ -1433,7 +1433,7 @@ static int publish_store_merge(struct fyai_ctx *ctx, const struct fyai_branch *c
 	ours.description = ctx->branch_desc;
 	ours.agent = ctx->branch_agent;
 	conflicts = fy_seq_empty;
-	store = fyai_branch_store_build(ctx->gb, &ours);
+	store = fyai_branch_store_build(ctx->arena->gb, &ours);
 	/*
 	 * A branch without a catalogue uses the embedded one, so both sides
 	 * started from that catalogue.
@@ -1441,10 +1441,10 @@ static int publish_store_merge(struct fyai_ctx *ctx, const struct fyai_branch *c
 	base_store = base.store;
 	if (fy_is_invalid(base.catalog)) {
 		base.catalog = fyai_catalog_effective(fy_invalid, ctx->cfg->gb);
-		base_store = fyai_branch_store_build(ctx->gb, &base);
+		base_store = fyai_branch_store_build(ctx->arena->gb, &base);
 	}
 	if (fy_is_valid(store) && fy_is_valid(base_store))
-		store = fyai_branch_store_merge(ctx->gb, base_store, store,
+		store = fyai_branch_store_merge(ctx->arena->gb, base_store, store,
 						cur->store, &conflicts);
 	else
 		store = fy_invalid;
@@ -1501,17 +1501,17 @@ static int publish_reconcile(struct fyai_ctx *ctx)
 	uint64_t refs;
 	int rc;
 
-	refs = fy_allocator_refs_get(ctx->durable_allocator);
+	refs = fy_allocator_refs_get(ctx->arena->durable_allocator);
 	fyai_error_check(ctx, refs, err_out,
 			 "could not read the concurrent root");
 	root = (fy_generic){ .v = refs };
-	fyai_error_check(ctx, fyai_root_validate(ctx->durable_allocator, root),
+	fyai_error_check(ctx, fyai_root_validate(ctx->arena->durable_allocator, root),
 			 err_out, "concurrent root is invalid");
 	rc = fyai_root_decode(root, &r);
 	fyai_error_check(ctx, rc >= 0, err_out,
 			 "could not decode the concurrent root");
 
-	ctx->refs_head = refs;
+	ctx->arena->refs_head = refs;
 	ctx->arena_branches = r.branches;
 	fyai_branch_lookup(r.branches, fyai_ctx_branch(ctx), &cur);
 
@@ -1591,7 +1591,7 @@ int fyai_publish_state(struct fyai_ctx *ctx)
 	const char *op, *from;
 	int rc, tries;
 
-	if (!ctx->durable_allocator || !ctx->durable_gb)
+	if (!ctx->arena->durable_allocator || !ctx->arena->durable_gb)
 		return 0;
 	/* Skip a branch that has no state. */
 	if (fy_is_invalid(ctx->last_message) &&
@@ -1648,7 +1648,7 @@ int fyai_publish_state(struct fyai_ctx *ctx)
 int fyai_publish_root(struct fyai_ctx *ctx, fy_generic config,
 		      fy_generic catalog, fy_generic head)
 {
-	if (!ctx->durable_allocator || !ctx->durable_gb) {
+	if (!ctx->arena->durable_allocator || !ctx->arena->durable_gb) {
 		fyai_error(ctx, "no arena; run fyai init");
 		return -1;
 	}
@@ -1736,7 +1736,7 @@ static fy_generic branches_delta_apply(struct fyai_ctx *ctx, fy_generic base,
 		now = fy_get(latest, name);
 		if (!generic_same(now, before))
 			goto err_concurrent_change;
-		latest = fy_assoc(ctx->gb, latest, name, after);
+		latest = fy_assoc(ctx->arena->gb, latest, name, after);
 		fyai_error_check(ctx, fy_is_valid(latest), err_out,
 				 "could not reapply branch '%s'", name);
 	}
@@ -1748,7 +1748,7 @@ static fy_generic branches_delta_apply(struct fyai_ctx *ctx, fy_generic base,
 		now = fy_get(latest, name);
 		if (!generic_same(now, before))
 			goto err_concurrent_change;
-		latest = fy_disassoc(ctx->gb, latest, name);
+		latest = fy_disassoc(ctx->arena->gb, latest, name);
 		fyai_error_check(ctx, fy_is_valid(latest), err_out,
 				 "could not reapply deletion of branch '%s'",
 				 name);
@@ -1774,7 +1774,7 @@ int fyai_publish_branches(struct fyai_ctx *ctx, fy_generic base,
 	int rc, tries;
 	bool reconciled, head_changed;
 
-	fyai_error_check(ctx, ctx->durable_allocator && ctx->durable_gb,
+	fyai_error_check(ctx, ctx->arena->durable_allocator && ctx->arena->durable_gb,
 			 err_out, "branch table requires durable storage");
 	if (ctx->cfg && ctx->cfg->root_pinned) {
 		fyai_error(ctx, "--root is read-only; this command would "
@@ -1792,8 +1792,8 @@ int fyai_publish_branches(struct fyai_ctx *ctx, fy_generic base,
 	wanted_head = alloca(wanted_head_len + 1);
 	memcpy(wanted_head, fyai_ctx_head_branch(ctx), wanted_head_len + 1);
 	head_changed = false;
-	if (ctx->refs_head) {
-		root = (fy_generic){ .v = ctx->refs_head };
+	if (ctx->arena->refs_head) {
+		root = (fy_generic){ .v = ctx->arena->refs_head };
 		if (fyai_root_decode(root, &original) >= 0) {
 			head_name = fyai_root_head_name(&original);
 			head_changed = !head_name ||
@@ -1801,21 +1801,21 @@ int fyai_publish_branches(struct fyai_ctx *ctx, fy_generic base,
 		}
 	}
 	for (tries = 0; tries < 4; tries++) {
-		headv = fy_value(ctx->gb, fyai_ctx_head_branch(ctx));
-		prevv = ctx->refs_head ?
-			(fy_generic){ .v = ctx->refs_head } : fy_null;
-		root = fyai_root_build(ctx->gb, merged, headv,
-				       fy_value(ctx->gb, (long long)
+		headv = fy_value(ctx->arena->gb, fyai_ctx_head_branch(ctx));
+		prevv = ctx->arena->refs_head ?
+			(fy_generic){ .v = ctx->arena->refs_head } : fy_null;
+		root = fyai_root_build(ctx->arena->gb, merged, headv,
+				       fy_value(ctx->arena->gb, (long long)
 						fyai_branch_timestamp()), prevv);
 		fyai_error_check(ctx, fy_is_valid(root), err_out,
 				 "could not build branch-table root");
 		desired = (uint64_t)root.v;
 		branch_publish_test_gate();
-		rc = fy_allocator_refs_publish(ctx->durable_allocator,
-					       ctx->refs_head, desired,
+		rc = fy_allocator_refs_publish(ctx->arena->durable_allocator,
+					       ctx->arena->refs_head, desired,
 					       FY_ALLOC_REFS_CHECKPOINT);
 		if (!rc) {
-			ctx->refs_head = desired;
+			ctx->arena->refs_head = desired;
 			ctx->arena_branches = merged;
 			if (reconciled)
 				fyai_notice(ctx, "state changed concurrently; "
@@ -1825,12 +1825,12 @@ int fyai_publish_branches(struct fyai_ctx *ctx, fy_generic base,
 		fyai_error_check(ctx, rc > 0, err_out,
 				 "could not publish branch-table root");
 
-		ctx->refs_head = fy_allocator_refs_get(ctx->durable_allocator);
-		fyai_error_check(ctx, ctx->refs_head, err_out,
+		ctx->arena->refs_head = fy_allocator_refs_get(ctx->arena->durable_allocator);
+		fyai_error_check(ctx, ctx->arena->refs_head, err_out,
 				 "could not read concurrent arena root");
-		root = (fy_generic){ .v = ctx->refs_head };
+		root = (fy_generic){ .v = ctx->arena->refs_head };
 		rc = -1;
-		if (fyai_root_validate(ctx->durable_allocator, root))
+		if (fyai_root_validate(ctx->arena->durable_allocator, root))
 			rc = fyai_root_decode(root, &current);
 		fyai_error_check(ctx, rc >= 0, err_out,
 				 "concurrent arena root is invalid");
@@ -1857,23 +1857,7 @@ err_out:
 
 int fyai_close_storage(struct fyai_ctx *ctx)
 {
-	/* Release the transient overlay first (it parents onto durable_gb). */
-	if (ctx->gb && ctx->gb != ctx->durable_gb) {
-		fy_generic_builder_destroy(ctx->gb);
-		if (ctx->overlay_allocator) {
-			fy_allocator_destroy(ctx->overlay_allocator);
-			ctx->overlay_allocator = NULL;
-		}
-	}
-	ctx->gb = NULL;
-	if (ctx->durable_gb) {
-		fy_generic_builder_destroy(ctx->durable_gb);
-		ctx->durable_gb = NULL;
-	}
-	if (ctx->durable_allocator) {
-		fy_allocator_destroy(ctx->durable_allocator);
-		ctx->durable_allocator = NULL;
-	}
+	fyai_arena_release(ctx->arena);
 	ctx->last_message = fy_invalid;
 	ctx->arena_config = fy_invalid;
 	ctx->arena_catalog = fy_invalid;
@@ -1883,7 +1867,6 @@ int fyai_close_storage(struct fyai_ctx *ctx)
 	ctx->branch_desc = fy_invalid;
 	ctx->branch_agent = fy_invalid;
 	ctx->branch_store = fy_invalid;
-	ctx->refs_head = 0;
 	return 0;
 }
 
@@ -1893,7 +1876,7 @@ int fyai_close_storage(struct fyai_ctx *ctx)
  * kept root's prev cut to null, then publishes the rebuilt head; the older
  * roots become unreachable and are freed by the arena gc that follows. A no-op
  * when keep < 1 or the chain is already within the limit. Must run with storage
- * open (uses ctx->gb and the durable refs).
+ * open (uses ctx->arena->gb and the durable refs).
  */
 /* Return the branch ref-log length, capped at @limit. */
 static int branch_chain_len(fy_generic entry, int limit)
@@ -1936,7 +1919,7 @@ static fy_generic fyai_branch_reflog_trim(struct fyai_ctx *ctx, fy_generic entry
 		if (!fyai_branch_decode(scratch[i], &b))
 			return fy_invalid;
 		b.prev = rebuilt;
-		rebuilt = fyai_branch_build(ctx->gb, &b);
+		rebuilt = fyai_branch_build(ctx->arena->gb, &b);
 		if (!fy_is_valid(rebuilt))
 			return fy_invalid;
 	}
@@ -1953,12 +1936,12 @@ static int fyai_reflog_truncate(struct fyai_ctx *ctx, int keep)
 	bool trim;
 	int n, i, rc;
 
-	if (keep < 1 || !ctx->refs_head || !ctx->durable_allocator || !ctx->gb)
+	if (keep < 1 || !ctx->arena->refs_head || !ctx->arena->durable_allocator || !ctx->arena->gb)
 		return 0;
 	if (keep > FYAI_REFLOG_KEEP_MAX)
 		keep = FYAI_REFLOG_KEEP_MAX;
 
-	node = (fy_generic){ .v = ctx->refs_head };
+	node = (fy_generic){ .v = ctx->arena->refs_head };
 	for (n = 0; n < keep && fy_is_valid(node); n++) {
 		roots[n] = node;
 		node = fyai_root_prev(node);
@@ -1994,13 +1977,13 @@ static int fyai_reflog_truncate(struct fyai_ctx *ctx, int keep)
 								entries);
 				if (fy_is_invalid(entry))
 					return -1;
-				branches = fy_assoc(ctx->gb, branches, name,
+				branches = fy_assoc(ctx->arena->gb, branches, name,
 						    entry);
 				if (!fy_is_valid(branches))
 					return -1;
 			}
 		}
-		rebuilt = fyai_root_build(ctx->gb,
+		rebuilt = fyai_root_build(ctx->arena->gb,
 				fyai_generic_or_null(branches),
 				fyai_generic_or_null(r.head),
 				fy_get(roots[i], "created"), rebuilt);
@@ -2008,11 +1991,11 @@ static int fyai_reflog_truncate(struct fyai_ctx *ctx, int keep)
 			return -1;
 	}
 	desired = (uint64_t)rebuilt.v;
-	rc = fy_allocator_refs_publish(ctx->durable_allocator, ctx->refs_head,
+	rc = fy_allocator_refs_publish(ctx->arena->durable_allocator, ctx->arena->refs_head,
 				       desired, FY_ALLOC_REFS_CHECKPOINT);
 	if (rc)
 		return -1;
-	ctx->refs_head = desired;
+	ctx->arena->refs_head = desired;
 	return 0;
 }
 
@@ -2048,7 +2031,7 @@ int fyai_gc_storage(struct fyai_ctx *ctx)
 			return -1;
 		}
 		/* The roots are those of the cut ref log. */
-		root = (fy_generic){ .v = ctx->refs_head };
+		root = (fy_generic){ .v = ctx->arena->refs_head };
 		if (fyai_root_decode(root, &r) >= 0)
 			ctx->arena_branches = r.branches;
 	}
@@ -2169,8 +2152,8 @@ int fyai_init_storage(struct fyai_ctx *ctx)
 		goto out;
 	}
 
-	if (ctx->refs_head) {
-		root = (fy_generic){ .v = ctx->refs_head };
+	if (ctx->arena->refs_head) {
+		root = (fy_generic){ .v = ctx->arena->refs_head };
 		rc = fyai_root_decode(root, &r);
 		if (rc < 0 && !args->force) {
 			fyai_error(ctx, "init: unrecognized arena root (use --force to reset)");
@@ -2200,7 +2183,7 @@ int fyai_init_storage(struct fyai_ctx *ctx)
 	}
 
 	if (args->config) {
-		config = fy_parse_file(ctx->gb,
+		config = fy_parse_file(ctx->arena->gb,
 				       FYAI_YAML_PARSE_FLAGS,
 				       args->config);
 		if (!fy_is_valid(config)) {

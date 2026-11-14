@@ -253,7 +253,7 @@ int fyai_session_clear(struct fyai_ctx *ctx)
 		ctx->last_message = fyai_turn_append(ctx, fy_invalid,
 			fy_sequence(fyai_make_system_message(ctx,
 							     cfg->system_prompt)));
-		ctx->last_message = fy_gb_internalize(ctx->gb,
+		ctx->last_message = fy_gb_internalize(ctx->arena->gb,
 						      ctx->last_message);
 	}
 
@@ -373,7 +373,7 @@ restore:
 		meta = fy_assoc(meta, "compact_instructions", hint);
 	fyai_branch_op_set(ctx, FYAI_BRANCH_OP_COMPACT, NULL);
 	turn = fy_assoc(turn, "metadata", meta);
-	turn = fy_gb_internalize(ctx->gb, turn);
+	turn = fy_gb_internalize(ctx->arena->gb, turn);
 	fyai_error_check(ctx, fy_is_valid(turn), out,
 			 "compact: cannot store the compacted turn");
 
@@ -472,7 +472,7 @@ static int session_compact_responses_v2(struct fyai_ctx *ctx,
 		meta = fy_assoc(meta, "compact_instructions", hint);
 	fyai_branch_op_set(ctx, FYAI_BRANCH_OP_COMPACT, NULL);
 	turn = fy_assoc(turn, "metadata", meta);
-	turn = fy_gb_internalize(ctx->gb, turn);
+	turn = fy_gb_internalize(ctx->arena->gb, turn);
 	fyai_error_check(ctx, fy_is_valid(turn), out,
 			 "compact: cannot store the compacted turn");
 
@@ -535,7 +535,7 @@ int fyai_session_compact(struct fyai_ctx *ctx, const char *hint)
 	}
 
 	turn = fyai_turn_append(ctx, base,
-		fy_sequence(fy_mapping(ctx->gb,
+		fy_sequence(fy_mapping(ctx->arena->gb,
 			"role", "user",
 			"content", fy_stringf(
 				"Summarize this conversation for continuation: decisions "
@@ -584,7 +584,7 @@ int fyai_session_compact(struct fyai_ctx *ctx, const char *hint)
 	turn = fyai_turn_append(ctx, fy_invalid,
 		fy_sequence(fyai_make_system_message(ctx, cfg->system_prompt)));
 	turn = fyai_turn_append(ctx, turn,
-		fy_sequence(fy_mapping(ctx->gb,
+		fy_sequence(fy_mapping(ctx->arena->gb,
 			"role", "user",
 			"content", fy_stringf(
 				"Summary of prior conversation:\n\n%s", summary))));
@@ -601,7 +601,7 @@ int fyai_session_compact(struct fyai_ctx *ctx, const char *hint)
 	fyai_branch_op_set(ctx, FYAI_BRANCH_OP_COMPACT, NULL);
 	turn = fy_assoc(turn, "metadata", meta);
 
-	turn = fy_gb_internalize(ctx->gb, turn);
+	turn = fy_gb_internalize(ctx->arena->gb, turn);
 	if (fy_is_invalid(turn))
 		return -1;
 	ctx->last_message = turn;

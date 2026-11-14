@@ -581,10 +581,10 @@ static int skill_publish(struct fyai_ctx *ctx, fy_generic skills)
 {
 	fy_generic durable;
 
-	fyai_error_check(ctx, ctx->durable_gb, err,
+	fyai_error_check(ctx, ctx->arena->durable_gb, err,
 			 "no arena; run fyai init");
 	durable = fy_empty(skills) ? fy_invalid :
-		fy_gb_internalize(ctx->gb, skills);
+		fy_gb_internalize(ctx->arena->gb, skills);
 	fyai_error_check(ctx, fy_empty(skills) || fy_is_valid(durable), err,
 			 "cannot keep the skills in the arena");
 	ctx->arena_skills = durable;

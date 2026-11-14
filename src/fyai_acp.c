@@ -944,7 +944,7 @@ static int acp_worker_turn(struct acp_worker *worker)
 	turn = fyai_output_record(ctx, turn, FYAI_OUTPUT_USER, worker->text);
 	if (fy_is_invalid(turn))
 		return -1;
-	ctx->last_message = fy_gb_internalize(ctx->gb, turn);
+	ctx->last_message = fy_gb_internalize(ctx->arena->gb, turn);
 	if (fy_is_invalid(ctx->last_message) || fyai_publish_state(ctx))
 		return -1;
 	if (jsonrpc_notify(worker->conn, "acp/inserted",

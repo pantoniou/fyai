@@ -1753,7 +1753,7 @@ static int fyai_tools_user_start(struct fyai_ctx *ctx, const char *command,
 	fyai_error_check(ctx, fy_is_valid(call), err,
 			 "could not build the %s request", what);
 	/* Retain the call beyond transient interactive storage. */
-	call = fy_gb_internalize(ctx->gb, call);
+	call = fy_gb_internalize(ctx->arena->gb, call);
 	fyai_error_check(ctx, fy_is_valid(call), err,
 			 "could not retain the %s request", what);
 	job = fyai_tool_job_submit(ctx, call);

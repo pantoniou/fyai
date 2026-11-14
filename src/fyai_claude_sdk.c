@@ -3051,7 +3051,7 @@ static int sdk_add_user(struct sdk_server *srv, const char *text)
 				  shown ? shown : text);
 	fyai_error_check(ctx, fy_is_valid(turn), err,
 			 "claude-sdk: cannot add the user message");
-	ctx->last_message = fy_gb_internalize(ctx->gb, turn);
+	ctx->last_message = fy_gb_internalize(ctx->arena->gb, turn);
 	fyai_error_check(ctx, fy_is_valid(ctx->last_message), err,
 			 "claude-sdk: cannot keep the user message");
 	rc = fyai_publish_state(ctx);
@@ -3314,7 +3314,7 @@ static int sdk_system_seed(struct sdk_server *srv)
 	turn = fyai_turn_append(ctx, fy_invalid,
 		fy_sequence(gb, fyai_make_system_message(ctx, text)));
 	turn = fyai_output_record(ctx, turn, FYAI_OUTPUT_SYSTEM, text);
-	ctx->last_message = fy_gb_internalize(ctx->gb, turn);
+	ctx->last_message = fy_gb_internalize(ctx->arena->gb, turn);
 	fyai_error_check(ctx, fy_is_valid(ctx->last_message), err,
 			 "claude-sdk: cannot keep the system prompt");
 	return 0;

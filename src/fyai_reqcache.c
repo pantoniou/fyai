@@ -249,7 +249,7 @@ void fyai_request_cache_forget(struct fyai_ctx *ctx)
 
 	if (!rc || (rc->owner && rc->owner != ctx->transient->gb))
 		return;
-	if (!rc->valid || !rc->owner || !rc->body || !ctx->gb) {
+	if (!rc->valid || !rc->owner || !rc->body || !ctx->arena->gb) {
 		rc_forget_all(rc);
 		return;
 	}
@@ -263,10 +263,10 @@ void fyai_request_cache_forget(struct fyai_ctx *ctx)
 	 * after it are not in the arena, so their text is kept in @check and
 	 * compared with what the exchange stored before the text is reused.
 	 */
-	if (!fy_generic_builder_contains_out_of_place(ctx->gb, turn)) {
+	if (!fy_generic_builder_contains_out_of_place(ctx->arena->gb, turn)) {
 		/* The newest turn of its chain that the arena holds. */
 		fyai_turn_foreach(cur, turn) {
-			if (fy_generic_builder_contains_out_of_place(ctx->gb, cur)) {
+			if (fy_generic_builder_contains_out_of_place(ctx->arena->gb, cur)) {
 				anchor = cur;
 				break;
 			}

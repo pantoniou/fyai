@@ -11,6 +11,7 @@
 
 #include "fyai.h"
 #include "fyai_diag.h"
+#include "fyai_arena.h"
 #include "fyai_loop.h"
 #include "fyai_transient.h"
 
@@ -27,6 +28,7 @@
 struct fyai_app {
 	struct fyai_diag diag;		/* depends on nothing */
 	struct fyai_loop loop;		/* depends on diag */
+	struct fyai_arena arena;	/* depends on nothing yet */
 	struct fyai_transient transient; /* depends on the arena builder */
 	struct fyai_cfg cfg;		/* depends on diag */
 };

@@ -396,7 +396,7 @@ create:
 	*execution = target;
 	target = NULL;
 	spec->execution = *execution;
-	*view = fy_assoc(ctx->gb, *view, "execution", fy_value(ctx->gb, *execution));
+	*view = fy_assoc(ctx->arena->gb, *view, "execution", fy_value(ctx->arena->gb, *execution));
 	rc = fy_is_mapping(*view) ? 0 : -1;
 out:
 	saved = errno;
@@ -428,7 +428,7 @@ static int mac_prepare(struct fyai_ctx *ctx, struct fyai_fsview *spec, fy_generi
 	if (rc)
 		return -1;
 	if (created)
-		return mac_recover(ctx->gb, spec, spec->baseline, error, error_size);
+		return mac_recover(ctx->arena->gb, spec, spec->baseline, error, error_size);
 	return 0;
 }
 

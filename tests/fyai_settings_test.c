@@ -61,8 +61,8 @@ static int settings_setup(void)
 	fyai_test_transient_of(&test_ctx)->gb = fy_generic_builder_create(&gb_cfg);
 	if (!fyai_test_transient_of(&test_ctx)->gb)
 		return 1;
-	test_ctx.durable_gb = fyai_test_transient_of(&test_ctx)->gb;
-	test_ctx.gb = fyai_test_transient_of(&test_ctx)->gb;
+	fyai_test_arena_of(&test_ctx)->durable_gb = fyai_test_transient_of(&test_ctx)->gb;
+	fyai_test_arena_of(&test_ctx)->gb = fyai_test_transient_of(&test_ctx)->gb;
 	test_cfg.gb = fyai_test_transient_of(&test_ctx)->gb;
 	test_ctx.tools_spec = fy_invalid;
 	/* No catalogue in the branch: the embedded snapshot is read. */

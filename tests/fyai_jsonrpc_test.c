@@ -118,12 +118,12 @@ static void setup_builders(void)
 
 	memset(&acfg, 0, sizeof(acfg));
 	acfg.scenario = FYAST_PER_TAG_FREE_DEDUP;
-	test_ctx.gb = fy_generic_builder_create(&(struct fy_generic_builder_cfg){
+	fyai_test_arena_of(&test_ctx)->gb = fy_generic_builder_create(&(struct fy_generic_builder_cfg){
 		.flags = FYGBCF_SCOPE_LEADER | FYGBCF_DEDUP_ENABLED |
 			 FYGBCF_CREATE_TAG,
 		.allocator = fy_allocator_create("auto", &acfg),
 	});
-	FYAI_TCHECK(test_ctx.gb);
+	FYAI_TCHECK(fyai_test_arena_of(&test_ctx)->gb);
 
 	memset(&acfg, 0, sizeof(acfg));
 	acfg.scenario = FYAST_PER_TAG_FREE_DEDUP;
@@ -131,7 +131,7 @@ static void setup_builders(void)
 	memset(&gbc, 0, sizeof(gbc));
 	gbc.flags = FYGBCF_SCOPE_LEADER | FYGBCF_DEDUP_ENABLED | FYGBCF_CREATE_TAG;
 	gbc.allocator = fyai_test_transient_of(&test_ctx)->allocator;
-	gbc.parent = test_ctx.gb;
+	gbc.parent = fyai_test_arena_of(&test_ctx)->gb;
 	fyai_test_transient_of(&test_ctx)->gb = fy_generic_builder_create(&gbc);
 	FYAI_TCHECK(fyai_test_transient_of(&test_ctx)->gb);
 }

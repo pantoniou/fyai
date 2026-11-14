@@ -406,6 +406,7 @@ int auth_recorded_usage(void)
 	fy_generic result, usage, meta, prev;
 
 	FYAI_TCHECK(gb != NULL);
+	(void)fyai_test_arena_of(&ctx);
 	FYAI_TCHECK(!fyai_auth_usage(&ctx, gb, true, &result));
 	FYAI_TCHECK(fy_get(result, "total_tokens", -1LL) == 0);
 	FYAI_TCHECK(fy_equal(fy_get(result, "scope"), "Selected conversation"));

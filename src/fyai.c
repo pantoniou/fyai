@@ -1347,9 +1347,9 @@ static void fyai_turn_run_abort_output(struct fyai_turn_run *run)
 	if (!fyai_turn_run_done(run) && fy_is_valid(run->settled) &&
 	    run->settled.v != run->turn_in.v) {
 		result = fyai_output_finalize(ctx, run->settled, true);
-		result = fy_gb_internalize(ctx->gb, result);
+		result = fy_gb_internalize(ctx->arena->gb, result);
 		if (fy_is_valid(result)) {
-			result = fyai_with_diag(ctx->gb, result,
+			result = fyai_with_diag(ctx->arena->gb, result,
 				"the turn stopped on an error; the steps "
 				"before it are kept");
 			run->result = result;
@@ -1372,11 +1372,11 @@ static void fyai_turn_run_stop(struct fyai_turn_run *run, const char *msg)
 	ctx = run->ctx;
 	if (fy_is_valid(run->turn) && run->turn.v != run->turn_in.v) {
 		result = fyai_output_finalize(ctx, run->turn, true);
-		result = fy_gb_internalize(ctx->gb, result);
-		result = fyai_with_diag(ctx->gb, result, msg);
+		result = fy_gb_internalize(ctx->arena->gb, result);
+		result = fyai_with_diag(ctx->arena->gb, result, msg);
 	} else {
 		fyai_output_abort(ctx);
-		result = fyai_with_diag(ctx->gb, fy_invalid, msg);
+		result = fyai_with_diag(ctx->arena->gb, fy_invalid, msg);
 	}
 	run->result = result;
 	(void)fyai_turn_run_transition(run,
@@ -1393,7 +1393,7 @@ fyai_turn_run_finish(struct fyai_turn_run *run, fy_generic result,
 	ctx = run->ctx;
 	if (finalize) {
 		result = fyai_output_finalize(ctx, result, false);
-		result = fy_gb_internalize(ctx->gb, result);
+		result = fy_gb_internalize(ctx->arena->gb, result);
 		if (fy_is_invalid(result))
 			fyai_error(ctx, "could not retain the completed turn");
 	}
@@ -1420,7 +1420,7 @@ fyai_turn_run_request_failed(struct fyai_turn_run *run, fy_generic response)
 	fyai_turn_run_stop(run, msg);
 }
 
-/* Append an event with its sender metadata to ctx->gb storage. */
+/* Append an event with its sender metadata to ctx->arena->gb storage. */
 fy_generic fyai_turn_append_event(struct fyai_ctx *ctx, fy_generic turn,
 				  const struct fyai_event_input *input)
 {
@@ -1947,8 +1947,8 @@ static void fyai_turn_run_gate_finish(struct fyai_turn_run *run,
 	fy_generic result;
 
 	fyai_turn_run_gate_clear(run);
-	result = fy_gb_internalize(ctx->gb, run->turn);
-	result = fyai_with_diag(ctx->gb, result, cause);
+	result = fy_gb_internalize(ctx->arena->gb, run->turn);
+	result = fyai_with_diag(ctx->arena->gb, result, cause);
 	fyai_turn_run_finish(run, result, false);
 }
 
@@ -2107,8 +2107,8 @@ static int fyai_turn_run_collect_tools(struct fyai_turn_run *run)
 	}
 	interrupted = fyai_interrupt_check(ctx);
 	if (run->cancel_requested || interrupted) {
-		result = fy_gb_internalize(ctx->gb, run->turn);
-		result = fyai_with_diag(ctx->gb, result, "interrupted");
+		result = fy_gb_internalize(ctx->arena->gb, run->turn);
+		result = fyai_with_diag(ctx->arena->gb, result, "interrupted");
 		fyai_turn_run_finish(run, result, false);
 		return 0;
 	}
@@ -2686,7 +2686,7 @@ int fyai_request_state_apply(struct fyai_ctx *ctx)
 				if (strcmp(name, "tool_search") &&
 				    strcmp(name, "mcp_resource"))
 					continue;
-				ctx->tools = fy_append(ctx->gb, ctx->tools,
+				ctx->tools = fy_append(ctx->arena->gb, ctx->tools,
 						fyai_grammar_tool_def(ctx, tool));
 			}
 		}
@@ -2701,15 +2701,15 @@ int fyai_request_state_apply(struct fyai_ctx *ctx)
 				    (fyai_mcp_deferred(ctx) &&
 				     !fyai_mcp_tool_active(ctx, name)))
 					continue;
-				converted = fy_append(ctx->gb, converted,
+				converted = fy_append(ctx->arena->gb, converted,
 						fyai_grammar_tool_def(ctx, tool));
 			}
-			ctx->tools = fy_concat(ctx->gb, ctx->tools, converted);
+			ctx->tools = fy_concat(ctx->arena->gb, ctx->tools, converted);
 		}
 	}
 
 	if (fy_is_valid(ctx->tools)) {
-		ctx->tools = fy_gb_internalize(ctx->gb, ctx->tools);
+		ctx->tools = fy_gb_internalize(ctx->arena->gb, ctx->tools);
 		fyai_error_check(ctx, fy_is_valid(ctx->tools), err,
 				 "could not retain the tool definitions");
 	}
@@ -2735,10 +2735,8 @@ int fyai_setup(struct fyai_ctx *ctx, struct fyai_app *app)
 	memset(ctx, 0, sizeof(*ctx));
 	ctx->cfg = cfg;
 	ctx->loop = &app->loop;
+	ctx->arena = &app->arena;
 	ctx->transient = &app->transient;
-	/* The scratch builder stacks on the working builder, which the arena
-	 * replaces when it reopens: it reads it from the slot. */
-	ctx->transient->parent_gb = &ctx->gb;
 	ctx->transient->on_release = fyai_transient_released;
 	ctx->transient->on_release_data = ctx;
 	/* A wait that stands on the loop looks at an interrupt when it comes. */
@@ -2850,7 +2848,7 @@ int fyai_setup(struct fyai_ctx *ctx, struct fyai_app *app)
 		if (cfg->parallel_tool_calls &&
 		    cfg->parallel_tool_calls_prompt &&
 		    *cfg->parallel_tool_calls_prompt) {
-			cfg->system_prompt = fy_gb_intern_string(ctx->gb,
+			cfg->system_prompt = fy_gb_intern_string(ctx->arena->gb,
 				fy_sprintfa("%s%s%s",
 					cfg->system_prompt ?
 						cfg->system_prompt : "",
@@ -2862,7 +2860,7 @@ int fyai_setup(struct fyai_ctx *ctx, struct fyai_app *app)
 		instr = fyai_project_instructions();
 
 		if (instr) {
-			cfg->system_prompt = fy_gb_intern_string(ctx->gb,
+			cfg->system_prompt = fy_gb_intern_string(ctx->arena->gb,
 					fy_sprintfa("%s%s",
 						cfg->system_prompt ?
 							cfg->system_prompt : "",
@@ -2918,7 +2916,7 @@ int fyai_setup(struct fyai_ctx *ctx, struct fyai_app *app)
 	}
 
 	/* intern all to durable */
-	ctx->last_message = fy_gb_internalize(ctx->gb, ctx->last_message);
+	ctx->last_message = fy_gb_internalize(ctx->arena->gb, ctx->last_message);
 	fyai_error_check(ctx, fy_is_valid(ctx->last_message), err,
 			 "could not retain the initial turn");
 
@@ -3423,7 +3421,7 @@ static void fyai_interactive_record_command(struct fyai_ctx *ctx,
 	turn = fyai_turn_append_display_output(ctx, turn, record);
 	fyai_error_check(ctx, fy_is_valid(turn), out,
 			 "could not store the command %s", line);
-	ctx->last_message = fy_gb_internalize(ctx->gb, turn);
+	ctx->last_message = fy_gb_internalize(ctx->arena->gb, turn);
 	fyai_error_check(ctx, fy_is_valid(ctx->last_message), err_restore,
 			 "could not store the command %s", line);
 	fyai_branch_op_set(ctx, FYAI_BRANCH_OP_COMMAND, NULL);

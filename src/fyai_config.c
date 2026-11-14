@@ -1576,7 +1576,7 @@ static fy_generic config_parse_value(struct fy_generic_builder *gb,
 
 int fyai_config_set(struct fyai_ctx *ctx, const char *key, const char *value)
 {
-	struct fy_generic_builder *gb = ctx->gb;
+	struct fy_generic_builder *gb = ctx->arena->gb;
 	fy_generic report;
 	fy_generic root, v;
 
@@ -1624,7 +1624,7 @@ int fyai_config_set_generic(struct fyai_ctx *ctx, const char *key,
 	const char *text;
 	int rc;
 
-	emitted = fy_emit(ctx->gb, value,
+	emitted = fy_emit(ctx->arena->gb, value,
 			 FYAI_YAML_EMIT_FLAGS | FYOPEF_STYLE_ONELINE, NULL);
 	fyai_error_check(ctx, fy_is_valid(emitted), err_out,
 			 "could not emit configuration value");
@@ -1659,7 +1659,7 @@ int fyai_apply_config_ops(struct fyai_ctx *ctx)
 	 * apart: a NO_STORAGE verb (auth) never opens one however well
 	 * initialized the project is, so "run fyai init" would be a lie.
 	 */
-	if (!ctx->gb) {
+	if (!ctx->arena->gb) {
 		if (fyai_cfg_no_storage(cfg))
 			fyai_error(ctx, "--set/--get/--delete are not available for '%s'; it runs without arena storage",
 				fyai_cfg_verb(cfg) ?
@@ -1677,13 +1677,13 @@ int fyai_apply_config_ops(struct fyai_ctx *ctx)
 			continue;
 		switch (co->op) {
 		case 's':
-			v = config_parse_value(ctx->gb, co->value);
+			v = config_parse_value(ctx->arena->gb, co->value);
 			if (fy_is_invalid(v)) {
 				fyai_error(ctx, "cannot parse value '%s'",
 					co->value);
 				return -1;
 			}
-			root = fy_set_at_pathstr(ctx->gb, root, co->key, v);
+			root = fy_set_at_pathstr(ctx->arena->gb, root, co->key, v);
 			if (fy_is_invalid(root)) {
 				fyai_error(ctx, "set failed");
 				return -1;
@@ -1691,7 +1691,7 @@ int fyai_apply_config_ops(struct fyai_ctx *ctx)
 			dirty = co->persistent || dirty;
 			break;
 		case 'd':
-			root = fy_delete_at_pathstr(ctx->gb, root, co->key);
+			root = fy_delete_at_pathstr(ctx->arena->gb, root, co->key);
 			if (fy_is_invalid(root)) {
 				fyai_error(ctx, "delete failed");
 				return -1;
@@ -1699,7 +1699,7 @@ int fyai_apply_config_ops(struct fyai_ctx *ctx)
 			dirty = co->persistent || dirty;
 			break;
 		case 'g':
-			v = fy_get_at_pathstr(ctx->gb, root, co->key);
+			v = fy_get_at_pathstr(ctx->arena->gb, root, co->key);
 			if (fy_is_invalid(v)) {
 				fyai_error(ctx, "key '%s' not set",
 					co->key);
@@ -2226,7 +2226,7 @@ static int config_report_commit(struct fyai_cfg *cfg, fy_generic report,
 
 int fyai_config_delete(struct fyai_ctx *ctx, const char *key)
 {
-	struct fy_generic_builder *gb = ctx->gb;
+	struct fy_generic_builder *gb = ctx->arena->gb;
 	fy_generic report;
 	fy_generic root;
 
@@ -2258,11 +2258,11 @@ int fyai_config_import(struct fyai_ctx *ctx, const char *path)
 	fy_generic report;
 	fy_generic doc;
 
-	if (!ctx->gb) {
+	if (!ctx->arena->gb) {
 		fyai_error(ctx, "no arena; run fyai init");
 		return -1;
 	}
-	doc = fy_parse_file(ctx->gb,
+	doc = fy_parse_file(ctx->arena->gb,
 			    FYAI_YAML_PARSE_FLAGS, path);
 	report = fyai_config_validate_report(ctx->cfg, doc, path);
 	if (config_report_commit(ctx->cfg, report, &doc))
@@ -2277,7 +2277,7 @@ int fyai_config_reset(struct fyai_ctx *ctx)
 {
 	fy_generic report, doc = fy_map_empty;
 
-	if (!ctx->gb) {
+	if (!ctx->arena->gb) {
 		fyai_error(ctx, "no arena; run fyai init");
 		return -1;
 	}
@@ -2304,7 +2304,7 @@ int fyai_config_undo(struct fyai_ctx *ctx, long long n, long long *foundp)
 	long long changes = 0, walked = 0;
 
 	*foundp = 0;
-	if (!ctx->gb) {
+	if (!ctx->arena->gb) {
 		fyai_error(ctx, "no arena; run fyai init");
 		return -1;
 	}
@@ -2364,7 +2364,7 @@ int fyai_config_export(struct fyai_ctx *ctx, const char *path)
 			  NULL);
 		return fy_is_invalid(emitted) ? -1 : 0;
 	}
-	emitted = config_emit_yaml(ctx->gb, ctx->arena_config);
+	emitted = config_emit_yaml(ctx->arena->gb, ctx->arena_config);
 	if (fy_is_invalid(emitted))
 		return -1;
 	text = fy_castp(&emitted, "");
@@ -2422,7 +2422,7 @@ static void fyai_config_edit_service(void *userdata)
 			   request->path);
 		goto out;
 	}
-	doc = fy_parse_file(ctx->gb, FYAI_YAML_PARSE_FLAGS, request->path);
+	doc = fy_parse_file(ctx->arena->gb, FYAI_YAML_PARSE_FLAGS, request->path);
 	if (request->catalog) {
 		rc = fyai_catalog_commit(ctx, doc, "the edited catalogue",
 				 fy_invalid);
@@ -2481,7 +2481,7 @@ config_edit_open(struct fyai_ctx *ctx, bool catalog)
 	ssize_t wr;
 	int rc;
 
-	if (!ctx->gb) {
+	if (!ctx->arena->gb) {
 		fyai_error(ctx, "no arena; run fyai init");
 		return NULL;
 	}
@@ -2507,7 +2507,7 @@ config_edit_open(struct fyai_ctx *ctx, bool catalog)
 	doc = catalog ? fyai_catalog_effective(ctx->arena_catalog, ctx->cfg->gb) :
 			ctx->arena_config;
 	if (fy_is_valid(doc)) {
-		emitted = config_emit_yaml(ctx->gb, doc);
+		emitted = config_emit_yaml(ctx->arena->gb, doc);
 		fyai_error_check(ctx, fy_is_valid(emitted), err_fd,
 				 "cannot render configuration for editing");
 		text = fy_castp(&emitted, "");

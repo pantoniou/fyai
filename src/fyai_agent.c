@@ -268,7 +268,7 @@ static int fyai_agent_revive_config(struct fyai_ctx *ctx, fy_generic stored)
 	 * that the document does not set, so clear the derived ones.
 	 */
 	if (*model_text && (!cfg->model || strcmp(bare, cfg->model))) {
-		ctx->arena_config = config_drop_keys(ctx->gb, ctx->arena_config,
+		ctx->arena_config = config_drop_keys(ctx->arena->gb, ctx->arena_config,
 				endpoint_keys, ARRAY_SIZE(endpoint_keys));
 		cfg->config_doc = config_drop_keys(cfg->gb, cfg->config_doc,
 				parent_keys, ARRAY_SIZE(parent_keys));
@@ -334,7 +334,7 @@ static int fyai_agent_spawn_adopt(struct fyai_ctx *ctx, fy_generic spawn)
 
 	branch_config = fy_get(spawn, "branch_config", fy_invalid);
 	if (fy_is_mapping(branch_config)) {
-		ctx->arena_config = fy_gb_internalize(ctx->gb, branch_config);
+		ctx->arena_config = fy_gb_internalize(ctx->arena->gb, branch_config);
 		fyai_error_check(ctx, fy_is_valid(ctx->arena_config), err,
 				 "could not store the parent branch configuration");
 	}
@@ -342,7 +342,7 @@ static int fyai_agent_spawn_adopt(struct fyai_ctx *ctx, fy_generic spawn)
 	if (catalog_v != fy_invalid_value && catalog_v != fy_null_value) {
 		catalog = (fy_generic){ .v = catalog_v };
 		fyai_error_check(ctx, fyai_arena_mapping_contained(
-					ctx->durable_allocator, catalog), err,
+					ctx->arena->durable_allocator, catalog), err,
 				 "the parent catalogue is not in the arena");
 		ctx->arena_catalog = catalog;
 	}
@@ -350,7 +350,7 @@ static int fyai_agent_spawn_adopt(struct fyai_ctx *ctx, fy_generic spawn)
 	if (skills_v != fy_invalid_value && skills_v != fy_null_value) {
 		skills = (fy_generic){ .v = skills_v };
 		fyai_error_check(ctx, fyai_arena_mapping_contained(
-					ctx->durable_allocator, skills), err,
+					ctx->arena->durable_allocator, skills), err,
 				 "the parent skills are not in the arena");
 		ctx->arena_skills = skills;
 	}
@@ -372,7 +372,7 @@ static int fyai_agent_spawn_adopt(struct fyai_ctx *ctx, fy_generic spawn)
 	head = fy_get(fork, "head", fy_invalid_value);
 	fyai_error_check(ctx, *branch && head != fy_invalid_value, err,
 			 "the sub-agent fork point is incomplete");
-	root = fyai_root_find_head(ctx->durable_allocator, ctx->refs_head,
+	root = fyai_root_find_head(ctx->arena->durable_allocator, ctx->arena->refs_head,
 				   branch, head);
 	if (fy_is_invalid(root)) {
 		fyai_diag_tracef("agent", "fork head of '%s' is not "
@@ -758,7 +758,7 @@ static int agent_run_setup(struct fyai_ctx *ctx, struct agent_run *r)
 	ctx->last_message = fyai_output_record(ctx, ctx->last_message,
 		FYAI_OUTPUT_USER, task);
 	fyai_prof_stamp(&t_intern);
-	ctx->last_message = fy_gb_internalize(ctx->gb, ctx->last_message);
+	ctx->last_message = fy_gb_internalize(ctx->arena->gb, ctx->last_message);
 	fyai_prof_since("agent_input_internalize", &t_intern);
 	fyai_error_check(ctx, fy_is_valid(ctx->last_message), err,
 			 "could not store the sub-agent input");
@@ -830,7 +830,7 @@ static int agent_run_publish(struct fyai_ctx *ctx, struct agent_run *r)
 	if (ctx->agent_branch) {
 		/* Preserve the original agent metadata when reviving it. */
 		if (!r->revive)
-			ctx->branch_agent = fy_gb_mapping(ctx->gb,
+			ctx->branch_agent = fy_gb_mapping(ctx->arena->gb,
 				"name", fyai_generic_or_null(r->name),
 				"description", fyai_generic_or_null(r->description),
 				"context", r->fork_mode ? "fork" : "fresh",
@@ -851,9 +851,9 @@ static int agent_run_publish(struct fyai_ctx *ctx, struct agent_run *r)
 			    cfg->provider))) {
 			model_bare = strchr(cfg->model, '/');
 			model_bare = model_bare ? model_bare + 1 : cfg->model;
-			ctx->arena_config = fy_set_at_pathstr(ctx->gb,
+			ctx->arena_config = fy_set_at_pathstr(ctx->arena->gb,
 				ctx->arena_config, "model",
-				fy_stringf(ctx->gb, "%s/%s", cfg->provider,
+				fy_stringf(ctx->arena->gb, "%s/%s", cfg->provider,
 					   model_bare));
 			fyai_error_check(ctx, fy_is_valid(ctx->arena_config), err,
 					 "could not persist the sub-agent model");
