@@ -2,7 +2,7 @@
 
 Status: design, and the first three steps are done and the fourth has begun:
 `struct fyai_app` exists and holds `diag`, `loop`, `arena`, `transient`,
-`cred`, `link` and `cfg`. The counts come from a script over
+`cred`, `link`, `transport` and `cfg`. The counts come from a script over
 `src/*.c` that counts `ctx->FIELD` per file; check a row against the code
 before a change. The order of the work is near the end.
 
@@ -254,7 +254,10 @@ Each step builds, passes both suites, and lands as its own patch series
    `link` holds the model connection: the curl handle, its headers, the
    transfer in progress and its outcome, the curl multi state and the request
    cache. It stands on `loop` and `cred`. `struct fyai_xfer` is a request, not
-   this component, which is why the name is `link`. `cred` takes `loop` and `diag`; its 17 reads of `transient_gb`
+   this component, which is why the name is `link`.
+   `transport` is the client of the credential transport: the role, the
+   control channel, the source that drains it and the profiles granted. It
+   stands on `loop` and `cred`; its functions still take `ctx`. `cred` takes `loop` and `diag`; its 17 reads of `transient_gb`
    become its own builder. Each of the four ends with a unit test that builds
    the component with a stub loop and diagnostics, which is the test that a
    struct of pointers makes possible and `ctx` did not.
