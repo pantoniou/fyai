@@ -198,8 +198,10 @@ initialize each generic field explicitly.
 - `src/fyai_tool_child.c`: the tool child process: its fork and exec, its
   JSON-RPC serve loop and its dispatch.
 - `src/fyai_shell_sandbox.c`: the confinement policy of a shell command.
-- `src/fyai_shell_session.c`: shell sessions and their tiles, zoom and focus,
-  bang commands, user programs and mirrors.
+- `src/fyai_shell_session.c`: shell sessions and their tiles, bang commands,
+  user programs and mirrors.
+- `src/fyai_tools_focus.c`: focus, zoom and the keys of tiles and inline
+  blocks, and the control of a session by name.
 - `src/fyai_agent_view.c`: the screen of a sub-agent, its inline terminal and
   the btw panels.
 - `src/fyai_claude_sdk.c`: the Claude Agent SDK protocol

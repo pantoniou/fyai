@@ -7,8 +7,7 @@ Status: the document has four parts.
 - Part 2 plans the split of the TUI from the core. It is a plan, and no step
   is done.
 - "Other cleanups" lists what is open: the parallel-construction oracles
-  (item 9), the long functions (item 17), the focus and zoom code of
-  `fyai_shell_session.c` (item 15) and the tests that poll (item 19). The wait of a delegated child for an answer to its
+  (item 9), the long functions (item 17) and the tests that poll (item 19). The wait of a delegated child for an answer to its
   question stays by design (item 1).
 - "Copies of arena data" lists copies that a generic or an interned string
   replaces. Open: the rows of class a and class b.
@@ -476,10 +475,6 @@ is a series. Check an item again before work on it.
 
 ### Dead code and compatibility
 
-15. `fyai_shell_session.c` still holds the focus and zoom code (about 1000
-    lines) that could be a file of its own.
-
-    own.
 17. Long functions (M to L each), with the split seam: `fyai_config_apply`
     (474 lines, `fyai_config.c:398`; a table of key and setter),
     `fyai_tool_job_submit` (351; validate, build, spawn), `capture_run`
@@ -509,7 +504,7 @@ of the 475 cases has a positive control is unverified.
 ### Suggested order
 
 The remaining timing sites of item 19 need a wake source and not a poll
-interval. Item 9 and items 1 and 15 go with the state-machine and TUI work,
+interval. Item 9 and item 1 go with the state-machine and TUI work,
 because they touch the same code.
 
 ## Copies of arena data
