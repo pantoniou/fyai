@@ -2,7 +2,7 @@
 
 Status: design, and the first three steps are done and the fourth has begun:
 `struct fyai_app` exists and holds `diag`, `loop`, `arena`, `transient`,
-`cred`, `link`, `transport`, `mcp`, `waitq`, `askq`, `scope`, `tty`, `skills`, `toolspec` and `cfg`. The counts come from a script over
+`cred`, `link`, `transport`, `mcp`, `waitq`, `askq`, `scope`, `tty`, `skills`, `toolspec`, `bstate`, `usage` and `cfg`. The counts come from a script over
 `src/*.c` that counts `ctx->FIELD` per file; check a row against the code
 before a change. The order of the work is near the end.
 
@@ -279,7 +279,13 @@ Each step builds, passes both suites, and lands as its own patch series
    `struct fyai_skills` holds the skill directories and the settings export
    directory, and `struct fyai_toolspec` the specification, its generation and
    the allow list.
-7. `branch`, `usage`.
+7. `branch`, `usage`: done. `struct fyai_branch_state` (`ctx->bstate`) is the
+   branch cursor: the active and stored branch, the configuration, catalogue and
+   skills of the branch, the branch table, the record of the next publish and
+   the project states. `struct fyai_usage` holds the totals of the run, the
+   usage of the sub-agents, the cost of a model switch and the usage of the
+   last call. A view context copies the branch cursor into storage of its own
+   (`struct fyai_view_own`), because it changes it to render one exchange.
 8. `jobs`, `agents`, `turn`: the wide components, with the callbacks of the
    display and of the observers. These change the most call sites.
 9. `sink`, `uimodel`, `ui`: this part ends in the second context of the TUI

@@ -171,8 +171,10 @@ initialize each generic field explicitly.
   the whole program shares, in dependency order (`doc/context-components.md`).
   `main()` declares it and everything else borrows from it. Today it holds the
   diagnostics, the event loop, the arena, the transient builder, the
-  credential refresh, the model connection, the transport client, the MCP client, the waits, the questions, the tool scope, the terminal, the skill files, the tool
-  specification and the configuration; the other components move in one by one.
+  credential refresh, the model connection, the transport client, the MCP
+  client, the waits, the questions, the tool scope, the terminal, the skill
+  files, the tool specification, the branch cursor, the usage totals and the
+  configuration; the other components move in one by one.
 - `src/fyai_arena.c`: `struct fyai_arena`, the durable and working builders of
   the canonical state. `ctx->arena` points at the one in the app; read
   `ctx->arena->gb` where you need the working builder.
@@ -194,6 +196,10 @@ initialize each generic field explicitly.
   `src/fyai_toolspec.h`: the scope of the tool processes, the real terminal, the
   skill files, and the tool specification. `ctx->scope`, `ctx->tty`,
   `ctx->skills` and `ctx->toolspec` point at the ones in the app.
+- `src/fyai_branch_state.h`, `src/fyai_usage.h`: `struct fyai_branch_state`, the
+  branch cursor, and `struct fyai_usage`, the totals of the run. `ctx->bstate`
+  and `ctx->usage` point at the ones in the app. A detached view context keeps
+  a copy of the cursor (`struct fyai_view_own`).
 - `src/fyai_cred.c`: `struct fyai_cred`, the shared refresh of the login and
   the secrets in memory. `ctx->cred` points at the one in the app; it stands
   on the loop of the app for its timer.
