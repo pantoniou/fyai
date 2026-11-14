@@ -252,6 +252,14 @@ initialize each generic field explicitly.
   Secret Service (`fyai_secret_libsecret.c`) and none. The login uses
   `fyai_secret_store_keyring()`.
 - `src/fyai_oauth.c`: provider-independent OAuth browser flow.
+- `src/fyai_cred.c`: the credential sources (`env:`, `secret:`, `mem:`,
+  `oauth:chatgpt`) and the one refresh of the login for each process: waiters,
+  `prepare` before a request, `reject` after a 401 and the scheduled refresh
+  (`doc/credential-sources-plan.md`). The agent, the model discovery and the
+  transport all use it; do not refresh a login anywhere else.
+- `src/fyai_xfer.c`: a model request over curl or the transport. It builds the
+  headers for each send and holds back a 401 that a renewal can answer.
+- `src/fyai_mcp_oauth.c`: the refresh request of an MCP OAuth server.
 - `src/fyai_jsonrpc.c`: JSON-RPC over standard I/O and HTTP, and the image
   mode of two fyai ends (`doc/remote-sessions-sdd.md`, section 5.2.1).
 - `src/fyai_config.c`: layered configuration and config commands.
