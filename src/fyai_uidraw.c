@@ -39,9 +39,6 @@ struct fyai_uidraw {
 	size_t live_shown;
 	char live_tag[16];
 	bool live_paused;
-	/* What this renderer gave the sink for the live document, and what
-	 * the legacy path gave it. */
-	struct fyai_buf trace, oracle;
 	/* The newest entry of the log shown. A mirror does not show the
 	 * entries of its snapshot: they were shown before it attached. */
 	long long log_shown;
@@ -76,51 +73,6 @@ err:
 		if (!(_cond))						\
 			fyai_warning((_ctx), "cannot draw %s", (_what));\
 	} while (0)
-
-static void uidraw_trace(struct fyai_ctx *ctx, struct fyai_buf *buf,
-			 const char *data, size_t len)
-{
-	/* A mirror has no legacy path to compare with. */
-	if (fyai_uimodel_mirrored(ctx) || !len)
-		return;
-	if (fyai_buf_append_data(buf, data, len))
-		fyai_warning(ctx, "cannot keep the trace of the live document");
-}
-
-static void uidraw_trace_reset(struct fyai_uidraw *d)
-{
-	d->trace.len = 0;
-	d->oracle.len = 0;
-	if (d->trace.data)
-		d->trace.data[0] = '\0';
-	if (d->oracle.data)
-		d->oracle.data[0] = '\0';
-}
-
-void fyai_uidraw_oracle(struct fyai_ctx *ctx, const char *data, size_t len)
-{
-	struct fyai_uidraw *d = uidraw(ctx);
-
-	if (d)
-		uidraw_trace(ctx, &d->oracle, data, len);
-}
-
-void fyai_uidraw_oracle_printf(struct fyai_ctx *ctx, const char *fmt, ...)
-{
-	char *op;
-	va_list ap;
-	int n;
-
-	va_start(ap, fmt);
-	n = vasprintf(&op, fmt, ap);
-	va_end(ap);
-	if (n < 0) {
-		fyai_error(ctx, "cannot format an operation of the live document");
-		return;
-	}
-	fyai_uidraw_oracle(ctx, op, (size_t)n);
-	free(op);
-}
 
 static enum fyai_sink_doc_kind uidraw_doc_kind(const char *tag)
 {
@@ -161,15 +113,12 @@ static void uidraw_live_feed(struct fyai_ctx *ctx, struct fyai_uidraw *d,
 		if (end <= from || start >= len)
 			continue;
 		if (start > from && !rc) {
-			uidraw_trace(ctx, &d->trace, text + from,
-				     start - from);
 			rc = fyai_sink_doc_append(ctx->sink, text + from,
 						  start - from);
 		}
 		from = end < len ? end : len;
 	}
 	if (from < len && !rc) {
-		uidraw_trace(ctx, &d->trace, text + from, len - from);
 		rc = fyai_sink_doc_append(ctx->sink, text + from, len - from);
 	}
 	d->live_shown = len;
@@ -180,12 +129,10 @@ static void uidraw_live_feed(struct fyai_ctx *ctx, struct fyai_uidraw *d,
 static void uidraw_live_end(struct fyai_ctx *ctx, struct fyai_uidraw *d,
 			    const char *state)
 {
-	const char *op, *text;
+	const char *text;
 	size_t len;
 	int rc = 0;
 
-	op = fy_sprintfa("<end %s>", state);
-	uidraw_trace(ctx, &d->trace, op, strlen(op));
 	if (!strcmp(state, "discarded"))
 		fyai_sink_doc_discard(ctx->sink);
 	else
@@ -208,12 +155,6 @@ static void uidraw_live_end(struct fyai_ctx *ctx, struct fyai_uidraw *d,
 							 text);
 		}
 	}
-	if (d->trace.data || d->oracle.data)
-		(void)fyai_uimodel_check(ctx, FYAI_UI_TRANSCRIPT,
-			"live document",
-			d->trace.data ? d->trace.data : "",
-			d->oracle.data ? d->oracle.data : "");
-	uidraw_trace_reset(d);
 	d->card.len = 0;
 	d->live_source = 0;
 	d->live_shown = 0;
@@ -228,7 +169,6 @@ static void uidraw_transcript(struct fyai_ctx *ctx, struct fyai_uidraw *d,
 	fy_generic last = fy_get(root, "last", fy_invalid);
 	long long source = fy_get(live, "source", 0LL);
 	bool paused = fy_get(live, "paused", false);
-	const char *op;
 	int rc;
 
 	if (d->live_source && d->live_source != source)
@@ -239,12 +179,8 @@ static void uidraw_transcript(struct fyai_ctx *ctx, struct fyai_uidraw *d,
 		d->live_source = source;
 		d->live_shown = 0;
 		d->live_paused = false;
-		/* The legacy path records its begin after this one. */
-		uidraw_trace_reset(d);
 		snprintf(d->live_tag, sizeof(d->live_tag), "%s",
 			 fy_get(live, "tag", "assistant"));
-		op = fy_sprintfa("<begin %s>", d->live_tag);
-		uidraw_trace(ctx, &d->trace, op, strlen(op));
 		rc = fyai_sink_doc_begin(ctx->sink,
 					 uidraw_doc_kind(d->live_tag));
 		uidraw_warn_check(ctx, !rc, "the live document");
@@ -253,8 +189,6 @@ static void uidraw_transcript(struct fyai_ctx *ctx, struct fyai_uidraw *d,
 	if (paused == d->live_paused)
 		return;
 	d->live_paused = paused;
-	uidraw_trace(ctx, &d->trace, paused ? "<pause>" : "<resume>",
-		     paused ? 7 : 8);
 	rc = paused ? fyai_sink_doc_pause(ctx->sink) :
 		      fyai_sink_doc_resume(ctx->sink);
 	uidraw_warn_check(ctx, !rc, "the live document");
@@ -744,8 +678,6 @@ void fyai_uidraw_release(struct fyai_ctx *ctx)
 		free(d->echoed[--d->nechoed]);
 	free(d->echoed);
 	free(d->card.data);
-	free(d->trace.data);
-	free(d->oracle.data);
 	free(d);
 	ctx->uidraw = NULL;
 }

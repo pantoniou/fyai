@@ -51,10 +51,8 @@ void fyai_output_cleanup(struct fyai_ctx *ctx)
 	if (!ctx || !ctx->display_output)
 		return;
 	/* A document that ends unrecorded is discarded. The renderer of the
-	 * UI model draws the live document from the transcript store; the
-	 * oracle records what the legacy path gave the sink. */
+	 * UI model draws the live document from the transcript store. */
 	if (!ctx->display_output->ended) {
-		fyai_uidraw_oracle(ctx, "<end discarded>", 15);
 		fyai_uitranscript_end(ctx, "discarded");
 	}
 	free(ctx->display_output->markdown.data);
@@ -76,8 +74,6 @@ int fyai_output_begin(struct fyai_ctx *ctx, enum fyai_output_tag tag)
 	output->fragments = fy_seq_empty;
 	ctx->display_output = output;
 	fyai_uitranscript_begin(ctx, fyai_output_tag_name(tag));
-	fyai_uidraw_oracle_printf(ctx, "<begin %s>",
-				  fyai_output_tag_name(tag));
 	return 0;
 err:
 	return -1;
@@ -112,7 +108,6 @@ int fyai_output_append(struct fyai_ctx *ctx, const char *text, size_t len)
 	rc = fyai_output_record_source(ctx, text, len);
 	fyai_error_check(ctx, !rc, err,
 			 "could not grow display output");
-	fyai_uidraw_oracle(ctx, text, len);
 	fyai_uitranscript_append(ctx, text, len, true);
 	if (ctx->display_output->tag == FYAI_OUTPUT_ASSISTANT &&
 	    ctx->display_output->markdown.len -
@@ -322,7 +317,6 @@ int fyai_output_checkpoint(struct fyai_ctx *ctx)
 	if (!fyai_output_renders_live(ctx))
 		return 0;
 	ctx->display_output->paused = true;
-	fyai_uidraw_oracle(ctx, "<pause>", 7);
 	fyai_uitranscript_pause(ctx, true);
 	return 0;
 }
@@ -334,7 +328,6 @@ int fyai_output_resume(struct fyai_ctx *ctx)
 	if (!ctx->display_output->paused)
 		return 0;
 	ctx->display_output->paused = false;
-	fyai_uidraw_oracle(ctx, "<resume>", 8);
 	fyai_uitranscript_pause(ctx, false);
 	return 0;
 }
@@ -354,7 +347,6 @@ fy_generic fyai_output_finalize(struct fyai_ctx *ctx, fy_generic turn,
 	}
 	output = ctx->display_output;
 	(void)fyai_output_reasoning_finish(ctx);
-	fyai_uidraw_oracle_printf(ctx, "<end %s>", state);
 	fyai_uitranscript_end(ctx, state);
 	output->ended = true;
 	record = fy_mapping(

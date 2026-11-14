@@ -22,16 +22,6 @@ void fyai_uidraw_store(struct fyai_ctx *ctx, enum fyai_ui_store store,
 		       fy_generic root);
 
 /*
- * Record what the legacy path gives the sink for the live document: @len
- * bytes of source, or an operation in "<...>" form. The renderer compares it
- * with what it gave the sink when the document ends.
- */
-void fyai_uidraw_oracle(struct fyai_ctx *ctx, const char *data, size_t len);
-/* As fyai_uidraw_oracle(), for an operation that @fmt formats. */
-void fyai_uidraw_oracle_printf(struct fyai_ctx *ctx, const char *fmt, ...)
-	__attribute__((format(printf, 2, 3)));
-
-/*
  * The snapshot of a mirror is complete: the entries of the log that it held
  * were shown before the client attached, and the entries after it are new.
  */
