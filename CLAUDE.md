@@ -173,8 +173,8 @@ initialize each generic field explicitly.
   diagnostics, the event loop, the arena, the transient builder, the
   credential refresh, the model connection, the transport client, the MCP
   client, the waits, the questions, the tool scope, the terminal, the skill
-  files, the tool specification, the branch cursor, the usage totals and the
-  configuration; the other components move in one by one.
+  files, the tool specification, the branch cursor, the usage totals, the turn
+  state and the configuration; the other components move in one by one.
 - `src/fyai_arena.c`: `struct fyai_arena`, the durable and working builders of
   the canonical state. `ctx->arena` points at the one in the app; read
   `ctx->arena->gb` where you need the working builder.
@@ -200,6 +200,9 @@ initialize each generic field explicitly.
   branch cursor, and `struct fyai_usage`, the totals of the run. `ctx->bstate`
   and `ctx->usage` point at the ones in the app. A detached view context keeps
   a copy of the cursor (`struct fyai_view_own`).
+- `src/fyai_turnstate.h`: `struct fyai_turnstate`, what a running turn carries:
+  the last message, the observers, the tool gate, the stop reason and the
+  attachments that wait. `ctx->turn` points at the one in the app.
 - `src/fyai_cred.c`: `struct fyai_cred`, the shared refresh of the login and
   the secrets in memory. `ctx->cred` points at the one in the app; it stands
   on the loop of the app for its timer.
