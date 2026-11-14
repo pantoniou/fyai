@@ -475,8 +475,7 @@ is a series. Check an item again before work on it.
 
 ### Dead code and compatibility
 
-17. Long functions (M to L each), with the split seam: `fyai_config_apply`
-    (474 lines, `fyai_config.c:398`; a table of key and setter),
+17. Long functions (M to L each), with the split seam:
     `fyai_tool_job_submit` (351; validate, build, spawn), `capture_run`
     (347, `fyai_project_capture.c`), `ui_page_update` (323; one function for
     each region), `fyai_agent_run` (312), `fyai_config_setup` (308; argv,
