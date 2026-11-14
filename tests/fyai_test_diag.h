@@ -261,6 +261,17 @@ static inline struct fyai_agent_state *fyai_test_astate_of(struct fyai_ctx *ctx)
 	return ctx->astate;
 }
 
+static inline struct fyai_front *fyai_test_front_of(struct fyai_ctx *ctx)
+{
+	if (!ctx->front) {
+		ctx->front = calloc(1, sizeof(*ctx->front));
+		if (!ctx->front)
+			return NULL;
+		fyai_front_init(ctx->front, ctx->loop, fyai_cfg_diag(ctx->cfg));
+	}
+	return ctx->front;
+}
+
 /*
  * Give a test context every component that it lacks. The ones that the test
  * gave it stay.
@@ -280,6 +291,7 @@ static inline void fyai_test_attach(struct fyai_ctx *ctx)
 	fyai_test_turn_of(ctx);
 	fyai_test_jobs_of(ctx);
 	fyai_test_astate_of(ctx);
+	fyai_test_front_of(ctx);
 }
 
 #endif

@@ -67,7 +67,8 @@ static int uimodel_put(struct fyai_ctx *ctx, const char *model)
 int uimodel_set_and_seq(void)
 {
 	struct fyai_cfg cfg = { 0 };
-	struct fyai_ctx ctx = { .cfg = &cfg };
+	struct fyai_front front = {};
+	struct fyai_ctx ctx = { .cfg = &cfg, .front = &front };
 	fy_generic root;
 	unsigned long long seq;
 	int rc;
@@ -92,7 +93,7 @@ int uimodel_set_and_seq(void)
 	seq = fyai_uimodel_seq(&ctx, FYAI_UI_SESSION);
 	FYAI_TCHECK(rc == 1 && seq == 2);
 	fyai_uimodel_release(&ctx);
-	FYAI_TCHECK(!ctx.uimodel);
+	FYAI_TCHECK(!ctx.front->uimodel);
 	printf("ok - a store copies its root and counts each change\n");
 	return 0;
 }
@@ -100,7 +101,8 @@ int uimodel_set_and_seq(void)
 int uimodel_consumers(void)
 {
 	struct fyai_cfg cfg = { 0 };
-	struct fyai_ctx ctx = { .cfg = &cfg };
+	struct fyai_front front = {};
+	struct fyai_ctx ctx = { .cfg = &cfg, .front = &front };
 	struct seen seen = { 0 };
 	int rc;
 
@@ -112,7 +114,7 @@ int uimodel_consumers(void)
 	FYAI_TCHECK(!strcmp(seen.model, "gamma"));
 	/* A forked child drops the model and the consumers of the parent. */
 	fyai_uimodel_abandon(&ctx);
-	FYAI_TCHECK(!ctx.uimodel);
+	FYAI_TCHECK(!ctx.front->uimodel);
 	FYAI_TCHECK(!fyai_uimodel_create(&ctx));
 	rc = uimodel_put(&ctx, "delta");
 	FYAI_TCHECK(rc == 1 && seen.calls == 1);
@@ -128,7 +130,8 @@ int uimodel_consumers(void)
 int uimodel_builders_bounded(void)
 {
 	struct fyai_cfg cfg = { 0 };
-	struct fyai_ctx ctx = { .cfg = &cfg };
+	struct fyai_front front = {};
+	struct fyai_ctx ctx = { .cfg = &cfg, .front = &front };
 	struct fy_generic_builder *first, *gb;
 	fy_generic prev, root, value;
 	int i, rc;
@@ -170,14 +173,15 @@ static fy_generic uimodel_log_last(struct fyai_ctx *ctx)
 int uimodel_log_entry(void)
 {
 	struct fyai_cfg cfg = { 0 };
-	struct fyai_ctx ctx = { .cfg = &cfg };
+	struct fyai_front front = {};
+	struct fyai_ctx ctx = { .cfg = &cfg, .front = &front };
 	fy_generic entry, parts, part;
 	unsigned long long seq;
 
 	FYAI_TCHECK(!fyai_uimodel_create(&ctx));
 	/* Output outside a span is not recorded. */
 	fyai_uilog_sink(&ctx, FYAI_SINK_NOTICE, false, "stray\n", 6);
-	FYAI_TCHECK(!ctx.uilog);
+	FYAI_TCHECK(!ctx.front->uilog);
 	fyai_uilog_begin(&ctx);
 	fyai_uilog_sink(&ctx, FYAI_SINK_NOTICE, true, "**done**", 8);
 	fyai_uilog_sink(&ctx, FYAI_SINK_STATUS, false, "status\n", 7);
@@ -214,7 +218,8 @@ int uimodel_log_entry(void)
 int uimodel_log_bounded(void)
 {
 	struct fyai_cfg cfg = { 0 };
-	struct fyai_ctx ctx = { .cfg = &cfg };
+	struct fyai_front front = {};
+	struct fyai_ctx ctx = { .cfg = &cfg, .front = &front };
 	fy_generic entries;
 	int i;
 
@@ -262,7 +267,8 @@ static void uimodel_band_state(void *data, enum fyai_ui_store store,
 int uimodel_bands(void)
 {
 	struct fyai_cfg cfg = { 0 };
-	struct fyai_ctx ctx = { .cfg = &cfg };
+	struct fyai_front front = {};
+	struct fyai_ctx ctx = { .cfg = &cfg, .front = &front };
 	/* The registry knows a band by its address only. */
 	char one, two, owner_a, owner_b, state[32] = "";
 	int rc;
@@ -327,7 +333,8 @@ int uimodel_view_detached(void)
 	struct fyai_cfg cfg = { 0 };
 	struct fyai_branch_state bstate = {};
 	struct fyai_turnstate turn = {};
-	struct fyai_ctx ctx = { .cfg = &cfg, .bstate = &bstate, .turn = &turn };
+	struct fyai_front front = {};
+	struct fyai_ctx ctx = { .cfg = &cfg, .bstate = &bstate, .turn = &turn, .front = &front };
 	struct fyai_ctx view;
 	struct fyai_view_own own;
 	char one;
@@ -335,14 +342,14 @@ int uimodel_view_detached(void)
 
 	FYAI_TCHECK(!fyai_uimodel_create(&ctx));
 	rc = uimodel_put(&ctx, "live");
-	FYAI_TCHECK(rc == 1 && ctx.uimodel);
+	FYAI_TCHECK(rc == 1 && ctx.front->uimodel);
 	view = ctx;
 	fyai_uimodel_view_detach(&view, &own);
 	rc = uimodel_put(&view, "view");
 	fyai_uiwork_band_open(&view, (struct fyai_sink_band *)&one, true,
 			      "view", NULL);
 	fyai_uilog_begin(&view);
-	FYAI_TCHECK(rc < 0 && !view.uimodel && !view.uiwork && !view.uilog);
+	FYAI_TCHECK(rc < 0 && !view.front->uimodel && !view.front->uiwork && !view.front->uilog);
 	FYAI_TCHECK(!strcmp(fy_get(fyai_uimodel_get(&ctx, FYAI_UI_SESSION),
 				   "model", ""), "live"));
 	fyai_uimodel_release(&ctx);
@@ -353,7 +360,8 @@ int uimodel_view_detached(void)
 int uimodel_transcript_live(void)
 {
 	struct fyai_cfg cfg = { 0 };
-	struct fyai_ctx ctx = { .cfg = &cfg };
+	struct fyai_front front = {};
+	struct fyai_ctx ctx = { .cfg = &cfg, .front = &front };
 	fy_generic root, live, recorded;
 	const char *text;
 	size_t len;
@@ -394,13 +402,14 @@ int uimodel_transcript_live(void)
 int uimodel_draw_live(void)
 {
 	struct fyai_cfg cfg = { 0 };
-	struct fyai_ctx ctx = { .cfg = &cfg };
+	struct fyai_front front = {};
+	struct fyai_ctx ctx = { .cfg = &cfg, .front = &front };
 	const char *out;
 	size_t len;
 
 	FYAI_TCHECK(!fyai_uimodel_create(&ctx));
-	ctx.sink = fyai_sink_create_capture(&ctx);
-	FYAI_TCHECK(ctx.sink);
+	ctx.front->sink = fyai_sink_create_capture(&ctx);
+	FYAI_TCHECK(ctx.front->sink);
 	/* The renderer gives the sink the source that no band presented. */
 	fyai_uitranscript_begin(&ctx, "assistant");
 	fyai_uitranscript_append(&ctx, "Hello ", 6, true);
@@ -409,17 +418,17 @@ int uimodel_draw_live(void)
 	fyai_uitranscript_pause(&ctx, false);
 	fyai_uitranscript_append(&ctx, "done", 4, true);
 	fyai_uitranscript_end(&ctx, "finalized");
-	out = fyai_sink_captured(ctx.sink, &len);
+	out = fyai_sink_captured(ctx.front->sink, &len);
 	FYAI_TCHECK(len == 10 && !memcmp(out, "Hello done", 10));
 	/* A discarded document gives the sink nothing. */
 	fyai_uitranscript_begin(&ctx, "assistant");
 	fyai_uitranscript_append(&ctx, "lost", 4, true);
 	fyai_uitranscript_end(&ctx, "discarded");
-	out = fyai_sink_captured(ctx.sink, &len);
+	out = fyai_sink_captured(ctx.front->sink, &len);
 	FYAI_TCHECK(len == 10);
 	fyai_uitranscript_release(&ctx);
 	fyai_uimodel_release(&ctx);
-	fyai_sink_destroy(ctx.sink);
+	fyai_sink_destroy(ctx.front->sink);
 	printf("ok - the renderer draws the live document from the store\n");
 	return 0;
 }
@@ -427,7 +436,8 @@ int uimodel_draw_live(void)
 int uimodel_session_head(void)
 {
 	struct fyai_cfg cfg = { 0 };
-	struct fyai_ctx ctx = { .cfg = &cfg };
+	struct fyai_front front = {};
+	struct fyai_ctx ctx = { .cfg = &cfg, .front = &front };
 	fy_generic head;
 
 	FYAI_TCHECK(!fyai_uimodel_create(&ctx));

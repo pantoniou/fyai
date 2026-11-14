@@ -49,6 +49,7 @@ FYAI_TEST_ENTRY(app, wires_usage, app_wires_usage)
 FYAI_TEST_ENTRY(app, wires_turn, app_wires_turn)
 FYAI_TEST_ENTRY(app, wires_jobs, app_wires_jobs)
 FYAI_TEST_ENTRY(app, wires_astate, app_wires_astate)
+FYAI_TEST_ENTRY(app, wires_front, app_wires_front)
 FYAI_TEST_ENTRY(app, wires_link, app_wires_link)
 FYAI_TEST_ENTRY(app, wires_cred, app_wires_cred)
 FYAI_TEST_ENTRY(app, cred_holds_login_state, app_cred_holds_login_state)
@@ -304,6 +305,20 @@ int app_wires_astate(void)
 	FYAI_TCHECK(fy_is_invalid(app.astate.spawn));
 	fyai_app_cleanup(&app);
 	printf("ok - the sub-agent identity starts empty\n");
+	return 0;
+}
+
+int app_wires_front(void)
+{
+	struct fyai_app app;
+
+	FYAI_TCHECK(!fyai_app_init(&app));
+	FYAI_TCHECK(app.front.loop == &app.loop && app.front.diag == &app.diag);
+	FYAI_TCHECK(!app.front.sink && !app.front.ui && !app.front.uimodel);
+	FYAI_TCHECK(!app.front.workpane && !app.front.browser && !app.front.cmd_call);
+	FYAI_TCHECK(!app.front.display_output && !app.front.uimodel_detached);
+	fyai_app_cleanup(&app);
+	printf("ok - the front end starts with no display\n");
 	return 0;
 }
 

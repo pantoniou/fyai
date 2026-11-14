@@ -32,9 +32,9 @@ int fork_disown_drops_parent_state(void)
 	fyai_loop_init(&loop, NULL);
 	loop.dump_fd = 7;
 	fyai_test_attach(&ctx);
-	ctx.workpane = (struct fyai_workpane_manager *)&parent;
-	ctx.cmd_call = (struct fyai_cmd_call *)&parent;
-	ctx.catalog_update = (struct fyai_catalog_update_request *)&parent;
+	ctx.front->workpane = (struct fyai_workpane_manager *)&parent;
+	ctx.front->cmd_call = (struct fyai_cmd_call *)&parent;
+	ctx.front->catalog_update = (struct fyai_catalog_update_request *)&parent;
 	ctx.acp_rpc = (struct jsonrpc_conn *)&parent;
 	ctx.transport->src = (struct fyai_event_source *)&parent;
 	for (i = 0; i < ARRAY_SIZE(loop.signal_src); i++)
@@ -42,9 +42,9 @@ int fork_disown_drops_parent_state(void)
 
 	fyai_ctx_fork_disown(&ctx);
 
-	FYAI_TCHECK(!ctx.workpane);
-	FYAI_TCHECK(!ctx.cmd_call);
-	FYAI_TCHECK(!ctx.catalog_update);
+	FYAI_TCHECK(!ctx.front->workpane);
+	FYAI_TCHECK(!ctx.front->cmd_call);
+	FYAI_TCHECK(!ctx.front->catalog_update);
 	FYAI_TCHECK(!ctx.acp_rpc);
 	FYAI_TCHECK(!ctx.transport->src);
 	for (i = 0; i < ARRAY_SIZE(loop.signal_src); i++)

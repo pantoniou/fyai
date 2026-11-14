@@ -84,9 +84,9 @@ static void fixture_open(struct sink_fixture *f)
 		fprintf(stderr, "could not open the UI model fixture\n");
 		exit(1);
 	}
-	f->ctx.sink = fyai_sink_create_capture(&f->ctx);
+	f->ctx.front->sink = fyai_sink_create_capture(&f->ctx);
 	/* Fragments and turns are built here, as they are in a real run. */
-	if (!f->ctx.sink || !fyai_ctx_transient_gb(&f->ctx)) {
+	if (!f->ctx.front->sink || !fyai_ctx_transient_gb(&f->ctx)) {
 		fprintf(stderr, "could not open the sink fixture\n");
 		exit(1);
 	}
@@ -95,15 +95,15 @@ static void fixture_open(struct sink_fixture *f)
 static void fixture_close(struct sink_fixture *f)
 {
 	fyai_output_cleanup(&f->ctx);
-	fyai_sink_destroy(f->ctx.sink);
+	fyai_sink_destroy(f->ctx.front->sink);
 	fyai_uimodel_release(&f->ctx);
-	f->ctx.sink = NULL;
+	f->ctx.front->sink = NULL;
 	fyai_cleanup_transient_builder(&f->ctx);
 }
 
 static const char *captured(struct sink_fixture *f)
 {
-	return fyai_sink_captured(f->ctx.sink, NULL);
+	return fyai_sink_captured(f->ctx.front->sink, NULL);
 }
 
 /*
@@ -279,12 +279,12 @@ static void test_bands_absent(void)
 
 	fixture_open(&f);
 	expect_true("capture offers no bands",
-		    !fyai_sink_bands_available(f.ctx.sink));
+		    !fyai_sink_bands_available(f.ctx.front->sink));
 	expect_true("opening a band yields none",
-		    fyai_sink_band_open(f.ctx.sink, true, "t", NULL) == NULL);
+		    fyai_sink_band_open(f.ctx.front->sink, true, "t", NULL) == NULL);
 	/* Painting and closing a band that does not exist must be safe. */
 	fyai_sink_band_paint(NULL, "t", NULL, "b", 1, NULL);
-	fyai_sink_band_close(f.ctx.sink, true, NULL);
+	fyai_sink_band_close(f.ctx.front->sink, true, NULL);
 	fyai_sink_band_destroy(NULL);
 	fixture_close(&f);
 }
@@ -366,9 +366,9 @@ static void test_protocol_fd_stays_clean(void)
 	f.ctx.bstate->agent = fy_invalid;
 	f.ctx.turn->last_token_extents = fy_invalid;
 	/* The terminal backend: the one that reaches a descriptor. */
-	f.ctx.sink = fyai_sink_create(&f.ctx);
-	expect_true("the terminal sink opened", f.ctx.sink != NULL);
-	if (!f.ctx.sink)
+	f.ctx.front->sink = fyai_sink_create(&f.ctx);
+	expect_true("the terminal sink opened", f.ctx.front->sink != NULL);
+	if (!f.ctx.front->sink)
 		return;
 
 	tmp = fileno(tmpfile());
@@ -377,10 +377,10 @@ static void test_protocol_fd_stays_clean(void)
 	(void)dup2(tmp, STDOUT_FILENO);
 
 	/* Every stream that would otherwise reach descriptor 1. */
-	(void)fyai_sink_write(f.ctx.sink, FYAI_SINK_MACHINE, "{\"a\":1}\n", 8);
-	(void)fyai_sink_write(f.ctx.sink, FYAI_SINK_TRANSCRIPT, "prose\n", 6);
-	(void)fyai_sink_write(f.ctx.sink, FYAI_SINK_NOTICE, "notice\n", 7);
-	(void)fyai_sink_markdown(f.ctx.sink, FYAI_SINK_TRANSCRIPT, "# heading");
+	(void)fyai_sink_write(f.ctx.front->sink, FYAI_SINK_MACHINE, "{\"a\":1}\n", 8);
+	(void)fyai_sink_write(f.ctx.front->sink, FYAI_SINK_TRANSCRIPT, "prose\n", 6);
+	(void)fyai_sink_write(f.ctx.front->sink, FYAI_SINK_NOTICE, "notice\n", 7);
+	(void)fyai_sink_markdown(f.ctx.front->sink, FYAI_SINK_TRANSCRIPT, "# heading");
 	fflush(stdout);
 
 	n = pread(tmp, buf, sizeof(buf), 0);
@@ -392,8 +392,8 @@ static void test_protocol_fd_stays_clean(void)
 		fprintf(stderr, "  wrote %zd bytes: %.*s\n", n,
 			(int)(n > 120 ? 120 : n), buf);
 
-	fyai_sink_destroy(f.ctx.sink);
-	f.ctx.sink = NULL;
+	fyai_sink_destroy(f.ctx.front->sink);
+	f.ctx.front->sink = NULL;
 	fyai_cleanup_transient_builder(&f.ctx);
 }
 
@@ -467,9 +467,9 @@ static void test_reflow_follows_width(void)
 	f.ctx.bstate->agent = fy_invalid;
 	f.ctx.turn->last_token_extents = fy_invalid;
 	expect_true("the UI model opened", !fyai_uimodel_create(&f.ctx));
-	f.ctx.sink = fyai_sink_create(&f.ctx);
-	expect_true("the terminal sink opened", f.ctx.sink != NULL);
-	if (!f.ctx.sink || !fyai_ctx_transient_gb(&f.ctx))
+	f.ctx.front->sink = fyai_sink_create(&f.ctx);
+	expect_true("the terminal sink opened", f.ctx.front->sink != NULL);
+	if (!f.ctx.front->sink || !fyai_ctx_transient_gb(&f.ctx))
 		return;
 
 	tmp = fileno(tmpfile());
@@ -480,10 +480,10 @@ static void test_reflow_follows_width(void)
 	(void)fyai_output_begin(&f.ctx, FYAI_OUTPUT_ASSISTANT);
 	(void)fyai_output_append_string(&f.ctx, text);
 	expect_true("the document is live",
-		    fyai_sink_doc_is_live(f.ctx.sink));
+		    fyai_sink_doc_is_live(f.ctx.front->sink));
 	/* Narrow the window after drawing the initial rows. */
 	f.cfg.render_width = 30;
-	fyai_sink_reflow(f.ctx.sink);
+	fyai_sink_reflow(f.ctx.front->sink);
 	fflush(stdout);
 
 	n = pread(tmp, buf, sizeof(buf) - 1, 0);
@@ -502,8 +502,8 @@ static void test_reflow_follows_width(void)
 			widest_row(last, strlen(last)));
 
 	fyai_output_abort(&f.ctx);
-	fyai_sink_destroy(f.ctx.sink);
-	f.ctx.sink = NULL;
+	fyai_sink_destroy(f.ctx.front->sink);
+	f.ctx.front->sink = NULL;
 	fyai_uimodel_release(&f.ctx);
 	fyai_cleanup_transient_builder(&f.ctx);
 }
