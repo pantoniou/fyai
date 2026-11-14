@@ -2580,8 +2580,8 @@ static int fyai_mcp_bringup(struct fyai_ctx *ctx)
 	if (ctx->cfg->mcp_enabled)
 		return fyai_mcp_refresh(ctx);
 	fyai_mcp_cleanup(ctx);
-	ctx->mcp_tools = fy_invalid;
-	ctx->mcp_active_tools = fy_invalid;
+	ctx->mcp->tools = fy_invalid;
+	ctx->mcp->active_tools = fy_invalid;
 	return 0;
 }
 
@@ -2740,6 +2740,7 @@ int fyai_setup(struct fyai_ctx *ctx, struct fyai_app *app)
 	ctx->cred = &app->cred;
 	ctx->link = &app->link;
 	ctx->transport = &app->transport;
+	ctx->mcp = &app->mcp;
 	fyai_cred_bind(ctx->cred, ctx);
 	ctx->transient->on_release = fyai_transient_released;
 	ctx->transient->on_release_data = ctx;
@@ -2761,7 +2762,7 @@ int fyai_setup(struct fyai_ctx *ctx, struct fyai_app *app)
 		goto err;
 
 	ctx->tools = fy_invalid;
-	ctx->mcp_active_tools = fy_invalid;
+	ctx->mcp->active_tools = fy_invalid;
 	ctx->tools_spec = fy_invalid;
 	ctx->last_message = fy_invalid;
 	ctx->usage_head = fy_invalid;
@@ -3946,7 +3947,7 @@ static int fyai_prompt_interactive_async(struct fyai_ctx *ctx)
 		fyai_error_check(ctx, !rc, out, "could not start MCP servers");
 	} else {
 		fyai_mcp_cleanup(ctx);
-		ctx->mcp_tools = fy_invalid;
+		ctx->mcp->tools = fy_invalid;
 	}
 	state = FYAIAS_RUNNING;
 

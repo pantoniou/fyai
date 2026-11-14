@@ -295,12 +295,12 @@ bool fyai_mcp_tool_name(const char *name)
 
 fy_generic fyai_mcp_tools(struct fyai_ctx *ctx)
 {
-	return fy_is_valid(ctx->mcp_tools) ? ctx->mcp_tools : fy_seq_empty;
+	return fy_is_valid(ctx->mcp->tools) ? ctx->mcp->tools : fy_seq_empty;
 }
 
 bool fyai_mcp_enabled(const struct fyai_ctx *ctx)
 {
-	return ctx->cfg->mcp_enabled || ctx->mcp_invocation;
+	return ctx->cfg->mcp_enabled || ctx->mcp->invocation;
 }
 
 bool fyai_mcp_deferred(struct fyai_ctx *ctx)
@@ -313,9 +313,9 @@ bool fyai_mcp_tool_active(struct fyai_ctx *ctx, const char *name)
 {
 	fy_generic item;
 
-	if (!fy_is_valid(ctx->mcp_active_tools))
+	if (!fy_is_valid(ctx->mcp->active_tools))
 		return false;
-	fy_foreach(item, ctx->mcp_active_tools)
+	fy_foreach(item, ctx->mcp->active_tools)
 		if (fy_equal(item, name))
 			return true;
 	return false;
@@ -365,10 +365,10 @@ static fy_generic fyai_mcp_tool_search(struct fyai_ctx *ctx, fy_generic args,
 			"name", name, "description",
 			fy_stringf(gb, "%.256s", description)));
 		if (!fyai_mcp_tool_active(ctx, name)) {
-			if (!fy_is_valid(ctx->mcp_active_tools))
-				ctx->mcp_active_tools = fy_seq_empty;
-			ctx->mcp_active_tools = fy_append(ctx->arena->gb,
-				ctx->mcp_active_tools, fy_value(ctx->arena->gb, name));
+			if (!fy_is_valid(ctx->mcp->active_tools))
+				ctx->mcp->active_tools = fy_seq_empty;
+			ctx->mcp->active_tools = fy_append(ctx->arena->gb,
+				ctx->mcp->active_tools, fy_value(ctx->arena->gb, name));
 		}
 		count++;
 	}
@@ -398,7 +398,7 @@ static fy_generic mcp_resource_describe(struct fyai_ctx *ctx,
 	struct fyai_mcp_ctx *mcp;
 
 	(void)gb;
-	for (mcp = ctx->mcp; mcp; mcp = mcp->next)
+	for (mcp = ctx->mcp->conns; mcp; mcp = mcp->next)
 		if (mcp->state == MCP_SRV_READY && mcp->resources_supported)
 			return tool;
 	return fy_invalid;
@@ -2321,7 +2321,7 @@ static int mcp_create_server(struct fyai_ctx *ctx, const char *server_name,
 			 "MCP server '%s' could not create connection",
 			 server_name);
 
-	tail = &ctx->mcp;
+	tail = &ctx->mcp->conns;
 	while (*tail)
 		tail = &(*tail)->next;
 	*tail = mcp;
@@ -2338,10 +2338,10 @@ static int mcp_create_server(struct fyai_ctx *ctx, const char *server_name,
 err_out:
 	if (!mcp)
 		return -1;
-	if (ctx->mcp == mcp)
-		ctx->mcp = mcp->next;
+	if (ctx->mcp->conns == mcp)
+		ctx->mcp->conns = mcp->next;
 	else {
-		for (prev = ctx->mcp; prev && prev->next != mcp;
+		for (prev = ctx->mcp->conns; prev && prev->next != mcp;
 		     prev = prev->next)
 			;
 		if (prev)
@@ -2367,24 +2367,24 @@ bool fyai_mcp_settled(struct fyai_ctx *ctx)
 {
 	struct fyai_mcp_ctx *mcp;
 
-	for (mcp = ctx->mcp; mcp; mcp = mcp->next)
+	for (mcp = ctx->mcp->conns; mcp; mcp = mcp->next)
 		if (mcp->state == MCP_SRV_CONNECTING)
 			return false;
 	return true;
 }
 
-/* Fold every ready server's discovered tools into ctx->mcp_tools, in
- * configuration order (ctx->mcp is built in that order). */
+/* Fold every ready server's discovered tools into ctx->mcp->tools, in
+ * configuration order (ctx->mcp->conns is built in that order). */
 void fyai_mcp_publish_tools(struct fyai_ctx *ctx)
 {
 	struct fyai_mcp_ctx *mcp;
 	fy_generic out = fy_seq_empty;
 
-	for (mcp = ctx->mcp; mcp; mcp = mcp->next)
+	for (mcp = ctx->mcp->conns; mcp; mcp = mcp->next)
 		if (mcp->state == MCP_SRV_READY &&
 		    fy_is_valid(mcp->tools))
 			out = fy_concat(ctx->arena->gb, out, mcp->tools);
-	ctx->mcp_tools = fy_gb_internalize(ctx->arena->gb, out);
+	ctx->mcp->tools = fy_gb_internalize(ctx->arena->gb, out);
 	ctx->tools_spec = fy_invalid;
 }
 
@@ -2393,7 +2393,7 @@ mcp_find_server(struct fyai_ctx *ctx, const char *name)
 {
 	struct fyai_mcp_ctx *mcp;
 
-	for (mcp = ctx->mcp; mcp; mcp = mcp->next)
+	for (mcp = ctx->mcp->conns; mcp; mcp = mcp->next)
 		if (!strcmp(mcp->name, name))
 			return mcp;
 	return NULL;
@@ -2432,7 +2432,7 @@ fy_generic fyai_mcp_status_data(struct fyai_ctx *ctx,
 	long long expires_in;
 
 	rows = fy_seq_empty;
-	for (mcp = ctx->mcp; mcp; mcp = mcp->next) {
+	for (mcp = ctx->mcp->conns; mcp; mcp = mcp->next) {
 		state = mcp->state == MCP_SRV_READY ? "ready" :
 			mcp->state == MCP_SRV_CONNECTING ?
 			"connecting" : "failed";
@@ -2569,8 +2569,8 @@ int fyai_mcp_start(struct fyai_ctx *ctx)
 	const char *name;
 
 	fyai_mcp_cleanup(ctx);
-	ctx->mcp_tools = fy_invalid;
-	ctx->mcp_active_tools = fy_invalid;
+	ctx->mcp->tools = fy_invalid;
+	ctx->mcp->active_tools = fy_invalid;
 
 	if (fy_is_mapping(servers) && fy_len(servers)) {
 		fy_foreach(key, servers) {
@@ -2599,7 +2599,7 @@ int fyai_mcp_start(struct fyai_ctx *ctx)
 		return -1;
 	}
 
-	for (mcp = ctx->mcp; mcp; mcp = mcp->next)
+	for (mcp = ctx->mcp->conns; mcp; mcp = mcp->next)
 		mcp_startup_begin(mcp);
 	return 0;
 }
@@ -2616,7 +2616,7 @@ int fyai_mcp_add(struct fyai_ctx *ctx, const char *name, fy_generic config)
 		goto err;
 	mcp = mcp_find_server(ctx, name);
 	fyai_error_check(ctx, mcp, err, "MCP server '%s' did not start", name);
-	ctx->mcp_invocation = true;
+	ctx->mcp->invocation = true;
 	mcp_startup_begin(mcp);
 	return 0;
 err:
@@ -2658,11 +2658,11 @@ int fyai_mcp_add_tunnel(struct fyai_ctx *ctx, const char *name,
 		free(mcp);
 		goto err;
 	}
-	tail = &ctx->mcp;
+	tail = &ctx->mcp->conns;
 	while (*tail)
 		tail = &(*tail)->next;
 	*tail = mcp;
-	ctx->mcp_invocation = true;
+	ctx->mcp->invocation = true;
 	*connp = mcp->conn;
 	mcp_startup_begin(mcp);
 	return 0;
@@ -2678,11 +2678,11 @@ int fyai_mcp_refresh(struct fyai_ctx *ctx)
 {
 	struct fyai_event_loop *el;
 
-	if (ctx->mcp && fy_is_valid(ctx->mcp_tools)) {
+	if (ctx->mcp->conns && fy_is_valid(ctx->mcp->tools)) {
 		if (ctx->cfg->mcp_logging)
 			(void)fyai_log_generic(ctx, "mcp", fy_mapping(
 				"event", "reuse", "tools",
-				(long long)fy_len(ctx->mcp_tools)));
+				(long long)fy_len(ctx->mcp->tools)));
 		return 0;
 	}
 	if (fyai_mcp_start(ctx))
@@ -2752,7 +2752,7 @@ mcp_find_tool_server(struct fyai_ctx *ctx, const char *name,
 	if (!sep)
 		return NULL;
 	server_len = (size_t)(sep - server_name);
-	for (mcp = ctx->mcp; mcp; mcp = mcp->next)
+	for (mcp = ctx->mcp->conns; mcp; mcp = mcp->next)
 		if (strlen(mcp->name) == server_len &&
 		    !strncmp(mcp->name, server_name, server_len))
 			break;
@@ -3347,7 +3347,7 @@ static bool mcp_teardown_settled(const struct fyai_ctx *ctx)
 {
 	const struct fyai_mcp_ctx *mcp;
 
-	for (mcp = ctx->mcp; mcp; mcp = mcp->next)
+	for (mcp = ctx->mcp->conns; mcp; mcp = mcp->next)
 		if (!mcp->del_done || !mcp->term_done)
 			return false;
 	return true;
@@ -3386,15 +3386,15 @@ int fyai_mcp_stop(struct fyai_ctx *ctx)
 {
 	struct fyai_mcp_ctx *mcp;
 
-	if (!ctx || !ctx->mcp)
+	if (!ctx || !ctx->mcp->conns)
 		return 0;
-	if (ctx->mcp_stopping)
+	if (ctx->mcp->stopping)
 		return 0;
-	ctx->mcp_stopping = true;
+	ctx->mcp->stopping = true;
 
 	/* Cancel any in-flight startup, then fire every server's teardown so
 	 * they drain concurrently. */
-	for (mcp = ctx->mcp; mcp; mcp = mcp->next) {
+	for (mcp = ctx->mcp->conns; mcp; mcp = mcp->next) {
 		if (mcp->oauth_refresh_timer) {
 			fyai_event_source_remove(mcp->oauth_refresh_timer);
 			mcp->oauth_refresh_timer = NULL;
@@ -3418,8 +3418,8 @@ int fyai_mcp_stop(struct fyai_ctx *ctx)
 
 bool fyai_mcp_stop_done(const struct fyai_ctx *ctx)
 {
-	return !ctx || !ctx->mcp ||
-	       (ctx->mcp_stopping &&
+	return !ctx || !ctx->mcp->conns ||
+	       (ctx->mcp->stopping &&
 		mcp_teardown_settled(ctx));
 }
 
@@ -3429,7 +3429,7 @@ void fyai_mcp_stop_finish(struct fyai_ctx *ctx)
 
 	if (!ctx || !fyai_mcp_stop_done(ctx))
 		return;
-	for (mcp = ctx->mcp; mcp; mcp = next) {
+	for (mcp = ctx->mcp->conns; mcp; mcp = next) {
 		next = mcp->next;
 		if (ctx->cfg->mcp_logging)
 			(void)fyai_log_generic(ctx, "mcp", fy_mapping(
@@ -3446,8 +3446,8 @@ void fyai_mcp_stop_finish(struct fyai_ctx *ctx)
 		mcp_oauth_secret_free(&mcp->oauth_bearer);
 		free(mcp);
 	}
-	ctx->mcp = NULL;
-	ctx->mcp_stopping = false;
+	ctx->mcp->conns = NULL;
+	ctx->mcp->stopping = false;
 }
 
 void fyai_mcp_cleanup(struct fyai_ctx *ctx)
@@ -3455,7 +3455,7 @@ void fyai_mcp_cleanup(struct fyai_ctx *ctx)
 	struct fyai_event_loop *el;
 	int rc;
 
-	if (!ctx || !ctx->mcp)
+	if (!ctx || !ctx->mcp->conns)
 		return;
 	if (fyai_mcp_stop(ctx))
 		return;
@@ -3466,4 +3466,16 @@ void fyai_mcp_cleanup(struct fyai_ctx *ctx)
 			return;
 	}
 	fyai_mcp_stop_finish(ctx);
+}
+
+void fyai_mcp_state_init(struct fyai_mcp *mcp, struct fyai_loop *loop,
+			 struct fyai_cred *cred, struct fyai_transient *transient)
+{
+	memset(mcp, 0, sizeof(*mcp));
+	mcp->loop = loop;
+	mcp->cred = cred;
+	mcp->transient = transient;
+	/* Not the all-zero word: that is an empty sequence. */
+	mcp->tools = fy_invalid;
+	mcp->active_tools = fy_invalid;
 }

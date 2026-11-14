@@ -34,6 +34,7 @@ struct fyai_app {
 	struct fyai_arena arena;	/* depends on nothing yet */
 	struct fyai_transient transient; /* depends on the arena builder */
 	struct fyai_transport_state transport; /* depends on loop and cred */
+	struct fyai_mcp mcp;		/* depends on loop, cred, transient */
 	struct fyai_link link;		/* depends on loop and cred */
 	struct fyai_cred cred;		/* depends on loop */
 	struct fyai_cfg cfg;		/* depends on diag */

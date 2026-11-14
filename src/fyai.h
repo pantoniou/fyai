@@ -16,6 +16,7 @@
 
 #include <curl/curl.h>
 #include "fyai_link.h"
+#include "fyai_mcp_state.h"
 #include "fyai_transport_state.h"
 #include <libfyaml.h>
 #include <libfyaml/libfyaml-allocator.h>
@@ -859,13 +860,8 @@ struct fyai_ctx {
 	 * and cleared when the project states can no longer be taken.
 	 */
 	bool tool_diff_tracking;
-	fy_generic mcp_tools;
-	/* Names activated from a large MCP catalogue for this invocation. */
-	fy_generic mcp_active_tools;
-	struct fyai_mcp_ctx *mcp;
-	bool mcp_stopping;
-	/* The invocation added servers: MCP is on whatever the configuration says. */
-	bool mcp_invocation;
+	/* The MCP client component, owned by struct fyai_app. */
+	struct fyai_mcp *mcp;
 	/* The shared refresh of the login and its waiters (fyai_cred.h). */
 	struct fyai_cred *cred;
 	bool stdout_tty;			/* stdout is a terminal (cached) */

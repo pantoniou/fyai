@@ -35,7 +35,7 @@ int fyai_cmd_mcp_status(struct fyai_cmd_call *call, fy_generic *result)
 	const char *name;
 
 	/* The live connections, when the session has started them. */
-	if (call->ctx->mcp) {
+	if (call->ctx->mcp->conns) {
 		*result = fyai_mcp_status_data(call->ctx, gb);
 		call->renderopts = fy_mapping(gb,
 			"title", "MCP endpoints",

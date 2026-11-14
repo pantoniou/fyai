@@ -2465,8 +2465,8 @@ void fyai_ctx_fork_disown(struct fyai_ctx *ctx)
 	ctx->catalog_update = NULL;		/* and the update that it started */
 	ctx->acp_rpc = NULL;			/* its connection to a client */
 	ctx->config_edit = NULL;
-	ctx->mcp = NULL;			/* its connections to the servers */
-	ctx->mcp_tools = fy_invalid;
+	ctx->mcp->conns = NULL;			/* its connections to the servers */
+	ctx->mcp->tools = fy_invalid;
 	ctx->turn_observe = NULL;		/* a stream to the parent's peer */
 	ctx->turn_observe_data = NULL;
 	ctx->text_observe = NULL;
