@@ -1,7 +1,8 @@
 # The context as a set of components
 
-Status: design, and the first three steps are done: `struct fyai_app` exists
-and holds `diag`, `loop`, `arena`, `transient` and `cfg`. The counts come from a script over
+Status: design, and the first three steps are done and the fourth has begun:
+`struct fyai_app` exists and holds `diag`, `loop`, `arena`, `transient`,
+`cred` and `cfg`. The counts come from a script over
 `src/*.c` that counts `ctx->FIELD` per file; check a row against the code
 before a change. The order of the work is near the end.
 
@@ -243,7 +244,12 @@ Each step builds, passes both suites, and lands as its own patch series
    component has no dependencies yet, and the transient builder depends on its
    `gb` slot.
 4. `cred`, then `transport`, `xfer`, `mcp`: the example of the first
-   consumers. `cred` takes `loop` and `diag`; its 17 reads of `transient_gb`
+   consumers. `cred` is done in part: `struct fyai_cred` is in the app and
+   holds the refresh, its waiters, the timer and the secrets kept in memory.
+   It stands on `loop` for its timer. It still names the context that the
+   refresh serves (`cred->ctx`), because `fyai_auth_*` takes `ctx`; that
+   pointer goes when the credentials (`auth`, `auth_gb`, `auth_detached`) move
+   in with it. `cred` takes `loop` and `diag`; its 17 reads of `transient_gb`
    become its own builder. Each of the four ends with a unit test that builds
    the component with a stub loop and diagnostics, which is the test that a
    struct of pointers makes possible and `ctx` did not.
