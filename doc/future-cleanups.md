@@ -2,14 +2,14 @@
 
 Status: the document has four parts.
 
-- Part 1 lists implicit state machines. Open: the reset of the publish record
-  in a forked child. The entries that stay were checked and need no change.
+- Part 1 lists the implicit state machines that were checked and need no
+  change, and the context clusters. It is closed: the publish record has no
+  reset in a forked child, for the reason that the context section gives.
 - Part 2 plans the split of the TUI from the core. It is a plan, and no step
   is done.
-- "Other cleanups" lists what is open. The wait of a delegated child for an
-  answer to its question stays by design (item 1).
-- "Copies of arena data" lists copies that a generic or an interned string
-  replaces. Open: the rows of class a and class b.
+- "Other cleanups" is closed. The wait of a delegated child for an answer to
+  its question stays by design (item 1).
+- "Copies of arena data" is closed, with the rules for a new site.
 
 Nothing keeps compatibility with old arenas or old interfaces.
 
@@ -153,11 +153,6 @@ Cluster 1 keeps `xfer_body`, `xfer_url` and `xfer_profile`: the child sends to
 the endpoint of its parent. Cluster 4 has none: a sub-agent sets it from the
 branch table when it selects its branch, and `fyai_ctx_branch_prev_set()` also
 updates the todo model and the session head, which a fork must not do.
-
-## Suggested order
-
-The reset of the publish record is the open step of part 1. The event core, the PTY driver and the markdown stream need no
-change.
 
 ## Plan: separate the TUI from the core
 
@@ -466,38 +461,58 @@ is a series. Check an item again before work on it.
 
 ### Documentation and tests
 
-18. Other plans in `doc/` name functions that the survey did not find
-    (`markdown-ui-plan.md`, `transport-isolation-review.md`,
-    `state-sync-sdd.md`, `command-schema-plan.md`,
-    `macos-transport-isolation-sdd.md`, `web-fetch-plan.md`). They may be
-    plans, not errors.
+Other plans in `doc/` name functions that the survey did not find. They were
+checked: the names are of libfytimui, or of code that a review or a plan
+describes as it was or as it will be. Two were errors and are corrected: the
+migration of `command-schema-plan.md` is finished, and `state-sync-sdd.md` named
+a function that does not exist.
 
 The agent found no hand-built JSON outside `fyai_mock.c`, no second transcript
 renderer, and no event source registered with a discarded handle. Whether each
-of the 475 cases has a positive control is unverified.
+case has a positive control is not checked.
 
 ## Copies of arena data
 
-Status: survey by three read-only agents over `src/*.c`. About 440 `strdup`
-sites exist. Roughly 300 are correct (see "Keep"). The rest copy a generic into
-the C heap, or round-trip it through JSON text, only to pass it to a consumer
-that could hold the generic. Each lifetime claim comes from reading the code,
-except where the item says unverified. Size: S is a day or less, M is a few
-days. Check an item again before work on it.
+Status: closed. A survey of `src/*.c` found about 440 `strdup` sites. Roughly
+300 are correct (see "Keep"). The rest copied a generic into the C heap, or
+round-tripped it through JSON text, to pass it to a consumer that could hold the
+generic. The changes are made; what stays a copy stays for the reason in the
+list below, and the rules say how to decide a new site.
 
-Checked and kept: the question text of `fyai_ui.c` (`ui_ask_copy()`). The UI
-model store has two builders and a write resets one of them, so a string of
-a root is valid for one further write at most, and a question lives until the
-user answers it. The oracle path of `fyai_ui_ask_oracle()` passes arguments of
-the transient builder. The command line of a tool job is new for each call.
+Checked and kept, because the value is new for each request, message, call,
+run or wait, and `cfg->gb` never frees:
+
+- the ids of a Claude SDK request (`command_id`, `init_id`, `rpc_id_json`,
+  `origin_json`), the fields of a message acknowledgement of
+  `fyai_agents.c`, and the name and id of a question that a sub-agent forwards;
+- the name and the reason of a named wait, which the model chooses, and the
+  title and command of a band, which carry the arguments of a call;
+- the id of a tool call (`entry->id`), the name of a view run, of a remote run
+  and of a remote session, and the name and the path of a skill that is
+  written out (the path is a private directory for each load);
+- the fields of a shell session, which the call site passes as `const char *`;
+- the rows of the branch browser: the scan builder is local and a refresh makes
+  the rows again, so a builder that outlives the scan would grow with each
+  refresh;
+- the question text of `fyai_ui.c` (`ui_ask_copy()`): the UI model store has
+  two builders and a write resets one of them, so a string of a root is valid
+  for one further write at most, and a question lives until the user answers
+  it;
+- `fyai_bytes_from_generic()`, which returns a buffer that the caller frees for
+  both of its forms (a copy of a text, and a decoded blob), and `cause` of
+  `fyai_turn_run_gate_resolve()`, which `fyai_turn_run_gate_finish()` reads
+  after `fyai_turn_run_gate_clear()` has freed the text of the answer.
 
 Dropped: the event queue. Its text is formatted by the producer and is new for
 each event, so no arena string is copied, and it must not go into the
-configuration builder. Only the eight `monitor_event(strdup(fy_sprintfa()))`
-calls of `fyai_monitor.c` could use `fyai_event_injectf()`. ACP (`worker->text`,
-`message_id`, `agent_id`) and `uidraw` titles and commands are new for each
-turn or call, so they stay copies. The export call list of `fyai_display.c`
-stays: a mapping copies at each add. `peer->dir` takes a `realpath` string.
+configuration builder. ACP (`worker->text`, `message_id`, `agent_id`) is new
+for each turn. The export call list of `fyai_display.c` stays: a mapping copies
+at each add. `peer->dir` takes a `realpath` string.
+
+Done: the names of the fresh session of the Claude SDK are interned in the
+configuration builder. The earlier changes (`fyai_ctx_keep_str()`, the tools
+that return generics, the branch, agent and model names, the call and the spawn
+state of a sub-agent, the OAuth strings of `fyai_mcp.c`) are in the history.
 
 ### Rules for this list
 
@@ -531,50 +546,6 @@ stays: a mapping copies at each add. `peer->dir` takes a `realpath` string.
 - Do not intern tokens and secrets. They must be zeroed (`fyai_secret_clear`)
   and a builder never zeroes.
 
-### Class a: the copy is not needed
-
-The source generic outlives the consumer. Replace the copy with a generic or a
-borrowed pointer. The sites that the paragraphs above name as checked, kept
-or dropped are not listed again.
-
-| Site | Field | Note |
-|---|---|---|
-| `fyai_browser.c:488` | `copy` | Two more copies follow in `browser_add_path()` and `browser_add()`. S |
-| `fyai.c:1961` | `cause` | Unverified: needed only if `gate_refuse` clears `a->text` first. S |
-| `utils.h:196` | `fyai_bytes_from_generic()` | Two callers. Unverified: `fy_castp()` with a length may do. S |
-
-### Class b: one intern replaces the copy
-
-The source is transient and the consumer lives long. Intern into `cfg->gb`
-with `fyai_ctx_keep_str()` and keep a `const char *`. Every field below is a
-name, an id, a path or a bounded set, so none changes for each turn.
-
-- Claude SDK (`fyai_claude_sdk.c`), with a builder in `struct sdk_server`:
-  `d->claude_name`, `fyai_name`, `tool_use_id` (1560-1564), `p->rpc_id_json`
-  (1835), `in->command_id` and `srv->init_id` (1964, 2404, already passed to
-  `sdk_respond()` as a generic), hook `event` and `callback_id` (1179-1180),
-  `t->name` (2039), `img->media_type` and `name` (2554-2555), `in->origin_json`
-  (2724), `sdk_user_text()` (2578), `cfg->fresh_session_from` and
-  `fresh_session_name` (674-726). S each. `img->data` stays.
-- Agents and sessions: `run->name` (`fyai_agent.c:953`), `run->branch`
-  (`fyai_session.c:2240`, four frees), `fyai_agents.c:400-401, 458`
-  (`r->branch`, `r->model`), `fyai_agents.c:1530-1585` (the message ack, six
-  fields, M), `fyai_agents.c:1604`, `fyai_monitor.c:316`, `fyai_asks.c:167`
-  (into `p->gb`), `fyai_acp.c:915-917` (`worker->text`, `message_id`,
-  `agent_id`; its sibling fields are interned already), `fyai_acp.c:693-694`.
-- Remote: `fyai_remote_server.c:294, 519` (`session->branch`), `:1983`
-  (`peer->dir`), `fyai_remote_ui.c:388, 603` (`t->name`, `view->epoch`).
-- Display: `fyai_uidraw.c:416, 515, 585-586` (`language`, `title`,
-  `command`; bounded sets), `fyai_browser.c:342-421` (the scan builder is
-  local and destroyed, which is why the rows are copied; keep one builder for
-  the life of the browser and make `cwd`, `title` and `path` generics, M),
-  `fyai_tools.c:386` (`entry->id`).
-- Storage: `fyai_cmd_fsview.c:3195` (`run->name`).
-- `fyai_skill.c:1591` (`d->name`), `fyai_wait.c:345, 805, 816` (names and
-  reasons), `fyai_shell_session.c:475-491` (`name`, `branch`, `title`,
-  `description`: the API takes `const char *`, so the call sites stay). The
-  `command` of a session is new for each call and stays a copy.
-
 ### Keep
 
 About 300 sites copy a value that is not arena data, or must have a mutable
@@ -597,12 +568,3 @@ or zeroable copy. Do not change them:
   `fyai_ask_text()`;
 - the transport and server code, which is C-heap by design;
 - `fyai_patch.c` (a text engine, 29 sites).
-
-### Suggested order
-
-1. Class a: the rows that remain, file by file.
-2. Class b with `fyai_ctx_keep_str()`, file by file. A field that is new for
-   each turn or call stays a copy.
-
-Each change is one patch with its test. An ASAN run shows a borrowed pointer
-that outlives its builder.
