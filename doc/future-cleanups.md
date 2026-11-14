@@ -12,8 +12,7 @@ Status: the document has four parts.
   that poll (item 19). The wait of a delegated child for an answer to its
   question stays by design (item 1).
 - "Copies of arena data" lists copies that a generic or an interned string
-  replaces. Open: the rows of class a and class b that the status paragraph
-  does not name.
+  replaces. Open: the rows of class a and class b.
 
 Nothing keeps compatibility with old arenas or old interfaces.
 
@@ -45,12 +44,8 @@ the code before a change.
 - A hand-written reset list stands in for a reset point. The model transfer,
   the turn control and the usage of a forked child each have a reset function
   (`fyai_ctx_fork_disown()`); the publish record has none.
-  `auth_retry_done` is not a field of `struct fyai_ctx`: it is a latch of
-  `struct fyai_mcp_call_request` and lives and dies with the request.
 - A state enum exists, but side flags change its meaning. Examples:
   `stream_response`, `fyai_turn_run` and `fyai_model_step`.
-  `fyai_mcp_call_request` and `fyai_auth_login_request` were listed here; their only
-  side flag, `cancel_requested`, is now the CANCELLING state.
 
 ## High priority
 
@@ -577,22 +572,11 @@ stays: a mapping copies at each add. `peer->dir` takes a `realpath` string.
 - Do not intern tokens and secrets. They must be zeroed (`fyai_secret_clear`)
   and a builder never zeroes.
 
-### Recurring shapes
-
-All model tools are `.run` and return generics. `read_file`, `apply_patch` and
-`shell` build their output in a malloc'd buffer and move it with
-`fyai_tool_take_text()`, `wait` does the same for its waiter result: the buffer
-is not a copy of a generic, so it stays.
-
-1. The event queue holds `char *`: dropped (see the status paragraph). The
-   text of an event is new for each event and must not go into `cfg->gb`.
-   The monitor formats an event once, through `fyai_event_vinjectf()`.
-
 ### Class a: the copy is not needed
 
 The source generic outlives the consumer. Replace the copy with a generic or a
-borrowed pointer. The sites that the status paragraph above names as done,
-checked, kept or dropped are not listed again.
+borrowed pointer. The sites that the paragraphs above name as checked, kept
+or dropped are not listed again.
 
 | Site | Field | Note |
 |---|---|---|
