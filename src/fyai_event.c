@@ -403,8 +403,8 @@ err_out:
 /* Restore interrupt handlers before their loop component is destroyed. */
 void fyai_event_interrupt_close(struct fyai_loop *loop)
 {
-	(void)loop;
-	if (!fyai_interrupt_installed)
+	/* The handlers are the ones of the loop that installed them. */
+	if (!fyai_interrupt_installed || fyai_interrupt_loop != loop)
 		return;
 	(void)setitimer(ITIMER_REAL, &fyai_interrupt_off, NULL);
 	(void)sigaction(SIGINT, &fyai_interrupt_prev_int, NULL);
@@ -440,15 +440,21 @@ void fyai_loop_abandon(struct fyai_loop *loop)
 {
 	struct fyai_event_loop *el;
 	struct fyai_event_source *src, *next;
+	size_t i;
 
-	if (!loop || !loop->el)
+	if (!loop)
+		return;
+	/* The child has no handler for the dump of the loop of its parent. */
+	fyai_event_dump_close();
+	for (i = 0; i < ARRAY_SIZE(loop->signal_src); i++)
+		loop->signal_src[i] = NULL;
+	/* The parent closes its diagnostic copy. */
+	loop->dump_fd = -1;
+	if (!loop->el)
 		return;
 
 	el = loop->el;
 	loop->el = NULL;
-
-	/* Do not close the parent curl sockets from the child. */
-	loop->curl_state = NULL;
 
 	fyai_event_defer_clear(el);
 	fyai_event_wake_clear(el);
@@ -473,20 +479,11 @@ void fyai_loop_abandon(struct fyai_loop *loop)
 
 void fyai_ctx_loop_abandon(struct fyai_ctx *ctx)
 {
-	if (ctx)
-		fyai_loop_abandon(ctx->loop);
-}
-
-void fyai_loop_disown(struct fyai_loop *loop)
-{
-	size_t i;
-
-	if (!loop)
+	if (!ctx)
 		return;
-	for (i = 0; i < sizeof(loop->signal_src) / sizeof(loop->signal_src[0]); i++)
-		loop->signal_src[i] = NULL;
-	/* The parent closes its diagnostic copy. */
-	loop->dump_fd = -1;
+	/* Do not close the parent curl sockets from the child. */
+	ctx->curl_state = NULL;
+	fyai_loop_abandon(ctx->loop);
 }
 
 void fyai_loop_restore_signal_mask(const struct fyai_loop *loop)
@@ -502,7 +499,7 @@ void fyai_loop_init(struct fyai_loop *loop, struct fyai_diag *diag)
 	loop->dump_fd = -1;
 }
 
-void fyai_loop_cleanup(struct fyai_loop *loop)
+void fyai_loop_release(struct fyai_loop *loop)
 {
 	if (!loop)
 		return;
@@ -513,6 +510,17 @@ void fyai_loop_cleanup(struct fyai_loop *loop)
 		loop->el = NULL;
 	}
 	fyai_event_pool_drain(loop);
+	/* A signal after this point must not walk what was just freed. */
+	fyai_event_dump_close();
+	loop->on_interrupt = NULL;
+	loop->on_interrupt_data = NULL;
+}
+
+void fyai_loop_cleanup(struct fyai_loop *loop)
+{
+	if (!loop)
+		return;
+	fyai_loop_release(loop);
 	if (loop->dump_fd >= 0) {
 		close(loop->dump_fd);
 		loop->dump_fd = -1;
@@ -520,6 +528,16 @@ void fyai_loop_cleanup(struct fyai_loop *loop)
 	free(loop->dump_dir);
 	free(loop->dump_file);
 	loop->dump_dir = loop->dump_file = NULL;
+}
+
+void fyai_loop_reset_interrupt(struct fyai_loop *loop)
+{
+	if (!loop)
+		return;
+	loop->interrupt_pending = 0;
+	loop->interrupt_seq = 0;
+	loop->interrupt_seen = 0;
+	loop->terminate_pending = false;
 }
 
 void fyai_event_loop_destroy(struct fyai_event_loop *el)

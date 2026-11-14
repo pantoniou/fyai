@@ -2298,7 +2298,7 @@ void fyai_auth_drain(struct fyai_ctx *ctx)
 {
 	struct timespec t0, t;
 
-	if (!ctx->auth_detached || !ctx->loop->el)
+	if (!ctx->auth_detached || !ctx->loop || !ctx->loop->el)
 		return;
 	clock_gettime(CLOCK_MONOTONIC, &t0);
 	while (ctx->auth_detached) {

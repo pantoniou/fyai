@@ -15,7 +15,6 @@
 struct fyai_diag;
 struct fyai_event_loop;
 struct fyai_event_source;
-struct fyai_curl_state;
 
 /*
  * The event loop and everything that stands on it: its timers and sources,
@@ -23,6 +22,10 @@ struct fyai_curl_state;
  * interrupt state that a signal handler sets and the pumps read. The
  * component depends on the diagnostics alone. It is made by fyai_loop_init()
  * and its pointers stay valid until fyai_loop_cleanup().
+ *
+ * The signal handlers and the dump handler are process-wide, so a process has
+ * one loop component, as it has one set of signals: the handlers name the
+ * component that installed them, and only that one removes them.
  */
 struct fyai_loop {
 	/* Dependencies. */
@@ -50,8 +53,6 @@ struct fyai_loop {
 	sig_atomic_t interrupt_seen;
 	/* A request that ends the invocation: SIGTERM, or a cancel of an agent. */
 	bool terminate_pending;
-	/* The curl multi state of the invocation; it stands on the loop. */
-	struct fyai_curl_state *curl_state;
 	/* The diagnostic output of the loop dump (SIGUSR2). */
 	int dump_fd;
 	char *dump_dir, *dump_file;	/* the dump file; NULL for dump_fd */
@@ -61,22 +62,32 @@ struct fyai_loop {
 void fyai_loop_init(struct fyai_loop *loop, struct fyai_diag *diag);
 
 /*
- * Release what the loop holds: the interrupt handlers, the application loop,
- * the pools and the dump output. Safe to call again.
+ * Release what stands on the loop: the interrupt handlers, the application
+ * loop, the pools and the dump handler, and drop the hook. The dump output
+ * stays open, because a crash report and a late dump still write to it.
+ * Call it when every borrower has dropped its sources.
+ */
+void fyai_loop_release(struct fyai_loop *loop);
+
+/*
+ * Release everything, the dump output included. The owner calls it last.
+ * Safe to call again, and after fyai_loop_release().
  */
 void fyai_loop_cleanup(struct fyai_loop *loop);
 
 /* The one application loop, made on first use and owned by @loop. */
 struct fyai_event_loop *fyai_loop_get(struct fyai_loop *loop);
 
-/* Drop the inherited loop in a freshly forked child, so it builds its own. */
+/*
+ * Forget what a forked child inherited and does not own: the application
+ * loop, which is not destroyed, the sources of the signals of the parent, its
+ * copy of the dump output and the dump handler. The child builds its own loop
+ * on first use. Safe to call again.
+ */
 void fyai_loop_abandon(struct fyai_loop *loop);
 
-/*
- * Forget what a forked child inherited and does not own: the sources of the
- * parent and its copy of the diagnostic output. Ends nothing.
- */
-void fyai_loop_disown(struct fyai_loop *loop);
+/* Clear the interrupt state and the terminate request, as a new turn starts. */
+void fyai_loop_reset_interrupt(struct fyai_loop *loop);
 
 /* Put back the signal mask that the invocation started with, if it was kept. */
 void fyai_loop_restore_signal_mask(const struct fyai_loop *loop);

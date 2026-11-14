@@ -288,10 +288,18 @@ static void trace_diag(enum fyai_error_type type, enum fyai_error_module module,
 	trace_write(head, body);
 }
 
+/*
+ * The sink of a configuration that was given none, such as a scratch copy
+ * that a function fills in to check it: nothing is enabled and nothing is
+ * collected. It is shared by every such copy, so it never changes. A NULL
+ * context or configuration is another case, and reports at once.
+ */
+static struct fyai_diag diag_muted;
+
 void fyai_diag_enable(struct fyai_diag *diag, enum fyai_error_type type,
 		      bool on)
 {
-	if (!diag)
+	if (!diag || diag == &diag_muted)
 		return;
 	if (on)
 		diag->mask |= 1u << type;
@@ -301,7 +309,7 @@ void fyai_diag_enable(struct fyai_diag *diag, enum fyai_error_type type,
 
 void fyai_diag_set_source(struct fyai_diag *diag, bool on)
 {
-	if (diag)
+	if (diag && diag != &diag_muted)
 		diag->source = on;
 }
 
@@ -648,14 +656,6 @@ void fyai_diag_adopt_agent(struct fyai_diag *diag, fy_generic list,
 {
 	diag_adopt(diag, list, origin, true);
 }
-
-/*
- * The sink of a configuration that was given none, such as a scratch copy
- * that a function fills in to check it: nothing is enabled and nothing is
- * collected. A NULL context or configuration is another case, and reports
- * at once.
- */
-static struct fyai_diag diag_muted;
 
 struct fyai_diag *fyai_cfg_diag(struct fyai_cfg *cfg)
 {

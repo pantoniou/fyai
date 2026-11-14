@@ -1671,7 +1671,7 @@ static char *browser_capture(struct fyai_browser *b, char *name,
 			     char action, int cols, int rows)
 {
 	struct fyai_ctx view = *b->ctx;
-	struct fyai_cfg cfg = *b->ctx->cfg;
+	struct fyai_cfg cfg;
 	struct fyai_branch branch;
 	struct fy_generic_builder_cfg gbcfg = {
 		.flags = FYGBCF_SCOPE_LEADER | FYGBCF_DEDUP_ENABLED,
@@ -1685,6 +1685,7 @@ static char *browser_capture(struct fyai_browser *b, char *name,
 	bool own_style = false;
 	int rc;
 
+	fyai_cfg_copy_muted(&cfg, b->ctx->cfg);
 	if (!fyai_branch_lookup(b->branches, name, &branch))
 		return NULL;
 	gb = fy_generic_builder_create(&gbcfg);
@@ -1754,13 +1755,14 @@ static char *browser_foreign_capture(struct fyai_browser *b,
 		.flags = FYGBCF_SCOPE_LEADER | FYGBCF_DEDUP_ENABLED,
 	};
 	struct fyai_ctx view = *b->ctx;
-	struct fyai_cfg cfg = *b->ctx->cfg;
+	struct fyai_cfg cfg;
 	struct fy_generic_builder *gb;
 	FILE *fp = NULL;
 	const char *captured;
 	char *out = NULL;
 	size_t len = 0;
 
+	fyai_cfg_copy_muted(&cfg, b->ctx->cfg);
 	gb = fy_generic_builder_create(&gbcfg);
 	if (!gb)
 		return NULL;

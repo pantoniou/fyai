@@ -6,6 +6,8 @@
  * SPDX-License-Identifier: MIT
  */
 
+#define FYAI_MODULE FYAIEM_INIT
+
 #ifdef HAVE_CONFIG_H
 #include "config.h"
 #endif
@@ -32,8 +34,8 @@ void fyai_app_cleanup(struct fyai_app *app)
 {
 	if (!app)
 		return;
-	/* The configuration may still report while it is released. */
-	/* The loop depends on the diagnostics, so it goes first. */
+	/* The loop and the configuration report into the diagnostics, so they
+	 * go first. */
 	fyai_loop_cleanup(&app->loop);
 	fyai_config_cleanup(&app->cfg);
 	app->cfg.diag = NULL;

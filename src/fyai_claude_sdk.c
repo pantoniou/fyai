@@ -3240,11 +3240,11 @@ done:
 		    ctx->turn_stop == FYAI_TURN_STOP_REQUEST;
 	if (api_error) {
 		free(cause);
-		cause = fyai_diag_string(cfg->diag);
+		cause = fyai_diag_string(fyai_cfg_diag(cfg));
 		subtype = "success";
 	}
 	if (!ok && !cause)
-		cause = fyai_diag_string(cfg->diag);
+		cause = fyai_diag_string(fyai_cfg_diag(cfg));
 	if (!ok && !subtype)
 		subtype = ctx->turn_stop == FYAI_TURN_STOP_LIMIT ?
 				"error_max_turns" :
@@ -3294,7 +3294,7 @@ done:
 	sdk_send(srv, frame);
 	srv->last_error = !ok;
 	free(cause);
-	fyai_diag_drain(cfg->diag);
+	fyai_diag_drain(fyai_cfg_diag(cfg));
 	fyai_cleanup_transient_builder(ctx);
 }
 
@@ -3400,7 +3400,7 @@ static void sdk_clear(struct sdk_server *srv)
 		"permission_denials", fy_seq_empty,
 		"uuid", sdk_new_uuid(srv)));
 	srv->last_error = !!rc;
-	fyai_diag_drain(ctx->cfg->diag);
+	fyai_diag_drain(fyai_ctx_diag(ctx));
 	fyai_cleanup_transient_builder(ctx);
 	return;
 err:

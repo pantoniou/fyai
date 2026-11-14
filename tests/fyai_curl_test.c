@@ -357,11 +357,7 @@ static int curl_run(void (*testfn)(void))
 	testfn();
 
 	fyai_curl_cleanup(&test_ctx);
-	if (fyai_test_loop_of(&test_ctx)->el) {
-		fyai_event_loop_destroy(fyai_test_loop_of(&test_ctx)->el);
-		fyai_test_loop_of(&test_ctx)->el = NULL;
-	}
-	fyai_event_pool_drain(fyai_test_loop_of(&test_ctx));
+	fyai_loop_release(fyai_test_loop_of(&test_ctx));
 	curl_global_cleanup();
 	return 0;
 }

@@ -59,11 +59,7 @@ static int shell_run(const char *command,
 
 static void shell_teardown(void)
 {
-	if (fyai_test_loop_of(&test_ctx)->el) {
-		fyai_event_loop_destroy(fyai_test_loop_of(&test_ctx)->el);
-		fyai_test_loop_of(&test_ctx)->el = NULL;
-	}
-	fyai_event_pool_drain(fyai_test_loop_of(&test_ctx));
+	fyai_loop_release(fyai_test_loop_of(&test_ctx));
 }
 
 int shell_timeout_stops_command(void)

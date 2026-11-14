@@ -319,7 +319,7 @@ static int sink_render(struct fyai_sink *s, const char *md, const char *source,
 	const char *p, *e;
 	int rc;
 
-	cfg = *s->ctx->cfg;
+	fyai_cfg_copy_muted(&cfg, s->ctx->cfg);
 	cfg.render_width = cols;
 	rc = markdown_render(&cfg, md, strlen(md), out,
 			     markdown_color_enabled(cfg.color), cfg.theme_variant);
@@ -381,7 +381,7 @@ int fyai_sink_markdown_measure(struct fyai_sink *s, const char *md, int cols)
 
 	if (!s || !md || cols < 1)
 		return -1;
-	cfg = *s->ctx->cfg;
+	fyai_cfg_copy_muted(&cfg, s->ctx->cfg);
 	cfg.render_width = cols;
 	if (markdown_render(&cfg, md, strlen(md), &out,
 			    markdown_color_enabled(cfg.color), cfg.theme_variant)) {

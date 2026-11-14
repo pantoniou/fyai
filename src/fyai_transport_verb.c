@@ -442,10 +442,10 @@ static int op_cmd(struct fyai_transport_conn *c, struct fy_generic_builder *gb,
 		return 0;
 	rc = -EIO;
 fail:
-	text = fyai_diag_string(v->ctx->cfg->diag);
+	text = fyai_diag_string(fyai_ctx_diag(v->ctx));
 	*detail = fy_gb_intern_string(gb, text && *text ? text : "the command failed");
 	free(text);
-	fyai_diag_reset(v->ctx->cfg->diag);
+	fyai_diag_reset(fyai_ctx_diag(v->ctx));
 	return rc;
 }
 

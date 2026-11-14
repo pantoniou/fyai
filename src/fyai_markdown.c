@@ -46,7 +46,7 @@ static int markdown_mermaid_block(void *userdata, const char *lang,
 	char *diagram;
 
 	(void)lang;
-	cfg = *fcfg;
+	fyai_cfg_copy_muted(&cfg, fcfg);
 	/* A render without colour, such as a measuring pass, draws none. */
 	if (flags & FYMD_BF_NO_COLOR)
 		cfg.color = "off";

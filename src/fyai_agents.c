@@ -528,7 +528,8 @@ static enum fyai_event_action agents_tick(const struct fyai_event *event)
 		ctx->loop->interrupt_pending = ctx->loop->terminate_pending = true;
 		return FYAIEA_CONTINUE;
 	}
-	(void)agents_publish(ctx, ctx->loop->terminate_pending ? "cancelled" : ctx->agents->activity);
+	(void)agents_publish(ctx, ctx->loop->terminate_pending ? "cancelled" :
+			     ctx->agents->activity);
 	fyai_agents_present(ctx);
 	return FYAIEA_CONTINUE;
 }
@@ -1187,7 +1188,7 @@ const char *fyai_agents_model(const struct fyai_ctx *ctx)
 static char *agents_history(struct fyai_ctx *ctx, const char *name)
 {
 	struct fyai_ctx view = *ctx;
-	struct fyai_cfg cfg = *ctx->cfg;
+	struct fyai_cfg cfg;
 	struct fyai_branch branch;
 	struct fy_generic_builder_cfg gbcfg = {
 		.flags = FYGBCF_SCOPE_LEADER | FYGBCF_DEDUP_ENABLED,
@@ -1196,6 +1197,7 @@ static char *agents_history(struct fyai_ctx *ctx, const char *name)
 	fy_generic root;
 	char *text = NULL;
 
+	fyai_cfg_copy_muted(&cfg, ctx->cfg);
 	root = fyai_branches_snapshot(ctx);
 	if (!fyai_branch_lookup(fy_get(root, "branches", fy_invalid), name, &branch))
 		return NULL;

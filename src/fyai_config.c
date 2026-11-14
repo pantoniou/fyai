@@ -3936,9 +3936,9 @@ static int config_parse_cli_options(struct fyai_cfg *cfg, int argc, char *argv[]
 			 * fallbacks, and the chain of callers unwinding behind
 			 * the error that caused it, each with its origin.
 			 */
-			fyai_diag_enable(cfg->diag, FYAIET_DEBUG, true);
-			fyai_diag_enable(cfg->diag, FYAIET_INFO, true);
-			fyai_diag_set_source(cfg->diag, true);
+			fyai_diag_enable(fyai_cfg_diag(cfg), FYAIET_DEBUG, true);
+			fyai_diag_enable(fyai_cfg_diag(cfg), FYAIET_INFO, true);
+			fyai_diag_set_source(fyai_cfg_diag(cfg), true);
 			break;
 		case OPT_COLOR:
 			if (config_queue_set_quoted(cfg, "display/color", optarg,

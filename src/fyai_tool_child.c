@@ -448,7 +448,7 @@ static void fyai_tool_child_session(struct fyai_ctx *ctx,
 	/* A C comparison is an int; the flag must reach the wire as a bool. */
 	started = tc->relay != NULL;
 	tc->session_started = started;
-	diag = fyai_diag_take_generic(ctx->cfg->diag, gb);
+	diag = fyai_diag_take_generic(fyai_ctx_diag(ctx), gb);
 	jsonrpc_conn_respond(conn, tc->id,
 		fy_mapping("result",
 			   fy_mapping("session", started,
@@ -561,7 +561,7 @@ static void fyai_tool_child_dispatch(struct fyai_ctx *ctx, struct fyai_tool_chil
 	fyai_agents_leave(ctx, ok);
 	result = fyai_tool_result_note(ctx, agent_call, result);
 	/* Return child diagnostics with the tool result. */
-	diag = fyai_diag_take_generic(ctx->cfg->diag,
+	diag = fyai_diag_take_generic(fyai_ctx_diag(ctx),
 				      fyai_ctx_transient_gb(ctx));
 	jsonrpc_conn_respond(conn, tc->id,
 		fy_gb_mapping(fyai_ctx_transient_gb(ctx),

@@ -2381,10 +2381,7 @@ static void fyai_ctx_turn_reset(struct fyai_ctx *ctx)
 	ctx->turn_stop = FYAI_TURN_STOP_NONE;
 	ctx->turn_cost_limit = 0;
 	ctx->compacting = false;
-	ctx->loop->interrupt_pending = 0;
-	ctx->loop->interrupt_seq = 0;
-	ctx->loop->interrupt_seen = 0;
-	ctx->loop->terminate_pending = false;
+	fyai_loop_reset_interrupt(ctx->loop);
 	ctx->tool_diff_tracking = false;
 	ctx->tool_gate = NULL;
 	ctx->tool_gate_data = NULL;
@@ -2442,7 +2439,7 @@ void fyai_ctx_fork_disown(struct fyai_ctx *ctx)
 	free(ctx->patch_display);
 	ctx->patch_display = NULL;
 	fyai_output_cleanup(ctx);		/* the document it has open */
-	fyai_diag_reset(ctx->cfg->diag);	/* what the parent has not drained yet */
+	fyai_diag_reset(fyai_ctx_diag(ctx));	/* what the parent has not drained yet */
 	fyai_cover_abandon(&ctx->cover);	/* the holder that it does not own */
 	fyai_session_btw_abandon(ctx);		/* its side questions */
 	fyai_orphan_abandon(ctx);		/* and the processes that the scope keeps */
@@ -2461,7 +2458,8 @@ void fyai_ctx_fork_disown(struct fyai_ctx *ctx)
 	ctx->shell_stream = NULL;
 	ctx->tty_session = NULL;		/* the terminal it runs in */
 	ctx->winch_src = NULL;			/* a source on the loop it owns */
-	fyai_loop_disown(ctx->loop);
+	/* The child owns neither the loop nor the dump of its parent. */
+	fyai_loop_abandon(ctx->loop);
 	ctx->transport.src = NULL;
 	ctx->cmd_call = NULL;			/* the command that it runs */
 	ctx->catalog_update = NULL;		/* and the update that it started */
@@ -2664,7 +2662,7 @@ static fy_generic fyai_view_tool(struct fyai_ctx *ctx, fy_generic args, bool *ok
 	rc = fyai_view_pull_agent(ctx, ctx->transient_gb, name, selected, count, mode, &result);
 	free(selected);
 	if (rc) {
-		diag = fyai_diag_string(ctx->cfg->diag);
+		diag = fyai_diag_string(fyai_ctx_diag(ctx));
 		result = fy_gb_internalize(ctx->transient_gb,
 			fy_stringf("tool error: %s", diag && *diag ? diag : "the view could not be read"));
 		free(diag);

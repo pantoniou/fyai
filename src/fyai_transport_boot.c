@@ -768,20 +768,22 @@ static void ensure_personas(struct fyai_ctx *ctx, struct fyai_transport_grant *g
 	fy_generic personas = fy_get(fy_get(ctx->cfg->config_doc, "agent"),
 				     "personas", fy_invalid);
 	fy_generic key, persona;
-	bool had_error = fyai_diag_got_error(ctx->cfg->diag);
+	struct fyai_diag *diag = ctx->cfg->diag;
 	struct fyai_cfg pc;
 	const char *why;
+	int rc;
 
 	if (!fy_is_mapping(personas))
 		return;
 	fy_foreach_key_value(key, persona, personas) {
 		if (!fy_is_mapping(persona))
 			continue;
-		if (fyai_agent_persona_cfg(ctx, persona, false, &pc)) {
-			if (!had_error)
-				fyai_diag_reset(ctx->cfg->diag);
+		/* The copy is a probe: what it raises is of no use to the user. */
+		ctx->cfg->diag = NULL;
+		rc = fyai_agent_persona_cfg(ctx, persona, false, &pc);
+		ctx->cfg->diag = diag;
+		if (rc)
 			continue;
-		}
 		(void)ensure_add(&pc, grant, names, n, &why);
 	}
 }

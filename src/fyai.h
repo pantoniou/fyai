@@ -805,6 +805,8 @@ struct fyai_ctx {
 
 	/* The event loop component, owned by struct fyai_app (src/fyai_loop.h). */
 	struct fyai_loop *loop;
+	/* The curl multi state of this run; it stands on the loop. */
+	struct fyai_curl_state *curl_state;
 	struct fyai_ui *ui;
 	/* The state that renderers read (src/fyai_uimodel.h). */
 	struct fyai_uimodel *uimodel;
@@ -1112,6 +1114,20 @@ static inline bool fyai_interrupt_check(struct fyai_ctx *ctx)
 	pending = ctx->loop->interrupt_pending;
 	ctx->loop->interrupt_pending = false;
 	return pending;
+}
+
+/*
+ * Copy @src for a computation whose diagnostics are of no use to the user,
+ * such as the render of a stored transcript or a check of a document: the
+ * copy has no sink, so it reports nothing, as a copy that is dropped did when
+ * the sink was a member of the configuration. A copy that is adopted back
+ * keeps the pointer to the sink: copy it plainly.
+ */
+static inline void fyai_cfg_copy_muted(struct fyai_cfg *dst,
+				       const struct fyai_cfg *src)
+{
+	*dst = *src;
+	dst->diag = NULL;
 }
 
 int

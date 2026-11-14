@@ -3371,11 +3371,11 @@ static int view_run_checkpoint(struct fyai_ctx *ctx, struct fyai_view_run *run)
 static fy_generic view_session_failure(struct fyai_ctx *ctx, struct fy_generic_builder *gb, long long seq,
 				       const char *fallback)
 {
-	char *why = fyai_diag_string(ctx->cfg->diag);
+	char *why = fyai_diag_string(fyai_ctx_diag(ctx));
 	fy_generic reply = fyai_ctl_reply_error(gb, seq, why && *why ? why : fallback);
 
 	free(why);
-	fyai_diag_reset(ctx->cfg->diag);
+	fyai_diag_reset(fyai_ctx_diag(ctx));
 	return reply;
 }
 

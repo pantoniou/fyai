@@ -4085,7 +4085,7 @@ void fyai_ui_diag_drain(struct fyai_ctx *ctx, const char *title)
 
 	if (!ctx || !ctx->cfg)
 		return;
-	diag = ctx->cfg->diag;
+	diag = fyai_ctx_diag(ctx);
 	if (!fyai_ui_active(ctx) || !fyai_diag_pending(diag)) {
 		fyai_diag_drain(diag);
 		return;

@@ -214,7 +214,7 @@ static int uidraw_log_part(struct fyai_ctx *ctx, fy_generic part)
 		fyai_error_check(ctx, fp, err, "cannot format a diagnostic");
 		/* The pane shows a diagnostic with no module prefix. */
 		fyai_diag_format_item(fp, fy_get(part, "item", fy_invalid),
-				      fyai_diag_source(ctx->cfg->diag), false);
+				      fyai_diag_source(fyai_ctx_diag(ctx)), false);
 		rc = fclose(fp);
 		rc = rc ? -1 : fyai_sink_write(ctx->sink, FYAI_SINK_NOTICE,
 					       item, len);

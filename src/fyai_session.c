@@ -2100,7 +2100,7 @@ int fyai_session_slash(struct fyai_ctx *ctx, const char *line)
 	if (own_transient)
 		fyai_cleanup_transient_builder(ctx);
 	if (!rc && ctx->cfg->reload_branch) {
-		fyai_diag_drain(ctx->cfg->diag);
+		fyai_diag_drain(fyai_ctx_diag(ctx));
 		fyai_ui_pane_end(ctx, title, false, true);
 		return 1;
 	}
@@ -2109,8 +2109,8 @@ int fyai_session_slash(struct fyai_ctx *ctx, const char *line)
 	 * A backend collects rather than prints, so report here - before the
 	 * banner repaints the footer - or the command would fail silently.
 	 */
-	error = rc || fyai_diag_got_error(ctx->cfg->diag);
-	fyai_diag_drain(ctx->cfg->diag);
+	error = rc || fyai_diag_got_error(fyai_ctx_diag(ctx));
+	fyai_diag_drain(fyai_ctx_diag(ctx));
 	/*
 	 * A view is a record the user reads and scrolls back to, not a
 	 * transient status: commit it to the scrollback instead of a pane.
@@ -2128,7 +2128,7 @@ out_report:
 	 * to the prompt rather than leaving the complaint until the next drain.
 	 */
 	fyai_ui_pane_begin(ctx);
-	fyai_diag_drain(ctx->cfg->diag);
+	fyai_diag_drain(fyai_ctx_diag(ctx));
 	fyai_ui_pane_end(ctx, "error", true, true);
 	return 0;
 }

@@ -790,7 +790,8 @@ static int agent_run_turn(struct fyai_ctx *ctx, struct agent_run *r)
 		fyai_ui_prompt_enabled(ctx, false);
 
 	r->turn = fyai_run_turn(ctx, ctx->last_message);
-	while (fy_is_valid(r->turn) && !ctx->loop->terminate_pending && fyai_event_queued(ctx)) {
+	while (fy_is_valid(r->turn) && !ctx->loop->terminate_pending &&
+	       fyai_event_queued(ctx)) {
 		/*
 		 * A wait whose owner settled since the poll is dropped.
 		 * The queue may then be empty, so the loop re-checks.
@@ -1089,7 +1090,7 @@ static fy_generic tool_agent(struct fyai_ctx *ctx, fy_generic args, bool *okp)
 	if (!ctx->transient_gb && fyai_setup_transient_builder(ctx))
 		return fy_invalid;
 	/* Quote the cause without consuming the user's diagnostic. */
-	diag = fyai_diag_string(ctx->cfg->diag);
+	diag = fyai_diag_string(fyai_ctx_diag(ctx));
 	result_generic = fy_stringf(ctx->transient_gb,
 		"tool error: sub-agent%s%s%s failed: %s",
 		who && *who ? " '" : "", who ? who : "",
@@ -1250,7 +1251,7 @@ static fy_generic agent_rpc_failure(struct fyai_ctx *ctx)
 	fy_generic error;
 	char *why;
 
-	why = fyai_diag_string(ctx->cfg->diag);
+	why = fyai_diag_string(fyai_ctx_diag(ctx));
 	error = fy_gb_mapping(fyai_ctx_transient_gb(ctx),
 			      "code", -32000LL,
 			      "message", "the sub-agent did not complete",

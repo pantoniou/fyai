@@ -896,7 +896,7 @@ static int view_render_exchange(void *user, size_t index, int width,
 	*textp = NULL;
 	*lenp = 0;
 	view = *ctx;
-	cfg = *ctx->cfg;
+	fyai_cfg_copy_muted(&cfg, ctx->cfg);
 	gb = fy_generic_builder_create(&gbcfg);
 	fyai_error_check(ctx, gb, out, "cannot build the transcript view");
 	view.cfg = &cfg;

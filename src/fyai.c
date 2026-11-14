@@ -104,11 +104,14 @@ static void fyai_dump_setup(struct fyai_loop *loop)
 
 	if (home && *home) {
 		rc = asprintf(&loop->dump_dir, "%s/.fyai", home);
-		if (rc < 0)
+		if (rc < 0) {
 			loop->dump_dir = NULL;
-		else if (asprintf(&loop->dump_file, "%s/dump.log",
-				  loop->dump_dir) < 0)
-			loop->dump_file = NULL;
+		} else {
+			rc = asprintf(&loop->dump_file, "%s/dump.log",
+				      loop->dump_dir);
+			if (rc < 0)
+				loop->dump_file = NULL;
+		}
 	}
 	if (loop->dump_fd >= 0)
 		(void)fyai_event_dump_open(loop, SIGUSR2, loop->dump_fd);
@@ -125,14 +128,18 @@ static int fyai_signals_open(struct fyai_ctx *ctx)
 	size_t i;
 	int rc;
 
-	if (!el) return -1;
-	if (sigprocmask(SIG_SETMASK, NULL, &loop->signal_mask))
+	if (!el)
+		return -1;
+	rc = sigprocmask(SIG_SETMASK, NULL, &loop->signal_mask);
+	if (rc)
 		return -1;
 	loop->signal_mask_valid = true;
-	for (i = 0; i < ARRAY_SIZE(signals); i++)
-		if (fyai_event_add_signal(el, signals[i], fyai_signal_cb, ctx,
-					  &loop->signal_src[i]))
+	for (i = 0; i < ARRAY_SIZE(signals); i++) {
+		rc = fyai_event_add_signal(el, signals[i], fyai_signal_cb, ctx,
+					   &loop->signal_src[i]);
+		if (rc)
 			return -1;
+	}
 
 	rc = fyai_event_interrupt_open(loop, FYAI_INTERRUPT_WATCHDOG_MS);
 	if (rc)
@@ -2433,7 +2440,7 @@ done:
 	/* Add a cause if the result and the sink do not have one. */
 	diag = fy_generic_get_diag(result);
 	if (fy_is_invalid(result) && (!fy_is_valid(diag) || fy_is_null(diag)) &&
-	    !fyai_diag_got_error(ctx->cfg->diag))
+	    !fyai_diag_got_error(fyai_ctx_diag(ctx)))
 		fyai_error(ctx, "the turn did not complete");
 	fyai_turn_run_destroy(run);
 	return result;
@@ -2586,7 +2593,7 @@ void fyai_cleanup(struct fyai_ctx *ctx)
 	fyai_auth_cleanup(ctx);
 
 	/* Destroy the loop after every borrower has dropped its sources. */
-	fyai_loop_cleanup(ctx->loop);
+	fyai_loop_release(ctx->loop);
 
 	if (!fyai_cfg_no_storage(cfg))
 		fyai_close_storage(ctx);
@@ -2594,11 +2601,6 @@ void fyai_cleanup(struct fyai_ctx *ctx)
 	fyai_uitranscript_release(ctx);
 	/* Last: a renderer reads it, and closing the storage writes it. */
 	fyai_uimodel_release(ctx);
-	/* The loop outlives the context: it must not call back into it. */
-	if (ctx->loop) {
-		ctx->loop->on_interrupt = NULL;
-		ctx->loop->on_interrupt_data = NULL;
-	}
 }
 
 /* Apply the configured MCP state. This operation is idempotent. */
@@ -3359,7 +3361,7 @@ fyai_interactive_finish_turn(struct fyai_ctx *ctx,
 	/* add a cause if neither the result nor the sink has one */
 	diag = fy_generic_get_diag(result);
 	if (fy_is_invalid(result) && (!fy_is_valid(diag) || fy_is_null(diag)) &&
-	    !fyai_diag_got_error(ctx->cfg->diag))
+	    !fyai_diag_got_error(fyai_ctx_diag(ctx)))
 		fyai_error(ctx, "the turn did not complete");
 	result = fyai_report_diag(ctx, result);
 	rc = 0;
@@ -3538,7 +3540,7 @@ static int fyai_scratch_enter(struct fyai_ctx *ctx,
 		return rc;
 	}
 	/* A drain resets the sink storage, so hold the turn's diagnostics. */
-	st->held = fyai_diag_take_generic(ctx->cfg->diag, ctx->transient_gb);
+	st->held = fyai_diag_take_generic(fyai_ctx_diag(ctx), ctx->transient_gb);
 	st->entered = true;
 	return 0;
 }
@@ -3552,7 +3554,7 @@ static void fyai_scratch_leave(struct fyai_ctx *ctx,
 	st->entered = false;
 	/* Raise the held diagnostics again before the scratch builder goes. */
 	if (fy_is_sequence(st->held))
-		fyai_diag_adopt(ctx->cfg->diag, st->held, NULL);
+		fyai_diag_adopt(fyai_ctx_diag(ctx), st->held, NULL);
 	st->held = fy_invalid;
 	fyai_cleanup_transient_builder(ctx);
 	ctx->transient_gb = st->gb;
@@ -3778,7 +3780,8 @@ static void fyai_interactive_process_interrupt(struct fyai_ctx *ctx,
 	if (!delivered)
 		fyai_cmd_session_interrupt(ctx);
 	/* Keep a signal that arrived while this interrupt was handled. */
-	ctx->loop->interrupt_pending = ctx->loop->interrupt_seq != ctx->loop->interrupt_seen;
+	ctx->loop->interrupt_pending =
+		ctx->loop->interrupt_seq != ctx->loop->interrupt_seen;
 }
 
 static int fyai_interactive_submit_initial(struct fyai_ctx *ctx,
@@ -4418,10 +4421,10 @@ out:
 	 * The backstop: err_out falls through here, so one drain covers every
 	 * path out of a verb and nothing collected can be dropped unreported.
 	 */
-	fyai_diag_drain(cfg->diag);
+	fyai_diag_drain(fyai_cfg_diag(cfg));
 	fyai_cleanup(&ctx);
 	/* Teardown can report after the first drain. */
-	fyai_diag_drain(cfg->diag);
+	fyai_diag_drain(fyai_cfg_diag(cfg));
 	return rc ? -1 : 0;
 
 err_out:

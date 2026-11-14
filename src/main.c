@@ -76,6 +76,9 @@ int main(int argc, char **argv)
 
 	rc = fyai_app_init(&app);
 	if (rc) {
+		/* No sink exists yet, so the report is written at once. */
+		fyai_diagf(NULL, FYAIET_ERROR, FYAIEM_INIT, __FILE__, __LINE__,
+			   __func__, "cannot make the diagnostics of the program");
 		free(sdk_argv);
 		return EXIT_FAILURE;
 	}
