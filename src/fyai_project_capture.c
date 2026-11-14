@@ -771,67 +771,292 @@ static int capture_ignore_load(struct project_capture *capture, size_t index, in
 	return 0;
 }
 
+/* The state of the scan of one directory. */
+struct scan_dir {
+	struct project_capture *capture;
+	size_t index;
+	unsigned int depth;
+	struct scan_item *item;
+	const char *path;
+	struct fyai_project_entry *base_entries;
+	size_t base_count;
+	int source, other, target, current;
+	bool secondary;
+};
+
+/* Open the directory and what it is matched with. */
+static int capture_scan_open(struct scan_dir *d)
+{
+	struct project_capture *capture = d->capture;
+	size_t index = d->index;
+	const char *path = d->path;
+	struct fyai_mobject base_directory;
+	struct stat before;
+	int rc;
+
+	d->source = capture_node_open(&capture->nodes[index], O_RDONLY | O_DIRECTORY);
+	if (d->source < 0)
+		return -1;
+	rc = fstat(d->source, &before);
+	if (rc)
+		return -1;
+	if (!capture_node_same(&capture->nodes[index], &before)) {
+		errno = EAGAIN;
+		return -1;
+	}
+	/* The entries of the baseline directory, to match the children by name. */
+	if (capture->nodes[index].has_baseline && capture->base &&
+	    fyai_manifest_find(capture->base, capture->nodes[index].entry.digest, &base_directory) &&
+	    base_directory.kind == FYAI_PROJECT_DIRECTORY) {
+		d->base_entries = capture_base_entries(capture, &base_directory, &d->base_count);
+		if (base_directory.entry_count && !d->base_entries)
+			return -1;
+	}
+	rc = capture_xattrs(capture, d->source);
+	if (rc)
+		return -1;
+	if (capture->gitignore && !capture->nodes[index].git) {
+		rc = capture_ignore_load(capture, index, d->source);
+		if (rc)
+			return -1;
+	}
+	if (capture->nodes[index].other_root >= 0) {
+		d->other = capture_open(capture->nodes[index].other_root,
+				     capture->nodes[index].source_path, O_RDONLY | O_DIRECTORY, 0);
+		if (d->other < 0)
+			return -1;
+		rc = capture_xattrs(capture, d->other);
+		if (rc)
+			return -1;
+	}
+	if (capture->opts->baseline_fd >= 0) {
+		d->target = capture_open(capture->opts->baseline_fd, path, O_RDONLY | O_DIRECTORY, 0);
+		if (d->target < 0)
+			return -1;
+	}
+	return 0;
+}
+
+/* Mark the node of a Git metadata entry, and refuse what cannot be captured. */
+static int capture_scan_git(struct scan_dir *d, const struct dirent *dent,
+			    size_t child, bool projected,
+			    const struct stat *before)
+{
+	struct project_capture *capture = d->capture;
+	size_t index = d->index;
+	struct stat alternate;
+	int rc;
+
+	if (projected) {
+		capture->nodes[child].git = true;
+		capture->nodes[child].source_root = capture->git_private;
+		capture->nodes[child].source_path = "";
+		rc = fstat(capture->git_common, &alternate);
+		if (rc)
+			return -1;
+		if (alternate.st_dev != before->st_dev ||
+		    alternate.st_ino != before->st_ino) {
+			capture->nodes[child].other_root = capture->git_common;
+			capture->nodes[child].other_before = alternate;
+		}
+	} else if (capture->nodes[index].git) {
+		capture->nodes[child].git = true;
+		capture->nodes[child].source_root =
+			d->secondary ? capture->nodes[index].other_root :
+				    capture->nodes[index].source_root;
+		capture->nodes[child].source_path = capture->nodes[child].path + 5;
+		if (!d->secondary && d->other >= 0 && S_ISDIR(before->st_mode)) {
+			rc = fstatat(d->other, dent->d_name, &alternate, AT_SYMLINK_NOFOLLOW);
+			if (rc && errno != ENOENT)
+				return -1;
+			if (!rc && S_ISDIR(alternate.st_mode)) {
+				capture->nodes[child].other_root =
+					capture->nodes[index].other_root;
+				capture->nodes[child].other_before = alternate;
+			}
+		}
+	}
+	if (!strcmp(capture->nodes[child].path, ".git/objects/info/alternates") &&
+	    before->st_size) {
+		errno = ENOTSUP;
+		capture_set_error(capture, ".git/objects/info/alternates "
+					   "(external object alternates are "
+					   "unsupported)");
+		return -1;
+	}
+	if (capture->nodes[child].git && !S_ISREG(before->st_mode) &&
+	    (!strcmp(capture->nodes[child].path, ".git/config") ||
+	     !strcmp(capture->nodes[child].path, ".git/config.worktree"))) {
+		errno = ENOTSUP;
+		capture_set_error(capture, "%s (Git configuration must be a "
+					   "regular file)", capture->nodes[child].path);
+		return -1;
+	}
+	if (capture->nodes[child].git && S_ISREG(before->st_mode) &&
+	    (!strcmp(capture->nodes[child].path, ".git/config") ||
+	     !strcmp(capture->nodes[child].path, ".git/config.worktree"))) {
+		rc = capture_git_config(capture, &capture->nodes[child]);
+		if (rc)
+			return -1;
+	}
+	return 0;
+}
+
+/* Match the entry with the baseline, and prepare a directory or a link. */
+static int capture_scan_kind(struct scan_dir *d, const struct dirent *dent,
+			     size_t child, const struct stat *before)
+{
+	struct project_capture *capture = d->capture;
+	const struct fyai_project_entry *base_entry;
+	struct stat upper;
+	char link[PATH_MAX];
+	ssize_t length;
+	int rc;
+
+	base_entry = d->base_entries ? capture_base_entry(d->base_entries, d->base_count, dent->d_name,
+						       strlen(dent->d_name)) : NULL;
+	if (base_entry) {
+		capture->nodes[child].has_baseline = true;
+		memcpy(capture->nodes[child].entry.digest, base_entry->digest,
+		       FYAI_CAS_HASH_SIZE);
+	}
+	if (capture->opts->incremental) {
+		rc = fstatat(capture->opts->upper_fd, capture->nodes[child].path, &upper,
+			     AT_SYMLINK_NOFOLLOW);
+		if (rc && errno != ENOENT && errno != ENOTDIR)
+			return -1;
+		if (rc && capture->nodes[child].has_baseline) {
+			capture->nodes[child].reused = true;
+			return 1;
+		}
+	}
+	if (S_ISDIR(before->st_mode)) {
+		if (d->target >= 0) {
+			rc = mkdirat(d->target, dent->d_name, 0700);
+			if (rc)
+				return -1;
+		}
+		rc = scan_item_add(d->item, child);
+		if (rc)
+			return -1;
+	} else if (S_ISLNK(before->st_mode)) {
+		length = readlinkat(d->current, dent->d_name, link, sizeof(link));
+		if (length < 0 || (size_t)length == sizeof(link)) {
+			if (length >= 0)
+				errno = ENAMETOOLONG;
+			return -1;
+		}
+		link[length] = '\0';
+		if (capture->nodes[child].git &&
+		    !capture_git_link_safe(capture->nodes[child].path, link)) {
+			errno = ENOTSUP;
+			capture_set_error(capture, "%s (Git metadata symlink "
+						   "leaves the project)",
+					  capture->nodes[child].path);
+			return -1;
+		}
+		capture->nodes[child].link =
+			fyai_scratch_strndup(&capture->scratch, link, (size_t)length);
+		if (!capture->nodes[child].link)
+			return -1;
+	}
+	return 0;
+}
+
+/* One entry of the directory: 1 to skip it, 0 when it was added, -1 on error. */
+static int capture_scan_entry(struct scan_dir *d, const struct dirent *dent)
+{
+	struct project_capture *capture = d->capture;
+	size_t index = d->index;
+	unsigned int depth = d->depth;
+	const char *path = d->path;
+	struct stat before;
+	char child_path[PATH_MAX];
+	size_t child;
+	bool projected;
+	int rc, n;
+
+	if (!strcmp(dent->d_name, ".") || !strcmp(dent->d_name, "..") ||
+	    !strcmp(dent->d_name, ".fyai"))
+		return 1;
+	if (capture->nodes[index].git && !strcmp(path, ".git") &&
+	    (!strcmp(dent->d_name, "gitdir") || !strcmp(dent->d_name, "commondir") ||
+	     !strcmp(dent->d_name, "worktrees") ||
+	     (d->secondary && !strcmp(dent->d_name, "config.worktree"))))
+		return 1;
+	if (d->secondary) {
+		rc = fstatat(d->source, dent->d_name, &before, AT_SYMLINK_NOFOLLOW);
+		if (!rc)
+			return 1;
+		if (errno != ENOENT)
+			return -1;
+	}
+	rc = fstatat(d->current, dent->d_name, &before, AT_SYMLINK_NOFOLLOW);
+	if (rc)
+		return -1;
+	/*
+	 * The Git metadata is never ignored. A path that is too long is left to
+	 * capture_add(), which says so.
+	 */
+	if ((capture->gitignore || capture->ignore_config) && !capture->nodes[index].git &&
+	    (depth || strcmp(dent->d_name, ".git"))) {
+		n = snprintf(child_path, sizeof(child_path), "%s%s%s", path,
+			     *path ? "/" : "", dent->d_name);
+		if (n < (int)sizeof(child_path) &&
+		    fyai_ignore_match(capture->ignore_config, capture->nodes[index].ignore,
+				      child_path, S_ISDIR(before.st_mode)))
+			return 1;
+	}
+	projected = !depth && !strcmp(dent->d_name, ".git") && capture->git_private >= 0;
+	if (projected) {
+		if (!capture_same(&capture->git_before, &before)) {
+			errno = EAGAIN;
+			return -1;
+		}
+		rc = fstat(capture->git_private, &before);
+		if (rc)
+			return -1;
+	} else if (S_ISREG(before.st_mode) && !strcmp(dent->d_name, ".git")) {
+		errno = ENOTSUP;
+		capture_set_error(capture, "%s/.git (nested Git files and "
+					   "submodules are unsupported)", path);
+		return -1;
+	}
+	rc = capture_add(capture, index, dent->d_name, &before, &child);
+	if (rc)
+		return -1;
+	rc = capture_scan_git(d, dent, child, projected, &before);
+	if (rc)
+		return -1;
+	return capture_scan_kind(d, dent, child, &before);
+}
+
 static int capture_scan_dir(struct project_capture *capture, size_t index, unsigned int depth,
 			    struct scan_item *item)
 {
-	struct stat before, after, upper, alternate;
+	struct scan_dir d = { .capture = capture,
+			      .index = index,
+			      .depth = depth,
+			      .item = item,
+			      .path = capture->nodes[index].path,
+			      .source = -1,
+			      .other = -1,
+			      .target = -1 };
+	const char *path = d.path;
 	struct dirent *dent;
+	struct stat after;
 	DIR *directory = NULL;
-	char link[PATH_MAX], child_path[PATH_MAX];
-	const char *path = capture->nodes[index].path;
-	struct fyai_project_entry *base_entries = NULL;
-	const struct fyai_project_entry *base_entry;
-	struct fyai_mobject base_directory;
-	size_t child, base_count = 0;
-	ssize_t length;
-	int source = -1, other = -1, current, target = -1, rc = -1, saved, iterator, n;
-	bool secondary = false, projected;
+	int rc = -1, saved, iterator;
 
 	if (depth > FYAI_PROJECT_MAX_DEPTH) {
 		errno = ELOOP;
 		goto out;
 	}
-	source = capture_node_open(&capture->nodes[index], O_RDONLY | O_DIRECTORY);
-	if (source < 0)
+	if (capture_scan_open(&d))
 		goto out;
-	rc = fstat(source, &before);
-	if (rc)
-		goto out;
-	if (!capture_node_same(&capture->nodes[index], &before))
-		goto err_out_eagain;
-	/* The entries of the baseline directory, to match the children by name. */
-	if (capture->nodes[index].has_baseline && capture->base &&
-	    fyai_manifest_find(capture->base, capture->nodes[index].entry.digest, &base_directory) &&
-	    base_directory.kind == FYAI_PROJECT_DIRECTORY) {
-		base_entries = capture_base_entries(capture, &base_directory, &base_count);
-		if (base_directory.entry_count && !base_entries)
-			goto out;
-	}
-	rc = capture_xattrs(capture, source);
-	if (rc)
-		goto out;
-	if (capture->gitignore && !capture->nodes[index].git) {
-		rc = capture_ignore_load(capture, index, source);
-		if (rc)
-			goto out;
-	}
-	if (capture->nodes[index].other_root >= 0) {
-		other = capture_open(capture->nodes[index].other_root,
-				     capture->nodes[index].source_path, O_RDONLY | O_DIRECTORY, 0);
-		if (other < 0)
-			goto err_out;
-		rc = capture_xattrs(capture, other);
-		if (rc)
-			goto out;
-	}
-	if (capture->opts->baseline_fd >= 0) {
-		target = capture_open(capture->opts->baseline_fd, path, O_RDONLY | O_DIRECTORY, 0);
-		if (target < 0)
-			goto err_out;
-	}
 next_directory:
-	current = secondary ? other : source;
-	iterator = fcntl(current, F_DUPFD_CLOEXEC, 3);
+	d.current = d.secondary ? d.other : d.source;
+	iterator = fcntl(d.current, F_DUPFD_CLOEXEC, 3);
 	if (iterator < 0)
 		goto err_out;
 	directory = fdopendir(iterator);
@@ -846,162 +1071,21 @@ next_directory:
 			rc = errno ? -1 : 0;
 			break;
 		}
-		if (!strcmp(dent->d_name, ".") || !strcmp(dent->d_name, "..") ||
-		    !strcmp(dent->d_name, ".fyai"))
+		rc = capture_scan_entry(&d, dent);
+		if (rc > 0)
 			continue;
-		if (capture->nodes[index].git && !strcmp(path, ".git") &&
-		    (!strcmp(dent->d_name, "gitdir") || !strcmp(dent->d_name, "commondir") ||
-		     !strcmp(dent->d_name, "worktrees") ||
-		     (secondary && !strcmp(dent->d_name, "config.worktree"))))
-			continue;
-		if (secondary) {
-			rc = fstatat(source, dent->d_name, &before, AT_SYMLINK_NOFOLLOW);
-			if (!rc)
-				continue;
-			if (errno != ENOENT)
-				goto out;
-		}
-		rc = fstatat(current, dent->d_name, &before, AT_SYMLINK_NOFOLLOW);
 		if (rc)
 			goto out;
-		/*
-		 * The Git metadata is never ignored. A path that is too long is left to
-		 * capture_add(), which says so.
-		 */
-		if ((capture->gitignore || capture->ignore_config) && !capture->nodes[index].git &&
-		    (depth || strcmp(dent->d_name, ".git"))) {
-			n = snprintf(child_path, sizeof(child_path), "%s%s%s", path,
-				     *path ? "/" : "", dent->d_name);
-			if (n < (int)sizeof(child_path) &&
-			    fyai_ignore_match(capture->ignore_config, capture->nodes[index].ignore,
-					      child_path, S_ISDIR(before.st_mode)))
-				continue;
-		}
-		projected = !depth && !strcmp(dent->d_name, ".git") && capture->git_private >= 0;
-		if (projected) {
-			if (!capture_same(&capture->git_before, &before))
-				goto err_out_eagain;
-			rc = fstat(capture->git_private, &before);
-			if (rc)
-				goto out;
-		} else if (S_ISREG(before.st_mode) && !strcmp(dent->d_name, ".git")) {
-			errno = ENOTSUP;
-			capture_set_error(capture, "%s/.git (nested Git files and "
-						   "submodules are unsupported)", path);
-			goto err_out;
-		}
-		rc = capture_add(capture, index, dent->d_name, &before, &child);
-		if (rc)
-			goto out;
-		if (projected) {
-			capture->nodes[child].git = true;
-			capture->nodes[child].source_root = capture->git_private;
-			capture->nodes[child].source_path = "";
-			rc = fstat(capture->git_common, &alternate);
-			if (rc)
-				goto out;
-			if (alternate.st_dev != before.st_dev ||
-			    alternate.st_ino != before.st_ino) {
-				capture->nodes[child].other_root = capture->git_common;
-				capture->nodes[child].other_before = alternate;
-			}
-		} else if (capture->nodes[index].git) {
-			capture->nodes[child].git = true;
-			capture->nodes[child].source_root =
-				secondary ? capture->nodes[index].other_root :
-					    capture->nodes[index].source_root;
-			capture->nodes[child].source_path = capture->nodes[child].path + 5;
-			if (!secondary && other >= 0 && S_ISDIR(before.st_mode)) {
-				rc = fstatat(other, dent->d_name, &alternate, AT_SYMLINK_NOFOLLOW);
-				if (rc && errno != ENOENT)
-					goto out;
-				if (!rc && S_ISDIR(alternate.st_mode)) {
-					capture->nodes[child].other_root =
-						capture->nodes[index].other_root;
-					capture->nodes[child].other_before = alternate;
-				}
-			}
-		}
-		if (!strcmp(capture->nodes[child].path, ".git/objects/info/alternates") &&
-		    before.st_size) {
-			errno = ENOTSUP;
-			capture_set_error(capture, ".git/objects/info/alternates "
-						   "(external object alternates are "
-						   "unsupported)");
-			goto err_out;
-		}
-		if (capture->nodes[child].git && !S_ISREG(before.st_mode) &&
-		    (!strcmp(capture->nodes[child].path, ".git/config") ||
-		     !strcmp(capture->nodes[child].path, ".git/config.worktree"))) {
-			errno = ENOTSUP;
-			capture_set_error(capture, "%s (Git configuration must be a "
-						   "regular file)", capture->nodes[child].path);
-			goto err_out;
-		}
-		if (capture->nodes[child].git && S_ISREG(before.st_mode) &&
-		    (!strcmp(capture->nodes[child].path, ".git/config") ||
-		     !strcmp(capture->nodes[child].path, ".git/config.worktree"))) {
-			rc = capture_git_config(capture, &capture->nodes[child]);
-			if (rc)
-				goto out;
-		}
-		base_entry = base_entries ? capture_base_entry(base_entries, base_count, dent->d_name,
-							       strlen(dent->d_name)) : NULL;
-		if (base_entry) {
-			capture->nodes[child].has_baseline = true;
-			memcpy(capture->nodes[child].entry.digest, base_entry->digest,
-			       FYAI_CAS_HASH_SIZE);
-		}
-		if (capture->opts->incremental) {
-			rc = fstatat(capture->opts->upper_fd, capture->nodes[child].path, &upper,
-				     AT_SYMLINK_NOFOLLOW);
-			if (rc && errno != ENOENT && errno != ENOTDIR)
-				goto out;
-			if (rc && capture->nodes[child].has_baseline) {
-				capture->nodes[child].reused = true;
-				continue;
-			}
-		}
-		if (S_ISDIR(before.st_mode)) {
-			if (target >= 0) {
-				rc = mkdirat(target, dent->d_name, 0700);
-				if (rc)
-					goto out;
-			}
-			rc = scan_item_add(item, child);
-			if (rc)
-				goto out;
-		} else if (S_ISLNK(before.st_mode)) {
-			length = readlinkat(current, dent->d_name, link, sizeof(link));
-			if (length < 0 || (size_t)length == sizeof(link)) {
-				if (length >= 0)
-					errno = ENAMETOOLONG;
-				goto err_out;
-			}
-			link[length] = '\0';
-			if (capture->nodes[child].git &&
-			    !capture_git_link_safe(capture->nodes[child].path, link)) {
-				errno = ENOTSUP;
-				capture_set_error(capture, "%s (Git metadata symlink "
-							   "leaves the project)",
-						  capture->nodes[child].path);
-				goto err_out;
-			}
-			capture->nodes[child].link =
-				fyai_scratch_strndup(&capture->scratch, link, (size_t)length);
-			if (!capture->nodes[child].link)
-				goto err_out;
-		}
 	}
 	closedir(directory);
 	directory = NULL;
-	if (!rc && !secondary && other >= 0) {
-		secondary = true;
+	if (!rc && !d.secondary && d.other >= 0) {
+		d.secondary = true;
 		goto next_directory;
 	}
 	if (rc)
 		goto out;
-	rc = fstat(source, &after);
+	rc = fstat(d.source, &after);
 	if (rc)
 		goto out;
 	if (!capture_node_same(&capture->nodes[index], &after))
@@ -1015,12 +1099,12 @@ out:
 	saved = errno;
 	if (directory)
 		closedir(directory);
-	if (source >= 0)
-		close(source);
-	if (other >= 0)
-		close(other);
-	if (target >= 0)
-		close(target);
+	if (d.source >= 0)
+		close(d.source);
+	if (d.other >= 0)
+		close(d.other);
+	if (d.target >= 0)
+		close(d.target);
 	if (rc)
 		capture_set_error(capture, "%s", *path ? path : ".");
 	errno = saved;
@@ -2232,100 +2316,100 @@ static int capture_assemble_delta(struct project_capture *capture,
 						  base_digest, map.count, out);
 }
 
-/* With base_name set, the result is a delta over the baseline file of that name. */
-static int capture_run(const struct fyai_project_capture_opts *opts, const char *base_name,
-		       struct fyai_manifest *manifest, char *error_path, size_t error_size)
-{
-	unsigned char base_digest[FYAI_CAS_HASH_SIZE];
-
-	struct project_capture capture = { .opts = opts,
-					   .git_private = -1,
-					   .git_common = -1,
-					   .git_pointer = -1,
-					   .common_pointer = -1,
-					   .error = error_path,
-					   .error_size = error_size,
-					   .error_lock = PTHREAD_MUTEX_INITIALIZER };
-	struct fy_thread_pool_cfg pool_cfg = { .flags = FYTPCF_STEAL_MODE };
-	struct fy_blake3_hasher_cfg hash_cfg = { 0 };
-	struct fyai_manifest converted = { 0 };
-	struct fyai_mobject base_root;
-	struct capture_worker *workers = NULL;
-	struct capture_map linked = { 0 };
-	struct capture_slot *linked_slot;
+/* The state that the phases of one capture share. */
+struct capture_run {
+	const struct fyai_project_capture_opts *opts;
+	const char *base_name;
+	struct fyai_manifest *manifest;
+	char *error_path;
+	size_t error_size;
+	struct project_capture capture;
+	struct fy_thread_pool_cfg pool_cfg;
+	struct fy_blake3_hasher_cfg hash_cfg;
+	struct fyai_manifest converted;
+	struct capture_worker *workers;
 	struct stat st;
-	size_t root, i, worker_count = 0, initialized = 0, files = 0, capacity = 16;
-	size_t count, count_lines = 0;
-	const char **lines, *pattern;
-	int status = -1, rc, saved, cpus, git_check;
-	struct stat git_root, checked_root;
+	size_t worker_count, initialized, files;
+};
 
-	clock_gettime(CLOCK_MONOTONIC, &capture.started);
-	capture.euid = geteuid();
-	capture.egid = getegid();
-	rc = fyai_scratch_open(&capture.scratch);
+/* Open the scratch, check the options and take the baseline and the Git metadata. */
+static int capture_run_init(struct capture_run *r)
+{
+	const struct fyai_project_capture_opts *opts = r->opts;
+	struct project_capture *capture = &r->capture;
+	char *error_path = r->error_path;
+	size_t error_size = r->error_size;
+	struct fyai_manifest *manifest = r->manifest;
+	size_t i, count, count_lines = 0;
+	const char **lines, *pattern;
+	int rc;
+
+	clock_gettime(CLOCK_MONOTONIC, &capture->started);
+	capture->euid = geteuid();
+	capture->egid = getegid();
+	rc = fyai_scratch_open(&capture->scratch);
 	if (rc)
-		goto out;
+		return -1;
 	if (opts && opts->ignore) {
-		capture.gitignore = opts->ignore->gitignore;
+		capture->gitignore = opts->ignore->gitignore;
 		count = fy_len(opts->ignore->patterns);
 		if (count) {
-			lines = fyai_scratch_calloc(&capture.scratch, count, sizeof(*lines));
+			lines = fyai_scratch_calloc(&capture->scratch, count, sizeof(*lines));
 			if (!lines)
-				goto out;
+				return -1;
 			/* The string of a loop variable names the stored item. */
 			fy_foreach(pattern, opts->ignore->patterns)
 				lines[count_lines++] = pattern;
-			capture.ignore_config = fyai_ignore_parse_lines(&capture.scratch, lines,
+			capture->ignore_config = fyai_ignore_parse_lines(&capture->scratch, lines,
 									count_lines);
-			if (!capture.ignore_config)
-				goto out;
+			if (!capture->ignore_config)
+				return -1;
 		}
 	}
-	atomic_init(&capture.completed, 0);
-	atomic_init(&capture.copy.copied_bytes, 0);
-	atomic_init(&capture.copy.reflinked_bytes, 0);
-	atomic_init(&capture.copy.backend, FYAI_CAS_METHOD_NONE);
-	capture.copy.defer_directory_sync = true;
-	capture.copy.defer_file_sync = true;
+	atomic_init(&capture->completed, 0);
+	atomic_init(&capture->copy.copied_bytes, 0);
+	atomic_init(&capture->copy.reflinked_bytes, 0);
+	atomic_init(&capture->copy.backend, FYAI_CAS_METHOD_NONE);
+	capture->copy.defer_directory_sync = true;
+	capture->copy.defer_file_sync = true;
 	if (capture_backend->sync_policy)
-		capture_backend->sync_policy(&capture.copy, opts);
+		capture_backend->sync_policy(&capture->copy, opts);
 	for (i = 0; i < CAPTURE_STORAGE_COUNT; i++)
-		atomic_init(&capture.storage[i], 0);
+		atomic_init(&capture->storage[i], 0);
 
 	if (error_path && error_size)
 		error_path[0] = '\0';
 	if (!opts || !manifest || (opts->metacopy && (opts->data_fd < 0 || opts->baseline_fd < 0))) {
 		errno = EINVAL;
-		goto out;
+		return -1;
 	}
 	if (!capture_backend->overlay && (opts->metacopy || opts->incremental)) {
 		errno = ENOTSUP;
-		goto out;
+		return -1;
 	}
 	/* The baseline is a manifest, or a snapshot that is converted here. */
 	if (opts->baseline_manifest) {
-		capture.base = opts->baseline_manifest;
+		capture->base = opts->baseline_manifest;
 	} else if (fy_is_mapping(opts->snapshot)) {
-		if (fyai_manifest_from_snapshot(&converted, opts->snapshot))
-			goto out;
-		capture.base = &converted;
+		if (fyai_manifest_from_snapshot(&r->converted, opts->snapshot))
+			return -1;
+		capture->base = &r->converted;
 	}
-	if (capture.base && (opts->incremental || opts->borrow_git)) {
-		rc = fyai_manifest_check_borrowed(capture.base, opts->objects_fd, opts->verify,
+	if (capture->base && (opts->incremental || opts->borrow_git)) {
+		rc = fyai_manifest_check_borrowed(capture->base, opts->objects_fd, opts->verify,
 						  error_path, error_size);
 		if (rc)
-			goto out;
+			return -1;
 	}
-	rc = fstat(opts->source_fd, &st);
+	rc = fstat(opts->source_fd, &r->st);
 	if (rc)
-		goto out;
-	if (!S_ISDIR(st.st_mode)) {
+		return -1;
+	if (!S_ISDIR(r->st.st_mode)) {
 		errno = ENOTDIR;
-		goto out;
+		return -1;
 	}
-	capture.device = st.st_dev;
-	rc = capture_git_prepare(&capture);
+	capture->device = r->st.st_dev;
+	rc = capture_git_prepare(capture);
 	if (rc) {
 		if (error_path && error_size)
 			snprintf(error_path, error_size,
@@ -2333,10 +2417,22 @@ static int capture_run(const struct fyai_project_capture_opts *opts, const char 
 						  "the project filesystem)" :
 						  ".git (cannot resolve external Git "
 						  "metadata)");
-		goto out;
+		return -1;
 	}
-	atomic_init(&capture.next, 0);
-	atomic_init(&capture.count, 0);
+	atomic_init(&capture->next, 0);
+	atomic_init(&capture->count, 0);
+	return 0;
+}
+
+/* Make the pool, the nodes and the scan of the tree. */
+static int capture_run_scan(struct capture_run *r)
+{
+	const struct fyai_project_capture_opts *opts = r->opts;
+	struct project_capture *capture = &r->capture;
+	struct fyai_mobject base_root;
+	size_t root, i;
+	int rc, cpus;
+
 	/*
 	 * The pool serves the scan, the ingest and the checks. A scan worker adds
 	 * nodes, so the array has room for the most that a capture can hold; its
@@ -2347,167 +2443,205 @@ static int capture_run(const struct fyai_project_capture_opts *opts, const char 
 		cpus = 1;
 	if (cpus > 128)
 		cpus = 128;
-	pool_cfg.num_threads = opts->workers ? opts->workers : (unsigned int)cpus;
-	if (pool_cfg.num_threads > 128) {
+	r->pool_cfg.num_threads = opts->workers ? opts->workers : (unsigned int)cpus;
+	if (r->pool_cfg.num_threads > 128) {
 		errno = EINVAL;
-		goto out;
+		return -1;
 	}
-	capture.pool = fy_thread_pool_create(&pool_cfg);
-	if (!capture.pool) {
+	capture->pool = fy_thread_pool_create(&r->pool_cfg);
+	if (!capture->pool) {
 		errno = ENOMEM;
-		goto out;
+		return -1;
 	}
-	capture.nodes = fyai_scratch_alloc(&capture.scratch,
-					   (FYAI_PROJECT_MAX_NODES + 1) * sizeof(*capture.nodes));
-	if (!capture.nodes)
-		goto out;
-	capture_progress(&capture);
-	rc = capture_add(&capture, SIZE_MAX, "", &st, &root);
+	capture->nodes = fyai_scratch_alloc(&capture->scratch,
+					   (FYAI_PROJECT_MAX_NODES + 1) * sizeof(*capture->nodes));
+	if (!capture->nodes)
+		return -1;
+	capture_progress(capture);
+	rc = capture_add(capture, SIZE_MAX, "", &r->st, &root);
 	if (rc)
-		goto out;
+		return -1;
 	if (opts->incremental || opts->reuse_baseline) {
-		if (!capture.base || (opts->incremental && (opts->upper_fd < 0 || opts->baseline_fd >= 0)) ||
-		    !fyai_manifest_find(capture.base, capture.base->root, &base_root) ||
+		if (!capture->base || (opts->incremental && (opts->upper_fd < 0 || opts->baseline_fd >= 0)) ||
+		    !fyai_manifest_find(capture->base, capture->base->root, &base_root) ||
 		    base_root.kind != FYAI_PROJECT_DIRECTORY) {
 			errno = EINVAL;
-			goto out;
+			return -1;
 		}
-		capture.nodes[root].has_baseline = true;
-		memcpy(capture.nodes[root].entry.digest, capture.base->root, FYAI_CAS_HASH_SIZE);
+		capture->nodes[root].has_baseline = true;
+		memcpy(capture->nodes[root].entry.digest, capture->base->root, FYAI_CAS_HASH_SIZE);
 	}
-	capture.finish_hasher = fy_blake3_hasher_create(&hash_cfg);
-	if (!capture.finish_hasher) {
+	capture->finish_hasher = fy_blake3_hasher_create(&r->hash_cfg);
+	if (!capture->finish_hasher) {
 		errno = ENOMEM;
-		goto out;
+		return -1;
 	}
-	rc = capture_scan(&capture, root);
+	rc = capture_scan(capture, root);
 	if (!rc)
-		rc = capture_links(&capture);
+		rc = capture_links(capture);
 	if (rc)
-		goto out;
-	for (i = 0; i < capture.count; i++)
-		if (!capture.nodes[i].reused && capture.nodes[i].entry.kind == FYAI_PROJECT_FILE)
-			files++;
-	if (!files)
-		goto finish;
-	worker_count = pool_cfg.num_threads + 1;
-	workers = calloc(worker_count, sizeof(*workers));
-	if (!workers)
-		goto out;
-	hash_cfg.tp = capture.pool;
-	for (i = 0; i < worker_count; i++) {
-		workers[i].capture = &capture;
-		workers[i].hasher = fy_blake3_hasher_create(&hash_cfg);
-		if (!workers[i].hasher) {
+		return -1;
+	for (i = 0; i < capture->count; i++)
+		if (!capture->nodes[i].reused && capture->nodes[i].entry.kind == FYAI_PROJECT_FILE)
+			r->files++;
+	return 0;
+}
+
+/* Ingest, publish and materialize the files. */
+static int capture_run_ingest(struct capture_run *r)
+{
+	const struct fyai_project_capture_opts *opts = r->opts;
+	struct project_capture *capture = &r->capture;
+	struct capture_map linked = { 0 };
+	struct capture_slot *linked_slot;
+	size_t i, capacity = 16;
+	int rc;
+
+	r->worker_count = r->pool_cfg.num_threads + 1;
+	r->workers = calloc(r->worker_count, sizeof(*r->workers));
+	if (!r->workers)
+		return -1;
+	r->hash_cfg.tp = capture->pool;
+	for (i = 0; i < r->worker_count; i++) {
+		r->workers[i].capture = capture;
+		r->workers[i].hasher = fy_blake3_hasher_create(&r->hash_cfg);
+		if (!r->workers[i].hasher) {
 			errno = ENOMEM;
-			goto out;
+			return -1;
 		}
-		initialized++;
+		r->initialized++;
 	}
-	capture.stats.workers = worker_count;
-	capture.stats.phase = FYAI_PROJECT_INGEST;
-	capture_progress(&capture);
-	rc = capture_join_workers(&capture, capture_files, workers, worker_count);
+	capture->stats.workers = r->worker_count;
+	capture->stats.phase = FYAI_PROJECT_INGEST;
+	capture_progress(capture);
+	rc = capture_join_workers(capture, capture_files, r->workers, r->worker_count);
 	if (rc)
-		goto out;
+		return -1;
 	if (opts->baseline_fd >= 0 && !opts->metacopy) {
-		atomic_store_explicit(&capture.next, 0, memory_order_relaxed);
-		rc = capture_join_workers(&capture, capture_publish_owned, workers, worker_count);
+		atomic_store_explicit(&capture->next, 0, memory_order_relaxed);
+		rc = capture_join_workers(capture, capture_publish_owned, r->workers, r->worker_count);
 		if (rc)
-			goto out;
+			return -1;
 	}
-	for (i = 0; i < capture.count; i++) {
-		if (!capture.nodes[i].error)
+	for (i = 0; i < capture->count; i++) {
+		if (!capture->nodes[i].error)
 			continue;
-		if (capture.error && capture.error_size)
-			snprintf(capture.error, capture.error_size, "%s", capture.nodes[i].path);
-		errno = capture.nodes[i].error;
-		goto out;
+		if (capture->error && capture->error_size)
+			snprintf(capture->error, capture->error_size, "%s", capture->nodes[i].path);
+		errno = capture->nodes[i].error;
+		return -1;
 	}
 	/* A borrowed blob is linked into the baseline once: its first node does it. */
-	while (capacity < capture.count * 2)
+	while (capacity < capture->count * 2)
 		capacity *= 2;
 	linked.capacity = capacity;
-	linked.slots = fyai_scratch_calloc(&capture.scratch, capacity, sizeof(*linked.slots));
+	linked.slots = fyai_scratch_calloc(&capture->scratch, capacity, sizeof(*linked.slots));
 	if (!linked.slots)
-		goto out;
+		return -1;
 	/* The node of the smallest path links; the choice does not follow the scan order. */
-	for (i = 0; i < capture.count; i++) {
-		if (!capture.nodes[i].blob.borrowed || capture.nodes[i].error)
+	for (i = 0; i < capture->count; i++) {
+		if (!capture->nodes[i].blob.borrowed || capture->nodes[i].error)
 			continue;
-		linked_slot = capture_map_slot(&linked, capture.nodes[i].blob.digest);
-		if (linked_slot->used && strcmp(capture.nodes[i].path, linked_slot->node->path) > 0)
+		linked_slot = capture_map_slot(&linked, capture->nodes[i].blob.digest);
+		if (linked_slot->used && strcmp(capture->nodes[i].path, linked_slot->node->path) > 0)
 			continue;
-		memcpy(linked_slot->digest, capture.nodes[i].blob.digest, FYAI_CAS_HASH_SIZE);
+		memcpy(linked_slot->digest, capture->nodes[i].blob.digest, FYAI_CAS_HASH_SIZE);
 		linked_slot->used = true;
-		linked_slot->node = &capture.nodes[i];
+		linked_slot->node = &capture->nodes[i];
 	}
 	for (i = 0; i < linked.capacity; i++)
 		if (linked.slots[i].used)
 			((struct capture_node *)linked.slots[i].node)->link_blob = true;
 	if (opts->baseline_fd >= 0) {
-		atomic_store_explicit(&capture.next, 0, memory_order_relaxed);
-		capture.stats.phase = FYAI_PROJECT_MATERIALIZE;
-		atomic_store_explicit(&capture.completed, 0, memory_order_relaxed);
-		for (i = 0; i < capture.count; i++)
-			if (capture.nodes[i].materialized)
-				atomic_fetch_add_explicit(&capture.completed, 1,
+		atomic_store_explicit(&capture->next, 0, memory_order_relaxed);
+		capture->stats.phase = FYAI_PROJECT_MATERIALIZE;
+		atomic_store_explicit(&capture->completed, 0, memory_order_relaxed);
+		for (i = 0; i < capture->count; i++)
+			if (capture->nodes[i].materialized)
+				atomic_fetch_add_explicit(&capture->completed, 1,
 							  memory_order_relaxed);
-		capture_progress(&capture);
-		rc = capture_join_workers(&capture, capture_materialize_files, workers,
-					  worker_count);
+		capture_progress(capture);
+		rc = capture_join_workers(capture, capture_materialize_files, r->workers,
+					  r->worker_count);
 		if (rc)
-			goto out;
+			return -1;
 	}
-finish:
+	return 0;
+}
+
+/* Verify, recheck and assemble the manifest. */
+static int capture_run_finish(struct capture_run *r)
+{
+	const struct fyai_project_capture_opts *opts = r->opts;
+	struct project_capture *capture = &r->capture;
+	unsigned char base_digest[FYAI_CAS_HASH_SIZE];
+	const char *base_name = r->base_name;
+	struct fyai_manifest *manifest = r->manifest;
+	size_t i;
+	int rc;
+
 	if (opts->verify) {
-		capture.stats.phase = FYAI_PROJECT_VERIFY;
-		atomic_store_explicit(&capture.completed, 0, memory_order_relaxed);
-		capture_progress(&capture);
-		rc = capture_verify(&capture);
+		capture->stats.phase = FYAI_PROJECT_VERIFY;
+		atomic_store_explicit(&capture->completed, 0, memory_order_relaxed);
+		capture_progress(capture);
+		rc = capture_verify(capture);
 		if (rc)
-			goto out;
+			return -1;
 	}
-	capture.stats.phase = FYAI_PROJECT_MANIFEST;
-	capture_progress(&capture);
-	if (files) {
-		atomic_store_explicit(&capture.next, 0, memory_order_relaxed);
-		rc = capture_join_workers(&capture, capture_recheck_files, workers, worker_count);
+	capture->stats.phase = FYAI_PROJECT_MANIFEST;
+	capture_progress(capture);
+	if (r->files) {
+		atomic_store_explicit(&capture->next, 0, memory_order_relaxed);
+		rc = capture_join_workers(capture, capture_recheck_files, r->workers, r->worker_count);
 		if (rc)
-			goto out;
-		for (i = 0; i < capture.count; i++) {
-			if (!capture.nodes[i].error)
+			return -1;
+		for (i = 0; i < capture->count; i++) {
+			if (!capture->nodes[i].error)
 				continue;
-			if (capture.error && capture.error_size)
-				snprintf(capture.error, capture.error_size, "%s",
-					 capture.nodes[i].path);
-			errno = capture.nodes[i].error;
-			goto out;
+			if (capture->error && capture->error_size)
+				snprintf(capture->error, capture->error_size, "%s",
+					 capture->nodes[i].path);
+			errno = capture->nodes[i].error;
+			return -1;
 		}
 	}
-	rc = capture_finish_all(&capture, workers, worker_count);
+	rc = capture_finish_all(capture, r->workers, r->worker_count);
 	if (rc)
-		goto out;
+		return -1;
 	if (base_name) {
 		rc = fyai_cas_digest_parse(base_digest, base_name);
 		if (rc)
 			errno = EINVAL;
 		else
-			rc = capture_assemble_delta(&capture, base_digest, manifest);
+			rc = capture_assemble_delta(capture, base_digest, manifest);
 	} else {
-		rc = capture_assemble(&capture, manifest);
+		rc = capture_assemble(capture, manifest);
 	}
 	if (rc)
-		goto out;
-	if (capture.git_private >= 0) {
-		git_check = openat(opts->source_fd, capture.git_path,
+		return -1;
+	return 0;
+}
+
+/* Check that the Git metadata did not change, and persist the objects. */
+static int capture_run_check(struct capture_run *r)
+{
+	const struct fyai_project_capture_opts *opts = r->opts;
+	struct project_capture *capture = &r->capture;
+	char *error_path = r->error_path;
+	size_t error_size = r->error_size;
+	struct fyai_manifest *manifest = r->manifest;
+	struct stat git_root, checked_root, st;
+	int rc, git_check;
+
+	if (capture->git_private >= 0) {
+		git_check = openat(opts->source_fd, capture->git_path,
 				   O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
 		if (git_check < 0) {
 			rc = -1;
 		} else {
 			rc = fstat(git_check, &checked_root);
 			if (!rc)
-				rc = fstat(capture.git_private, &git_root);
+				rc = fstat(capture->git_private, &git_root);
 			close(git_check);
 		}
 		if (rc || checked_root.st_dev != git_root.st_dev ||
@@ -2518,29 +2652,29 @@ finish:
 					 "changed)");
 			errno = EAGAIN;
 			fyai_manifest_close(manifest);
-			goto out;
+			return -1;
 		}
 	}
-	if (capture.common_pointer >= 0) {
-		rc = fstatat(capture.git_private, "commondir", &st, AT_SYMLINK_NOFOLLOW);
-		if (rc || !capture_same(&capture.common_before, &st)) {
+	if (capture->common_pointer >= 0) {
+		rc = fstatat(capture->git_private, "commondir", &st, AT_SYMLINK_NOFOLLOW);
+		if (rc || !capture_same(&capture->common_before, &st)) {
 			if (error_path && error_size)
 				snprintf(error_path, error_size,
 					 ".git/commondir (common repository "
 					 "pointer changed)");
 			errno = EAGAIN;
 			fyai_manifest_close(manifest);
-			goto out;
+			return -1;
 		}
 	}
-	if (capture.git_pointer >= 0) {
+	if (capture->git_pointer >= 0) {
 		rc = fstatat(opts->source_fd, ".git", &st, AT_SYMLINK_NOFOLLOW);
-		if (rc || !capture_same(&capture.git_before, &st)) {
+		if (rc || !capture_same(&capture->git_before, &st)) {
 			if (error_path && error_size)
 				snprintf(error_path, error_size, ".git (worktree pointer changed)");
 			errno = EAGAIN;
 			fyai_manifest_close(manifest);
-			goto out;
+			return -1;
 		}
 	}
 	rc = 0;
@@ -2551,35 +2685,66 @@ finish:
 		if (error_path && error_size)
 			snprintf(error_path, error_size, "CAS persistence barrier");
 		fyai_manifest_close(manifest);
-		goto out;
+		return -1;
 	}
+	return 0;
+}
+
+/* With base_name set, the result is a delta over the baseline file of that name. */
+static int capture_run(const struct fyai_project_capture_opts *opts, const char *base_name,
+		       struct fyai_manifest *manifest, char *error_path, size_t error_size)
+{
+	struct capture_run r = { .opts = opts,
+				 .base_name = base_name,
+				 .manifest = manifest,
+				 .error_path = error_path,
+				 .error_size = error_size,
+				 .pool_cfg = { .flags = FYTPCF_STEAL_MODE },
+				 .capture = { .opts = opts,
+					      .git_private = -1,
+					      .git_common = -1,
+					      .git_pointer = -1,
+					      .common_pointer = -1,
+					      .error = error_path,
+					      .error_size = error_size,
+					      .error_lock = PTHREAD_MUTEX_INITIALIZER } };
+	struct project_capture *capture = &r.capture;
+	int status = -1, saved;
+	size_t i;
+
+	if (capture_run_init(&r) || capture_run_scan(&r))
+		goto out;
+	if (r.files && capture_run_ingest(&r))
+		goto out;
+	if (capture_run_finish(&r) || capture_run_check(&r))
+		goto out;
 	status = 0;
-	capture.stats.phase = FYAI_PROJECT_DONE;
-	capture_progress(&capture);
+	capture->stats.phase = FYAI_PROJECT_DONE;
+	capture_progress(capture);
 out:
 	saved = errno;
-	for (i = 0; i < initialized; i++)
-		fy_blake3_hasher_destroy(workers[i].hasher);
-	free(workers);
-	if (capture.finish_hasher)
-		fy_blake3_hasher_destroy(capture.finish_hasher);
-	if (capture.pool)
-		fy_thread_pool_destroy(capture.pool);
-	for (i = 0; i < capture.count; i++) {
-		if (capture.nodes[i].staged_fd >= 0)
-			close(capture.nodes[i].staged_fd);
+	for (i = 0; i < r.initialized; i++)
+		fy_blake3_hasher_destroy(r.workers[i].hasher);
+	free(r.workers);
+	if (capture->finish_hasher)
+		fy_blake3_hasher_destroy(capture->finish_hasher);
+	if (capture->pool)
+		fy_thread_pool_destroy(capture->pool);
+	for (i = 0; i < capture->count; i++) {
+		if (capture->nodes[i].staged_fd >= 0)
+			close(capture->nodes[i].staged_fd);
 	}
-	if (capture.git_pointer >= 0)
-		close(capture.git_pointer);
-	if (capture.git_private >= 0)
-		close(capture.git_private);
-	if (capture.git_common >= 0)
-		close(capture.git_common);
-	if (capture.common_pointer >= 0)
-		close(capture.common_pointer);
-	fyai_manifest_close(&converted);
-	pthread_mutex_destroy(&capture.error_lock);
-	fyai_scratch_close(&capture.scratch);
+	if (capture->git_pointer >= 0)
+		close(capture->git_pointer);
+	if (capture->git_private >= 0)
+		close(capture->git_private);
+	if (capture->git_common >= 0)
+		close(capture->git_common);
+	if (capture->common_pointer >= 0)
+		close(capture->common_pointer);
+	fyai_manifest_close(&r.converted);
+	pthread_mutex_destroy(&capture->error_lock);
+	fyai_scratch_close(&capture->scratch);
 	errno = saved;
 	return status;
 }
