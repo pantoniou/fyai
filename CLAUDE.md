@@ -174,8 +174,8 @@ initialize each generic field explicitly.
   credential refresh, the model connection, the transport client, the MCP
   client, the waits, the questions, the tool scope, the terminal, the skill
   files, the tool specification, the branch cursor, the usage totals, the turn
-  state, the tool jobs, the sub-agent identity and the configuration; the
-  other components move in one by one.
+  state, the tool jobs, the sub-agent identity, the front end and the
+  configuration.
 - `src/fyai_arena.c`: `struct fyai_arena`, the durable and working builders of
   the canonical state. `ctx->arena` points at the one in the app; read
   `ctx->arena->gb` where you need the working builder.
@@ -208,6 +208,10 @@ initialize each generic field explicitly.
   terminal sessions, monitors, background runs) and `struct fyai_agent_state`
   (the registry and the identity of a sub-agent). `ctx->jobs` and `ctx->astate`
   point at the ones in the app.
+- `src/fyai_front.h`: `struct fyai_front`, everything that presents the run and
+  takes input: the sink, the UI, the UI model, the transcript document, the work
+  pane, the browser and the command in flight. `ctx->front` points at the one in
+  the app.
 - `src/fyai_cred.c`: `struct fyai_cred`, the shared refresh of the login and
   the secrets in memory. `ctx->cred` points at the one in the app; it stands
   on the loop of the app for its timer.

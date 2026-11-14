@@ -2,7 +2,7 @@
 
 Status: design, and the first three steps are done and the fourth has begun:
 `struct fyai_app` exists and holds `diag`, `loop`, `arena`, `transient`,
-`cred`, `link`, `transport`, `mcp`, `waitq`, `askq`, `scope`, `tty`, `skills`, `toolspec`, `bstate`, `usage`, `turn`, `jobs`, `astate` and `cfg`. The counts come from a script over
+`cred`, `link`, `transport`, `mcp`, `waitq`, `askq`, `scope`, `tty`, `skills`, `toolspec`, `bstate`, `usage`, `turn`, `jobs`, `astate`, `front` and `cfg`. The counts come from a script over
 `src/*.c` that counts `ctx->FIELD` per file; check a row against the code
 before a change. The order of the work is near the end.
 
@@ -296,8 +296,13 @@ Each step builds, passes both suites, and lands as its own patch series
    (`ctx->astate`) holds the registry of the sub-agents, the execution and
    parent numbers and the spawn state. Their reads of the display fields stay
    direct until the display components of step 9 exist.
-9. `sink`, `uimodel`, `ui`: this part ends in the second context of the TUI
-   split.
+9. `sink`, `uimodel`, `ui`: grouped as `struct fyai_front` (`ctx->front`): the
+   sink, the UI, the model that renderers read and its stores, the open
+   transcript document, the work pane, the browser, the command in flight and
+   the requests of the editor and the catalogue update. A view context copies
+   it and clears the UI. The members are still the objects that they were;
+   splitting them into three components, and into the second context of the
+   TUI split, is the next change.
 
 After step 8 `struct fyai_ctx` is the composition root of rule 4, the list of
 `fyai_ctx_fork_disown()` is a loop over `abandon()`, and the reset functions
