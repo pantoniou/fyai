@@ -14,20 +14,15 @@
 
 /*
  * A configuration that stands alone owns its diagnostics in a test: the sink
- * is static and the configuration points at it, as the program points the
- * configuration at the sink of struct fyai_app.
+ * is allocated for it and stays allocated, so a loop that kept the pointer
+ * never holds freed memory. The configuration keeps it reachable.
  */
-static inline struct fyai_diag *fyai_test_diag_storage(void)
-{
-	/* Static, so a loop that kept the pointer never holds freed memory. */
-	static struct fyai_diag diag;
-
-	return &diag;
-}
-
 static inline int fyai_test_diag_setup(struct fyai_cfg *cfg)
 {
-	cfg->diag = fyai_test_diag_storage();
+	if (!cfg->diag)
+		cfg->diag = calloc(1, sizeof(*cfg->diag));
+	if (!cfg->diag)
+		return -1;
 	return fyai_diag_setup(cfg->diag);
 }
 
@@ -36,7 +31,6 @@ static inline void fyai_test_diag_cleanup(struct fyai_cfg *cfg)
 	if (!cfg->diag)
 		return;
 	fyai_diag_cleanup(cfg->diag);
-	cfg->diag = NULL;
 }
 
 /*
@@ -53,56 +47,53 @@ static inline struct fyai_link *fyai_test_link_of(struct fyai_ctx *ctx)
 
 /*
  * The event loop component of a test context: the one that the test gave the
- * context, else one of its own, made on first use. A loop without a sink
- * reports into the sink of the tests.
+ * context, else one that the context holds, made on first use. A loop that
+ * has no sink reports into the sink of the configuration, which is muted
+ * when it has none.
  */
 static inline struct fyai_loop *fyai_test_loop_of(struct fyai_ctx *ctx)
 {
-	static struct fyai_loop own;
-	static bool own_ready;
-
 	if (!ctx->loop) {
-		if (!own_ready) {
-			fyai_loop_init(&own, fyai_test_diag_storage());
-			own_ready = true;
-		}
-		ctx->loop = &own;
+		ctx->loop = calloc(1, sizeof(*ctx->loop));
+		if (!ctx->loop)
+			return NULL;
+		fyai_loop_init(ctx->loop, fyai_cfg_diag(ctx->cfg));
 	}
 	fyai_test_link_of(ctx)->loop = ctx->loop;
 	/* A loop that a test declared itself starts with no sink. */
 	if (!ctx->loop->diag)
-		ctx->loop->diag = fyai_test_diag_storage();
+		ctx->loop->diag = fyai_cfg_diag(ctx->cfg);
 	return ctx->loop;
 }
 
 /*
  * The arena component of a test context: the one that the test gave the
- * context, else one of its own, made on first use.
+ * context, else one that the context holds, made on first use.
  */
 static inline struct fyai_arena *fyai_test_arena_of(struct fyai_ctx *ctx)
 {
-	static struct fyai_arena own;
-
 	if (!ctx->arena) {
-		fyai_arena_init(&own);
-		ctx->arena = &own;
+		ctx->arena = calloc(1, sizeof(*ctx->arena));
+		if (!ctx->arena)
+			return NULL;
+		fyai_arena_init(ctx->arena);
 	}
 	return ctx->arena;
 }
 
 /*
  * The transient builder component of a test context: the one that the test
- * gave the context, else one of its own, made on first use. It stacks on the
+ * gave the context, else one that the context holds. It stacks on the
  * working builder of the context.
  */
 static inline struct fyai_transient *fyai_test_transient_of(struct fyai_ctx *ctx)
 {
-	static struct fyai_transient own;
-
 	if (!ctx->transient) {
-		fyai_transient_init(&own);
-		own.parent_gb = &fyai_test_arena_of(ctx)->gb;
-		ctx->transient = &own;
+		ctx->transient = calloc(1, sizeof(*ctx->transient));
+		if (!ctx->transient)
+			return NULL;
+		fyai_transient_init(ctx->transient);
+		ctx->transient->parent_gb = &fyai_test_arena_of(ctx)->gb;
 	}
 	return ctx->transient;
 }

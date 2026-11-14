@@ -44,8 +44,17 @@
 static struct fyai_cfg cfg;
 static struct fyai_loop loop = { .dump_fd = -1 };
 static struct fyai_ctx ctx;
-static struct fyai_cred cred_component = { .loop = &loop, .ctx = &ctx };
-static struct fyai_ctx ctx = { .cfg = &cfg, .loop = &loop, .cred = &cred_component };
+static struct fyai_ctx ctx = { .cfg = &cfg, .loop = &loop };
+
+/* The credential component is held by the context. */
+__attribute__((unused)) static void mock_cred(void)
+{
+	if (ctx.cred)
+		return;
+	ctx.cred = calloc(1, sizeof(*ctx.cred));
+	fyai_cred_init(ctx.cred, &loop);
+	fyai_cred_bind(ctx.cred, &ctx);
+}
 static bool diag_ready;
 
 /* Write the record of the login with @access as its access token. */
@@ -71,6 +80,7 @@ __attribute__((unused)) static void store_setup_expiring(char *dir, long long ex
 	struct fy_generic_builder_cfg config = { .flags = FYGBCF_SCOPE_LEADER };
 
 	fyai_test_link_of(&ctx)->loop = &loop;
+	mock_cred();
 	if (!cfg.gb) {
 		cfg.gb = fy_generic_builder_create(&config);
 		fyai_test_transient_of(&ctx)->gb = cfg.gb;
@@ -238,6 +248,8 @@ __attribute__((unused)) static void mock_start(struct mock *m,
 		loop.diag = cfg.diag;
 		diag_ready = true;
 	}
+	mock_cred();
+	fyai_test_link_of(&ctx)->loop = &loop;
 	memset(m, 0, sizeof(*m));
 	m->script = script;
 	m->n = n;
