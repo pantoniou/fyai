@@ -7,8 +7,8 @@ Status: the document has four parts.
 - Part 2 plans the split of the TUI from the core. It is a plan, and no step
   is done.
 - "Other cleanups" lists what is open: the parallel-construction oracles
-  (item 9), the long functions (item 17) and the tests that poll (item 19). The wait of a delegated child for an answer to its
-  question stays by design (item 1).
+  (item 9) and the tests that poll (item 19). The wait of a delegated child
+  for an answer to its question stays by design (item 1).
 - "Copies of arena data" lists copies that a generic or an interned string
   replaces. Open: the rows of class a and class b.
 
@@ -472,13 +472,6 @@ is a series. Check an item again before work on it.
     `fyai_ask.c:434`, `fyai_uidraw.c:44`, `:100` and `:487`, `fyai_output.c`,
     and four calls in `fyai_ui.c`. This is step 0 of the TUI split. Remove
     each one when its part has converged.
-
-### Dead code and compatibility
-
-17. Long functions (M to L each), with the split seam:
-    `capture_run` (347, `fyai_project_capture.c`), `fyai_agent_run` (312),
-    `fyai_config_setup` (308; argv, layers, validation), `fyai_cmd_claude_sdk`
-    (279), `fyai_view_capture` (268) and `capture_scan_dir` (252).
 
 ### Documentation and tests
 
