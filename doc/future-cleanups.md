@@ -6,9 +6,8 @@ Status: the document has four parts.
   in a forked child. The entries that stay were checked and need no change.
 - Part 2 plans the split of the TUI from the core. It is a plan, and no step
   is done.
-- "Other cleanups" lists what is open: the parallel-construction oracles
-  (item 9) and the tests that poll (item 19). The wait of a delegated child
-  for an answer to its question stays by design (item 1).
+- "Other cleanups" lists what is open: the tests that poll (item 19). The wait
+  of a delegated child for an answer to its question stays by design (item 1).
 - "Copies of arena data" lists copies that a generic or an interned string
   replaces. Open: the rows of class a and class b.
 
@@ -215,9 +214,9 @@ that is connected to an in-process worker.
    (`fyai_workpane.c`), the chrome, the browser tiles, the terminal views.
    The work pane and the chrome are view state. The terminal view of a shell
    is the screen of a program, and the core owns the program.
-4. The parallel construction (the oracle, `fyai_uimodel_check()`) compares the
-   model with the legacy path in one process. It cannot run across two
-   threads. The legacy path must be removed first.
+4. A shadow band keeps a paint that nothing reads, and the span of a command
+   captures output that only a mirror places. Both are work of a producer for
+   a renderer that already draws from the model.
 5. The implicit state machines of this document. Many are written by both
    sides: the turn run gate, the sink document mode and band kind, the UI tool
    band, the pane command capture and the browser action. While a flag is written by the engine and by the UI, a thread split makes a data
@@ -392,9 +391,9 @@ of a typed key with a measurement before a change of this rule.
 Each step builds, passes the suites and lands as its own patch series, in
 this order: implementation, tests, documentation.
 
-0. Prepare. Finish the parallel construction and delete the legacy paths and
-   the oracle. Give each state machine of this document one owner. List every field of the ctx with
-   its owner.
+0. Prepare. Delete the paint of a shadow band and the capture of a span that
+   nothing reads. Give each state machine of this document one owner. List
+   every field of the ctx with its owner.
 1. Parcel out the loop. Make `struct fyai_loop_ctx` and move the loop, pool,
    interrupt and watchdog state into it. `struct fyai_ctx` holds a pointer.
    Change the borrowers to take the loop context. One context still uses one
@@ -449,7 +448,7 @@ thread and keeps the plain sink. This plan does not change it.
 | Sanitizers | ASAN stays valid. Add TSAN, which the suite has not run before. |
 
 Do not start step 4 before steps 0 to 3 end. A thread split over the flags that
-this document lists makes each of them a race, and the oracle cannot find it.
+this document lists makes each of them a race, and no test finds it.
 
 ## Other cleanups
 
@@ -464,14 +463,6 @@ is a series. Check an item again before work on it.
    That dispatch is the top level of the child, as the serve loop of a terminal
    session is, and no callback is on its stack. The text path (`--answer`, a
    terminal with no page) reads a line and steps nothing.
-
-### Second owners
-
-9. The parallel-construction oracles (L). They still run in a production
-    repaint: `fyai_chrome.c:410`, `fyai_session.c:1957` and `:2002`,
-    `fyai_ask.c:434`, `fyai_uidraw.c:44`, `:100` and `:487`, `fyai_output.c`,
-    and four calls in `fyai_ui.c`. This is step 0 of the TUI split. Remove
-    each one when its part has converged.
 
 ### Documentation and tests
 
@@ -494,8 +485,8 @@ of the 475 cases has a positive control is unverified.
 ### Suggested order
 
 The remaining timing sites of item 19 need a wake source and not a poll
-interval. Item 9 and item 1 go with the state-machine and TUI work,
-because they touch the same code.
+interval. Item 1 goes with the state-machine and TUI work, because they touch
+the same code.
 
 ## Copies of arena data
 

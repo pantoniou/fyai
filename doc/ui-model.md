@@ -175,8 +175,7 @@ that a consumer reads the model: a remote worker has no display.
 A client of a remote session makes its model a mirror with
 `fyai_uimodel_mirror()`. The frames of the worker write it through
 `fyai_uimodel_mirror_store()` and `fyai_uimodel_mirror_text()`; the writers of
-the client write nothing, and no oracle runs, because the oracle of a mirror
-is in the worker. What the renderer asks of the worker, such as the answer to
+the client write nothing. What the renderer asks of the worker, such as the answer to
 a set of questions, goes through `fyai_uimodel_intent()`. The tiles of a mirror
 have the hooks that `fyai_uimodel_mirror_tiles()` sets: the key router of the
 work pane gives them their keys first, and the chrome asks whether the screen
@@ -199,40 +198,18 @@ to the worker through `struct fyai_tools_remote`. A line that the user types
 in the client is echoed there, as a local session echoes it, and the card of
 its document from the worker is not drawn again (`fyai_uidraw_echoed()`).
 
-## Parallel construction
+## Checking a client
 
-While a part of the screen moves to the model, the legacy path that made it
-stays as its oracle. The renderer presents what it makes from the model, and
-`fyai_uimodel_check()` compares it with what the legacy path makes:
-
-- the header and the status, against the legacy builder of the context;
-- the busy state of a turn, against `ui->busy`;
-- the todo panel, against the reading of the branch entry;
-- the counts of the header panel, against `fyai_tools_counts()`;
-- a set of questions, against the copy that `fyai_ui_ask_oracle()` keeps;
-- the live document, against the operations that `src/fyai_output.c` records
-  with `fyai_uidraw_oracle()` where it called the sink: what the renderer gave
-  the sink, and in which order, when the document ends;
-- the output of a command, with its title and level, against what the pane
-  captured during the span;
-- the body of a band, against the last paint of its shadow, when the band
-  ends.
-
-A difference goes to the trace and, when `$FYAI_UI_MODEL_CHECK` names a file,
-to that file with both texts. The test harness names a file in the sandbox of
-each case and fails the case when the file is not empty, as it does for a
-sanitizer report. An oracle is removed when its part of the screen no longer
-has a legacy path.
-
-A client of a remote session has its own oracle: the local session. An oracle
+A client of a remote session is checked against the local session. An oracle
 case (`tests/oracle-harness.sh`) runs one script in a local session and
 through `--remote .`, from the same sandbox and the same replies, and fails
 when a checkpoint of the screens differs (`doc/pty-driver.md`).
 
 ## Remaining work
 
-- The producers still render what their shadows and spans keep for the
-  oracles. When the oracles go, a producer writes only the model.
+- A shadow band keeps its last paint, and the span of a command captures its
+  output, though only a mirror reads the capture. A producer should write
+  only the model.
 - The stored exchanges for a client without the arena: a page of the records
   of each exchange. The client reads the last turns again when the head moves.
 - The screens of sub-agents in a client are tiles of `src/fyai_remote_ui.c`,

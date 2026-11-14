@@ -104,25 +104,6 @@ again.
   ranges are the source that a band presented already, such as a tool
   exchange. A renderer that draws the bands does not draw these ranges again.
 
-## Parallel construction
-
-A part of the screen moves to the model in steps. While it moves, the legacy
-path that made it stays as its oracle. The renderer shows what it made from
-the model, and `fyai_uimodel_check()` compares that with what the legacy path
-made. A difference goes to the trace and to the file that
-`$FYAI_UI_MODEL_CHECK` names. The test harness fails a case when that file is
-not empty, so each PTY case also checks the model against the legacy path.
-
-The legacy path of a part that the renderer draws presents nothing:
-
-- `src/fyai_output.c` records the operations it gave the sink, and the
-  renderer compares them with its own when the document ends.
-- The span of a command still captures what the sink presents. The capture is
-  the oracle of the rows that the renderer makes from the entry of the log.
-- The band of a producer is a shadow. It keeps its last paint, and it renders
-  at the width of the band that the renderer draws. The renderer compares the
-  two when the band ends.
-
 ## Remote sessions
 
 ```
@@ -172,8 +153,7 @@ rendered text.
 ### Client
 
 The client is a context with a terminal UI. Its model is a mirror: the frames
-of the worker write it, and the writers of the client write nothing. No
-oracle runs in a mirror, because the oracle of the data is in the worker.
+of the worker write it, and the writers of the client write nothing.
 
 The client draws the header, the turn state, the todo panel, the questions
 and the counts of the work from the mirror, as a local session draws them. The
@@ -199,9 +179,9 @@ standard error of the worker and its exit status go to the client too
 
 ## Limits
 
-1. The producers still render what the oracles compare: a shadow band renders
-   its rows, and the span of a command captures its output. When the oracles
-   go, a producer writes only the model.
+1. A shadow band keeps its last paint, and the span of a command captures its
+   output, though only a mirror reads the capture. A producer should write
+   only the model.
 2. A change of one member sends the whole root of its store. A change of one
    band thus sends all the bands of the work store. The texts keep growing
    content small, but many bands send many roots.
