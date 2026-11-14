@@ -1055,6 +1055,8 @@ void fyai_shell_session_exited(struct fyai_shell_session *sess,
 	sess->exited = true;
 	sess->exit_code = exit_code;
 	sess->signal = signal;
+	/* A program that has gone waits for no input. */
+	sess->wants_input = false;
 	fyai_tools_work_update(sess->ctx);
 	/* The program has gone, so the session no longer needs the scope. */
 	fyai_scope_unpin(sess->ctx, &sess->pin);

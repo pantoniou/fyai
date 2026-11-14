@@ -166,7 +166,7 @@ struct fyai_shell_session {
 	char *name;
 	char *command;
 	char *branch;
-	struct fyai_tool_job *job;	/* NULL once the process has gone */
+	struct fyai_tool_job *job;	/* NULL once the job is released */
 	struct fyai_terminal_view *view;
 	struct fyai_event_source *idle;
 	/* The session owns one live surface until its program stops. */
