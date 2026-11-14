@@ -30,6 +30,7 @@
 #include "fyai_event.h"
 #include "fyai_jsonrpc.h"
 #include "fyai_log.h"
+#include "fyai_mcp_oauth.h"
 #include "fyai_oauth.h"
 #include "fyai_render.h"
 #include "fyai_sandbox.h"
@@ -81,6 +82,9 @@ struct fyai_mcp_ctx {
 	struct jsonrpc_conn *conn;
 	struct mcp_startup *startup;
 	struct mcp_oauth_discovery *oauth_discovery;
+	/* The token refresh: its request, and the startup that waits for it. */
+	struct fyai_mcp_oauth_refresh *oauth_refresh;
+	struct mcp_startup *oauth_refresh_su;
 	struct fyai_event_source *oauth_refresh_timer;
 	fy_generic tools;
 	bool resources_supported;
@@ -106,6 +110,8 @@ struct fyai_mcp_ctx {
 	char *oauth_client_secret;
 	char *oauth_access_token;
 	char *oauth_refresh_token;
+	/* The copy of the access token that auth_token names; see bearer_set. */
+	char *oauth_bearer;
 	const char *oauth_scopes;
 	const char *oauth_redirect_uri;
 	const char *oauth_redirect_host;
@@ -140,6 +146,25 @@ static void mcp_oauth_secret_free(char **secretp)
 		return;
 	len = strlen(*secretp);
 	fyai_secret_clear_and_free(secretp, &len);
+}
+
+struct fyai_mcp_oauth_refresh;
+
+/*
+ * The server goes away while a refresh runs: the refresh is stopped, and a
+ * token request that is out finishes by itself and saves its answer.
+ */
+static void mcp_oauth_refresh_release(struct fyai_mcp_ctx *mcp)
+{
+	if (!mcp->oauth_refresh)
+		return;
+	fyai_mcp_oauth_refresh_cancel(mcp->oauth_refresh);
+	/* The callback of a cancel does not clear what the owner holds. */
+	if (mcp->oauth_refresh) {
+		fyai_mcp_oauth_refresh_destroy(mcp->oauth_refresh);
+		mcp->oauth_refresh = NULL;
+		mcp->oauth_refresh_su = NULL;
+	}
 }
 
 static void mcp_set_error(struct fyai_mcp_ctx *mcp, const char *fmt, ...)
@@ -713,7 +738,6 @@ enum mcp_oauth_discovery_state {
 	MCP_OD_REGISTER,
 	MCP_OD_AUTHORIZE,
 	MCP_OD_TOKEN,
-	MCP_OD_REFRESH,
 	MCP_OD_COMPLETED,
 	MCP_OD_FAILED,
 	MCP_OD_CANCELLED,
@@ -744,6 +768,10 @@ struct mcp_oauth_discovery {
 	char *body;
 	char *redirect;
 	enum mcp_oauth_discovery_state state;
+	/* A save that waits for the store lock, and what follows it. */
+	struct fyai_event_source *save_timer;
+	void (*save_next)(struct mcp_oauth_discovery *od);
+	const char *save_fail;
 };
 
 static void mcp_oauth_discovery_drop_http(struct mcp_oauth_discovery *od)
@@ -769,6 +797,8 @@ static void mcp_oauth_discovery_destroy(struct mcp_oauth_discovery *od)
 	if (!od)
 		return;
 	mcp_oauth_discovery_drop_http(od);
+	fyai_event_source_remove(od->save_timer);
+	od->save_timer = NULL;
 	if (od->flow) {
 		fyai_oauth_flow_finish(od->flow, false);
 		fyai_oauth_flow_destroy(od->flow);
@@ -970,6 +1000,8 @@ static int mcp_oauth_store_save(struct fyai_mcp_ctx *mcp)
 	if (!json)
 		return -1;
 	lockfd = fyai_auth_store_lock(mcp->ctx, true);
+	if (lockfd == -2)
+		return -2;
 	if (lockfd < 0)
 		return -1;
 	name = mcp_oauth_store_name(mcp);
@@ -1014,6 +1046,25 @@ static void mcp_oauth_discovery_fail(struct mcp_oauth_discovery *od,
 	mcp_startup_settle(su, MCP_SRV_FAILED);
 }
 
+/*
+ * auth_token names an owned copy of the access token, not the builder of the
+ * process: a secret is not interned. The new copy is named before the old one
+ * is cleared; a request copies the token into its header when it is sent.
+ */
+static int mcp_oauth_bearer_set(struct fyai_mcp_ctx *mcp, const char *token)
+{
+	char *fresh, *old;
+
+	fresh = strdup(token ? token : "");
+	if (!fresh)
+		return -1;
+	old = mcp->oauth_bearer;
+	mcp->oauth_bearer = fresh;
+	mcp->auth_token = fresh;
+	mcp_oauth_secret_free(&old);
+	return 0;
+}
+
 static void mcp_oauth_resume(struct mcp_oauth_discovery *od)
 {
 	struct mcp_startup *su;
@@ -1021,9 +1072,7 @@ static void mcp_oauth_resume(struct mcp_oauth_discovery *od)
 
 	su = od->startup;
 	mcp = od->mcp;
-	mcp->auth_token = fy_gb_intern_string(mcp->ctx->cfg->gb,
-					      mcp->oauth_access_token);
-	if (!mcp->auth_token) {
+	if (mcp_oauth_bearer_set(mcp, mcp->oauth_access_token)) {
 		mcp_oauth_discovery_fail(od,
 			"could not retain the OAuth access token");
 		return;
@@ -1263,75 +1312,112 @@ static int mcp_oauth_authorize_start(struct mcp_oauth_discovery *od)
 	return 0;
 }
 
+static void mcp_oauth_refresh_fail(struct fyai_mcp_ctx *mcp,
+				   struct mcp_startup *su, const char *message)
+{
+	mcp_set_error(mcp, "OAuth refresh: %s", message);
+	if (mcp->recovering) {
+		mcp->recovering = false;
+		mcp->state = MCP_SRV_FAILED;
+		fyai_warning(mcp->ctx, "MCP server '%s' is unavailable", mcp->name);
+		return;
+	}
+	if (!su) {
+		mcp->oauth_expires_at = time(NULL) + 60;
+		mcp_oauth_refresh_schedule(mcp);
+		return;
+	}
+	mcp_startup_settle(su, MCP_SRV_FAILED);
+}
+
+/* The refresh ended; take its tokens and go on as the server was going. */
+static void mcp_oauth_refresh_done(struct fyai_mcp_oauth_refresh *request,
+				   const struct fyai_mcp_oauth_result *res,
+				   void *userdata)
+{
+	struct fyai_mcp_ctx *mcp = userdata;
+	struct mcp_startup *su = mcp->oauth_refresh_su;
+	char *access, *refresh;
+
+	/* The owner stopped it; the owner clears what it holds. */
+	if (res->outcome == FYAI_MCP_OAUTH_CANCELLED)
+		return;
+	mcp->oauth_refresh = NULL;
+	mcp->oauth_refresh_su = NULL;
+	if (res->outcome == FYAI_MCP_OAUTH_FAILED) {
+		fyai_mcp_oauth_refresh_destroy(request);
+		mcp_oauth_refresh_fail(mcp, su, res->message ? res->message : "failed");
+		return;
+	}
+	access = strdup(res->access_token);
+	refresh = res->refresh_token && *res->refresh_token ?
+		strdup(res->refresh_token) : NULL;
+	fyai_mcp_oauth_refresh_destroy(request);
+	if (!access || (res->refresh_token && *res->refresh_token && !refresh)) {
+		mcp_oauth_secret_free(&access);
+		mcp_oauth_secret_free(&refresh);
+		mcp_oauth_refresh_fail(mcp, su, "out of memory");
+		return;
+	}
+	mcp_oauth_secret_free(&mcp->oauth_access_token);
+	mcp->oauth_access_token = access;
+	if (refresh) {
+		mcp_oauth_secret_free(&mcp->oauth_refresh_token);
+		mcp->oauth_refresh_token = refresh;
+	}
+	mcp->oauth_expires_at = res->expires_at;
+	mcp->oauth_force_refresh = false;
+	mcp->oauth_force_login = false;
+	if (mcp_oauth_bearer_set(mcp, mcp->oauth_access_token)) {
+		mcp_oauth_refresh_fail(mcp, su,
+			"could not retain the OAuth access token");
+		return;
+	}
+	mcp_oauth_refresh_schedule(mcp);
+	if (su)
+		mcp_startup_enter(su, MCP_SU_INIT);
+	else if (mcp->recovering) {
+		mcp->recovering = false;
+		mcp->state = MCP_SRV_READY;
+	}
+}
+
 static int mcp_oauth_refresh_start(struct fyai_mcp_ctx *mcp,
 				    struct mcp_startup *su)
 {
-	struct mcp_oauth_discovery *od;
-	char *encoded_refresh;
-	char *encoded_secret;
-	char *encoded_client;
-	char *encoded_resource;
-	const char *formatted;
-	int rc;
+	struct fyai_mcp_oauth_spec spec;
 
 	if (!mcp->oauth_refresh_token || !*mcp->oauth_refresh_token ||
 	    !mcp->oauth_token_endpoint || !mcp->oauth_client_id)
 		return -1;
-	od = calloc(1, sizeof(*od));
-	if (!od)
+	/* One refresh at a time: a request that is still out finishes by itself. */
+	mcp_oauth_refresh_release(mcp);
+	memset(&spec, 0, sizeof(spec));
+	spec.server = mcp->name;
+	spec.issuer = mcp->oauth_issuer;
+	spec.resource = mcp->oauth_resource;
+	spec.token_endpoint = mcp->oauth_token_endpoint;
+	spec.client_id = mcp->oauth_client_id;
+	spec.client_secret = mcp->oauth_client_secret;
+	/* A configured client keeps its secret out of the record. */
+	spec.store_secret = mcp->oauth_client_configured ? "" :
+		mcp->oauth_client_secret;
+	spec.scopes = mcp->oauth_scopes;
+	spec.access_token = mcp->oauth_access_token;
+	spec.refresh_token = mcp->oauth_refresh_token;
+	spec.auth = mcp->oauth_token_auth_method == MCP_TOKEN_AUTH_POST ?
+		FYAI_MCP_CLIENT_POST :
+		mcp->oauth_token_auth_method == MCP_TOKEN_AUTH_BASIC ?
+		FYAI_MCP_CLIENT_BASIC : FYAI_MCP_CLIENT_NONE;
+	spec.timeout = mcp->timeout;
+	mcp->oauth_refresh_su = su;
+	mcp->oauth_refresh = fyai_mcp_oauth_refresh_submit(mcp->ctx, &spec,
+			mcp_oauth_refresh_done, mcp);
+	if (!mcp->oauth_refresh) {
+		mcp->oauth_refresh_su = NULL;
 		return -1;
-	od->mcp = mcp;
-	od->startup = su;
-	od->state = MCP_OD_REFRESH;
-	encoded_refresh = NULL;
-	encoded_secret = NULL;
-	encoded_client = NULL;
-	encoded_resource = NULL;
-	od->url = strdup(mcp->oauth_token_endpoint);
-	encoded_refresh = curl_easy_escape(NULL, mcp->oauth_refresh_token, 0);
-	encoded_secret = mcp->oauth_token_auth_method == MCP_TOKEN_AUTH_POST ?
-		curl_easy_escape(NULL, mcp->oauth_client_secret, 0) : NULL;
-	encoded_client = curl_easy_escape(NULL, mcp->oauth_client_id, 0);
-	encoded_resource = curl_easy_escape(NULL, mcp->oauth_resource, 0);
-	if (!od->url || !encoded_refresh ||
-	    !encoded_client || !encoded_resource ||
-	    (mcp->oauth_token_auth_method == MCP_TOKEN_AUTH_POST &&
-	     !encoded_secret))
-		goto err_out;
-	formatted = fy_sprintfa(
-		"grant_type=refresh_token&refresh_token=%s&client_id=%s&"
-		"resource=%s%s%s",
-		encoded_refresh, encoded_client, encoded_resource,
-		encoded_secret ? "&client_secret=" : "",
-		encoded_secret ? encoded_secret : "");
-	od->body = strdup(formatted);
-	curl_free(encoded_refresh);
-	curl_free(encoded_secret);
-	curl_free(encoded_client);
-	curl_free(encoded_resource);
-	encoded_refresh = NULL;
-	encoded_secret = NULL;
-	encoded_client = NULL;
-	encoded_resource = NULL;
-	if (!od->body)
-		goto err_out;
-	od->headers = curl_slist_append(od->headers,
-		"Content-Type: application/x-www-form-urlencoded");
-	if (!od->headers)
-		goto err_out;
-	mcp->oauth_discovery = od;
-	rc = mcp_oauth_discovery_submit(od);
-	if (rc)
-		goto err_out;
+	}
 	return 0;
-
-err_out:
-	curl_free(encoded_refresh);
-	curl_free(encoded_secret);
-	curl_free(encoded_client);
-	curl_free(encoded_resource);
-	mcp_oauth_discovery_destroy(od);
-	return -1;
 }
 
 static enum fyai_event_action
@@ -1376,6 +1462,58 @@ static void mcp_oauth_refresh_schedule(struct fyai_mcp_ctx *mcp)
 			"MCP %s could not schedule OAuth refresh", mcp->name);
 }
 
+/*
+ * Save the record under the store lock and then run next. A lock that a
+ * sibling holds is tried again by a timer: a login that the user completed is
+ * not dropped for a busy store.
+ */
+static void mcp_oauth_save_then(struct mcp_oauth_discovery *od,
+				void (*next)(struct mcp_oauth_discovery *),
+				const char *fail);
+
+static enum fyai_event_action mcp_oauth_save_timer(const struct fyai_event *ev)
+{
+	struct mcp_oauth_discovery *od = ev->userdata;
+
+	od->save_timer = NULL;
+	mcp_oauth_save_then(od, od->save_next, od->save_fail);
+	return FYAIEA_CONTINUE;
+}
+
+static void mcp_oauth_save_then(struct mcp_oauth_discovery *od,
+				void (*next)(struct mcp_oauth_discovery *),
+				const char *fail)
+{
+	int rc;
+
+	rc = mcp_oauth_store_save(od->mcp);
+	if (rc == -2) {
+		od->save_next = next;
+		od->save_fail = fail;
+		rc = fyai_event_add_timer(fyai_ctx_loop(od->mcp->ctx), 50, 0,
+					  mcp_oauth_save_timer, od,
+					  &od->save_timer);
+		if (rc)
+			mcp_oauth_discovery_fail(od, fail);
+		return;
+	}
+	if (rc) {
+		mcp_oauth_discovery_fail(od, fail);
+		return;
+	}
+	next(od);
+}
+
+static void mcp_oauth_token_saved(struct mcp_oauth_discovery *od)
+{
+	if (od->flow) {
+		fyai_oauth_flow_finish(od->flow, true);
+		fyai_oauth_flow_destroy(od->flow);
+		od->flow = NULL;
+	}
+	mcp_oauth_resume(od);
+}
+
 static bool mcp_oauth_token_complete(struct mcp_oauth_discovery *od,
 					     fy_generic doc)
 {
@@ -1383,7 +1521,7 @@ static bool mcp_oauth_token_complete(struct mcp_oauth_discovery *od,
 	const char *access_token;
 	const char *refresh_token;
 
-	if (od->state != MCP_OD_TOKEN && od->state != MCP_OD_REFRESH)
+	if (od->state != MCP_OD_TOKEN)
 		return false;
 	access_token = fy_get(doc, "access_token", "");
 	refresh_token = fy_get(doc, "refresh_token", "");
@@ -1403,19 +1541,26 @@ static bool mcp_oauth_token_complete(struct mcp_oauth_discovery *od,
 	mcp->oauth_force_refresh = false;
 	mcp->oauth_force_login = false;
 	if (!mcp->oauth_access_token ||
-	    (*refresh_token && !mcp->oauth_refresh_token) ||
-	    mcp_oauth_store_save(mcp)) {
+	    (*refresh_token && !mcp->oauth_refresh_token)) {
 		mcp_oauth_discovery_fail(od,
 			"could not save OAuth tokens");
 		return true;
 	}
-	if (od->flow) {
-		fyai_oauth_flow_finish(od->flow, true);
-		fyai_oauth_flow_destroy(od->flow);
-		od->flow = NULL;
-	}
-	mcp_oauth_resume(od);
+	mcp_oauth_save_then(od, mcp_oauth_token_saved,
+			    "could not save OAuth tokens");
 	return true;
+}
+
+static void mcp_oauth_registration_saved(struct mcp_oauth_discovery *od)
+{
+	int rc;
+
+	rc = mcp_oauth_authorize_start(od);
+	if (rc)
+		mcp_oauth_discovery_fail(od,
+			rc == -2 ?
+			"browser login needs auth.allow_browser=true" :
+			"could not start OAuth authorization");
 }
 
 static bool mcp_oauth_registration_complete(struct mcp_oauth_discovery *od,
@@ -1424,7 +1569,6 @@ static bool mcp_oauth_registration_complete(struct mcp_oauth_discovery *od,
 	struct fyai_mcp_ctx *mcp;
 	const char *client_id;
 	const char *client_secret;
-	int rc;
 
 	if (od->state != MCP_OD_REGISTER)
 		return false;
@@ -1448,18 +1592,8 @@ static bool mcp_oauth_registration_complete(struct mcp_oauth_discovery *od,
 			"could not retain registered client");
 		return true;
 	}
-	rc = mcp_oauth_store_save(mcp);
-	if (rc) {
-		mcp_oauth_discovery_fail(od,
-			"could not save registered client");
-		return true;
-	}
-	rc = mcp_oauth_authorize_start(od);
-	if (rc)
-		mcp_oauth_discovery_fail(od,
-			rc == -2 ?
-			"browser login needs auth.allow_browser=true" :
-			"could not start OAuth authorization");
+	mcp_oauth_save_then(od, mcp_oauth_registration_saved,
+			    "could not save registered client");
 	return true;
 }
 
@@ -1666,7 +1800,7 @@ static int mcp_oauth_discovery_submit(struct mcp_oauth_discovery *od)
 	curl_easy_setopt(od->curl, CURLOPT_WRITEDATA, &od->response);
 	curl_easy_setopt(od->curl, CURLOPT_TIMEOUT, (long)od->mcp->timeout);
 	curl_easy_setopt(od->curl, CURLOPT_USERAGENT, ctx->user_agent);
-	if ((od->state == MCP_OD_TOKEN || od->state == MCP_OD_REFRESH) &&
+	if (od->state == MCP_OD_TOKEN &&
 	    od->mcp->oauth_token_auth_method == MCP_TOKEN_AUTH_BASIC) {
 		curl_easy_setopt(od->curl, CURLOPT_HTTPAUTH, CURLAUTH_BASIC);
 		curl_easy_setopt(od->curl, CURLOPT_USERNAME,
@@ -1844,6 +1978,7 @@ static void mcp_startup_req_done(struct jsonrpc_request *req, void *userdata)
 					mcp->oauth_refresh_timer);
 				mcp->oauth_refresh_timer = NULL;
 			}
+			mcp_oauth_refresh_release(mcp);
 			if (!mcp_oauth_discovery_start(su))
 				return;
 			mcp_startup_settle(su, MCP_SRV_FAILED);
@@ -2140,8 +2275,9 @@ static int mcp_create_server(struct fyai_ctx *ctx, const char *server_name,
 		mcp->endpoint = fy_gb_intern_string(ctx->cfg->gb, endpoint);
 	mcp->protocol_version = fy_gb_intern_string(ctx->cfg->gb,
 						 protocol);
-	if (token)
-		mcp->auth_token = fy_gb_intern_string(ctx->cfg->gb, token);
+	rc = token ? mcp_oauth_bearer_set(mcp, token) : 0;
+	fyai_error_check(ctx, !rc, err_out,
+			 "MCP server '%s' could not keep its token", server_name);
 	rc = auth_mode == MCP_AUTH_OAUTH ?
 		mcp_oauth_configure_client(ctx, mcp, auth) : 0;
 	fyai_error_check(ctx, !rc, err_out,
@@ -2158,7 +2294,7 @@ static int mcp_create_server(struct fyai_ctx *ctx, const char *server_name,
 
 
 	fyai_error_check(ctx, mcp->name && mcp->protocol_version &&
-			 (!token || mcp->auth_token) &&
+			 (!token || mcp->oauth_bearer) &&
 			 (mcp->transport != MCP_TRANSPORT_HTTP ||
 			  (mcp->endpoint && mcp->curl)), err_out,
 			 "MCP server '%s' could not initialize context", server_name);
@@ -2215,10 +2351,12 @@ err_out:
 		curl_easy_cleanup(mcp->curl);
 	mcp_stdio_stop(ctx, mcp);
 	mcp_oauth_discovery_destroy(mcp->oauth_discovery);
+	mcp_oauth_refresh_release(mcp);
 	free(mcp->oauth_resource_metadata);
 	mcp_oauth_secret_free(&mcp->oauth_client_secret);
-	free(mcp->oauth_access_token);
-	free(mcp->oauth_refresh_token);
+	mcp_oauth_secret_free(&mcp->oauth_access_token);
+	mcp_oauth_secret_free(&mcp->oauth_refresh_token);
+	mcp_oauth_secret_free(&mcp->oauth_bearer);
 	free(mcp);
 	return -1;
 }
@@ -2268,8 +2406,14 @@ mcp_find_server(struct fyai_ctx *ctx, const char *name)
  */
 static void mcp_oauth_operation_cancel(struct fyai_mcp_ctx *mcp)
 {
-	if (!mcp->oauth_discovery)
+	if (!mcp->oauth_discovery && !mcp->oauth_refresh)
 		return;
+	/* A login or logout supersedes a refresh: its answer is not wanted. */
+	if (mcp->oauth_refresh) {
+		fyai_mcp_oauth_refresh_abort(mcp->oauth_refresh);
+		mcp->oauth_refresh = NULL;
+		mcp->oauth_refresh_su = NULL;
+	}
 	mcp_oauth_discovery_destroy(mcp->oauth_discovery);
 	mcp->recovering = false;
 	mcp->oauth_force_login = false;
@@ -2293,7 +2437,7 @@ fy_generic fyai_mcp_status_data(struct fyai_ctx *ctx,
 			"connecting" : "failed";
 		if (mcp->auth_mode != MCP_AUTH_OAUTH)
 			oauth = mcp->auth_token ? "bearer" : "none";
-		else if (mcp->oauth_discovery)
+		else if (mcp->oauth_discovery || mcp->oauth_refresh)
 			oauth = "authorizing";
 		else if (mcp->oauth_access_token)
 			oauth = "authenticated";
@@ -2400,6 +2544,7 @@ int fyai_mcp_logout(struct fyai_ctx *ctx, const char *name)
 	}
 	mcp->oauth_expires_at = 0;
 	mcp->auth_token = NULL;
+	mcp_oauth_secret_free(&mcp->oauth_bearer);
 	mcp->oauth_force_login = false;
 	mcp->oauth_force_refresh = false;
 	return 0;
@@ -2897,6 +3042,7 @@ static void fyai_mcp_call_req_done(struct jsonrpc_request *req, void *userdata)
 				request->mcp->oauth_refresh_timer);
 			request->mcp->oauth_refresh_timer = NULL;
 		}
+		mcp_oauth_refresh_release(request->mcp);
 		if (!request->mcp->startup) {
 			code = mcp_oauth_recovery_begin(request->mcp);
 			if (code)
@@ -3253,6 +3399,7 @@ int fyai_mcp_stop(struct fyai_ctx *ctx)
 			mcp->oauth_refresh_timer = NULL;
 		}
 		mcp_oauth_discovery_destroy(mcp->oauth_discovery);
+		mcp_oauth_refresh_release(mcp);
 		if (mcp->startup) {
 			struct mcp_startup *su = mcp->startup;
 
@@ -3293,8 +3440,9 @@ void fyai_mcp_stop_finish(struct fyai_ctx *ctx)
 			curl_easy_cleanup(mcp->curl);
 		free(mcp->oauth_resource_metadata);
 		mcp_oauth_secret_free(&mcp->oauth_client_secret);
-		free(mcp->oauth_access_token);
-		free(mcp->oauth_refresh_token);
+		mcp_oauth_secret_free(&mcp->oauth_access_token);
+		mcp_oauth_secret_free(&mcp->oauth_refresh_token);
+		mcp_oauth_secret_free(&mcp->oauth_bearer);
 		free(mcp);
 	}
 	ctx->mcp = NULL;

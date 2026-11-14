@@ -589,6 +589,7 @@ set(FYAI_SOURCES
     src/fyai_panel.c
     src/fyai_transcript_view.c
     src/fyai_mcp.c
+    src/fyai_mcp_oauth.c
     src/fyai_mcp_import.c
     src/fyai_jsonrpc.c
     src/fyai_patch.c
