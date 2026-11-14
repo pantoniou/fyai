@@ -28,6 +28,7 @@
 #include "fyai_skill.h"
 #include "fyai_ui.h"
 #include "utils.h"
+#include "fyai_editor.h"
 
 int fyai_cmd_skill_list(struct fyai_cmd_call *call, fy_generic *result)
 {

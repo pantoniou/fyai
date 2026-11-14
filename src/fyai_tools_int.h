@@ -13,6 +13,7 @@
 #include "fyai_event.h"
 #include "fyai_markdown.h"
 #include "fyai_workpane.h"
+#include "fyai_shell_capture.h"
 
 #define FYAI_SHELL_NO_COMMAND \
 	"tool error: the shell tool needs a string argument \"command\""

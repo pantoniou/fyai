@@ -39,6 +39,7 @@
 #include "fyai_tools.h"
 #include "fyai_tool_registry.h"
 #include "utils.h"
+#include "fyai_shell_capture.h"
 
 #define MCP_PREFIX "mcp__"
 #define MCP_DIRECT_TOOL_LIMIT 8

@@ -641,6 +641,8 @@ set(FYAI_SOURCES
     src/fyai_reqcache.c
     src/fyai_buf.c
     src/utils.c
+    src/fyai_shell_capture.c
+    src/fyai_editor.c
     src/fyai_catalog.c
     src/fyai_cost.c
     src/fyai_config.c

@@ -31,6 +31,7 @@
 #include "fyai_tool_spec.h"
 #include "fyai_tools.h"
 #include "utils.h"
+#include "fyai_shell_capture.h"
 
 /* FYAI_EMBEDDED_CATALOG[] / FYAI_EMBEDDED_CATALOG_LEN - the vendored
  * data/catalog.yaml snapshot, generated at configure time. */

@@ -52,6 +52,7 @@
 #include "fyai_cast.h"
 #include "fyai_workpane.h"
 #include "utils.h"
+#include "fyai_editor.h"
 
 struct ui_line { struct ui_line *next; char *text; };
 

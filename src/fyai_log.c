@@ -22,6 +22,7 @@
 #include "fyai_log.h"
 #include "fyai_redact.h"
 #include "fyai_ui.h"
+#include "fyai_editor.h"
 
 static char *fyai_log_path(struct fyai_ctx *ctx, const char *name)
 {

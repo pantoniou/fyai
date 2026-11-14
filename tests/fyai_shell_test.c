@@ -27,6 +27,7 @@
 #include "fyai_event.h"
 #include "fyai_tools.h"
 #include "utils.h"
+#include "fyai_shell_capture.h"
 #include "fyai_test.h"
 
 #include "fyai_test_registry.h"

@@ -10,6 +10,7 @@
 #endif
 
 #include "fyai.h"
+#include "fyai_shell_capture.h"
 #include "fyai_cmd.h"
 #include "fyai_cmd_int.h"
 

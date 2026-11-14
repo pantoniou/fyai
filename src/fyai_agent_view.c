@@ -73,6 +73,7 @@
 #include "fyai_uiwork.h"
 #include "fyai_uitranscript.h"
 #include "fyai_workpane.h"
+#include "fyai_shell_capture.h"
 
 /* Size an agent terminal to its display surface. */
 #define FYAI_AGENT_TTY_ROWS	12

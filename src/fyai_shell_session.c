@@ -73,6 +73,7 @@
 #include "fyai_uiwork.h"
 #include "fyai_uitranscript.h"
 #include "fyai_workpane.h"
+#include "fyai_shell_capture.h"
 
 /*
  * Write the live work of the session to the work store of the UI model: each

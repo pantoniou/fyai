@@ -30,6 +30,7 @@
 #include "fyai_diag.h"
 #include "fyai_session.h"
 #include "utils.h"
+#include "fyai_shell_capture.h"
 
 /*
  * A unit test reads an image with no context: report only when there is one

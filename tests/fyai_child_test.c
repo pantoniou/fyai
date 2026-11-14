@@ -20,6 +20,7 @@
 #include "fyai_test.h"
 #include "fyai_test_registry.h"
 #include "utils.h"
+#include "fyai_shell_capture.h"
 
 FYAI_TEST_ENTRY(child, pass_status_number, child_pass_status_number)
 

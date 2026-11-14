@@ -6,6 +6,7 @@
 #include <stddef.h>
 
 #include "utils.h"
+#include "fyai_shell_capture.h"
 #include "fyai_terminal_view.h"
 
 struct fyai_ctx;

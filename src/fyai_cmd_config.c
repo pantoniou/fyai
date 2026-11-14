@@ -40,6 +40,7 @@
 #include "fyai_transport_boot.h"
 #include "fyai_view.h"
 #include "utils.h"
+#include "fyai_shell_capture.h"
 
 #define FYAI_MODULE FYAIEM_CONFIG
 

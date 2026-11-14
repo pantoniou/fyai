@@ -7,6 +7,7 @@
 #include <stdint.h>
 
 #include "utils.h"
+#include "fyai_shell_capture.h"
 
 /* The size used when no argument, setting, or real terminal supplies one. */
 #define FYAI_TTY_ROWS_DEFAULT	24

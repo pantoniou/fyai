@@ -26,6 +26,7 @@
 #include "fyai_tools.h"
 #include "fyai_wait.h"
 #include "utils.h"
+#include "fyai_shell_capture.h"
 
 #define FYAI_MONITOR_NAME_MAX	32
 #define FYAI_MONITOR_DEFAULT_MS	(5 * 60 * 1000LL)

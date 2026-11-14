@@ -39,6 +39,7 @@
 #include "fyai_workpane.h"
 #include "commands.h"
 #include "utils.h"
+#include "fyai_shell_capture.h"
 
 /* The key that belongs to fyai and not to the program: Ctrl-\. */
 #define FYAI_TERM_PREFIX	0x1c

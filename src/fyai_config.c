@@ -50,6 +50,7 @@
 #include "fyai_cmd.h"
 #include "fyai_fsview.h"
 #include "utils.h"
+#include "fyai_editor.h"
 
 #define FYAI_RELOAD_FD_ENV "FYAI_RELOAD_FD"
 

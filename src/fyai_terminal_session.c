@@ -36,6 +36,7 @@
 #include "fyai_ui.h"
 #include "fyai_terminal_view.h"
 #include "utils.h"
+#include "fyai_shell_capture.h"
 
 /* Time a program gets to restore the terminal after the limit expires. */
 #define FYAI_TTY_KILL_GRACE_MS	2000

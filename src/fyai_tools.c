@@ -74,6 +74,7 @@
 #include "fyai_uiwork.h"
 #include "fyai_uitranscript.h"
 #include "fyai_workpane.h"
+#include "fyai_shell_capture.h"
 
 const char *fyai_tool_name_canonical(const char *name)
 {

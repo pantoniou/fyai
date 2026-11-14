@@ -73,6 +73,7 @@
 #include "fyai_uiwork.h"
 #include "fyai_uitranscript.h"
 #include "fyai_workpane.h"
+#include "fyai_shell_capture.h"
 
 /* Keep the live jobs reachable, so that a resize finds every child. */
 static void fyai_tool_job_link(struct fyai_ctx *ctx, struct fyai_tool_job *job)

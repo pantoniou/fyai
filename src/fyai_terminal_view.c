@@ -23,6 +23,7 @@
 #include "fyai_diag.h"
 #include "fyai_terminal_view.h"
 #include "utils.h"
+#include "fyai_shell_capture.h"
 
 /* A row saved after it scrolls off the top of the screen. */
 struct tty_history_row {
