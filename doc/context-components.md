@@ -246,10 +246,11 @@ Each step builds, passes both suites, and lands as its own patch series
 4. `cred`, then `transport`, `xfer`, `mcp`: the example of the first
    consumers. `cred` is done in part: `struct fyai_cred` is in the app and
    holds the refresh, its waiters, the timer and the secrets kept in memory.
-   It stands on `loop` for its timer. It still names the context that the
-   refresh serves (`cred->ctx`), because `fyai_auth_*` takes `ctx`; that
-   pointer goes when the credentials (`auth`, `auth_gb`, `auth_detached`) move
-   in with it. `cred` takes `loop` and `diag`; its 17 reads of `transient_gb`
+   It stands on `loop` for its timer. The credentials (`auth`, `auth_gb`,
+   `auth_detached`) are in it too. It still names the context that the
+   refresh serves (`cred->ctx`), because `fyai_auth_*` takes `ctx` for the
+   configuration, the curl handle and the transient builder; that pointer goes
+   when those functions take their components. `cred` takes `loop` and `diag`; its 17 reads of `transient_gb`
    become its own builder. Each of the four ends with a unit test that builds
    the component with a stub loop and diagnostics, which is the test that a
    struct of pointers makes possible and `ctx` did not.
