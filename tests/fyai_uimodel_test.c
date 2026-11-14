@@ -26,7 +26,6 @@
 FYAI_TEST_ENTRY(uimodel, set_and_seq, uimodel_set_and_seq)
 FYAI_TEST_ENTRY(uimodel, consumers, uimodel_consumers)
 FYAI_TEST_ENTRY(uimodel, builders_bounded, uimodel_builders_bounded)
-FYAI_TEST_ENTRY(uimodel, check_record, uimodel_check_record)
 FYAI_TEST_ENTRY(uimodel, log_entry, uimodel_log_entry)
 FYAI_TEST_ENTRY(uimodel, log_bounded, uimodel_log_bounded)
 FYAI_TEST_ENTRY(uimodel, bands, uimodel_bands)
@@ -155,44 +154,6 @@ int uimodel_builders_bounded(void)
 	}
 	fyai_uimodel_release(&ctx);
 	printf("ok - writes reuse the builders of the model\n");
-	return 0;
-}
-
-int uimodel_check_record(void)
-{
-	struct fyai_cfg cfg = { 0 };
-	struct fyai_ctx ctx = { .cfg = &cfg };
-	const char *tmp = getenv("TMPDIR");
-	char path[512], buf[512];
-	bool same;
-	ssize_t n;
-	off_t end;
-	int fd, rc;
-
-	FYAI_TCHECK(!fyai_uimodel_create(&ctx));
-	snprintf(path, sizeof(path), "%s/fyai-uimodel-test-XXXXXX",
-		 tmp && *tmp ? tmp : "/tmp");
-	fd = mkstemp(path);
-	FYAI_TCHECK(fd >= 0);
-	rc = setenv("FYAI_UI_MODEL_CHECK", path, 1);
-	FYAI_TCHECK(!rc);
-	same = fyai_uimodel_check(&ctx, FYAI_UI_SESSION, "header",
-				  "same", "same");
-	end = lseek(fd, 0, SEEK_END);
-	FYAI_TCHECK(same && end == 0);
-	same = fyai_uimodel_check(&ctx, FYAI_UI_SESSION, "header",
-				  "model text", "modal text");
-	rc = unsetenv("FYAI_UI_MODEL_CHECK");
-	FYAI_TCHECK(!same && !rc);
-	n = pread(fd, buf, sizeof(buf) - 1, 0);
-	close(fd);
-	unlink(path);
-	FYAI_TCHECK(n > 0);
-	buf[n] = '\0';
-	FYAI_TCHECK(strstr(buf, "session/header diverges at byte 3"));
-	FYAI_TCHECK(strstr(buf, "--- model\nmodel text\n"));
-	FYAI_TCHECK(strstr(buf, "--- oracle\nmodal text\n"));
-	printf("ok - a divergence is recorded with both texts\n");
 	return 0;
 }
 

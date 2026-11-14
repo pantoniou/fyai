@@ -221,12 +221,6 @@ void fyai_sink_band_close(struct fyai_sink *s, bool ok, const char *cause);
 /* Commit and retire an independently owned band. */
 void fyai_sink_band_commit(struct fyai_sink_band *b);
 void fyai_sink_band_destroy(struct fyai_sink_band *b);
-/*
- * The last paint of @b: its body of *@lenp bytes, borrowed until the next
- * paint. The renderer of the UI model compares the paint of a band of the
- * display with the paint of the shadow band of its producer.
- */
-const char *fyai_sink_band_body(const struct fyai_sink_band *b, size_t *lenp);
 /* Return the granted tile width, or zero for a full-width band. */
 int fyai_sink_band_cols(const struct fyai_sink_band *b);
 /*

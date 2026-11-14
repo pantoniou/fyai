@@ -292,17 +292,6 @@ void fyai_uiwork_band_end(struct fyai_ctx *ctx, struct fyai_sink_band *band,
 	uiwork_publish(ctx);
 }
 
-struct fyai_sink_band *fyai_uiwork_band(struct fyai_ctx *ctx, long long id)
-{
-	struct fyai_uiwork *w = ctx ? ctx->uiwork : NULL;
-	struct uiwork_band *b;
-
-	for (b = w ? w->bands : NULL; b; b = b->next)
-		if (b->id == id)
-			return (struct fyai_sink_band *)b->band;
-	return NULL;
-}
-
 long long fyai_uiwork_band_id(struct fyai_ctx *ctx,
 			      const struct fyai_sink_band *band)
 {

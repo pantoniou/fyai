@@ -407,20 +407,6 @@ static int uidraw_band_view(struct fyai_ctx *ctx, struct uidraw_band *b,
 	return rc;
 }
 
-/* Compare the last paint of @b with the last paint of the shadow band. */
-static void uidraw_band_check(struct fyai_ctx *ctx, struct uidraw_band *b)
-{
-	struct fyai_sink_band *shadow = fyai_uiwork_band(ctx, b->id);
-	const char *model, *oracle;
-	size_t mlen, olen;
-
-	if (!shadow)
-		return;
-	model = fyai_sink_band_body(b->band, &mlen);
-	oracle = fyai_sink_band_body(shadow, &olen);
-	(void)fyai_uimodel_check(ctx, FYAI_UI_WORK, "band", model, oracle);
-}
-
 /* End @b as the band of its producer ended. */
 static void uidraw_band_end(struct fyai_ctx *ctx, struct uidraw_band *b,
 			    fy_generic item)
@@ -428,7 +414,6 @@ static void uidraw_band_end(struct fyai_ctx *ctx, struct uidraw_band *b,
 	const char *state = fy_get(item, "state", "destroyed");
 
 	fyai_fenced_stream_finish(&b->stream);
-	uidraw_band_check(ctx, b);
 	if (!strcmp(state, "closed"))
 		fyai_sink_band_close(ctx->sink, fy_get(item, "ok", true),
 				     fy_get(item, "cause", (const char *)NULL));

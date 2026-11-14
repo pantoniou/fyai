@@ -148,16 +148,6 @@ bool fyai_uimodel_consumed(struct fyai_ctx *ctx);
 void fyai_uimodel_state_update(struct fyai_ctx *ctx);
 
 /*
- * Compare what a renderer made from the model, @model, with what the legacy
- * path made, @oracle. A difference is a defect of the model: it goes to the
- * trace and, when $FYAI_UI_MODEL_CHECK names a file, to that file. Returns
- * true when the two are equal.
- */
-bool fyai_uimodel_check(struct fyai_ctx *ctx, enum fyai_ui_store store,
-			const char *what, const char *model,
-			const char *oracle);
-
-/*
  * What a renderer of a mirror asks of the process that owns the model, such
  * as the answer to a question. @request is borrowed for the call.
  */
@@ -167,7 +157,7 @@ typedef int (*fyai_uimodel_intent_fn)(void *data, const char *subtype,
 /*
  * Make the model of @ctx a mirror of the model of another process. The frames
  * of that process write it, through the two functions below; the writers of
- * this process write nothing, and no oracle runs. @intent carries what the
+ * this process write nothing. @intent carries what the
  * renderer asks of the other process.
  */
 int fyai_uimodel_mirror(struct fyai_ctx *ctx, fyai_uimodel_intent_fn intent,

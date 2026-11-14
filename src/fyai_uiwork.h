@@ -66,8 +66,6 @@ enum fyai_uiwork_end {
 void fyai_uiwork_band_end(struct fyai_ctx *ctx, struct fyai_sink_band *band,
 			  enum fyai_uiwork_end end, bool ok, const char *cause);
 
-/* The band of the sink that the store names @id, or NULL. */
-struct fyai_sink_band *fyai_uiwork_band(struct fyai_ctx *ctx, long long id);
 /* The id of @band in the store, or 0. */
 long long fyai_uiwork_band_id(struct fyai_ctx *ctx,
 			      const struct fyai_sink_band *band);

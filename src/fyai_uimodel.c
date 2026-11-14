@@ -409,63 +409,6 @@ void fyai_uimodel_state_update(struct fyai_ctx *ctx)
 			     "the UI model");
 }
 
-/* The byte offset of the first difference of @a and @b. */
-static size_t uimodel_diff_at(const char *a, const char *b)
-{
-	size_t i;
-
-	for (i = 0; a[i] && a[i] == b[i]; i++)
-		;
-	return i;
-}
-
-/*
- * Append one record to the check file. One write(2) on an append-only
- * descriptor keeps the records of concurrent processes whole. A failure
- * is not reported: the trace has the record.
- */
-static void uimodel_check_record(const char *path, const char *record)
-{
-	ssize_t n;
-	int fd;
-
-	fd = open(path, O_WRONLY | O_APPEND | O_CREAT | O_CLOEXEC, 0600);
-	if (fd < 0)
-		return;
-	do {
-		n = write(fd, record, strlen(record));
-	} while (n < 0 && errno == EINTR);
-	close(fd);
-}
-
-bool fyai_uimodel_check(struct fyai_ctx *ctx, enum fyai_ui_store store,
-			const char *what, const char *model,
-			const char *oracle)
-{
-	const char *path = getenv("FYAI_UI_MODEL_CHECK");
-	const char *record;
-	size_t at;
-
-	/* A mirror has no legacy path: its oracle is in the other process. */
-	if (ctx && ctx->uimodel && ctx->uimodel->mirror)
-		return true;
-	model = model ? model : "";
-	oracle = oracle ? oracle : "";
-	if (!strcmp(model, oracle))
-		return true;
-	at = uimodel_diff_at(model, oracle);
-	fyai_diag_tracef("ui-model", "%s/%s diverges at byte %zu",
-			 fyai_ui_store_name(store), what, at);
-	if (fy_str_empty(path))
-		return false;
-	record = fy_sprintfa("pid %ld: %s/%s diverges at byte %zu\n"
-			     "--- model\n%s\n--- oracle\n%s\n---\n",
-			     (long)getpid(), fyai_ui_store_name(store), what,
-			     at, model, oracle);
-	uimodel_check_record(path, record);
-	return false;
-}
-
 int fyai_uimodel_mirror(struct fyai_ctx *ctx, fyai_uimodel_intent_fn intent,
 			void *data)
 {

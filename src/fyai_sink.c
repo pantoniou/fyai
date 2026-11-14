@@ -1763,12 +1763,6 @@ void fyai_sink_band_close(struct fyai_sink *s, bool ok, const char *cause)
 }
 
 /* Return the granted tile width, or zero for a full-width band. */
-const char *fyai_sink_band_body(const struct fyai_sink_band *b, size_t *lenp)
-{
-	*lenp = b ? b->body.len : 0;
-	return b && b->body.data ? b->body.data : "";
-}
-
 int fyai_sink_band_cols(const struct fyai_sink_band *b)
 {
 	/* A shadow renders at the width of the band that the renderer of the
