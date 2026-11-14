@@ -53,6 +53,12 @@ static struct fyai_cfg test_cfg;
 static struct fyai_loop test_loop = { .dump_fd = -1 };
 static struct fyai_ctx test_ctx = { .cfg = &test_cfg, .loop = &test_loop };
 
+/* The connection component is held by the context; set up before any test runs. */
+static void __attribute__((constructor)) test_link_setup(void)
+{
+	fyai_test_link_of(&test_ctx);
+}
+
 static size_t discard_data(void *ptr, size_t size, size_t nmemb,
 			   void *userdata)
 {

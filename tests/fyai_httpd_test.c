@@ -76,15 +76,16 @@ static int httpd_run(void (*testfn)(void))
 	memset(&test_ctx, 0, sizeof(test_ctx));
 	test_ctx.cfg = &test_cfg;
 	test_ctx.loop = &test_loop;
+	fyai_test_loop_of(&test_ctx);
 	rc = fyai_test_diag_setup(&test_cfg);
 	FYAI_TCHECK(!rc);
 	curl_global_init(CURL_GLOBAL_DEFAULT);
-	test_ctx.curl = curl_easy_init();
-	FYAI_TCHECK(test_ctx.curl);
+	test_ctx.link->curl = curl_easy_init();
+	FYAI_TCHECK(test_ctx.link->curl);
 
 	testfn();
 
-	curl_easy_cleanup(test_ctx.curl);
+	curl_easy_cleanup(test_ctx.link->curl);
 	curl_global_cleanup();
 	fyai_event_pool_drain(fyai_test_loop_of(&test_ctx));
 	return 0;

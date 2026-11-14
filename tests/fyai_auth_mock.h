@@ -70,6 +70,7 @@ __attribute__((unused)) static void store_setup_expiring(char *dir, long long ex
 {
 	struct fy_generic_builder_cfg config = { .flags = FYGBCF_SCOPE_LEADER };
 
+	fyai_test_link_of(&ctx)->loop = &loop;
 	if (!cfg.gb) {
 		cfg.gb = fy_generic_builder_create(&config);
 		fyai_test_transient_of(&ctx)->gb = cfg.gb;

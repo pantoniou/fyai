@@ -23,7 +23,7 @@ int fork_disown_drops_parent_state(void)
 {
 	struct fyai_cfg cfg = { 0 };
 	struct fyai_loop loop;
-	struct fyai_ctx ctx = { .cfg = &cfg, .loop = &loop };
+	struct fyai_ctx ctx = { .cfg = &cfg, .loop = &loop, .link = &(struct fyai_link){ .loop = &loop } };
 	char parent;
 	size_t i;
 

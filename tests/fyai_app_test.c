@@ -36,6 +36,7 @@ FYAI_TEST_ENTRY(app, arena_release_order, app_arena_release_order)
 FYAI_TEST_ENTRY(app, transient_follows_arena, app_transient_follows_arena)
 FYAI_TEST_ENTRY(app, transient_stacks_on_slot, app_transient_stacks_on_slot)
 FYAI_TEST_ENTRY(app, transient_tells_its_release, app_transient_tells_its_release)
+FYAI_TEST_ENTRY(app, wires_link, app_wires_link)
 FYAI_TEST_ENTRY(app, wires_cred, app_wires_cred)
 FYAI_TEST_ENTRY(app, cred_holds_login_state, app_cred_holds_login_state)
 FYAI_TEST_ENTRY(app, cred_keeps_secret_until_release, app_cred_keeps_secret_until_release)
@@ -119,6 +120,19 @@ static enum fyai_event_action timer_cb(const struct fyai_event *ev)
 }
 
 /* The loop component reports into the diagnostics of the app and runs timers. */
+int app_wires_link(void)
+{
+	struct fyai_app app;
+
+	FYAI_TCHECK(!fyai_app_init(&app));
+	FYAI_TCHECK(app.link.loop == &app.loop && app.link.cred == &app.cred);
+	FYAI_TCHECK(!app.link.curl && !app.link.headers && !app.link.curl_state);
+	FYAI_TCHECK(!app.link.status && !app.link.error[0]);
+	fyai_app_cleanup(&app);
+	printf("ok - the connection component stands on the loop and the login\n");
+	return 0;
+}
+
 int app_wires_cred(void)
 {
 	struct fyai_app app;

@@ -256,6 +256,7 @@ static struct fy_generic_builder *native_setup(long long action_timeout_ms,
 	memset(&test_ctx, 0, sizeof(test_ctx));
 	test_ctx.cfg = &test_cfg;
 	test_ctx.loop = &test_loop;
+	fyai_test_loop_of(&test_ctx);
 	test_cfg.shell_timeout_ms = default_timeout_ms;
 	test_cfg.shell_max_timeout_ms = max_timeout_ms;
 

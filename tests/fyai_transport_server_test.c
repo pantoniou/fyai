@@ -71,6 +71,12 @@ static struct fyai_transient test_transient;
 static struct fyai_ctx test_ctx = { .cfg = &test_cfg, .loop = &test_loop,
 				    .transient = &test_transient };
 
+/* The connection component is held by the context; set up before any test runs. */
+static void __attribute__((constructor)) test_link_setup(void)
+{
+	fyai_test_link_of(&test_ctx);
+}
+
 /* Agent side. */
 
 struct frame {

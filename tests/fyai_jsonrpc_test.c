@@ -59,6 +59,12 @@ static struct fyai_cfg test_cfg;
 static struct fyai_loop test_loop = { .dump_fd = -1 };
 static struct fyai_ctx test_ctx = { .cfg = &test_cfg, .loop = &test_loop };
 
+/* The connection component is held by the context; set up before any test runs. */
+static void __attribute__((constructor)) test_link_setup(void)
+{
+	fyai_test_link_of(&test_ctx);
+}
+
 struct call_result {
 	volatile bool done;
 	bool ok;

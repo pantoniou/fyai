@@ -55,15 +55,15 @@ static void xfer_done(struct fyai_xfer *x, void *ud)
 
 static void request_setup(const struct mock *m)
 {
-	if (!ctx.curl) {
-		ctx.curl = curl_easy_init();
-		FYAI_TCHECK(ctx.curl);
-		curl_easy_setopt(ctx.curl, CURLOPT_NOSIGNAL, 1L);
+	if (!ctx.link->curl) {
+		ctx.link->curl = curl_easy_init();
+		FYAI_TCHECK(ctx.link->curl);
+		curl_easy_setopt(ctx.link->curl, CURLOPT_NOSIGNAL, 1L);
 	}
-	curl_slist_free_all(ctx.headers);
-	ctx.headers = NULL;
-	FYAI_TCHECK(!append_header(&ctx.headers, "Content-Type: application/json"));
-	curl_easy_setopt(ctx.curl, CURLOPT_HTTPHEADER, ctx.headers);
+	curl_slist_free_all(ctx.link->headers);
+	ctx.link->headers = NULL;
+	FYAI_TCHECK(!append_header(&ctx.link->headers, "Content-Type: application/json"));
+	curl_easy_setopt(ctx.link->curl, CURLOPT_HTTPHEADER, ctx.link->headers);
 	cfg.chatgpt_auth = true;
 	cfg.api_url = OPENAI_RESPONSES_URL;
 	fyai_xfer_set_body(&ctx, "{}");
@@ -434,8 +434,8 @@ int xfer_login_api_key(void)
 	mock_start(&m, script, 1);
 	request_setup(&m);
 	cfg.chatgpt_auth = false;
-	FYAI_TCHECK(!append_header(&ctx.headers, "Authorization: Bearer sk-test"));
-	curl_easy_setopt(ctx.curl, CURLOPT_HTTPHEADER, ctx.headers);
+	FYAI_TCHECK(!append_header(&ctx.link->headers, "Authorization: Bearer sk-test"));
+	curl_easy_setopt(ctx.link->curl, CURLOPT_HTTPHEADER, ctx.link->headers);
 	x = fyai_xfer_submit(&ctx, body_write, &r, xfer_done, &r);
 	FYAI_TCHECK(x);
 	STEP_UNTIL(el, r.done);
@@ -473,17 +473,17 @@ static int rekey_setup(struct mock *m, const struct mock_answer *script,
 	cfg.api_key = fy_gb_intern_string(cfg.gb, first);
 	cfg.api_key_ref = fy_gb_intern_string(cfg.gb,
 					      fy_sprintfa("secret:%s", name));
-	FYAI_TCHECK(!append_header(&ctx.headers, "Authorization: Bearer sk-first-0123456789"));
-	ctx.auth_header = strdup("Authorization: Bearer sk-first-0123456789");
-	curl_easy_setopt(ctx.curl, CURLOPT_HTTPHEADER, ctx.headers);
+	FYAI_TCHECK(!append_header(&ctx.link->headers, "Authorization: Bearer sk-first-0123456789"));
+	ctx.link->auth_header = strdup("Authorization: Bearer sk-first-0123456789");
+	curl_easy_setopt(ctx.link->curl, CURLOPT_HTTPHEADER, ctx.link->headers);
 	return 0;
 }
 
 static void rekey_end(struct mock *m, const char *dir, const char *name)
 {
 	(void)fyai_secret_kernel_delete(fy_sprintfa("fyai:%s", name));
-	free(ctx.auth_header);
-	ctx.auth_header = NULL;
+	free(ctx.link->auth_header);
+	ctx.link->auth_header = NULL;
 	cfg.api_key_explicit = false;
 	cfg.api_key = NULL;
 	cfg.api_key_ref = NULL;

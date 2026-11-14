@@ -8,6 +8,7 @@
 #include "fyai.h"
 #include "fyai_diag.h"
 #include "fyai_arena.h"
+#include "fyai_link.h"
 #include "fyai_loop.h"
 #include "fyai_transient.h"
 
@@ -39,6 +40,18 @@ static inline void fyai_test_diag_cleanup(struct fyai_cfg *cfg)
 }
 
 /*
+ * The connection component of a test context: the one that the test gave the
+ * context, else one that the context holds, so it stays reachable until the
+ * process ends.
+ */
+static inline struct fyai_link *fyai_test_link_of(struct fyai_ctx *ctx)
+{
+	if (!ctx->link)
+		ctx->link = calloc(1, sizeof(*ctx->link));
+	return ctx->link;
+}
+
+/*
  * The event loop component of a test context: the one that the test gave the
  * context, else one of its own, made on first use. A loop without a sink
  * reports into the sink of the tests.
@@ -55,6 +68,7 @@ static inline struct fyai_loop *fyai_test_loop_of(struct fyai_ctx *ctx)
 		}
 		ctx->loop = &own;
 	}
+	fyai_test_link_of(ctx)->loop = ctx->loop;
 	/* A loop that a test declared itself starts with no sink. */
 	if (!ctx->loop->diag)
 		ctx->loop->diag = fyai_test_diag_storage();

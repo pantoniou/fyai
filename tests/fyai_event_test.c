@@ -90,6 +90,12 @@ static struct fyai_cfg test_cfg;
 static struct fyai_loop test_loop = { .dump_fd = -1 };
 static struct fyai_ctx test_ctx = { .cfg = &test_cfg, .loop = &test_loop };
 
+/* The connection component is held by the context; set up before any test runs. */
+static void __attribute__((constructor)) test_link_setup(void)
+{
+	fyai_test_link_of(&test_ctx);
+}
+
 /* Outer bound for any wait in this file. */
 #define TEST_BOUND_MS 5000
 
@@ -1307,7 +1313,7 @@ static void test_interrupt_watchdog_escalates(void)
 	pid = fork();
 	FYAI_TCHECK(pid >= 0);
 	if (!pid) {
-		struct fyai_ctx child_ctx = { .cfg = &test_cfg, .loop = &test_loop };
+		struct fyai_ctx child_ctx = { .cfg = &test_cfg, .loop = &test_loop, .link = &(struct fyai_link){ .loop = &test_loop } };
 
 		if (!fyai_ctx_loop(&child_ctx) ||
 		    fyai_event_interrupt_open(fyai_test_loop_of(&child_ctx), TEST_WATCHDOG_MS))
