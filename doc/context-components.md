@@ -2,7 +2,7 @@
 
 Status: design, and the first three steps are done and the fourth has begun:
 `struct fyai_app` exists and holds `diag`, `loop`, `arena`, `transient`,
-`cred`, `link`, `transport`, `mcp`, `waitq`, `askq` and `cfg`. The counts come from a script over
+`cred`, `link`, `transport`, `mcp`, `waitq`, `askq`, `scope`, `tty`, `skills`, `toolspec` and `cfg`. The counts come from a script over
 `src/*.c` that counts `ctx->FIELD` per file; check a row against the code
 before a change. The order of the work is near the end.
 
@@ -271,7 +271,14 @@ Each step builds, passes both suites, and lands as its own patch series
    `struct fyai_askq` holds the background questions and the sets of the
    questions store. A view context that detaches from the UI keeps an
    `askq` of its own (`fyai_uimodel_view_detach()`).
-6. `scope`, `terminal`, `skills`, `toolspec`.
+6. `scope`, `terminal`, `skills`, `toolspec`: done. `struct fyai_scope` holds
+   the cover, the pins, the orphans and their kill timer, the home of the tools
+   and the sandbox flags. `struct fyai_tty` is the terminal component, named
+   `tty` because `fyai_term.h` is the terminal library glue; it holds the
+   size, the `stdout_tty` fact, the resize source and the session.
+   `struct fyai_skills` holds the skill directories and the settings export
+   directory, and `struct fyai_toolspec` the specification, its generation and
+   the allow list.
 7. `branch`, `usage`.
 8. `jobs`, `agents`, `turn`: the wide components, with the callbacks of the
    display and of the observers. These change the most call sites.
