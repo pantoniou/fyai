@@ -114,7 +114,7 @@ struct fyai_event_track {
 
 struct fyai_event_loop {
 	struct fyai_event_loop *pool_next;
-	struct fyai_ctx *ctx;		/* diagnostics sink; never NULL */
+	struct fyai_loop *owner;	/* the component; never NULL */
 	struct fyai_event_source *sources;
 	struct fyai_event_source *free_sources;
 	unsigned int source_count;
@@ -141,10 +141,21 @@ struct fyai_event_loop {
 	struct fyai_event_source *wake_src;
 };
 
-/* fyai_error_check() over a loop rather than a context: report and jump to the
- * cleanup label when @_cond does not hold. */
+/* fyai_error_check() over the loop component, which reports into its own
+ * diagnostics: report and jump to the cleanup label when @_cond does not hold. */
+#define fyai_loop_error_check(_loop, _cond, _label, _fmt, ...) \
+	do { \
+		if (!(_cond)) { \
+			fyai_diag_type((_loop)->diag, FYAIET_ERROR, (_fmt) , \
+				       ## __VA_ARGS__); \
+			goto _label; \
+		} \
+	} while (0)
+
+/* The same over a loop of events. */
 #define fyai_event_error_check(_el, _cond, _label, _fmt, ...) \
-	fyai_error_check((_el)->ctx, (_cond), _label, (_fmt) , ## __VA_ARGS__)
+	fyai_loop_error_check((_el)->owner, (_cond), _label, (_fmt) , \
+			      ## __VA_ARGS__)
 
 /* Backend contract. */
 int fyai_event_backend_create(struct fyai_event_loop *el);

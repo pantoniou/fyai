@@ -3285,7 +3285,7 @@ static void ui_event(struct fyai_ui *ui, struct fytim_event *ev)
 	case FYTIM_EVENT_QUIT:
 		ui->quit = true;
 		ui->ready = true;
-		ui->ctx->interrupt_pending = true;
+		ui->ctx->loop->interrupt_pending = true;
 		break;
 	case FYTIM_EVENT_EDIT:
 		ui_message_clear(ui);
@@ -4826,7 +4826,7 @@ static bool ui_interrupt(struct fyai_ctx *ctx, bool quit)
 		} else
 			return false;
 	}
-	ctx->interrupt_pending = true;
+	ctx->loop->interrupt_pending = true;
 	fyai_waiters_kick(ctx);
 	if (ui->busy)
 		ui_recall_pending(ui);

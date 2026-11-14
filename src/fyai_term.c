@@ -486,7 +486,7 @@ int fyai_term_verb(struct fyai_ctx *ctx)
 		term_frame(&t);
 		/* External interrupts stop the program; typed ^C reaches it. */
 		if (fyai_interrupt_pending(ctx)) {
-			fyai_event_interrupt_ack(ctx);
+			fyai_event_interrupt_ack(ctx->loop);
 			t.quitting = true;
 			term_cancel(&t);
 			continue;

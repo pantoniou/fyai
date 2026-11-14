@@ -790,7 +790,7 @@ static int agent_run_turn(struct fyai_ctx *ctx, struct agent_run *r)
 		fyai_ui_prompt_enabled(ctx, false);
 
 	r->turn = fyai_run_turn(ctx, ctx->last_message);
-	while (fy_is_valid(r->turn) && !ctx->terminate_pending && fyai_event_queued(ctx)) {
+	while (fy_is_valid(r->turn) && !ctx->loop->terminate_pending && fyai_event_queued(ctx)) {
 		/*
 		 * A wait whose owner settled since the poll is dropped.
 		 * The queue may then be empty, so the loop re-checks.

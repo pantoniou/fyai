@@ -35,6 +35,7 @@
 #include "utils.h"
 
 #include "fyai_test_registry.h"
+#include "fyai_test_diag.h"
 
 FYAI_TEST_ENTRY(transport_server, headers_build, transport_server_headers_build)
 FYAI_TEST_ENTRY(transport_server, ratelimit_codec, transport_server_ratelimit_codec)
@@ -65,7 +66,8 @@ FYAI_TEST_ENTRY(transport_server, ignores_copied_descriptor, transport_server_ig
 #define BOUND_MS	tmock_bound_ms()
 
 static struct fyai_cfg test_cfg;
-static struct fyai_ctx test_ctx = { .cfg = &test_cfg };
+static struct fyai_loop test_loop = { .dump_fd = -1 };
+static struct fyai_ctx test_ctx = { .cfg = &test_cfg, .loop = &test_loop };
 
 /* Agent side. */
 
@@ -224,11 +226,11 @@ static void agent_close(struct agent *a)
 	fyai_transport_registry_destroy(a->reg);
 	close(a->fd);
 	fyai_curl_cleanup(&test_ctx);
-	if (test_ctx.el) {
-		fyai_event_loop_destroy(test_ctx.el);
-		test_ctx.el = NULL;
+	if (fyai_test_loop_of(&test_ctx)->el) {
+		fyai_event_loop_destroy(fyai_test_loop_of(&test_ctx)->el);
+		fyai_test_loop_of(&test_ctx)->el = NULL;
 	}
-	fyai_event_pool_drain(&test_ctx);
+	fyai_event_pool_drain(fyai_test_loop_of(&test_ctx));
 	curl_global_cleanup();
 }
 
@@ -587,9 +589,9 @@ int transport_server_channel_close_cancels(void)
 	fyai_transport_server_destroy(a.srv);
 	fyai_transport_registry_destroy(a.reg);
 	fyai_curl_cleanup(&test_ctx);
-	fyai_event_loop_destroy(test_ctx.el);
-	test_ctx.el = NULL;
-	fyai_event_pool_drain(&test_ctx);
+	fyai_event_loop_destroy(fyai_test_loop_of(&test_ctx)->el);
+	fyai_test_loop_of(&test_ctx)->el = NULL;
+	fyai_event_pool_drain(fyai_test_loop_of(&test_ctx));
 	curl_global_cleanup();
 	tmock_stop(&m);
 	return 0;

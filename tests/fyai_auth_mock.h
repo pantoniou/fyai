@@ -41,7 +41,8 @@
 #define STEP_BOUND 2000
 
 static struct fyai_cfg cfg;
-static struct fyai_ctx ctx = { .cfg = &cfg };
+static struct fyai_loop loop = { .dump_fd = -1 };
+static struct fyai_ctx ctx = { .cfg = &cfg, .loop = &loop };
 static bool diag_ready;
 
 /* Write the record of the login with @access as its access token. */
@@ -230,6 +231,7 @@ __attribute__((unused)) static void mock_start(struct mock *m,
 	if (!diag_ready) {
 		rc = fyai_test_diag_setup(&cfg);
 		FYAI_TCHECK(!rc);
+		loop.diag = cfg.diag;
 		diag_ready = true;
 	}
 	memset(m, 0, sizeof(*m));

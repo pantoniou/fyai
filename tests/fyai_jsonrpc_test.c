@@ -56,7 +56,8 @@ FYAI_TEST_ENTRY(jsonrpc, tunnel_close_settles, jsonrpc_tunnel_close_settles)
 #define TEST_BOUND_MS 5000
 
 static struct fyai_cfg test_cfg;
-static struct fyai_ctx test_ctx = { .cfg = &test_cfg };
+static struct fyai_loop test_loop = { .dump_fd = -1 };
+static struct fyai_ctx test_ctx = { .cfg = &test_cfg, .loop = &test_loop };
 
 struct call_result {
 	volatile bool done;
@@ -872,7 +873,7 @@ static int jsonrpc_run(void (*testfn)(void))
 
 	fyai_diag_drain(test_cfg.diag);
 	fyai_test_diag_cleanup(&test_cfg);
-	fyai_event_pool_drain(&test_ctx);
+	fyai_event_pool_drain(fyai_test_loop_of(&test_ctx));
 	return 0;
 }
 

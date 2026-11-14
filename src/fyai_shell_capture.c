@@ -209,7 +209,7 @@ static enum fyai_event_action shell_capture_signal(const struct fyai_event *ev)
 	/* Treat SIGINT and SIGTERM as shell-capture interrupts. */
 	if (job && job->ctx &&
 	    (ev->signo == SIGINT || ev->signo == SIGTERM))
-		job->ctx->interrupt_pending = true;
+		job->ctx->loop->interrupt_pending = true;
 	return FYAIEA_CONTINUE;
 }
 
@@ -736,7 +736,7 @@ int run_shell_command_capture_cb(struct fyai_ctx *ctx, const char *command,
 	/* Clear the pid once the loop owns the reap. */
 	while (!job.done) {
 		if (fyai_interrupt_pending(ctx)) {
-			fyai_event_interrupt_ack(ctx);
+			fyai_event_interrupt_ack(ctx->loop);
 			shell_capture_cancel(pid, &job);
 		}
 		ret = fyai_event_loop_step(el, -1);

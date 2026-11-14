@@ -2266,13 +2266,13 @@ int fyai_auth_login(struct fyai_ctx *ctx, bool device_code, bool no_browser,
 		}
 	}
 	rc = 0;
-	while (!sync.done && !ctx->interrupt_pending) {
+	while (!sync.done && !ctx->loop->interrupt_pending) {
 		rc = fyai_event_loop_step(el, -1);
 		if (rc < 0)
 			break;
 	}
-	if (ctx->interrupt_pending) {
-		fyai_event_interrupt_ack(ctx);
+	if (ctx->loop->interrupt_pending) {
+		fyai_event_interrupt_ack(ctx->loop);
 		fyai_auth_login_cancel(request);
 	}
 	while (!sync.done && rc >= 0) {
@@ -2298,11 +2298,11 @@ void fyai_auth_drain(struct fyai_ctx *ctx)
 {
 	struct timespec t0, t;
 
-	if (!ctx->auth_detached || !ctx->el)
+	if (!ctx->auth_detached || !ctx->loop->el)
 		return;
 	clock_gettime(CLOCK_MONOTONIC, &t0);
 	while (ctx->auth_detached) {
-		if (fyai_event_loop_step(ctx->el, 100) < 0)
+		if (fyai_event_loop_step(ctx->loop->el, 100) < 0)
 			break;
 		clock_gettime(CLOCK_MONOTONIC, &t);
 		if (t.tv_sec - t0.tv_sec >= AUTH_DRAIN_S)

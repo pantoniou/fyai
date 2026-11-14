@@ -21,6 +21,7 @@
 #include "fyai_test.h"
 
 #include "fyai_test_registry.h"
+#include "fyai_test_diag.h"
 
 FYAI_TEST_ENTRY(curl, completion_is_deferred, curl_completion_is_deferred)
 FYAI_TEST_ENTRY(curl, cancel_is_deferred, curl_cancel_is_deferred)
@@ -49,7 +50,8 @@ struct write_reenter {
 };
 
 static struct fyai_cfg test_cfg;
-static struct fyai_ctx test_ctx = { .cfg = &test_cfg };
+static struct fyai_loop test_loop = { .dump_fd = -1 };
+static struct fyai_ctx test_ctx = { .cfg = &test_cfg, .loop = &test_loop };
 
 static size_t discard_data(void *ptr, size_t size, size_t nmemb,
 			   void *userdata)
@@ -355,11 +357,11 @@ static int curl_run(void (*testfn)(void))
 	testfn();
 
 	fyai_curl_cleanup(&test_ctx);
-	if (test_ctx.el) {
-		fyai_event_loop_destroy(test_ctx.el);
-		test_ctx.el = NULL;
+	if (fyai_test_loop_of(&test_ctx)->el) {
+		fyai_event_loop_destroy(fyai_test_loop_of(&test_ctx)->el);
+		fyai_test_loop_of(&test_ctx)->el = NULL;
 	}
-	fyai_event_pool_drain(&test_ctx);
+	fyai_event_pool_drain(fyai_test_loop_of(&test_ctx));
 	curl_global_cleanup();
 	return 0;
 }

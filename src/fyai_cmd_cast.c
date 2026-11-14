@@ -44,7 +44,7 @@ static bool cast_wait(struct fyai_ctx *ctx, double ms)
 
 	while (left > 0) {
 		if (fyai_interrupt_pending(ctx)) {
-			fyai_event_interrupt_ack(ctx);
+			fyai_event_interrupt_ack(ctx->loop);
 			return false;
 		}
 		if (fyai_event_loop_step(el, left > 50 ? 50 : (int)ceil(left)) < 0)

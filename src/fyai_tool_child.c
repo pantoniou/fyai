@@ -468,7 +468,7 @@ static void fyai_tool_child_session(struct fyai_ctx *ctx,
 	el = fyai_ctx_loop(ctx);
 	assert(el);
 	while (!fyai_terminal_relay_done(tc->relay)) {
-		stop = ctx->terminate_pending || jsonrpc_conn_closed(conn);
+		stop = ctx->loop->terminate_pending || jsonrpc_conn_closed(conn);
 		if (stop)
 			fyai_terminal_relay_close(tc->relay, true);
 		if (fyai_event_loop_step(el, stop ? 200 : -1) < 0)
@@ -659,8 +659,8 @@ static enum fyai_event_action fyai_tool_child_signal(const struct fyai_event *ev
 
 	if (ev->signo == SIGPIPE)
 		return FYAIEA_CONTINUE;
-	ctx->interrupt_pending = true;
-	ctx->terminate_pending = true;
+	ctx->loop->interrupt_pending = true;
+	ctx->loop->terminate_pending = true;
 	return FYAIEA_CONTINUE;
 }
 
@@ -819,8 +819,7 @@ void fyai_tool_child_exec(struct fyai_ctx *ctx, bool pty, bool tp)
 	if (tp && (fcntl(FYAI_TOOL_CHILD_TP_AGENT_FD, F_SETFD, 0) < 0 ||
 		   fcntl(FYAI_TOOL_CHILD_TP_CTL_FD, F_SETFD, 0) < 0))
 		_exit(126);
-	if (ctx->signal_mask_valid)
-		(void)sigprocmask(SIG_SETMASK, &ctx->signal_mask, NULL);
+	fyai_loop_restore_signal_mask(ctx->loop);
 	fyai_exec_self(argv);
 	_exit(127);
 }

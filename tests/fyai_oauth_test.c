@@ -56,6 +56,7 @@ FYAI_TEST_ENTRY(oauth, declined_redirect, oauth_declined_redirect)
 #define TEST_PATH	"/auth/callback"
 
 static struct fyai_cfg test_cfg;
+static struct fyai_loop test_loop = { .dump_fd = -1 };
 static struct fyai_ctx test_ctx;
 
 /* Port 0: let the kernel pick, so the tests never collide with a real login
@@ -235,7 +236,7 @@ static void test_plain_redirect(void)
 	char *req;
 	int rc;
 
-	el = fyai_event_loop_create(&test_ctx);
+	el = fyai_event_loop_create(fyai_test_loop_of(&test_ctx));
 	FYAI_TCHECK(el);
 	rc = fyai_oauth_flow_start(&test_ctx, el, &p, NULL, NULL, &f);
 	FYAI_TCHECK(!rc);
@@ -272,7 +273,7 @@ static void test_favicon_does_not_fail_login(void)
 	fyai_event_ms_t end;
 	int rc;
 
-	el = fyai_event_loop_create(&test_ctx);
+	el = fyai_event_loop_create(fyai_test_loop_of(&test_ctx));
 	FYAI_TCHECK(el);
 	rc = fyai_oauth_flow_start(&test_ctx, el, &p, NULL, NULL, &f);
 	FYAI_TCHECK(!rc);
@@ -315,7 +316,7 @@ static void test_silent_preconnect(void)
 	char *req;
 	int rc;
 
-	el = fyai_event_loop_create(&test_ctx);
+	el = fyai_event_loop_create(fyai_test_loop_of(&test_ctx));
 	FYAI_TCHECK(el);
 	rc = fyai_oauth_flow_start(&test_ctx, el, &p, NULL, NULL, &f);
 	FYAI_TCHECK(!rc);
@@ -350,7 +351,7 @@ static void test_split_request(void)
 	char *req;
 	int rc;
 
-	el = fyai_event_loop_create(&test_ctx);
+	el = fyai_event_loop_create(fyai_test_loop_of(&test_ctx));
 	FYAI_TCHECK(el);
 	rc = fyai_oauth_flow_start(&test_ctx, el, &p, NULL, NULL, &f);
 	FYAI_TCHECK(!rc);
@@ -379,7 +380,7 @@ static void test_bad_state_rejected(void)
 	char *req;
 	int rc;
 
-	el = fyai_event_loop_create(&test_ctx);
+	el = fyai_event_loop_create(fyai_test_loop_of(&test_ctx));
 	FYAI_TCHECK(el);
 	rc = fyai_oauth_flow_start(&test_ctx, el, &p, NULL, NULL, &f);
 	FYAI_TCHECK(!rc);
@@ -406,7 +407,7 @@ static void test_timeout(void)
 	struct fyai_oauth_flow *f = NULL;
 	int rc;
 
-	el = fyai_event_loop_create(&test_ctx);
+	el = fyai_event_loop_create(fyai_test_loop_of(&test_ctx));
 	FYAI_TCHECK(el);
 	rc = fyai_oauth_flow_start(&test_ctx, el, &p, NULL, NULL, &f);
 	FYAI_TCHECK(!rc);
@@ -442,7 +443,7 @@ static void test_completion_callback(void)
 	int rc;
 
 	done_calls = 0;
-	el = fyai_event_loop_create(&test_ctx);
+	el = fyai_event_loop_create(fyai_test_loop_of(&test_ctx));
 	FYAI_TCHECK(el);
 	rc = fyai_oauth_flow_start(&test_ctx, el, &p, on_done, NULL, &f);
 	FYAI_TCHECK(!rc);
@@ -487,7 +488,7 @@ static void test_shares_the_loop(void)
 	int rc;
 
 	tick_count = 0;
-	el = fyai_event_loop_create(&test_ctx);
+	el = fyai_event_loop_create(fyai_test_loop_of(&test_ctx));
 	FYAI_TCHECK(el);
 
 	rc = fyai_event_add_timer(el, 10, 10, on_tick, NULL, &tick);
@@ -528,7 +529,7 @@ static void test_connection_flood(void)
 	size_t i;
 	int rc;
 
-	el = fyai_event_loop_create(&test_ctx);
+	el = fyai_event_loop_create(fyai_test_loop_of(&test_ctx));
 	FYAI_TCHECK(el);
 	rc = fyai_oauth_flow_start(&test_ctx, el, &p, NULL, NULL, &f);
 	FYAI_TCHECK(!rc);
@@ -568,7 +569,7 @@ static void test_destroy_while_listening(void)
 	unsigned short port;
 	int rc;
 
-	el = fyai_event_loop_create(&test_ctx);
+	el = fyai_event_loop_create(fyai_test_loop_of(&test_ctx));
 	FYAI_TCHECK(el);
 	rc = fyai_oauth_flow_start(&test_ctx, el, &p, NULL, NULL, &f);
 	FYAI_TCHECK(!rc);
@@ -653,7 +654,7 @@ static void test_query_value(void)
 static void test_registration_redirect(void)
 {
 	struct fyai_oauth_params p = test_params(TEST_BOUND_MS);
-	struct fyai_event_loop *el = fyai_event_loop_create(&test_ctx);
+	struct fyai_event_loop *el = fyai_event_loop_create(fyai_test_loop_of(&test_ctx));
 	struct fyai_oauth_flow *f = NULL;
 	int rc;
 
@@ -670,7 +671,7 @@ static void test_registration_redirect(void)
 static void test_declined_redirect(void)
 {
 	struct fyai_oauth_params p = test_params(TEST_BOUND_MS);
-	struct fyai_event_loop *el = fyai_event_loop_create(&test_ctx);
+	struct fyai_event_loop *el = fyai_event_loop_create(fyai_test_loop_of(&test_ctx));
 	struct fyai_oauth_flow *f = NULL;
 	int rc;
 
@@ -692,6 +693,7 @@ static int oauth_run(void (*testfn)(void))
 	memset(&test_cfg, 0, sizeof(test_cfg));
 	memset(&test_ctx, 0, sizeof(test_ctx));
 	test_ctx.cfg = &test_cfg;
+	test_ctx.loop = &test_loop;
 	rc = fyai_test_diag_setup(&test_cfg);
 	FYAI_TCHECK(!rc);
 
@@ -703,7 +705,7 @@ static int oauth_run(void (*testfn)(void))
 
 	curl_easy_cleanup(test_ctx.curl);
 	curl_global_cleanup();
-	fyai_event_pool_drain(&test_ctx);
+	fyai_event_pool_drain(fyai_test_loop_of(&test_ctx));
 	return 0;
 }
 

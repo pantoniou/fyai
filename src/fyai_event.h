@@ -14,6 +14,7 @@
 #include <sys/types.h>
 
 struct fyai_ctx;
+struct fyai_loop;
 struct fyai_event_loop;
 struct fyai_event_source;
 
@@ -65,19 +66,23 @@ fyai_event_ms_t fyai_event_now_ms(void);
  */
 void fyai_event_elapsed_format(char *buf, size_t size, fyai_event_ms_t since_ms);
 
-/* @ctx must outlive the loop. */
-struct fyai_event_loop *fyai_event_loop_create(struct fyai_ctx *ctx);
+/* @loop, the component that owns the loops, must outlive the loop. */
+struct fyai_event_loop *fyai_event_loop_create(struct fyai_loop *loop);
 
-/* The one application loop, created on first use and owned by @ctx. */
+/*
+ * The one application loop of the context, made on first use. The context
+ * reaches its loop component through @ctx->loop; a function that is given
+ * the component calls fyai_loop_get().
+ */
 struct fyai_event_loop *fyai_ctx_loop(struct fyai_ctx *ctx);
 
 /* Drop the inherited loop in a freshly forked child, so it builds its own. */
 void fyai_ctx_loop_abandon(struct fyai_ctx *ctx);
 void fyai_event_loop_destroy(struct fyai_event_loop *el);
 
-void fyai_event_pool_drain(struct fyai_ctx *ctx);
+void fyai_event_pool_drain(struct fyai_loop *loop);
 
-bool fyai_event_pool_enabled(const struct fyai_ctx *ctx);
+bool fyai_event_pool_enabled(const struct fyai_loop *loop);
 
 #define FYAI_EVENT_MAX_DEPTH 8
 
@@ -159,18 +164,18 @@ void fyai_event_source_remove(struct fyai_event_source *src);
 
 /*
  * Arm the signal-context dump and probe the terminal mode of @fd. The handler
- * appends the dump to ctx->dump_file and creates ctx->dump_dir and the file
+ * appends the dump to loop->dump_file and creates loop->dump_dir and the file
  * when it runs: a run that never dumps adds none. Without a file, or when it
  * cannot be opened, the dump goes to @fd.
  */
-int fyai_event_dump_open(struct fyai_ctx *ctx, int signo, int fd);
+int fyai_event_dump_open(struct fyai_loop *loop, int signo, int fd);
 void fyai_event_dump_close(void);
-void fyai_event_dump_to_fd(struct fyai_event_loop *el, struct fyai_ctx *ctx,
+void fyai_event_dump_to_fd(struct fyai_event_loop *el, struct fyai_loop *loop,
 			   int fd);
 
-int fyai_event_interrupt_open(struct fyai_ctx *ctx, unsigned int watchdog_ms);
-void fyai_event_interrupt_ack(struct fyai_ctx *ctx);
-void fyai_event_interrupt_close(struct fyai_ctx *ctx);
+int fyai_event_interrupt_open(struct fyai_loop *loop, unsigned int watchdog_ms);
+void fyai_event_interrupt_ack(struct fyai_loop *loop);
+void fyai_event_interrupt_close(struct fyai_loop *loop);
 bool fyai_event_interrupt_escalated(void);
 
 #endif

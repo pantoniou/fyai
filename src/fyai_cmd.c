@@ -2030,7 +2030,7 @@ int fyai_cmd_execute(struct fyai_ctx *ctx)
 		step = 0;
 		while (!call.done && step >= 0) {
 			if (fyai_interrupt_pending(ctx)) {
-				fyai_event_interrupt_ack(ctx);
+				fyai_event_interrupt_ack(ctx->loop);
 				if (call.cancel)
 					call.cancel(&call);
 				call.cancel = NULL;

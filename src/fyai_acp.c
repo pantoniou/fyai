@@ -894,7 +894,7 @@ static fy_generic acp_worker_serve(struct jsonrpc_conn *conn,
 
 	if (!strcmp(method, "acp/cancel")) {
 		worker->cancelled = true;
-		ctx->interrupt_pending = true;
+		ctx->loop->interrupt_pending = true;
 		return fy_invalid;
 	}
 	if (strcmp(method, "acp/run")) {

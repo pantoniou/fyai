@@ -2381,10 +2381,10 @@ static void fyai_ctx_turn_reset(struct fyai_ctx *ctx)
 	ctx->turn_stop = FYAI_TURN_STOP_NONE;
 	ctx->turn_cost_limit = 0;
 	ctx->compacting = false;
-	ctx->interrupt_pending = 0;
-	ctx->interrupt_seq = 0;
-	ctx->interrupt_seen = 0;
-	ctx->terminate_pending = false;
+	ctx->loop->interrupt_pending = 0;
+	ctx->loop->interrupt_seq = 0;
+	ctx->loop->interrupt_seen = 0;
+	ctx->loop->terminate_pending = false;
 	ctx->tool_diff_tracking = false;
 	ctx->tool_gate = NULL;
 	ctx->tool_gate_data = NULL;
@@ -2420,8 +2420,6 @@ static void fyai_ctx_usage_reset(struct fyai_ctx *ctx)
 /* Clear live parent-owned state after fork. */
 void fyai_ctx_fork_disown(struct fyai_ctx *ctx)
 {
-	size_t i;
-
 	if (!ctx)
 		return;
 	/* First: a release below closes texts of the model, and a consumer of
@@ -2463,8 +2461,7 @@ void fyai_ctx_fork_disown(struct fyai_ctx *ctx)
 	ctx->shell_stream = NULL;
 	ctx->tty_session = NULL;		/* the terminal it runs in */
 	ctx->winch_src = NULL;			/* a source on the loop it owns */
-	for (i = 0; i < ARRAY_SIZE(ctx->signal_src); i++)
-		ctx->signal_src[i] = NULL;
+	fyai_loop_disown(ctx->loop);
 	ctx->transport.src = NULL;
 	ctx->cmd_call = NULL;			/* the command that it runs */
 	ctx->catalog_update = NULL;		/* and the update that it started */
@@ -2485,7 +2482,6 @@ void fyai_ctx_fork_disown(struct fyai_ctx *ctx)
 	/* The attachments wait for the next line of the parent, not of this
 	 * child; the store stays open to read the bytes of the branch. */
 	ctx->media_pending = fy_seq_empty;
-	ctx->dump_fd = -1;	/* the parent closes its diagnostic copy */
 }
 
 /*

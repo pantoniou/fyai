@@ -166,8 +166,7 @@ fyai_editor_submit(struct fyai_ctx *ctx, const char *path, bool readonly,
 	fyai_error_check(ctx, pid >= 0, err_out, "could not start editor: %s",
 			 strerror(errno));
 	if (!pid) {
-		if (ctx && ctx->signal_mask_valid)
-			(void)sigprocmask(SIG_SETMASK, &ctx->signal_mask, NULL);
+		fyai_loop_restore_signal_mask(ctx ? ctx->loop : NULL);
 		execl("/bin/sh", "sh", "-c", cmd, (char *)NULL);
 		_exit(127);
 	}

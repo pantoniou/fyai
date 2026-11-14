@@ -74,8 +74,7 @@ int fyai_remote_spawn(struct fyai_ctx *ctx, char *const args[],
 		fyai_close_fds_from(STDERR_FILENO + 1);
 		if (fyai_env_sanitize(keep))
 			_exit(126);
-		if (ctx->signal_mask_valid)
-			sigprocmask(SIG_SETMASK, &ctx->signal_mask, NULL);
+		fyai_loop_restore_signal_mask(ctx->loop);
 		signal(SIGPIPE, SIG_DFL);
 		execvp(args[0], args);
 		_exit(127);
@@ -346,9 +345,9 @@ static int remote_wait(struct remote_client *client)
 
 	while (client->phase == REMOTE_WAITING && !client->failed &&
 	       !jsonrpc_conn_closed(client->peer) &&
-	       fyai_event_now_ms() < deadline && !ctx->terminate_pending &&
+	       fyai_event_now_ms() < deadline && !ctx->loop->terminate_pending &&
 	       !fyai_interrupt_check(ctx)) {
-		fyai_event_interrupt_ack(ctx);
+		fyai_event_interrupt_ack(ctx->loop);
 		rc = fyai_event_loop_step(fyai_ctx_loop(ctx), 100);
 		if (rc < 0)
 			return -1;
@@ -684,7 +683,7 @@ static int remote_hello(struct remote_client *client)
 
 static void remote_client_close(struct remote_client *client)
 {
-	fyai_event_interrupt_ack(client->ctx);
+	fyai_event_interrupt_ack(client->ctx->loop);
 	jsonrpc_conn_destroy(client->stdio);
 	client->stdio = NULL;
 	jsonrpc_conn_destroy(client->peer);
@@ -720,7 +719,7 @@ static int remote_view_run(struct remote_client *client, bool watch)
 		return -1;
 	fyai_remote_ui_watch(client->view, watch);
 	while (!client->failed && !jsonrpc_conn_closed(client->peer) &&
-	       !ctx->terminate_pending) {
+	       !ctx->loop->terminate_pending) {
 		rc = fyai_remote_ui_step(client->view);
 		if (rc)
 			break;
@@ -732,7 +731,7 @@ static int remote_view_run(struct remote_client *client, bool watch)
 	client->view = NULL;
 	if (rc < 0 || client->failed)
 		return -1;
-	fyai_error_check(ctx, rc == 1 || ctx->terminate_pending, err,
+	fyai_error_check(ctx, rc == 1 || ctx->loop->terminate_pending, err,
 			 "the endpoint closed the connection");
 	return 0;
 err:
@@ -760,8 +759,8 @@ static int remote_sdk_run(struct remote_client *client, const char *path)
 	 * each message has its result, and the server then closes.
 	 */
 	while (!client->failed && !jsonrpc_conn_closed(client->peer) &&
-	       !ctx->terminate_pending && !fyai_interrupt_check(ctx)) {
-		fyai_event_interrupt_ack(ctx);
+	       !ctx->loop->terminate_pending && !fyai_interrupt_check(ctx)) {
+		fyai_event_interrupt_ack(ctx->loop);
 		if (!input_ended && jsonrpc_conn_closed(client->stdio) &&
 		    !jsonrpc_conn_has_output(client->peer) &&
 		    client->results >= client->messages) {
@@ -955,9 +954,9 @@ static int remote_command_run(struct remote_client *client)
 		fyai_error_check(ctx, !rc, err, "cannot send standard input");
 	}
 	while (client->phase != REMOTE_ENDED && !client->failed &&
-	       !jsonrpc_conn_closed(client->peer) && !ctx->terminate_pending) {
+	       !jsonrpc_conn_closed(client->peer) && !ctx->loop->terminate_pending) {
 		if (fyai_interrupt_check(ctx)) {
-			fyai_event_interrupt_ack(ctx);
+			fyai_event_interrupt_ack(ctx->loop);
 			if (fyai_remote_send(client->peer, fy_mapping(client->gb,
 					"type", "fyai", "subtype", "signal",
 					"signal", "INT")))

@@ -1597,7 +1597,7 @@ static int view_wait_child(struct fyai_ctx *ctx, pid_t child, int *status, int *
 		goto out;
 	while (!wait.done) {
 		if (fyai_interrupt_pending(ctx)) {
-			fyai_event_interrupt_ack(ctx);
+			fyai_event_interrupt_ack(ctx->loop);
 			if (!wait.cancelled)
 				wait.cancelled = SIGINT;
 			kill(-child, SIGKILL);

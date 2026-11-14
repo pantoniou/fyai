@@ -29,6 +29,7 @@
 
 #include "fyai_test_registry.h"
 #include "fyai_transport_mock.h"
+#include "fyai_test_diag.h"
 
 FYAI_TEST_ENTRY(transport_client, call_streams, transport_client_call_streams)
 FYAI_TEST_ENTRY(transport_client, credit_returns, transport_client_credit_returns)
@@ -45,7 +46,8 @@ FYAI_TEST_ENTRY(transport_client, role_follows_attach, transport_client_role_fol
 #define BOUND_MS tmock_bound_ms()
 
 static struct fyai_cfg test_cfg;
-static struct fyai_ctx test_ctx = { .cfg = &test_cfg };
+static struct fyai_loop test_loop = { .dump_fd = -1 };
+static struct fyai_ctx test_ctx = { .cfg = &test_cfg, .loop = &test_loop };
 
 struct rig {
 	char name[FYAI_TPC_NAME_MAX];	/* the profile of the configuration */
@@ -96,11 +98,11 @@ static void rig_close(struct rig *r)
 	fyai_transport_server_destroy(r->srv);
 	fyai_transport_registry_destroy(r->reg);
 	fyai_curl_cleanup(&test_ctx);
-	if (test_ctx.el) {
-		fyai_event_loop_destroy(test_ctx.el);
-		test_ctx.el = NULL;
+	if (fyai_test_loop_of(&test_ctx)->el) {
+		fyai_event_loop_destroy(fyai_test_loop_of(&test_ctx)->el);
+		fyai_test_loop_of(&test_ctx)->el = NULL;
 	}
-	fyai_event_pool_drain(&test_ctx);
+	fyai_event_pool_drain(fyai_test_loop_of(&test_ctx));
 	curl_global_cleanup();
 }
 
@@ -574,9 +576,9 @@ void transport_client_role_follows_attach(void)
 	unsetenv(FYAI_TRANSPORT_EXEC_ENV);
 	unsetenv(FYAI_TRANSPORT_OWNER_ENV);
 	fyai_curl_cleanup(&test_ctx);
-	if (test_ctx.el) {
-		fyai_event_loop_destroy(test_ctx.el);
-		test_ctx.el = NULL;
+	if (fyai_test_loop_of(&test_ctx)->el) {
+		fyai_event_loop_destroy(fyai_test_loop_of(&test_ctx)->el);
+		fyai_test_loop_of(&test_ctx)->el = NULL;
 	}
-	fyai_event_pool_drain(&test_ctx);
+	fyai_event_pool_drain(fyai_test_loop_of(&test_ctx));
 }

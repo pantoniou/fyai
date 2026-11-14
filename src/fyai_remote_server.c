@@ -407,8 +407,7 @@ static void remote_worker_exec(struct fyai_ctx *ctx, const char *self,
 			_exit(126);
 		close(REMOTE_WORKER_SYNC_FD);
 	}
-	if (ctx->signal_mask_valid)
-		sigprocmask(SIG_SETMASK, &ctx->signal_mask, NULL);
+	fyai_loop_restore_signal_mask(ctx->loop);
 	signal(SIGPIPE, SIG_DFL);
 	execvp(self, args);
 	_exit(127);
@@ -747,8 +746,7 @@ static void remote_run_exec(struct fyai_ctx *ctx, char **args, const char *dir,
 		snprintf(text, sizeof(text), "%ld", cols);
 		setenv("COLUMNS", text, 1);
 	}
-	if (ctx->signal_mask_valid)
-		sigprocmask(SIG_SETMASK, &ctx->signal_mask, NULL);
+	fyai_loop_restore_signal_mask(ctx->loop);
 	signal(SIGPIPE, SIG_DFL);
 	execvp(args[0], args);
 	_exit(127);
@@ -1176,8 +1174,7 @@ static struct fyai_remote_project *remote_project_start(struct fyai_remote_serve
 		if (fd < 0 || dup2(fd, REMOTE_FRONT_FD) < 0 || chdir(root))
 			_exit(126);
 		fyai_close_fds_from(REMOTE_FRONT_FD + 1);
-		if (ctx->signal_mask_valid)
-			sigprocmask(SIG_SETMASK, &ctx->signal_mask, NULL);
+		fyai_loop_restore_signal_mask(ctx->loop);
 		signal(SIGPIPE, SIG_DFL);
 		execvp(args[0], args);
 		_exit(127);
@@ -2414,9 +2411,9 @@ int fyai_cmd_remote_serve(struct fyai_cmd_call *call, fy_generic *result)
 		ready_fd = -1;
 	}
 	rc = 0;
-	while (!ctx->terminate_pending && !fyai_interrupt_check(ctx) &&
+	while (!ctx->loop->terminate_pending && !fyai_interrupt_check(ctx) &&
 	       !server.stop) {
-		fyai_event_interrupt_ack(ctx);
+		fyai_event_interrupt_ack(ctx->loop);
 		rc = fyai_event_loop_step(loop, -1);
 		if (rc < 0)
 			break;
@@ -2440,7 +2437,7 @@ out:
 	fyai_remote_http_close(server.http);
 	fyai_event_source_remove(server.listener);
 	fyai_event_source_remove(server.front);
-	fyai_event_interrupt_ack(ctx);
+	fyai_event_interrupt_ack(ctx->loop);
 	while (server.peers) {
 		server.peers->failed = true;
 		remote_reap(&server);

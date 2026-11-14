@@ -385,7 +385,7 @@ err_out:
 /* Build the per-invocation plumbing on first use. */
 static struct fyai_curl_state *fyai_curl_state_get(struct fyai_ctx *ctx)
 {
-	struct fyai_curl_state *state = ctx->curl_state;
+	struct fyai_curl_state *state = ctx->loop->curl_state;
 	int rc;
 
 	if (state)
@@ -417,7 +417,7 @@ static struct fyai_curl_state *fyai_curl_state_get(struct fyai_ctx *ctx)
 			  fyai_curl_timer_cb);
 	curl_multi_setopt(state->multi, CURLMOPT_TIMERDATA, state);
 
-	ctx->curl_state = state;
+	ctx->loop->curl_state = state;
 	return state;
 
 err_multi:
@@ -434,10 +434,10 @@ void fyai_curl_cleanup(struct fyai_ctx *ctx)
 	struct fyai_curl_state *state;
 	struct fyai_curl_transfer *transfer;
 
-	if (!ctx || !ctx->curl_state)
+	if (!ctx || !ctx->loop->curl_state)
 		return;
-	state = ctx->curl_state;
-	ctx->curl_state = NULL;
+	state = ctx->loop->curl_state;
+	ctx->loop->curl_state = NULL;
 
 	while (state->transfers) {
 		transfer = state->transfers;

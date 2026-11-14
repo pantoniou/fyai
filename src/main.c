@@ -110,7 +110,7 @@ int main(int argc, char **argv)
 	}
 	fyai_diag_drain(&app.diag);
 
-	rc = fyai_run(cfg);
+	rc = fyai_run(&app);
 	ret = rc ? EXIT_FAILURE : cfg->exit_status;
 	if (!rc && cfg->reload_branch) {
 		ret = fyai_config_reload_exec(cfg) ? EXIT_FAILURE : EXIT_SUCCESS;

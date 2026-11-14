@@ -45,8 +45,9 @@ int branch_ui_agent_message_receipt(void)
 	};
 	struct fy_generic_builder *gb = fy_generic_builder_create(&gbcfg);
 	struct fyai_cfg cfg = { .gb = gb, .agent_max_live_agents = 2 };
-	struct fyai_ctx root = { .cfg = &cfg, .transient_gb = gb };
-	struct fyai_ctx child = { .cfg = &cfg, .transient_gb = gb,
+	struct fyai_loop loop = { .dump_fd = -1 };
+	struct fyai_ctx root = { .cfg = &cfg, .transient_gb = gb, .loop = &loop };
+	struct fyai_ctx child = { .cfg = &cfg, .transient_gb = gb, .loop = &loop,
 		.agent_execution = 1, .agent_branch = "main/agent:worker" };
 	struct fyai_event_input input;
 	struct jsonrpc_conn *to_child, *to_root;
@@ -60,7 +61,6 @@ int branch_ui_agent_message_receipt(void)
 	FYAI_TCHECK(!pipe(forward) && !pipe(back));
 	to_child = jsonrpc_conn_stdio(&root, forward[1], back[0], 0,
 		"child", NULL);
-	child.el = fyai_ctx_loop(&root);
 	to_root = jsonrpc_conn_stdio(&child, back[1], forward[0], 0,
 		"parent", NULL);
 	FYAI_TCHECK(to_child && to_root);
@@ -107,9 +107,9 @@ int branch_ui_agent_message_receipt(void)
 	close(forward[1]);
 	close(back[0]);
 	close(back[1]);
-	fyai_event_loop_destroy(root.el);
-	fyai_event_pool_drain(&root);
-	fyai_event_pool_drain(&child);
+	fyai_event_loop_destroy(fyai_test_loop_of(&root)->el);
+	fyai_event_pool_drain(fyai_test_loop_of(&root));
+	fyai_event_pool_drain(fyai_test_loop_of(&child));
 	fy_generic_builder_destroy(gb);
 	return 0;
 }
@@ -142,8 +142,9 @@ int branch_ui_subscription_activity(void)
 	};
 	struct fy_generic_builder *gb = fy_generic_builder_create(&gbcfg);
 	struct fyai_cfg cfg = { .gb = gb };
+	struct fyai_loop loop = { .dump_fd = -1 };
 	struct fyai_ctx ctx = {
-		.cfg = &cfg, .transient_gb = gb, .agent_execution = 1,
+		.cfg = &cfg, .transient_gb = gb, .agent_execution = 1, .loop = &loop,
 		.agent_branch = "main/agent:worker",
 	};
 	struct activity_capture capture = {};
@@ -176,7 +177,7 @@ int branch_ui_subscription_activity(void)
 		handled = fyai_agents_serve(&ctx, NULL, "agent/control", params,
 			fy_invalid, &result, &error);
 		FYAI_TCHECK(handled && fy_is_invalid(error));
-		rc = fyai_event_loop_run_until(ctx.el, &capture.received, 1000);
+		rc = fyai_event_loop_run_until(fyai_test_loop_of(&ctx)->el, &capture.received, 1000);
 		FYAI_TCHECK(!rc);
 		FYAI_TCHECK(!strcmp(capture.state, states[i]));
 	}
@@ -187,8 +188,8 @@ int branch_ui_subscription_activity(void)
 	close(outbound[1]);
 	close(inbound[0]);
 	close(inbound[1]);
-	fyai_event_loop_destroy(ctx.el);
-	fyai_event_pool_drain(&ctx);
+	fyai_event_loop_destroy(fyai_test_loop_of(&ctx)->el);
+	fyai_event_pool_drain(fyai_test_loop_of(&ctx));
 	fy_generic_builder_destroy(gb);
 	return 0;
 }
@@ -235,7 +236,8 @@ int branch_ui_admission_release(void)
 	};
 	struct fy_generic_builder *gb = fy_generic_builder_create(&gbcfg);
 	struct fyai_cfg cfg = { .gb = gb, .agent_max_live_agents = 1 };
-	struct fyai_ctx ctx = { .cfg = &cfg, .transient_gb = gb };
+	struct fyai_loop loop = { .dump_fd = -1 };
+	struct fyai_ctx ctx = { .cfg = &cfg, .transient_gb = gb, .loop = &loop };
 	fy_generic params, result = fy_invalid, error = fy_invalid;
 	long long execution;
 	bool handled;
@@ -288,7 +290,8 @@ int branch_ui_tile_identity(void)
 	};
 	struct fy_generic_builder *gb = fy_generic_builder_create(&gbcfg);
 	struct fyai_cfg cfg = { .gb = gb, .agent_max_live_agents = 2 };
-	struct fyai_ctx ctx = { .cfg = &cfg, .transient_gb = gb };
+	struct fyai_loop loop = { .dump_fd = -1 };
+	struct fyai_ctx ctx = { .cfg = &cfg, .transient_gb = gb, .loop = &loop };
 	fy_generic params, result = fy_invalid, error = fy_invalid;
 	long long execution, id, started;
 	const char *model;
@@ -349,7 +352,8 @@ int branch_ui_unknown_state(void)
 	};
 	struct fy_generic_builder *gb = fy_generic_builder_create(&gbcfg);
 	struct fyai_cfg cfg = { .gb = gb, .agent_max_live_agents = 2 };
-	struct fyai_ctx ctx = { .cfg = &cfg, .transient_gb = gb };
+	struct fyai_loop loop = { .dump_fd = -1 };
+	struct fyai_ctx ctx = { .cfg = &cfg, .transient_gb = gb, .loop = &loop };
 	fy_generic params, result = fy_invalid, error = fy_invalid;
 	long long execution;
 	int rc;

@@ -25,10 +25,12 @@
 #include "commands.h"
 #include "fyai_auth.h"
 #include "fyai_diag.h"
+#include "fyai_loop.h"
 #include "fyai_media.h"
 
 struct fyai_fenced_stream;	/* live progressive shell output (fyai_markdown.h) */
 struct fyai_ui;
+struct fyai_app;
 struct fyai_uimodel;
 struct fyai_uilog;
 struct fyai_uiwork;
@@ -800,19 +802,9 @@ struct fyai_ctx {
 	long xfer_status;		/* of the last transfer that finished */
 	long xfer_retry_after;
 	char xfer_error[256];
-	/* Per-invocation curl multi state. */
-	struct fyai_curl_state *curl_state;
 
-	/* The one application event loop. */
-	struct fyai_event_loop *el;
-	struct fyai_event_loop *event_loop_pool;
-	struct fyai_event_source *event_source_pool;
-	struct fyai_event_source *signal_src[4];
-	sigset_t signal_mask;
-	bool signal_mask_valid;
-	/* Diagnostic output descriptor. */
-	int dump_fd;
-	char *dump_dir, *dump_file;	/* the dump file; NULL for dump_fd */
+	/* The event loop component, owned by struct fyai_app (src/fyai_loop.h). */
+	struct fyai_loop *loop;
 	struct fyai_ui *ui;
 	/* The state that renderers read (src/fyai_uimodel.h). */
 	struct fyai_uimodel *uimodel;
@@ -833,12 +825,6 @@ struct fyai_ctx {
 	struct fyai_config_edit_request *config_edit;
 	struct fyai_catalog_update_request *catalog_update;
 	struct fyai_cmd_call *cmd_call;	/* the active async command */
-	/* The SIGINT handler can set this value. */
-	volatile sig_atomic_t interrupt_pending;
-	/* Count SIGINT edges while interrupt_pending remains set. */
-	volatile sig_atomic_t interrupt_seq;
-	sig_atomic_t interrupt_seen;
-	bool terminate_pending;
 	/* Do not apply the context guard to a compaction request. */
 	bool compacting;
 	/* Output allowance after the context check. Zero uses the configuration. */
@@ -1113,7 +1099,7 @@ static inline void fyai_text_observe(struct fyai_ctx *ctx, const char *text,
 
 static inline bool fyai_interrupt_pending(const struct fyai_ctx *ctx)
 {
-	return ctx && ctx->interrupt_pending;
+	return ctx && ctx->loop && ctx->loop->interrupt_pending;
 }
 
 
@@ -1121,15 +1107,15 @@ static inline bool fyai_interrupt_check(struct fyai_ctx *ctx)
 {
 	bool pending;
 
-	if (!ctx)
+	if (!ctx || !ctx->loop)
 		return false;
-	pending = ctx->interrupt_pending;
-	ctx->interrupt_pending = false;
+	pending = ctx->loop->interrupt_pending;
+	ctx->loop->interrupt_pending = false;
 	return pending;
 }
 
 int
-fyai_setup(struct fyai_ctx *ctx, struct fyai_cfg *in_cfg);
+fyai_setup(struct fyai_ctx *ctx, struct fyai_app *app);
 
 void
 fyai_cleanup(struct fyai_ctx *ctx);

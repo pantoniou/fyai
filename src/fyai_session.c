@@ -322,8 +322,8 @@ static int session_compact_responses(struct fyai_ctx *ctx, const char *hint)
 	el = fyai_ctx_loop(ctx);
 	assert(el);
 	while (!fyai_buffered_request_done(req)) {
-		if (ctx->interrupt_pending) {
-			fyai_event_interrupt_ack(ctx);
+		if (ctx->loop->interrupt_pending) {
+			fyai_event_interrupt_ack(ctx->loop);
 			fyai_buffered_request_cancel(req);
 		}
 		rc = fyai_event_loop_step(el, -1);

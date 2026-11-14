@@ -11,6 +11,7 @@
 
 #include "fyai.h"
 #include "fyai_diag.h"
+#include "fyai_loop.h"
 
 /*
  * The root of the program: it owns each component that more than one part of
@@ -24,6 +25,7 @@
  */
 struct fyai_app {
 	struct fyai_diag diag;		/* depends on nothing */
+	struct fyai_loop loop;		/* depends on diag */
 	struct fyai_cfg cfg;		/* depends on diag */
 };
 

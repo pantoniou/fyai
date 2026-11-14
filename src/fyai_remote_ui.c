@@ -923,11 +923,11 @@ int fyai_remote_ui_step(struct fyai_remote_ui *view)
 		free(view->error);
 		view->error = NULL;
 	}
-	if (ctx->interrupt_pending) {
-		fyai_event_interrupt_ack(ctx);
-		interrupt_seq = ctx->interrupt_seq;
+	if (ctx->loop->interrupt_pending) {
+		fyai_event_interrupt_ack(ctx->loop);
+		interrupt_seq = ctx->loop->interrupt_seq;
 		delivered = fyai_ui_interrupt(ctx);
-		ctx->interrupt_pending = ctx->interrupt_seq != interrupt_seq;
+		ctx->loop->interrupt_pending = ctx->loop->interrupt_seq != interrupt_seq;
 		/* A turn of the worker is the worker's to cancel. */
 		if (!delivered && view->busy &&
 		    remote_ui_request(view, "interrupt", fy_map_empty))

@@ -525,10 +525,10 @@ static enum fyai_event_action agents_tick(const struct fyai_event *event)
 	struct fyai_ctx *ctx = event->userdata;
 
 	if (jsonrpc_conn_closed(ctx->tool_rpc)) {
-		ctx->interrupt_pending = ctx->terminate_pending = true;
+		ctx->loop->interrupt_pending = ctx->loop->terminate_pending = true;
 		return FYAIEA_CONTINUE;
 	}
-	(void)agents_publish(ctx, ctx->terminate_pending ? "cancelled" : ctx->agents->activity);
+	(void)agents_publish(ctx, ctx->loop->terminate_pending ? "cancelled" : ctx->agents->activity);
 	fyai_agents_present(ctx);
 	return FYAIEA_CONTINUE;
 }
@@ -682,7 +682,7 @@ static enum agents_served agents_serve_own_control(struct fyai_ctx *ctx,
 		if (rc)
 			return AGENTS_SERVED_FAIL;
 	} else if (!strcmp(action, "cancel")) {
-		ctx->interrupt_pending = ctx->terminate_pending = true;
+		ctx->loop->interrupt_pending = ctx->loop->terminate_pending = true;
 	} else if (!strcmp(action, "input")) {
 		input = fy_get(params, "text", fy_invalid);
 		text = fy_castp(&input, (const char *)NULL);
@@ -915,7 +915,7 @@ int fyai_agents_enter(struct fyai_ctx *ctx)
 			"parent", ctx->agent_parent, "model", ctx->cfg->model),
 		jsonrpc_conn_next_id(ctx->tool_rpc), false, NULL, NULL);
 	fyai_error_check(ctx, request, err_out, "cannot ask the parent for admission");
-	while (!jsonrpc_request_done(request) && !ctx->terminate_pending) {
+	while (!jsonrpc_request_done(request) && !ctx->loop->terminate_pending) {
 		rc = fyai_event_loop_step(fyai_ctx_loop(ctx), -1);
 		if (rc < 0) {
 			fyai_error(ctx, "the event loop stopped while waiting for admission");
@@ -941,7 +941,7 @@ void fyai_agents_leave(struct fyai_ctx *ctx, bool ok)
 {
 	if (!ctx->agents)
 		return;
-	(void)agents_publish(ctx, ctx->terminate_pending ? "cancelled" :
+	(void)agents_publish(ctx, ctx->loop->terminate_pending ? "cancelled" :
 			     ok ? "completed" : "failed");
 	fyai_event_source_remove(ctx->agents->timer);
 	ctx->agents->timer = NULL;

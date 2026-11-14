@@ -19,12 +19,13 @@
 #include <unistd.h>
 
 #include "fyai_event_priv.h"
+#include "fyai_loop.h"
 
 static volatile sig_atomic_t fyai_dump_fd = -1;
 static volatile sig_atomic_t fyai_dump_crlf;	/* probed when the dump is armed */
 static volatile sig_atomic_t fyai_dump_busy;
 static struct fyai_event_loop *volatile fyai_dump_loop;
-static struct fyai_ctx *volatile fyai_dump_ctx;
+static struct fyai_loop *volatile fyai_dump_owner;
 
 struct dump_buf {
 	char b[512];
@@ -248,7 +249,7 @@ static bool dump_needs_crlf(int fd)
 	return tcgetattr(fd, &tio) == 0 && !(tio.c_oflag & OPOST);
 }
 
-static void dump_state(struct fyai_event_loop *el, struct fyai_ctx *ctx,
+static void dump_state(struct fyai_event_loop *el, struct fyai_loop *owner,
 		       int fd, bool crlf)
 {
 	const struct fyai_event_source *src;
@@ -271,14 +272,14 @@ static void dump_state(struct fyai_event_loop *el, struct fyai_ctx *ctx,
 	dump_str(&d, ") ---");
 	dump_nl(&d);
 
-	if (ctx) {
-		dump_str(&d, "ctx ");
-		dump_ptr(&d, ctx);
+	if (owner) {
+		dump_str(&d, "loop ");
+		dump_ptr(&d, owner);
 		dump_kv(&d, "interrupt_pending",
-			(long long)ctx->interrupt_pending);
-		dump_kv(&d, "interrupt_seq", (long long)ctx->interrupt_seq);
-		dump_kv(&d, "interrupt_seen", (long long)ctx->interrupt_seen);
-		dump_kv(&d, "terminate_pending", ctx->terminate_pending);
+			(long long)owner->interrupt_pending);
+		dump_kv(&d, "interrupt_seq", (long long)owner->interrupt_seq);
+		dump_kv(&d, "interrupt_seen", (long long)owner->interrupt_seen);
+		dump_kv(&d, "terminate_pending", owner->terminate_pending);
 		dump_str(&d, " watchdog=");
 		dump_str(&d, fyai_event_interrupt_escalated() ?
 			 "escalated" : "armed/idle");
@@ -348,13 +349,13 @@ static void dump_state(struct fyai_event_loop *el, struct fyai_ctx *ctx,
 	dump_flush(&d);
 }
 
-void fyai_event_dump_to_fd(struct fyai_event_loop *el, struct fyai_ctx *ctx,
+void fyai_event_dump_to_fd(struct fyai_event_loop *el, struct fyai_loop *loop,
 			   int fd)
 {
 	if (fd < 0)
 		return;
 	/* Normal context: the terminal mode can be probed here. */
-	dump_state(el, ctx, fd, dump_needs_crlf(fd));
+	dump_state(el, loop, fd, dump_needs_crlf(fd));
 }
 
 /*
@@ -373,33 +374,33 @@ static void fyai_event_dump_handler(int signo)
 	}
 	fyai_dump_busy = 1;
 	fd = -1;
-	if (fyai_dump_ctx && fyai_dump_ctx->dump_file) {
-		(void)mkdir(fyai_dump_ctx->dump_dir, 0700);
-		fd = open(fyai_dump_ctx->dump_file,
+	if (fyai_dump_owner && fyai_dump_owner->dump_file) {
+		(void)mkdir(fyai_dump_owner->dump_dir, 0700);
+		fd = open(fyai_dump_owner->dump_file,
 			  O_WRONLY | O_CREAT | O_APPEND | O_CLOEXEC, 0600);
 	}
 	if (fd >= 0) {
-		dump_state(fyai_dump_loop, fyai_dump_ctx, fd, false);
+		dump_state(fyai_dump_loop, fyai_dump_owner, fd, false);
 		close(fd);
 	} else {
-		dump_state(fyai_dump_loop, fyai_dump_ctx, (int)fyai_dump_fd,
+		dump_state(fyai_dump_loop, fyai_dump_owner, (int)fyai_dump_fd,
 			   fyai_dump_crlf != 0);
 	}
 	fyai_dump_busy = 0;
 	errno = saved_errno;
 }
 
-int fyai_event_dump_open(struct fyai_ctx *ctx, int signo, int fd)
+int fyai_event_dump_open(struct fyai_loop *loop, int signo, int fd)
 {
 	struct sigaction sa;
 	sigset_t unblock;
 	int rc;
 
-	if (!ctx || signo <= 0 || signo >= NSIG || fd < 0)
+	if (!loop || signo <= 0 || signo >= NSIG || fd < 0)
 		return -1;
 
-	fyai_dump_ctx = ctx;
-	fyai_dump_loop = fyai_ctx_loop(ctx);
+	fyai_dump_owner = loop;
+	fyai_dump_loop = fyai_loop_get(loop);
 	fyai_dump_fd = fd;
 	fyai_dump_crlf = dump_needs_crlf(fd);
 	fyai_dump_busy = 0;
@@ -420,6 +421,6 @@ int fyai_event_dump_open(struct fyai_ctx *ctx, int signo, int fd)
 void fyai_event_dump_close(void)
 {
 	fyai_dump_loop = NULL;
-	fyai_dump_ctx = NULL;
+	fyai_dump_owner = NULL;
 	fyai_dump_fd = -1;
 }

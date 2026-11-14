@@ -59,6 +59,7 @@ FYAI_TEST_ENTRY(httpd, ends_on_close_and_http10, httpd_close_and_http10)
 #define TEST_STEPS	400
 
 static struct fyai_cfg test_cfg;
+static struct fyai_loop test_loop = { .dump_fd = -1 };
 static struct fyai_ctx test_ctx;
 
 static int httpd_run(void (*testfn)(void))
@@ -74,6 +75,7 @@ static int httpd_run(void (*testfn)(void))
 	memset(&test_cfg, 0, sizeof(test_cfg));
 	memset(&test_ctx, 0, sizeof(test_ctx));
 	test_ctx.cfg = &test_cfg;
+	test_ctx.loop = &test_loop;
 	rc = fyai_test_diag_setup(&test_cfg);
 	FYAI_TCHECK(!rc);
 	curl_global_init(CURL_GLOBAL_DEFAULT);
@@ -84,7 +86,7 @@ static int httpd_run(void (*testfn)(void))
 
 	curl_easy_cleanup(test_ctx.curl);
 	curl_global_cleanup();
-	fyai_event_pool_drain(&test_ctx);
+	fyai_event_pool_drain(fyai_test_loop_of(&test_ctx));
 	return 0;
 }
 
@@ -267,7 +269,7 @@ static void srv_start_full(struct server *s, size_t max_body, bool keepalive,
 		.closed = srv_closed, .log = srv_log, .data = s };
 
 	memset(s, 0, sizeof(*s));
-	s->el = fyai_event_loop_create(&test_ctx);
+	s->el = fyai_event_loop_create(fyai_test_loop_of(&test_ctx));
 	FYAI_TCHECK(s->el);
 	opts.loop = s->el;
 	s->h = fyai_httpd_new(&test_ctx, &opts, &ops);

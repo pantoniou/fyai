@@ -2469,7 +2469,7 @@ static void sdk_control(struct sdk_server *srv, fy_generic frame)
 	}
 		if (!strcmp(subtype, "interrupt")) {
 		if (srv->busy)
-			srv->ctx->interrupt_pending = true;
+			srv->ctx->loop->interrupt_pending = true;
 		sdk_respond(srv, id, fy_invalid, NULL);
 		return;
 	}

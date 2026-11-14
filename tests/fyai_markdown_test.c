@@ -49,7 +49,8 @@ FYAI_TEST_ENTRY(markdown, ui_escape, markdown_ui_escape_test)
 FYAI_TEST_ENTRY(markdown, head_regions, markdown_head_regions_test)
 
 static struct fyai_cfg test_cfg;
-static struct fyai_ctx test_ctx = { .cfg = &test_cfg };
+static struct fyai_loop test_loop = { .dump_fd = -1 };
+static struct fyai_ctx test_ctx = { .cfg = &test_cfg, .loop = &test_loop };
 
 /* Rows the live band shows. */
 #define TEST_MAX_LINES 5

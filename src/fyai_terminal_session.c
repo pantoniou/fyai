@@ -471,7 +471,7 @@ int fyai_terminal_session_run(struct fyai_ctx *ctx, const char *command,
 	 */
 	while (!r.done) {
 		if (fyai_interrupt_pending(ctx)) {
-			fyai_event_interrupt_ack(ctx);
+			fyai_event_interrupt_ack(ctx->loop);
 			tty_cancel(&r);
 		}
 		rc = fyai_event_loop_step(el, -1);

@@ -19,6 +19,7 @@
 
 /* fwd decl */
 struct fyai_cfg;
+struct fyai_app;
 struct fyai_ctx;
 
 /* What one invocation runs. */
@@ -41,7 +42,7 @@ enum fyai_output_format {
  * setup, execute, print --stats, cleanup. @cfg must already carry the prompt
  * and any run options. Returns 0 on success, -1 on failure.
  */
-int fyai_run(struct fyai_cfg *cfg);
+int fyai_run(struct fyai_app *app);
 
 /* per verb arguments */
 

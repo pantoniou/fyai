@@ -24,7 +24,8 @@
 #include <libfyaml/libfyaml-util.h>
 
 #include "fyai_event_priv.h"
-#include "fyai_wait.h"
+#include "fyai_loop.h"
+#include "fyai.h"
 
 /* Events dispatched per wait; a full batch simply means another pass. */
 #define FYAI_EVENT_BATCH 32
@@ -69,41 +70,41 @@ void fyai_event_elapsed_format(char *buf, size_t size, fyai_event_ms_t since_ms)
 #define FYAI_EVENT_POOL_OFF_DEFAULT 0
 #endif
 
-static bool fyai_event_pool_disabled(const struct fyai_ctx *ctx)
+static bool fyai_event_pool_disabled(const struct fyai_loop *loop)
 {
 	const char *env;
 
-	(void)ctx;
+	(void)loop;
 	env = getenv("FYAI_EVENT_NO_POOL");
 	if (env)
 		return *env && strcmp(env, "0");
 	return FYAI_EVENT_POOL_OFF_DEFAULT;
 }
 
-bool fyai_event_pool_enabled(const struct fyai_ctx *ctx)
+bool fyai_event_pool_enabled(const struct fyai_loop *loop)
 {
-	return !fyai_event_pool_disabled(ctx);
+	return !fyai_event_pool_disabled(loop);
 }
 
-void fyai_event_pool_drain(struct fyai_ctx *ctx)
+void fyai_event_pool_drain(struct fyai_loop *loop)
 {
 	struct fyai_event_loop *el, *el_next;
 	struct fyai_event_source *src, *src_next;
 
-	if (!ctx)
+	if (!loop)
 		return;
 
-	for (el = ctx->event_loop_pool; el; el = el_next) {
+	for (el = loop->event_loop_pool; el; el = el_next) {
 		el_next = el->pool_next;
 		free(el);
 	}
-	ctx->event_loop_pool = NULL;
+	loop->event_loop_pool = NULL;
 
-	for (src = ctx->event_source_pool; src; src = src_next) {
+	for (src = loop->event_source_pool; src; src = src_next) {
 		src_next = src->next;
 		free(src);
 	}
-	ctx->event_source_pool = NULL;
+	loop->event_source_pool = NULL;
 }
 
 /* Drop queued deferred work and the self-pipe. The defer source is an ordinary
@@ -126,20 +127,20 @@ static void fyai_event_defer_clear(struct fyai_event_loop *el)
 	el->defer_pipe[0] = el->defer_pipe[1] = -1;
 }
 
-struct fyai_event_loop *fyai_event_loop_create(struct fyai_ctx *ctx)
+struct fyai_event_loop *fyai_event_loop_create(struct fyai_loop *loop)
 {
 	struct fyai_event_loop *el;
 
-	el = fyai_event_pool_disabled(ctx) ? NULL : ctx->event_loop_pool;
+	el = fyai_event_pool_disabled(loop) ? NULL : loop->event_loop_pool;
 	if (el) {
-		ctx->event_loop_pool = el->pool_next;
+		loop->event_loop_pool = el->pool_next;
 		memset(el, 0, sizeof(*el));
 	} else {
 		el = calloc(1, sizeof(*el));
-		fyai_error_check(ctx, el, err_out, "out of memory");
+		fyai_loop_error_check(loop, el, err_out, "out of memory");
 	}
 
-	el->ctx = ctx;
+	el->owner = loop;
 	el->backend_fd = -1;
 	el->defer_pipe[0] = el->defer_pipe[1] = -1;
 	el->defer_tail = &el->defer_head;
@@ -151,11 +152,11 @@ struct fyai_event_loop *fyai_event_loop_create(struct fyai_ctx *ctx)
 	return el;
 
 err_pool:
-	if (fyai_event_pool_disabled(ctx)) {
+	if (fyai_event_pool_disabled(loop)) {
 		free(el);
 	} else {
-		el->pool_next = ctx->event_loop_pool;
-		ctx->event_loop_pool = el;
+		el->pool_next = loop->event_loop_pool;
+		loop->event_loop_pool = el;
 	}
 err_out:
 	return NULL;
@@ -228,13 +229,13 @@ static void fyai_event_wakepipe_poke(int fd)
 /* Give the signal handler direct access to the wake-pipe write descriptor. */
 static volatile sig_atomic_t fyai_interrupt_wake_fd = -1;
 
-/* Drain the wake pipe. The context contains the interrupt state. */
+/* Drain the wake pipe. The loop component contains the interrupt state. */
 static enum fyai_event_action fyai_event_wake_dispatch(const struct fyai_event *ev)
 {
 	fyai_event_wakepipe_drain(ev->loop->wake_pipe[0]);
 	/* A wait in the loop sees an interrupt only when it looks. */
-	if (ev->loop->ctx && ev->loop->ctx->interrupt_pending)
-		fyai_waiters_kick(ev->loop->ctx);
+	if (ev->loop->owner->interrupt_pending && ev->loop->owner->on_interrupt)
+		ev->loop->owner->on_interrupt(ev->loop->owner->on_interrupt_data);
 	return FYAIEA_CONTINUE;
 }
 
@@ -282,8 +283,8 @@ static void fyai_event_wake_clear(struct fyai_event_loop *el)
 }
 
 /* SIGINT starts the watchdog. SIGALRM restores the default signal actions. */
-/* The signal handlers use the context of this invocation. */
-static struct fyai_ctx *fyai_interrupt_ctx;
+/* The signal handlers use the loop component of this invocation. */
+static struct fyai_loop *fyai_interrupt_loop;
 static volatile sig_atomic_t fyai_interrupt_escalated;
 static struct sigaction fyai_interrupt_sa;	/* the graceful SIGINT handler */
 static struct sigaction fyai_interrupt_dfl;	/* SIG_DFL */
@@ -299,9 +300,9 @@ static void fyai_interrupt_handler(int signo)
 	int saved_errno = errno;
 
 	(void)signo;
-	if (fyai_interrupt_ctx) {
-		fyai_interrupt_ctx->interrupt_pending = 1;
-		fyai_interrupt_ctx->interrupt_seq++;
+	if (fyai_interrupt_loop) {
+		fyai_interrupt_loop->interrupt_pending = 1;
+		fyai_interrupt_loop->interrupt_seq++;
 	}
 	/* Wake a blocked loop through its readable descriptor. */
 	fyai_event_wakepipe_poke((int)fyai_interrupt_wake_fd);
@@ -322,11 +323,11 @@ static void fyai_interrupt_watchdog(int signo)
 }
 
 /* Stop the watchdog and restore graceful SIGINT handling. */
-void fyai_event_interrupt_ack(struct fyai_ctx *ctx)
+void fyai_event_interrupt_ack(struct fyai_loop *loop)
 {
 	sigset_t mask;
 
-	(void)ctx;
+	(void)loop;
 	(void)setitimer(ITIMER_REAL, &fyai_interrupt_off, NULL);
 	if (!fyai_interrupt_escalated)
 		return;
@@ -339,13 +340,13 @@ void fyai_event_interrupt_ack(struct fyai_ctx *ctx)
 	(void)sigprocmask(SIG_BLOCK, &mask, NULL);
 }
 
-int fyai_event_interrupt_open(struct fyai_ctx *ctx, unsigned int watchdog_ms)
+int fyai_event_interrupt_open(struct fyai_loop *loop, unsigned int watchdog_ms)
 {
 	struct sigaction alarm_sa;
 	sigset_t sigint_only;
 	int rc;
 
-	if (!ctx)
+	if (!loop)
 		return -1;
 
 	/* Compose once, so neither handler has to build a structure. */
@@ -372,19 +373,19 @@ int fyai_event_interrupt_open(struct fyai_ctx *ctx, unsigned int watchdog_ms)
 	fyai_interrupt_arm.it_value.tv_usec = (suseconds_t)watchdog_ms * 1000;
 	memset(&fyai_interrupt_off, 0, sizeof(fyai_interrupt_off));
 
-	rc = fyai_event_wake_open(fyai_ctx_loop(ctx));
+	rc = fyai_event_wake_open(fyai_loop_get(loop));
 	if (rc)
 		return -1;
 
-	fyai_interrupt_ctx = ctx;
+	fyai_interrupt_loop = loop;
 	fyai_interrupt_escalated = 0;
 
 	rc = sigaction(SIGINT, &fyai_interrupt_sa, &fyai_interrupt_prev_int);
-	fyai_error_check(ctx, !rc, err_out,
-			 "could not install the interrupt handler");
+	fyai_loop_error_check(loop, !rc, err_out,
+			      "could not install the interrupt handler");
 	rc = sigaction(SIGALRM, &alarm_sa, &fyai_interrupt_prev_alrm);
-	fyai_error_check(ctx, !rc, err_restore_int,
-			 "could not install the interrupt watchdog handler");
+	fyai_loop_error_check(loop, !rc, err_restore_int,
+			      "could not install the interrupt watchdog handler");
 	fyai_interrupt_installed = true;
 
 	/* SIGINT must stay unblocked, or the handler never runs. */
@@ -395,14 +396,14 @@ int fyai_event_interrupt_open(struct fyai_ctx *ctx, unsigned int watchdog_ms)
 err_restore_int:
 	(void)sigaction(SIGINT, &fyai_interrupt_prev_int, NULL);
 err_out:
-	fyai_interrupt_ctx = NULL;
+	fyai_interrupt_loop = NULL;
 	return -1;
 }
 
-/* Restore interrupt handlers before their context is destroyed. */
-void fyai_event_interrupt_close(struct fyai_ctx *ctx)
+/* Restore interrupt handlers before their loop component is destroyed. */
+void fyai_event_interrupt_close(struct fyai_loop *loop)
 {
-	(void)ctx;
+	(void)loop;
 	if (!fyai_interrupt_installed)
 		return;
 	(void)setitimer(ITIMER_REAL, &fyai_interrupt_off, NULL);
@@ -410,7 +411,7 @@ void fyai_event_interrupt_close(struct fyai_ctx *ctx)
 	(void)sigaction(SIGALRM, &fyai_interrupt_prev_alrm, NULL);
 	fyai_interrupt_installed = false;
 	fyai_interrupt_escalated = 0;
-	fyai_interrupt_ctx = NULL;
+	fyai_interrupt_loop = NULL;
 }
 
 /* Return true after the watchdog restores the default signal actions. */
@@ -419,30 +420,35 @@ bool fyai_event_interrupt_escalated(void)
 	return fyai_interrupt_escalated != 0;
 }
 
-/* The one application loop, created on demand and owned by @ctx. */
+/* The one application loop, created on demand and owned by @loop. */
+struct fyai_event_loop *fyai_loop_get(struct fyai_loop *loop)
+{
+	if (!loop)
+		return NULL;
+	if (!loop->el)
+		loop->el = fyai_event_loop_create(loop);
+	return loop->el;
+}
+
 struct fyai_event_loop *fyai_ctx_loop(struct fyai_ctx *ctx)
 {
-	if (!ctx)
-		return NULL;
-	if (!ctx->el)
-		ctx->el = fyai_event_loop_create(ctx);
-	return ctx->el;
+	return ctx ? fyai_loop_get(ctx->loop) : NULL;
 }
 
 /* Abandon the inherited loop in a freshly forked child. */
-void fyai_ctx_loop_abandon(struct fyai_ctx *ctx)
+void fyai_loop_abandon(struct fyai_loop *loop)
 {
 	struct fyai_event_loop *el;
 	struct fyai_event_source *src, *next;
 
-	if (!ctx || !ctx->el)
+	if (!loop || !loop->el)
 		return;
 
-	el = ctx->el;
-	ctx->el = NULL;
+	el = loop->el;
+	loop->el = NULL;
 
 	/* Do not close the parent curl sockets from the child. */
-	ctx->curl_state = NULL;
+	loop->curl_state = NULL;
 
 	fyai_event_defer_clear(el);
 	fyai_event_wake_clear(el);
@@ -459,11 +465,61 @@ void fyai_ctx_loop_abandon(struct fyai_ctx *ctx)
 	}
 	/* signalfd requires blocked signals. They are application-loop state,
 	 * not part of the execution environment inherited by a tool child. */
-	if (ctx->signal_mask_valid)
-		(void)sigprocmask(SIG_SETMASK, &ctx->signal_mask, NULL);
+	fyai_loop_restore_signal_mask(loop);
 	fyai_event_signal_forget();
 	fyai_event_backend_abandon(el);
 	free(el);
+}
+
+void fyai_ctx_loop_abandon(struct fyai_ctx *ctx)
+{
+	if (ctx)
+		fyai_loop_abandon(ctx->loop);
+}
+
+void fyai_loop_disown(struct fyai_loop *loop)
+{
+	size_t i;
+
+	if (!loop)
+		return;
+	for (i = 0; i < sizeof(loop->signal_src) / sizeof(loop->signal_src[0]); i++)
+		loop->signal_src[i] = NULL;
+	/* The parent closes its diagnostic copy. */
+	loop->dump_fd = -1;
+}
+
+void fyai_loop_restore_signal_mask(const struct fyai_loop *loop)
+{
+	if (loop && loop->signal_mask_valid)
+		(void)sigprocmask(SIG_SETMASK, &loop->signal_mask, NULL);
+}
+
+void fyai_loop_init(struct fyai_loop *loop, struct fyai_diag *diag)
+{
+	memset(loop, 0, sizeof(*loop));
+	loop->diag = diag;
+	loop->dump_fd = -1;
+}
+
+void fyai_loop_cleanup(struct fyai_loop *loop)
+{
+	if (!loop)
+		return;
+	fyai_event_interrupt_close(loop);
+	/* Destroy the loop after every borrower has dropped its sources. */
+	if (loop->el) {
+		fyai_event_loop_destroy(loop->el);
+		loop->el = NULL;
+	}
+	fyai_event_pool_drain(loop);
+	if (loop->dump_fd >= 0) {
+		close(loop->dump_fd);
+		loop->dump_fd = -1;
+	}
+	free(loop->dump_dir);
+	free(loop->dump_file);
+	loop->dump_dir = loop->dump_file = NULL;
 }
 
 void fyai_event_loop_destroy(struct fyai_event_loop *el)
@@ -478,12 +534,12 @@ void fyai_event_loop_destroy(struct fyai_event_loop *el)
 	for (src = el->sources; src; src = next) {
 		next = src->next;
 		fyai_event_backend_disarm(src);
-		if (fyai_event_pool_disabled(el->ctx)) {
+		if (fyai_event_pool_disabled(el->owner)) {
 			free(src);
 			continue;
 		}
-		src->next = el->ctx->event_source_pool;
-		el->ctx->event_source_pool = src;
+		src->next = el->owner->event_source_pool;
+		el->owner->event_source_pool = src;
 	}
 	el->sources = NULL;
 	el->source_count = 0;
@@ -492,12 +548,12 @@ void fyai_event_loop_destroy(struct fyai_event_loop *el)
 
 	fyai_event_backend_destroy(el);
 
-	if (fyai_event_pool_disabled(el->ctx)) {
+	if (fyai_event_pool_disabled(el->owner)) {
 		free(el);
 		return;
 	}
-	el->pool_next = el->ctx->event_loop_pool;
-	el->ctx->event_loop_pool = el;
+	el->pool_next = el->owner->event_loop_pool;
+	el->owner->event_loop_pool = el;
 }
 
 unsigned int fyai_event_loop_source_count(const struct fyai_event_loop *el)
@@ -563,10 +619,10 @@ static int fyai_event_source_add(struct fyai_event_loop *el,
 	fyai_event_error_check(el, cb, err_out,
 			 "event source needs a callback");
 
-	src = fyai_event_pool_disabled(el->ctx) ? NULL :
-		el->ctx->event_source_pool;
+	src = fyai_event_pool_disabled(el->owner) ? NULL :
+		el->owner->event_source_pool;
 	if (src) {
-		el->ctx->event_source_pool = src->next;
+		el->owner->event_source_pool = src->next;
 		memset(src, 0, sizeof(*src));
 	} else {
 		src = calloc(1, sizeof(*src));
@@ -606,12 +662,12 @@ static void fyai_event_source_unlink(struct fyai_event_source *src)
 			break;
 		}
 	}
-	if (fyai_event_pool_disabled(el->ctx)) {
+	if (fyai_event_pool_disabled(el->owner)) {
 		free(src);
 		return;
 	}
-	src->next = el->ctx->event_source_pool;
-	el->ctx->event_source_pool = src;
+	src->next = el->owner->event_source_pool;
+	el->owner->event_source_pool = src;
 }
 
 /* Release a source that failed to arm. */
@@ -1228,8 +1284,9 @@ static void fyai_event_timers_repair(struct fyai_event_loop *el)
 		fyai_event_backend_disarm(src);
 		if (fyai_event_backend_arm(src))
 			continue;
-		fyai_debug(el->ctx, "repaired a lost timer registration, %lld ms overdue",
-			   (long long)(now - src->deadline_ms));
+		fyai_diag_type(el->owner->diag, FYAIET_DEBUG,
+			       "repaired a lost timer registration, %lld ms overdue",
+			       (long long)(now - src->deadline_ms));
 	}
 }
 

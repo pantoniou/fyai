@@ -32,6 +32,7 @@
 #include "fyai_test.h"
 
 #include "fyai_test_registry.h"
+#include "fyai_test_diag.h"
 
 FYAI_TEST_ENTRY(shell, timeout_stops_command, shell_timeout_stops_command)
 FYAI_TEST_ENTRY(shell, timeout_stops_descendant, shell_timeout_stops_descendant)
@@ -45,7 +46,8 @@ FYAI_TEST_ENTRY(shell, native_timeout_bounded, shell_native_timeout_bounded)
 FYAI_TEST_ENTRY(shell, native_timeout_output, shell_native_timeout_output)
 
 static struct fyai_cfg test_cfg;
-static struct fyai_ctx test_ctx = { .cfg = &test_cfg };
+static struct fyai_loop test_loop = { .dump_fd = -1 };
+static struct fyai_ctx test_ctx = { .cfg = &test_cfg, .loop = &test_loop };
 
 static int shell_run(const char *command,
 		     const struct shell_command_opts *opts,
@@ -57,11 +59,11 @@ static int shell_run(const char *command,
 
 static void shell_teardown(void)
 {
-	if (test_ctx.el) {
-		fyai_event_loop_destroy(test_ctx.el);
-		test_ctx.el = NULL;
+	if (fyai_test_loop_of(&test_ctx)->el) {
+		fyai_event_loop_destroy(fyai_test_loop_of(&test_ctx)->el);
+		fyai_test_loop_of(&test_ctx)->el = NULL;
 	}
-	fyai_event_pool_drain(&test_ctx);
+	fyai_event_pool_drain(fyai_test_loop_of(&test_ctx));
 }
 
 int shell_timeout_stops_command(void)
@@ -257,6 +259,7 @@ static struct fy_generic_builder *native_setup(long long action_timeout_ms,
 	memset(&test_cfg, 0, sizeof(test_cfg));
 	memset(&test_ctx, 0, sizeof(test_ctx));
 	test_ctx.cfg = &test_cfg;
+	test_ctx.loop = &test_loop;
 	test_cfg.shell_timeout_ms = default_timeout_ms;
 	test_cfg.shell_max_timeout_ms = max_timeout_ms;
 

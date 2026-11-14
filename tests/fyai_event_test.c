@@ -87,7 +87,8 @@ FYAI_TEST_ENTRY(event, flush_timer_retires, event_flush_timer_retires)
 /* A minimal context so the loop reports through the real diagnostic layer
  * rather than a special test path. */
 static struct fyai_cfg test_cfg;
-static struct fyai_ctx test_ctx = { .cfg = &test_cfg };
+static struct fyai_loop test_loop = { .dump_fd = -1 };
+static struct fyai_ctx test_ctx = { .cfg = &test_cfg, .loop = &test_loop };
 
 /* Outer bound for any wait in this file. */
 #define TEST_BOUND_MS 5000
@@ -184,7 +185,7 @@ static void test_create_destroy(void)
 	int p[2];
 	int rc;
 
-	el = fyai_event_loop_create(&test_ctx);
+	el = fyai_event_loop_create(fyai_test_loop_of(&test_ctx));
 	FYAI_TCHECK(el);
 	FYAI_TCHECK(fyai_event_loop_source_count(el) == 0);
 	fyai_event_loop_destroy(el);
@@ -192,7 +193,7 @@ static void test_create_destroy(void)
 	/* Destroying a loop that still owns sources is the ordinary error unwind, not
 	 * a leak. */
 	memset(&c, 0, sizeof(c));
-	el = fyai_event_loop_create(&test_ctx);
+	el = fyai_event_loop_create(fyai_test_loop_of(&test_ctx));
 	FYAI_TCHECK(el);
 	rc = pipe(p);
 	FYAI_TCHECK(!rc);
@@ -218,14 +219,14 @@ static void test_pool_reuse(void)
 	int rc;
 
 	/* Steady state must not allocate. */
-	pooled = fyai_event_pool_enabled(&test_ctx);
+	pooled = fyai_event_pool_enabled(fyai_test_loop_of(&test_ctx));
 	memset(&c, 0, sizeof(c));
-	fyai_event_pool_drain(&test_ctx);
+	fyai_event_pool_drain(fyai_test_loop_of(&test_ctx));
 
-	e1 = fyai_event_loop_create(&test_ctx);
+	e1 = fyai_event_loop_create(fyai_test_loop_of(&test_ctx));
 	FYAI_TCHECK(e1);
 	fyai_event_loop_destroy(e1);
-	e2 = fyai_event_loop_create(&test_ctx);
+	e2 = fyai_event_loop_create(fyai_test_loop_of(&test_ctx));
 	FYAI_TCHECK(e2);
 	FYAI_TCHECK(!pooled || e2 == e1);
 
@@ -244,8 +245,8 @@ static void test_pool_reuse(void)
 	close(p[1]);
 
 	/* Draining an idle pool twice must be safe. */
-	fyai_event_pool_drain(&test_ctx);
-	fyai_event_pool_drain(&test_ctx);
+	fyai_event_pool_drain(fyai_test_loop_of(&test_ctx));
+	fyai_event_pool_drain(fyai_test_loop_of(&test_ctx));
 
 	printf("ok - loops and sources are recycled\n");
 }
@@ -259,7 +260,7 @@ static void test_arm_failure_is_clean(void)
 
 	/* A registration that fails to arm must leave nothing behind. */
 	memset(&c, 0, sizeof(c));
-	el = fyai_event_loop_create(&test_ctx);
+	el = fyai_event_loop_create(fyai_test_loop_of(&test_ctx));
 	FYAI_TCHECK(el);
 
 	rc = pipe(p);
@@ -332,7 +333,7 @@ static void test_fd_reregister_in_dispatch(void)
 	nbytes = write(p[1], "x", 1);
 	FYAI_TCHECK(nbytes == 1);
 
-	el = fyai_event_loop_create(&test_ctx);
+	el = fyai_event_loop_create(fyai_test_loop_of(&test_ctx));
 	FYAI_TCHECK(el);
 	r.el = el;
 	r.fd = p[0];
@@ -361,7 +362,7 @@ static void test_idle_returns(void)
 
 	/* With nothing registered a run must return rather than block on an event
 	 * that can never arrive. */
-	el = fyai_event_loop_create(&test_ctx);
+	el = fyai_event_loop_create(fyai_test_loop_of(&test_ctx));
 	FYAI_TCHECK(el);
 	rc = fyai_event_loop_run_until(el, NULL, -1);
 	FYAI_TCHECK(!rc);
@@ -384,7 +385,7 @@ static void test_timer_lost_registration(void)
 	int rc;
 
 	memset(&c, 0, sizeof(c));
-	el = fyai_event_loop_create(&test_ctx);
+	el = fyai_event_loop_create(fyai_test_loop_of(&test_ctx));
 	FYAI_TCHECK(el);
 
 	rc = fyai_event_add_timer(el, 60000, 0, cb_stop, &c, &src);
@@ -411,7 +412,7 @@ static void test_timer_oneshot(void)
 	int rc;
 
 	memset(&c, 0, sizeof(c));
-	el = fyai_event_loop_create(&test_ctx);
+	el = fyai_event_loop_create(fyai_test_loop_of(&test_ctx));
 	FYAI_TCHECK(el);
 
 	rc = fyai_event_add_timer(el, 5, 0, cb_stop, &c, NULL);
@@ -444,7 +445,7 @@ static void test_timer_repeating(void)
 	int rc;
 
 	memset(&c, 0, sizeof(c));
-	el = fyai_event_loop_create(&test_ctx);
+	el = fyai_event_loop_create(fyai_test_loop_of(&test_ctx));
 	FYAI_TCHECK(el);
 
 	rc = fyai_event_add_timer(el, 1, 1, cb_repeat, &c, NULL);
@@ -479,7 +480,7 @@ static void test_timer_rearm_in_callback(void)
 	int rc;
 
 	memset(&c, 0, sizeof(c));
-	el = fyai_event_loop_create(&test_ctx);
+	el = fyai_event_loop_create(fyai_test_loop_of(&test_ctx));
 	FYAI_TCHECK(el);
 
 	rc = fyai_event_add_timer(el, 1, 0, cb_rearm, &c, NULL);
@@ -517,7 +518,7 @@ static void test_timer_rearm_keeps_interval(void)
 	int rc;
 
 	memset(&c, 0, sizeof(c));
-	el = fyai_event_loop_create(&test_ctx);
+	el = fyai_event_loop_create(fyai_test_loop_of(&test_ctx));
 	FYAI_TCHECK(el);
 
 	rc = fyai_event_add_timer(el, 1, 0, cb_rearm_heal, &c, NULL);
@@ -541,7 +542,7 @@ static void test_timer_order(void)
 	memset(&late, 0, sizeof(late));
 	order_tick = 0;
 
-	el = fyai_event_loop_create(&test_ctx);
+	el = fyai_event_loop_create(fyai_test_loop_of(&test_ctx));
 	FYAI_TCHECK(el);
 	rc = fyai_event_add_timer(el, TEST_BOUND_MS, 0, cb_count, &late, NULL);
 	FYAI_TCHECK(!rc);
@@ -607,7 +608,7 @@ static void test_fd_read_eof(void)
 	FYAI_TCHECK(nbytes == 5);
 	close(p[1]);
 
-	el = fyai_event_loop_create(&test_ctx);
+	el = fyai_event_loop_create(fyai_test_loop_of(&test_ctx));
 	FYAI_TCHECK(el);
 	rc = fyai_event_add_fd(el, p[0], FYAIEV_READ, cb_drain, &c, NULL);
 	FYAI_TCHECK(!rc);
@@ -644,7 +645,7 @@ static void test_fd_write(void)
 		;
 	FYAI_TCHECK(errno == EAGAIN || errno == EWOULDBLOCK);
 
-	el = fyai_event_loop_create(&test_ctx);
+	el = fyai_event_loop_create(fyai_test_loop_of(&test_ctx));
 	FYAI_TCHECK(el);
 	rc = fyai_event_add_fd(el, p[1], FYAIEV_WRITE, cb_stop, &c, NULL);
 	FYAI_TCHECK(!rc);
@@ -690,7 +691,7 @@ static void test_child_exit(void)
 	if (!pid)
 		_exit(42);
 
-	el = fyai_event_loop_create(&test_ctx);
+	el = fyai_event_loop_create(fyai_test_loop_of(&test_ctx));
 	FYAI_TCHECK(el);
 	rc = fyai_event_add_child(el, pid, cb_child, &c, NULL);
 	FYAI_TCHECK(!rc);
@@ -723,7 +724,7 @@ static void test_child_signalled(void)
 		_exit(0);
 	}
 
-	el = fyai_event_loop_create(&test_ctx);
+	el = fyai_event_loop_create(fyai_test_loop_of(&test_ctx));
 	FYAI_TCHECK(el);
 	rc = fyai_event_add_child(el, pid, cb_child, &c, NULL);
 	FYAI_TCHECK(!rc);
@@ -770,7 +771,7 @@ static void test_child_already_exited(void)
 	FYAI_TCHECK(nbytes == 1);
 	close(sync[0]);
 
-	el = fyai_event_loop_create(&test_ctx);
+	el = fyai_event_loop_create(fyai_test_loop_of(&test_ctx));
 	FYAI_TCHECK(el);
 	rc = fyai_event_add_child(el, pid, cb_child, &c, NULL);
 	FYAI_TCHECK(!rc);
@@ -817,7 +818,7 @@ static void test_child_nested_run(void)
 	if (!pid)
 		_exit(0);
 
-	el = fyai_event_loop_create(&test_ctx);
+	el = fyai_event_loop_create(fyai_test_loop_of(&test_ctx));
 	FYAI_TCHECK(el);
 	n.el = el;
 	rc = fyai_event_add_child(el, pid, cb_child_nested, &n, NULL);
@@ -862,7 +863,7 @@ static void test_child_terminate_polite(void)
 	FYAI_TCHECK(nbytes == 1);
 	close(sync[0]);
 
-	el = fyai_event_loop_create(&test_ctx);
+	el = fyai_event_loop_create(fyai_test_loop_of(&test_ctx));
 	FYAI_TCHECK(el);
 	rc = fyai_event_child_terminate(el, pid, TEST_BOUND_MS, 100, &status);
 	FYAI_TCHECK(!rc);
@@ -889,7 +890,7 @@ static void test_child_terminate_sigterm(void)
 		_exit(0);
 	}
 
-	el = fyai_event_loop_create(&test_ctx);
+	el = fyai_event_loop_create(fyai_test_loop_of(&test_ctx));
 	FYAI_TCHECK(el);
 	rc = fyai_event_child_terminate(el, pid, 0, TEST_BOUND_MS, &status);
 	FYAI_TCHECK(!rc);
@@ -930,7 +931,7 @@ static void test_child_terminate_sigkill(void)
 	FYAI_TCHECK(nbytes == 1);
 	close(sync[0]);
 
-	el = fyai_event_loop_create(&test_ctx);
+	el = fyai_event_loop_create(fyai_test_loop_of(&test_ctx));
 	FYAI_TCHECK(el);
 	rc = fyai_event_child_terminate(el, pid, 0, 50, &status);
 	FYAI_TCHECK(!rc);
@@ -1019,7 +1020,7 @@ static void test_child_terminate_concurrent(void)
 	memset(&g, 0, sizeof(g));
 	g.want = 3;
 
-	el = fyai_event_loop_create(&test_ctx);
+	el = fyai_event_loop_create(fyai_test_loop_of(&test_ctx));
 	FYAI_TCHECK(el);
 
 	for (i = 0; i < g.want; i++) {
@@ -1074,7 +1075,7 @@ static void test_signal(void)
 	rc = sigprocmask(SIG_SETMASK, NULL, &mask_before);
 	FYAI_TCHECK(!rc);
 
-	el = fyai_event_loop_create(&test_ctx);
+	el = fyai_event_loop_create(fyai_test_loop_of(&test_ctx));
 	FYAI_TCHECK(el);
 	rc = fyai_event_add_signal(el, SIGUSR1, cb_signal, &c, &src);
 	FYAI_TCHECK(!rc);
@@ -1119,7 +1120,7 @@ static void test_signal_nested_teardown(void)
 	rc = sigprocmask(SIG_SETMASK, NULL, &mask_before);
 	FYAI_TCHECK(!rc);
 
-	el = fyai_event_loop_create(&test_ctx);
+	el = fyai_event_loop_create(fyai_test_loop_of(&test_ctx));
 	FYAI_TCHECK(el);
 	rc = fyai_event_add_signal(el, SIGUSR1, cb_signal, &c1, &outer);
 	FYAI_TCHECK(!rc);
@@ -1177,7 +1178,7 @@ static void test_nested_run(void)
 	int rc;
 
 	memset(&n, 0, sizeof(n));
-	el = fyai_event_loop_create(&test_ctx);
+	el = fyai_event_loop_create(fyai_test_loop_of(&test_ctx));
 	FYAI_TCHECK(el);
 	n.el = el;
 
@@ -1223,7 +1224,7 @@ static void test_remove_after_nested_run(void)
 	int rc;
 
 	memset(&n, 0, sizeof(n));
-	el = fyai_event_loop_create(&test_ctx);
+	el = fyai_event_loop_create(fyai_test_loop_of(&test_ctx));
 	FYAI_TCHECK(el);
 	n.el = el;
 
@@ -1246,7 +1247,7 @@ static void test_abort(void)
 	int rc;
 
 	memset(&c, 0, sizeof(c));
-	el = fyai_event_loop_create(&test_ctx);
+	el = fyai_event_loop_create(fyai_test_loop_of(&test_ctx));
 	FYAI_TCHECK(el);
 
 	rc = fyai_event_add_timer(el, 1, 0, cb_abort, &c, NULL);
@@ -1270,29 +1271,29 @@ static void test_interrupt_watchdog_acked(void)
 
 	el = fyai_ctx_loop(&test_ctx);
 	FYAI_TCHECK(el);
-	rc = fyai_event_interrupt_open(&test_ctx, TEST_WATCHDOG_MS);
+	rc = fyai_event_interrupt_open(fyai_test_loop_of(&test_ctx), TEST_WATCHDOG_MS);
 	FYAI_TCHECK(!rc);
 
-	test_ctx.interrupt_pending = 0;
+	fyai_test_loop_of(&test_ctx)->interrupt_pending = 0;
 	rc = kill(getpid(), SIGINT);
 	FYAI_TCHECK(!rc);
-	FYAI_TCHECK(test_ctx.interrupt_pending);
+	FYAI_TCHECK(fyai_test_loop_of(&test_ctx)->interrupt_pending);
 
 	/* The signal occurs before the wait. The wake pipe must end the wait. */
 	rc = fyai_event_loop_step(el, TEST_BOUND_MS);
 	FYAI_TCHECK(rc == 1);
 
 	/* A live loop acknowledges well inside the budget. */
-	fyai_event_interrupt_ack(&test_ctx);
+	fyai_event_interrupt_ack(fyai_test_loop_of(&test_ctx));
 	usleep(TEST_WATCHDOG_MS * 3000);
 	FYAI_TCHECK(!fyai_event_interrupt_escalated());
 
 	/* A second SIGINT must use the handler. */
-	test_ctx.interrupt_pending = 0;
+	fyai_test_loop_of(&test_ctx)->interrupt_pending = 0;
 	rc = kill(getpid(), SIGINT);
 	FYAI_TCHECK(!rc);
-	FYAI_TCHECK(test_ctx.interrupt_pending);
-	fyai_event_interrupt_ack(&test_ctx);
+	FYAI_TCHECK(fyai_test_loop_of(&test_ctx)->interrupt_pending);
+	fyai_event_interrupt_ack(fyai_test_loop_of(&test_ctx));
 
 	fyai_ctx_loop_abandon(&test_ctx);
 	printf("ok - an acknowledged interrupt stands the watchdog down\n");
@@ -1306,15 +1307,15 @@ static void test_interrupt_watchdog_escalates(void)
 	pid = fork();
 	FYAI_TCHECK(pid >= 0);
 	if (!pid) {
-		struct fyai_ctx child_ctx = { .cfg = &test_cfg };
+		struct fyai_ctx child_ctx = { .cfg = &test_cfg, .loop = &test_loop };
 
 		if (!fyai_ctx_loop(&child_ctx) ||
-		    fyai_event_interrupt_open(&child_ctx, TEST_WATCHDOG_MS))
+		    fyai_event_interrupt_open(fyai_test_loop_of(&child_ctx), TEST_WATCHDOG_MS))
 			_exit(70);
 
 		/* Do not acknowledge this interrupt. */
 		kill(getpid(), SIGINT);
-		if (!child_ctx.interrupt_pending)
+		if (!fyai_test_loop_of(&child_ctx)->interrupt_pending)
 			_exit(71);
 		usleep(TEST_WATCHDOG_MS * 4000);
 		if (!fyai_event_interrupt_escalated())
@@ -1345,7 +1346,7 @@ static enum fyai_event_action cb_dump_active(const struct fyai_event *ev)
 {
 	struct dump_active *active = ev->userdata;
 
-	fyai_event_dump_to_fd(active->el, &test_ctx, active->fd);
+	fyai_event_dump_to_fd(active->el, fyai_test_loop_of(&test_ctx), active->fd);
 	return FYAIEA_STOP;
 }
 
@@ -1353,7 +1354,7 @@ static void dcb_dump_active(void *userdata)
 {
 	struct dump_active *active = userdata;
 
-	fyai_event_dump_to_fd(active->el, &test_ctx, active->fd);
+	fyai_event_dump_to_fd(active->el, fyai_test_loop_of(&test_ctx), active->fd);
 }
 
 /* Verify that the state dump contains the event-loop state. */
@@ -1373,7 +1374,7 @@ static void test_state_dump(void)
 	rc = pipe(q);			/* something to watch */
 	FYAI_TCHECK(!rc);
 
-	el = fyai_event_loop_create(&test_ctx);
+	el = fyai_event_loop_create(fyai_test_loop_of(&test_ctx));
 	FYAI_TCHECK(el);
 	rc = fyai_event_add_timer(el, 50, 10, cb_count, &c, NULL);
 	FYAI_TCHECK(!rc);
@@ -1383,9 +1384,9 @@ static void test_state_dump(void)
 	FYAI_TCHECK(!rc);
 
 	/* An earlier case left this raised; the dump reports it faithfully. */
-	test_ctx.interrupt_pending = 0;
+	fyai_test_loop_of(&test_ctx)->interrupt_pending = 0;
 
-	fyai_event_dump_to_fd(el, &test_ctx, p[1]);
+	fyai_event_dump_to_fd(el, fyai_test_loop_of(&test_ctx), p[1]);
 	len = read(p[0], buf, sizeof(buf) - 1);
 	FYAI_TCHECK(len > 0);
 	buf[len] = '\0';
@@ -1417,7 +1418,7 @@ static void test_state_dump(void)
 	buf[len] = '\0';
 	FYAI_TCHECK(strstr(buf, "active event elapsed_ms="));
 
-	fyai_event_dump_to_fd(el, &test_ctx, p[1]);
+	fyai_event_dump_to_fd(el, fyai_test_loop_of(&test_ctx), p[1]);
 	len = read(p[0], buf, sizeof(buf) - 1);
 	FYAI_TCHECK(len > 0);
 	buf[len] = '\0';
@@ -1436,7 +1437,7 @@ static void test_state_dump(void)
 	fyai_event_loop_destroy(el);
 
 	/* A missing loop must still produce a dump. */
-	fyai_event_dump_to_fd(NULL, &test_ctx, p[1]);
+	fyai_event_dump_to_fd(NULL, fyai_test_loop_of(&test_ctx), p[1]);
 	len = read(p[0], buf, sizeof(buf) - 1);
 	FYAI_TCHECK(len > 0);
 	buf[len] = '\0';
@@ -1445,7 +1446,7 @@ static void test_state_dump(void)
 	/* A closed target is dropped, not fatal. */
 	close(p[0]);
 	close(p[1]);
-	fyai_event_dump_to_fd(NULL, &test_ctx, -1);
+	fyai_event_dump_to_fd(NULL, fyai_test_loop_of(&test_ctx), -1);
 
 	close(q[0]);
 	close(q[1]);
@@ -1468,7 +1469,7 @@ static void test_state_dump_while_stuck(void)
 	FYAI_TCHECK(!rc);
 
 	/* No loop is running, and none will run in this test. */
-	rc = fyai_event_dump_open(&test_ctx, SIGUSR2, p[1]);
+	rc = fyai_event_dump_open(fyai_test_loop_of(&test_ctx), SIGUSR2, p[1]);
 	FYAI_TCHECK(!rc);
 
 	rc = raise(SIGUSR2);
@@ -1512,7 +1513,7 @@ static void test_stop_preserves_batch(void)
 	rc = sigprocmask(SIG_BLOCK, &block, &before);
 	FYAI_TCHECK(!rc);
 
-	el = fyai_event_loop_create(&test_ctx);
+	el = fyai_event_loop_create(fyai_test_loop_of(&test_ctx));
 	FYAI_TCHECK(el);
 
 	/* All three are ready before the first wait, so they arrive in one
@@ -1560,7 +1561,7 @@ static void test_self_remove(void)
 	int rc;
 
 	memset(&c, 0, sizeof(c));
-	el = fyai_event_loop_create(&test_ctx);
+	el = fyai_event_loop_create(fyai_test_loop_of(&test_ctx));
 	FYAI_TCHECK(el);
 
 	rc = fyai_event_add_timer(el, 1, 0, cb_self_remove, &c, NULL);
@@ -1582,7 +1583,7 @@ static void test_done_flag(void)
 	int rc;
 
 	memset(&c, 0, sizeof(c));
-	el = fyai_event_loop_create(&test_ctx);
+	el = fyai_event_loop_create(fyai_test_loop_of(&test_ctx));
 	FYAI_TCHECK(el);
 
 	/* Already-true done flag must return before waiting on anything. */
@@ -1608,7 +1609,7 @@ static void test_timeout(void)
 	rc = pipe(p);
 	FYAI_TCHECK(!rc);
 
-	el = fyai_event_loop_create(&test_ctx);
+	el = fyai_event_loop_create(fyai_test_loop_of(&test_ctx));
 	FYAI_TCHECK(el);
 	rc = fyai_event_add_fd(el, p[0], FYAIEV_READ, cb_count, &c, NULL);
 	FYAI_TCHECK(!rc);
@@ -1659,8 +1660,8 @@ static void test_fork_child_abandons_loop(void)
 	FYAI_TCHECK(!rc);
 	rc = sigprocmask(SIG_SETMASK, NULL, &mask_before);
 	FYAI_TCHECK(!rc);
-	test_ctx.signal_mask = mask_before;
-	test_ctx.signal_mask_valid = true;
+	fyai_test_loop_of(&test_ctx)->signal_mask = mask_before;
+	fyai_test_loop_of(&test_ctx)->signal_mask_valid = true;
 
 	el = fyai_ctx_loop(&test_ctx);
 	FYAI_TCHECK(el);
@@ -1716,7 +1717,7 @@ static void test_fork_child_abandons_loop(void)
 
 	fyai_event_source_remove(src);
 	fyai_event_source_remove(signal_src);
-	test_ctx.signal_mask_valid = false;
+	fyai_test_loop_of(&test_ctx)->signal_mask_valid = false;
 	close(p[0]); close(p[1]);
 	close(q[0]); close(q[1]);
 	printf("ok - forked child abandons the inherited loop\n");
@@ -1763,7 +1764,7 @@ static void test_defer_coalesce(void)
 
 	memset(&a, 0, sizeof(a));
 	memset(&b, 0, sizeof(b));
-	el = fyai_event_loop_create(&test_ctx);
+	el = fyai_event_loop_create(fyai_test_loop_of(&test_ctx));
 	FYAI_TCHECK(el);
 	a.el = b.el = el;
 
@@ -1802,7 +1803,7 @@ static void test_defer_drain_once(void)
 	/* Work queued from a deferred callback waits for the next iteration, so
 	 * one that re-defers itself cannot starve I/O in a single step. */
 	memset(&d, 0, sizeof(d));
-	el = fyai_event_loop_create(&test_ctx);
+	el = fyai_event_loop_create(fyai_test_loop_of(&test_ctx));
 	FYAI_TCHECK(el);
 	d.el = el;
 	d.redefer_remaining = 2;
@@ -1836,7 +1837,7 @@ static void test_defer_cancel(void)
 
 	memset(&a, 0, sizeof(a));
 	memset(&b, 0, sizeof(b));
-	el = fyai_event_loop_create(&test_ctx);
+	el = fyai_event_loop_create(fyai_test_loop_of(&test_ctx));
 	FYAI_TCHECK(el);
 	a.el = b.el = el;
 
@@ -1895,7 +1896,7 @@ static void test_defer_under_nested_run(void)
 	int rc;
 
 	memset(&n, 0, sizeof(n));
-	el = fyai_event_loop_create(&test_ctx);
+	el = fyai_event_loop_create(fyai_test_loop_of(&test_ctx));
 	FYAI_TCHECK(el);
 	n.el = el;
 
@@ -1923,7 +1924,7 @@ int event_create_destroy(void)
 
 	fyai_diag_drain(test_cfg.diag);
 	fyai_test_diag_cleanup(&test_cfg);
-	fyai_event_pool_drain(&test_ctx);
+	fyai_event_pool_drain(fyai_test_loop_of(&test_ctx));
 	return 0;
 }
 
@@ -1938,7 +1939,7 @@ int event_pool_reuse(void)
 
 	fyai_diag_drain(test_cfg.diag);
 	fyai_test_diag_cleanup(&test_cfg);
-	fyai_event_pool_drain(&test_ctx);
+	fyai_event_pool_drain(fyai_test_loop_of(&test_ctx));
 	return 0;
 }
 
@@ -1953,7 +1954,7 @@ int event_arm_failure_is_clean(void)
 
 	fyai_diag_drain(test_cfg.diag);
 	fyai_test_diag_cleanup(&test_cfg);
-	fyai_event_pool_drain(&test_ctx);
+	fyai_event_pool_drain(fyai_test_loop_of(&test_ctx));
 	return 0;
 }
 
@@ -1968,7 +1969,7 @@ int event_fd_reregister_in_dispatch(void)
 
 	fyai_diag_drain(test_cfg.diag);
 	fyai_test_diag_cleanup(&test_cfg);
-	fyai_event_pool_drain(&test_ctx);
+	fyai_event_pool_drain(fyai_test_loop_of(&test_ctx));
 	return 0;
 }
 
@@ -1983,7 +1984,7 @@ int event_fork_child_abandons_loop(void)
 
 	fyai_diag_drain(test_cfg.diag);
 	fyai_test_diag_cleanup(&test_cfg);
-	fyai_event_pool_drain(&test_ctx);
+	fyai_event_pool_drain(fyai_test_loop_of(&test_ctx));
 	return 0;
 }
 
@@ -1994,7 +1995,7 @@ static void test_sleep_until_done(void)
 	fyai_event_ms_t start;
 	int rc;
 
-	el = fyai_event_loop_create(&test_ctx);
+	el = fyai_event_loop_create(fyai_test_loop_of(&test_ctx));
 	FYAI_TCHECK(el);
 
 	/* The flag ends the sleep long before its bound. */
@@ -2030,7 +2031,7 @@ int event_sleep_until_done(void)
 
 	fyai_diag_drain(test_cfg.diag);
 	fyai_test_diag_cleanup(&test_cfg);
-	fyai_event_pool_drain(&test_ctx);
+	fyai_event_pool_drain(fyai_test_loop_of(&test_ctx));
 	return 0;
 }
 
@@ -2045,7 +2046,7 @@ int event_idle_returns(void)
 
 	fyai_diag_drain(test_cfg.diag);
 	fyai_test_diag_cleanup(&test_cfg);
-	fyai_event_pool_drain(&test_ctx);
+	fyai_event_pool_drain(fyai_test_loop_of(&test_ctx));
 	return 0;
 }
 
@@ -2060,7 +2061,7 @@ int event_done_flag(void)
 
 	fyai_diag_drain(test_cfg.diag);
 	fyai_test_diag_cleanup(&test_cfg);
-	fyai_event_pool_drain(&test_ctx);
+	fyai_event_pool_drain(fyai_test_loop_of(&test_ctx));
 	return 0;
 }
 
@@ -2075,7 +2076,7 @@ int event_timeout(void)
 
 	fyai_diag_drain(test_cfg.diag);
 	fyai_test_diag_cleanup(&test_cfg);
-	fyai_event_pool_drain(&test_ctx);
+	fyai_event_pool_drain(fyai_test_loop_of(&test_ctx));
 	return 0;
 }
 
@@ -2090,7 +2091,7 @@ int event_timer_lost_registration(void)
 
 	fyai_diag_drain(test_cfg.diag);
 	fyai_test_diag_cleanup(&test_cfg);
-	fyai_event_pool_drain(&test_ctx);
+	fyai_event_pool_drain(fyai_test_loop_of(&test_ctx));
 	return 0;
 }
 
@@ -2105,7 +2106,7 @@ int event_timer_oneshot(void)
 
 	fyai_diag_drain(test_cfg.diag);
 	fyai_test_diag_cleanup(&test_cfg);
-	fyai_event_pool_drain(&test_ctx);
+	fyai_event_pool_drain(fyai_test_loop_of(&test_ctx));
 	return 0;
 }
 
@@ -2134,7 +2135,7 @@ static void test_timer_first_delay(void)
 	int rc;
 
 	memset(&c, 0, sizeof(c));
-	el = fyai_event_loop_create(&test_ctx);
+	el = fyai_event_loop_create(fyai_test_loop_of(&test_ctx));
 	FYAI_TCHECK(el);
 
 	start = fyai_event_now_ms();
@@ -2162,7 +2163,7 @@ int event_timer_first_delay(void)
 
 	fyai_diag_drain(test_cfg.diag);
 	fyai_test_diag_cleanup(&test_cfg);
-	fyai_event_pool_drain(&test_ctx);
+	fyai_event_pool_drain(fyai_test_loop_of(&test_ctx));
 	return 0;
 }
 
@@ -2177,7 +2178,7 @@ int event_timer_repeating(void)
 
 	fyai_diag_drain(test_cfg.diag);
 	fyai_test_diag_cleanup(&test_cfg);
-	fyai_event_pool_drain(&test_ctx);
+	fyai_event_pool_drain(fyai_test_loop_of(&test_ctx));
 	return 0;
 }
 
@@ -2192,7 +2193,7 @@ int event_timer_rearm_in_callback(void)
 
 	fyai_diag_drain(test_cfg.diag);
 	fyai_test_diag_cleanup(&test_cfg);
-	fyai_event_pool_drain(&test_ctx);
+	fyai_event_pool_drain(fyai_test_loop_of(&test_ctx));
 	return 0;
 }
 
@@ -2207,7 +2208,7 @@ int event_timer_rearm_keeps_interval(void)
 
 	fyai_diag_drain(test_cfg.diag);
 	fyai_test_diag_cleanup(&test_cfg);
-	fyai_event_pool_drain(&test_ctx);
+	fyai_event_pool_drain(fyai_test_loop_of(&test_ctx));
 	return 0;
 }
 
@@ -2222,7 +2223,7 @@ int event_timer_order(void)
 
 	fyai_diag_drain(test_cfg.diag);
 	fyai_test_diag_cleanup(&test_cfg);
-	fyai_event_pool_drain(&test_ctx);
+	fyai_event_pool_drain(fyai_test_loop_of(&test_ctx));
 	return 0;
 }
 
@@ -2237,7 +2238,7 @@ int event_fd_read_eof(void)
 
 	fyai_diag_drain(test_cfg.diag);
 	fyai_test_diag_cleanup(&test_cfg);
-	fyai_event_pool_drain(&test_ctx);
+	fyai_event_pool_drain(fyai_test_loop_of(&test_ctx));
 	return 0;
 }
 
@@ -2252,7 +2253,7 @@ int event_fd_write(void)
 
 	fyai_diag_drain(test_cfg.diag);
 	fyai_test_diag_cleanup(&test_cfg);
-	fyai_event_pool_drain(&test_ctx);
+	fyai_event_pool_drain(fyai_test_loop_of(&test_ctx));
 	return 0;
 }
 
@@ -2267,7 +2268,7 @@ int event_child_exit(void)
 
 	fyai_diag_drain(test_cfg.diag);
 	fyai_test_diag_cleanup(&test_cfg);
-	fyai_event_pool_drain(&test_ctx);
+	fyai_event_pool_drain(fyai_test_loop_of(&test_ctx));
 	return 0;
 }
 
@@ -2282,7 +2283,7 @@ int event_child_signalled(void)
 
 	fyai_diag_drain(test_cfg.diag);
 	fyai_test_diag_cleanup(&test_cfg);
-	fyai_event_pool_drain(&test_ctx);
+	fyai_event_pool_drain(fyai_test_loop_of(&test_ctx));
 	return 0;
 }
 
@@ -2297,7 +2298,7 @@ int event_child_already_exited(void)
 
 	fyai_diag_drain(test_cfg.diag);
 	fyai_test_diag_cleanup(&test_cfg);
-	fyai_event_pool_drain(&test_ctx);
+	fyai_event_pool_drain(fyai_test_loop_of(&test_ctx));
 	return 0;
 }
 
@@ -2312,7 +2313,7 @@ int event_child_nested_run(void)
 
 	fyai_diag_drain(test_cfg.diag);
 	fyai_test_diag_cleanup(&test_cfg);
-	fyai_event_pool_drain(&test_ctx);
+	fyai_event_pool_drain(fyai_test_loop_of(&test_ctx));
 	return 0;
 }
 
@@ -2327,7 +2328,7 @@ int event_child_terminate_polite(void)
 
 	fyai_diag_drain(test_cfg.diag);
 	fyai_test_diag_cleanup(&test_cfg);
-	fyai_event_pool_drain(&test_ctx);
+	fyai_event_pool_drain(fyai_test_loop_of(&test_ctx));
 	return 0;
 }
 
@@ -2342,7 +2343,7 @@ int event_child_terminate_sigterm(void)
 
 	fyai_diag_drain(test_cfg.diag);
 	fyai_test_diag_cleanup(&test_cfg);
-	fyai_event_pool_drain(&test_ctx);
+	fyai_event_pool_drain(fyai_test_loop_of(&test_ctx));
 	return 0;
 }
 
@@ -2357,7 +2358,7 @@ int event_child_terminate_sigkill(void)
 
 	fyai_diag_drain(test_cfg.diag);
 	fyai_test_diag_cleanup(&test_cfg);
-	fyai_event_pool_drain(&test_ctx);
+	fyai_event_pool_drain(fyai_test_loop_of(&test_ctx));
 	return 0;
 }
 
@@ -2372,7 +2373,7 @@ int event_child_terminate_concurrent(void)
 
 	fyai_diag_drain(test_cfg.diag);
 	fyai_test_diag_cleanup(&test_cfg);
-	fyai_event_pool_drain(&test_ctx);
+	fyai_event_pool_drain(fyai_test_loop_of(&test_ctx));
 	return 0;
 }
 
@@ -2387,7 +2388,7 @@ int event_signal(void)
 
 	fyai_diag_drain(test_cfg.diag);
 	fyai_test_diag_cleanup(&test_cfg);
-	fyai_event_pool_drain(&test_ctx);
+	fyai_event_pool_drain(fyai_test_loop_of(&test_ctx));
 	return 0;
 }
 
@@ -2402,7 +2403,7 @@ int event_signal_nested_teardown(void)
 
 	fyai_diag_drain(test_cfg.diag);
 	fyai_test_diag_cleanup(&test_cfg);
-	fyai_event_pool_drain(&test_ctx);
+	fyai_event_pool_drain(fyai_test_loop_of(&test_ctx));
 	return 0;
 }
 
@@ -2417,7 +2418,7 @@ int event_interrupt_watchdog_acked(void)
 
 	fyai_diag_drain(test_cfg.diag);
 	fyai_test_diag_cleanup(&test_cfg);
-	fyai_event_pool_drain(&test_ctx);
+	fyai_event_pool_drain(fyai_test_loop_of(&test_ctx));
 	return 0;
 }
 
@@ -2432,7 +2433,7 @@ int event_interrupt_watchdog_escalates(void)
 
 	fyai_diag_drain(test_cfg.diag);
 	fyai_test_diag_cleanup(&test_cfg);
-	fyai_event_pool_drain(&test_ctx);
+	fyai_event_pool_drain(fyai_test_loop_of(&test_ctx));
 	return 0;
 }
 
@@ -2447,7 +2448,7 @@ int event_state_dump(void)
 
 	fyai_diag_drain(test_cfg.diag);
 	fyai_test_diag_cleanup(&test_cfg);
-	fyai_event_pool_drain(&test_ctx);
+	fyai_event_pool_drain(fyai_test_loop_of(&test_ctx));
 	return 0;
 }
 
@@ -2462,7 +2463,7 @@ int event_state_dump_while_stuck(void)
 
 	fyai_diag_drain(test_cfg.diag);
 	fyai_test_diag_cleanup(&test_cfg);
-	fyai_event_pool_drain(&test_ctx);
+	fyai_event_pool_drain(fyai_test_loop_of(&test_ctx));
 	return 0;
 }
 
@@ -2477,7 +2478,7 @@ int event_nested_run(void)
 
 	fyai_diag_drain(test_cfg.diag);
 	fyai_test_diag_cleanup(&test_cfg);
-	fyai_event_pool_drain(&test_ctx);
+	fyai_event_pool_drain(fyai_test_loop_of(&test_ctx));
 	return 0;
 }
 
@@ -2492,7 +2493,7 @@ int event_remove_after_nested_run(void)
 
 	fyai_diag_drain(test_cfg.diag);
 	fyai_test_diag_cleanup(&test_cfg);
-	fyai_event_pool_drain(&test_ctx);
+	fyai_event_pool_drain(fyai_test_loop_of(&test_ctx));
 	return 0;
 }
 
@@ -2507,7 +2508,7 @@ int event_abort(void)
 
 	fyai_diag_drain(test_cfg.diag);
 	fyai_test_diag_cleanup(&test_cfg);
-	fyai_event_pool_drain(&test_ctx);
+	fyai_event_pool_drain(fyai_test_loop_of(&test_ctx));
 	return 0;
 }
 
@@ -2522,7 +2523,7 @@ int event_stop_preserves_batch(void)
 
 	fyai_diag_drain(test_cfg.diag);
 	fyai_test_diag_cleanup(&test_cfg);
-	fyai_event_pool_drain(&test_ctx);
+	fyai_event_pool_drain(fyai_test_loop_of(&test_ctx));
 	return 0;
 }
 
@@ -2537,7 +2538,7 @@ int event_self_remove(void)
 
 	fyai_diag_drain(test_cfg.diag);
 	fyai_test_diag_cleanup(&test_cfg);
-	fyai_event_pool_drain(&test_ctx);
+	fyai_event_pool_drain(fyai_test_loop_of(&test_ctx));
 	return 0;
 }
 
@@ -2552,7 +2553,7 @@ int event_defer_coalesce(void)
 
 	fyai_diag_drain(test_cfg.diag);
 	fyai_test_diag_cleanup(&test_cfg);
-	fyai_event_pool_drain(&test_ctx);
+	fyai_event_pool_drain(fyai_test_loop_of(&test_ctx));
 	return 0;
 }
 
@@ -2567,7 +2568,7 @@ int event_defer_drain_once(void)
 
 	fyai_diag_drain(test_cfg.diag);
 	fyai_test_diag_cleanup(&test_cfg);
-	fyai_event_pool_drain(&test_ctx);
+	fyai_event_pool_drain(fyai_test_loop_of(&test_ctx));
 	return 0;
 }
 
@@ -2582,7 +2583,7 @@ int event_defer_cancel(void)
 
 	fyai_diag_drain(test_cfg.diag);
 	fyai_test_diag_cleanup(&test_cfg);
-	fyai_event_pool_drain(&test_ctx);
+	fyai_event_pool_drain(fyai_test_loop_of(&test_ctx));
 	return 0;
 }
 
@@ -2597,7 +2598,7 @@ int event_defer_under_nested_run(void)
 
 	fyai_diag_drain(test_cfg.diag);
 	fyai_test_diag_cleanup(&test_cfg);
-	fyai_event_pool_drain(&test_ctx);
+	fyai_event_pool_drain(fyai_test_loop_of(&test_ctx));
 	return 0;
 }
 
@@ -2612,6 +2613,6 @@ int event_flush_timer_retires(void)
 
 	fyai_diag_drain(test_cfg.diag);
 	fyai_test_diag_cleanup(&test_cfg);
-	fyai_event_pool_drain(&test_ctx);
+	fyai_event_pool_drain(fyai_test_loop_of(&test_ctx));
 	return 0;
 }

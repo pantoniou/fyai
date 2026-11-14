@@ -70,6 +70,7 @@
 #include "fyai_branch.h"
 #include "fyai_skill.h"
 #include "fyai_settings.h"
+#include "fyai_app.h"
 
 static enum fyai_event_action fyai_signal_cb(const struct fyai_event *ev)
 {
@@ -77,10 +78,15 @@ static enum fyai_event_action fyai_signal_cb(const struct fyai_event *ev)
 
 	if (ev->signo == SIGPIPE)
 		return FYAIEA_CONTINUE;
-	ctx->interrupt_pending = true;
-	ctx->terminate_pending = true;
+	ctx->loop->interrupt_pending = true;
+	ctx->loop->terminate_pending = true;
 	fyai_ui_signal(ctx, ev->signo);
 	return FYAIEA_CONTINUE;
+}
+
+static void fyai_loop_interrupt_hook(void *data)
+{
+	fyai_waiters_kick(data);
 }
 
 /* Maximum time to acknowledge SIGINT. */
@@ -91,21 +97,21 @@ static enum fyai_event_action fyai_signal_cb(const struct fyai_event *ev)
  * creates. A full-screen terminal garbles text written to it. Without a home
  * directory the dump goes to the original standard error.
  */
-static void fyai_dump_setup(struct fyai_ctx *ctx)
+static void fyai_dump_setup(struct fyai_loop *loop)
 {
 	const char *home = getenv("HOME");
 	int rc;
 
 	if (home && *home) {
-		rc = asprintf(&ctx->dump_dir, "%s/.fyai", home);
+		rc = asprintf(&loop->dump_dir, "%s/.fyai", home);
 		if (rc < 0)
-			ctx->dump_dir = NULL;
-		else if (asprintf(&ctx->dump_file, "%s/dump.log",
-				  ctx->dump_dir) < 0)
-			ctx->dump_file = NULL;
+			loop->dump_dir = NULL;
+		else if (asprintf(&loop->dump_file, "%s/dump.log",
+				  loop->dump_dir) < 0)
+			loop->dump_file = NULL;
 	}
-	if (ctx->dump_fd >= 0)
-		(void)fyai_event_dump_open(ctx, SIGUSR2, ctx->dump_fd);
+	if (loop->dump_fd >= 0)
+		(void)fyai_event_dump_open(loop, SIGUSR2, loop->dump_fd);
 }
 
 static int fyai_signals_open(struct fyai_ctx *ctx)
@@ -114,31 +120,32 @@ static int fyai_signals_open(struct fyai_ctx *ctx)
 	static const int signals[] = {
 		SIGTERM, SIGHUP, SIGQUIT, SIGPIPE,
 	};
-	struct fyai_event_loop *el = fyai_ctx_loop(ctx);
+	struct fyai_loop *loop = ctx->loop;
+	struct fyai_event_loop *el = fyai_loop_get(loop);
 	size_t i;
 	int rc;
 
 	if (!el) return -1;
-	if (sigprocmask(SIG_SETMASK, NULL, &ctx->signal_mask))
+	if (sigprocmask(SIG_SETMASK, NULL, &loop->signal_mask))
 		return -1;
-	ctx->signal_mask_valid = true;
+	loop->signal_mask_valid = true;
 	for (i = 0; i < ARRAY_SIZE(signals); i++)
 		if (fyai_event_add_signal(el, signals[i], fyai_signal_cb, ctx,
-					  &ctx->signal_src[i]))
+					  &loop->signal_src[i]))
 			return -1;
 
-	rc = fyai_event_interrupt_open(ctx, FYAI_INTERRUPT_WATCHDOG_MS);
+	rc = fyai_event_interrupt_open(loop, FYAI_INTERRUPT_WATCHDOG_MS);
 	if (rc)
 		return -1;
 
 	/* Keep a direct diagnostic output when the UI event loop stops. */
-	ctx->dump_fd = dup(STDERR_FILENO);
-	if (ctx->dump_fd >= 0) {
-		(void)fcntl(ctx->dump_fd, F_SETFD, FD_CLOEXEC);
+	loop->dump_fd = dup(STDERR_FILENO);
+	if (loop->dump_fd >= 0) {
+		(void)fcntl(loop->dump_fd, F_SETFD, FD_CLOEXEC);
 		/* Past the UI stdio spool, so a crash still reaches it. */
-		fyai_crash_set_fd(ctx->dump_fd);
+		fyai_crash_set_fd(loop->dump_fd);
 	}
-	fyai_dump_setup(ctx);
+	fyai_dump_setup(loop);
 	return 0;
 }
 
@@ -2412,8 +2419,8 @@ fy_generic fyai_run_turn(struct fyai_ctx *ctx, fy_generic turn)
 	el = fyai_ctx_loop(ctx);
 	assert(el);
 	while (!fyai_turn_run_done(run)) {
-		if (ctx->interrupt_pending) {
-			fyai_event_interrupt_ack(ctx);
+		if (ctx->loop->interrupt_pending) {
+			fyai_event_interrupt_ack(ctx->loop);
 			fyai_turn_run_cancel(run);
 		}
 		rc = fyai_event_loop_step(el, -1);
@@ -2523,7 +2530,7 @@ void fyai_cleanup(struct fyai_ctx *ctx)
 	fyai_tool_diff_cleanup(ctx);
 	fyai_events_release(ctx);
 	fyai_terminal_winch_close(ctx);
-	fyai_event_interrupt_close(ctx);
+	fyai_event_interrupt_close(ctx->loop);
 	fyai_output_cleanup(ctx);
 	/* After the output document: its discard still talks to the sink. */
 	fyai_agents_cleanup(ctx);
@@ -2579,12 +2586,7 @@ void fyai_cleanup(struct fyai_ctx *ctx)
 	fyai_auth_cleanup(ctx);
 
 	/* Destroy the loop after every borrower has dropped its sources. */
-	if (ctx->el) {
-		fyai_event_loop_destroy(ctx->el);
-		ctx->el = NULL;
-	}
-
-	fyai_event_pool_drain(ctx);
+	fyai_loop_cleanup(ctx->loop);
 
 	if (!fyai_cfg_no_storage(cfg))
 		fyai_close_storage(ctx);
@@ -2592,14 +2594,11 @@ void fyai_cleanup(struct fyai_ctx *ctx)
 	fyai_uitranscript_release(ctx);
 	/* Last: a renderer reads it, and closing the storage writes it. */
 	fyai_uimodel_release(ctx);
-
-	if (ctx->dump_fd >= 0) {
-		close(ctx->dump_fd);
-		ctx->dump_fd = -1;
+	/* The loop outlives the context: it must not call back into it. */
+	if (ctx->loop) {
+		ctx->loop->on_interrupt = NULL;
+		ctx->loop->on_interrupt_data = NULL;
 	}
-	free(ctx->dump_dir);
-	free(ctx->dump_file);
-	ctx->dump_dir = ctx->dump_file = NULL;
 }
 
 /* Apply the configured MCP state. This operation is idempotent. */
@@ -2747,8 +2746,9 @@ err:
 	return -1;
 }
 
-int fyai_setup(struct fyai_ctx *ctx, struct fyai_cfg *cfg)
+int fyai_setup(struct fyai_ctx *ctx, struct fyai_app *app)
 {
+	struct fyai_cfg *cfg = &app->cfg;
 	struct timespec t_setup;
 	fy_generic skill_msg;
 	char *prompt = NULL;
@@ -2761,6 +2761,10 @@ int fyai_setup(struct fyai_ctx *ctx, struct fyai_cfg *cfg)
 
 	memset(ctx, 0, sizeof(*ctx));
 	ctx->cfg = cfg;
+	ctx->loop = &app->loop;
+	/* A wait that stands on the loop looks at an interrupt when it comes. */
+	ctx->loop->on_interrupt = fyai_loop_interrupt_hook;
+	ctx->loop->on_interrupt_data = ctx;
 	ctx->auth.registrations = fy_invalid;
 	/* A holder that an ancestor started is in the environment, which a tool clears. */
 	fyai_cover_init(&ctx->cover);
@@ -3756,14 +3760,14 @@ static void fyai_interactive_process_interrupt(struct fyai_ctx *ctx,
 {
 	bool delivered;
 
-	if (!ctx->interrupt_pending)
+	if (!ctx->loop->interrupt_pending)
 		return;
 	/* Acknowledge SIGINT while the event loop is responsive. */
-	fyai_event_interrupt_ack(ctx);
+	fyai_event_interrupt_ack(ctx->loop);
 	delivered = false;
 	/* Process each delivered SIGINT one time. */
-	if (ctx->interrupt_seq != ctx->interrupt_seen) {
-		ctx->interrupt_seen = ctx->interrupt_seq;
+	if (ctx->loop->interrupt_seq != ctx->loop->interrupt_seen) {
+		ctx->loop->interrupt_seen = ctx->loop->interrupt_seq;
 		/* A tile with the keys was given it: the user was typing into
 		 * a program, not stopping the turn. */
 		delivered = fyai_ui_interrupt(ctx);
@@ -3774,7 +3778,7 @@ static void fyai_interactive_process_interrupt(struct fyai_ctx *ctx,
 	if (!delivered)
 		fyai_cmd_session_interrupt(ctx);
 	/* Keep a signal that arrived while this interrupt was handled. */
-	ctx->interrupt_pending = ctx->interrupt_seq != ctx->interrupt_seen;
+	ctx->loop->interrupt_pending = ctx->loop->interrupt_seq != ctx->loop->interrupt_seen;
 }
 
 static int fyai_interactive_submit_initial(struct fyai_ctx *ctx,
@@ -3995,7 +3999,7 @@ static int fyai_prompt_interactive_async(struct fyai_ctx *ctx)
 				goto out;
 		}
 		fyai_interactive_process_interrupt(ctx, run);
-		if (ctx->terminate_pending || fyai_ui_quit_requested(ctx))
+		if (ctx->loop->terminate_pending || fyai_ui_quit_requested(ctx))
 			quit = true;
 		if (!run && quit) {
 			rc = 0;
@@ -4195,7 +4199,7 @@ int fyai_prompt_interactive(struct fyai_ctx *ctx)
 	}
 
 	for (;;) {
-		if (ctx->terminate_pending)
+		if (ctx->loop->terminate_pending)
 			break;
 		errno = 0;
 		line = fyai_ui_active(ctx) ? fyai_ui_readline(ctx) :
@@ -4361,8 +4365,9 @@ const struct fyai_verb *fyai_cfg_verb(struct fyai_cfg *cfg)
 	}
 }
 
-int fyai_run(struct fyai_cfg *cfg)
+int fyai_run(struct fyai_app *app)
 {
+	struct fyai_cfg *cfg = &app->cfg;
 	struct fyai_ctx ctx;
 	const char *config, *session;
 	int rc;
@@ -4373,7 +4378,7 @@ int fyai_run(struct fyai_cfg *cfg)
 	 * debug whenever the callee said why - and stays the reported error when
 	 * nothing else did.
 	 */
-	rc = fyai_setup(&ctx, cfg);
+	rc = fyai_setup(&ctx, app);
 	fyai_cfg_error_check(cfg, !rc, err_out, "failed to initialize fyai");
 
 	/* Persist/replay any global --set/--delete/--get before the verb runs. */

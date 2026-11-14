@@ -6,6 +6,7 @@
 
 #include "fyai.h"
 #include "fyai_diag.h"
+#include "fyai_loop.h"
 
 /*
  * A configuration that stands alone owns its diagnostics in a test: the sink
@@ -27,6 +28,23 @@ static inline void fyai_test_diag_cleanup(struct fyai_cfg *cfg)
 	fyai_diag_cleanup(cfg->diag);
 	free(cfg->diag);
 	cfg->diag = NULL;
+}
+
+/*
+ * The event loop component of a test context: the one that the test gave the
+ * context, else one of its own, made on first use. It reports into the sink
+ * of the configuration of the context.
+ */
+static inline struct fyai_loop *fyai_test_loop_of(struct fyai_ctx *ctx)
+{
+	static struct fyai_loop own;
+
+	if (!ctx->loop) {
+		fyai_loop_init(&own, NULL);
+		ctx->loop = &own;
+	}
+	ctx->loop->diag = ctx->cfg ? ctx->cfg->diag : NULL;
+	return ctx->loop;
 }
 
 #endif
