@@ -59,14 +59,16 @@ assert_request 0 'r["body"]["messages"][-1]["content"] == "hello"'
 mock_stop 1
 
 mock_start chat_stream.json
-# The case releases the editor when its screen shows that it runs. The path
-# is in the script: the editor does not get the environment of the case.
+# The case releases the editor when its screen shows that it runs: the editor
+# reads a FIFO, and the touch step of the driver opens it for writing, which
+# wakes the read. The FIFO is outside the project. The path is in the script:
+# the editor does not get the environment of the case.
+export MOCK_NOTIFY_DIR
+mkfifo "$MOCK_NOTIFY_DIR/release-editor" || fail "cannot make the FIFO"
 cat >"$TEST_DIR/editor.sh" <<EOF
 #!/bin/sh
 printf 'EDITOR-RUNNING\n'
-while [ ! -e "$TEST_DIR/release-editor" ]; do
-    sleep 0.02
-done
+read -r _ <"$MOCK_NOTIFY_DIR/release-editor"
 printf 'edited prompt' >"\$1"
 EOF
 chmod +x "$TEST_DIR/editor.sh"
@@ -80,7 +82,7 @@ steps:
   - write: "draft prompt\a"
   - wait: EDITOR-RUNNING
     timeout: 3
-  - touch: "${TEST_DIR}/release-editor"
+  - touch: "${MOCK_NOTIFY_DIR}/release-editor"
   - wait: edited prompt
     timeout: 3
   - write: "\n"

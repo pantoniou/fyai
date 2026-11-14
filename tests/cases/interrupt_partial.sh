@@ -32,9 +32,10 @@ assert_status 0
 
 export MOCKPROV_API_KEY=mock-secret
 
+mock_watch
 set +e
 "$FYAI_BIN" -b main --color off --set display/markdown=false --set display/stream=false -i --set tools=true -m foo \
-	>"$TEST_DIR/stdout" 2>"$TEST_DIR/stderr" <<'EOF' &
+	>"$TEST_DIR/stdout" 2>"$TEST_DIR/stderr" 8<&- <<'EOF' &
 read data.txt and summarize
 EOF
 FPID=$!

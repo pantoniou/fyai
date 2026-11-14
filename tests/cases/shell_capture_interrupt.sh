@@ -48,15 +48,15 @@ FPID=$!
 # The command signals fyai on its own; nothing to time from here.
 # The whole run must still finish promptly - a hang here is the regression,
 # the old path blocked in waitpid() with the capture already abandoned.
-for i in $(seq 1 $((100 * FYAI_TIMEOUT_SCALE))); do
-	kill -0 "$FPID" 2>/dev/null || break
-	sleep 0.1
-done
-kill -0 "$FPID" 2>/dev/null && { kill -KILL "$FPID" 2>/dev/null; fail "fyai hung after SIGINT during shell capture"; }
-
+# A watchdog bounds the failure; the wait is on the process itself.
+( sleep $((10 * FYAI_TIMEOUT_SCALE)); kill -KILL "$FPID" 2>/dev/null &&
+	touch "$TEST_DIR/hung" ) >/dev/null 2>&1 &
+watch=$!
 wait "$FPID"
 FYAI_STATUS=$?
+kill "$watch" 2>/dev/null; wait "$watch" 2>/dev/null
 set -e
+[ ! -e "$TEST_DIR/hung" ] || fail "fyai hung after SIGINT during shell capture"
 
 # The shell tool streams its output live to stderr, alongside the REPL banner.
 # Output written before the signal survives...

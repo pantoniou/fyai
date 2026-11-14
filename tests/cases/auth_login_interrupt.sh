@@ -6,23 +6,31 @@ set -eu
 
 fyai_test_setup
 
+# The run writes to a FIFO that this case reads: the read wakes when the link
+# is written. End of file means that the run exited before it opened the
+# receiver.
+mkfifo "$TEST_DIR/stdout.fifo" || fail "cannot make the FIFO"
 "$FYAI_BIN" -k test-key --color off auth login --no-browser \
-	>"$TEST_DIR/stdout" 2>"$TEST_DIR/stderr" </dev/null &
+	>"$TEST_DIR/stdout.fifo" 2>"$TEST_DIR/stderr" </dev/null &
 pid=$!
-
-i=0
-while ! grep -q "Open this link" "$TEST_DIR/stdout"; do
-	kill -0 "$pid" 2>/dev/null ||
-		fail "auth login exited before opening the receiver"
-	i=$((i + 1))
-	[ "$i" -lt $((100 * FYAI_TIMEOUT_SCALE)) ] || fail "auth login did not start"
-	sleep 0.05
+exec 8<"$TEST_DIR/stdout.fifo"
+: >"$TEST_DIR/stdout"
+opened=0
+while [ "$opened" = 0 ] && IFS= read -r -u 8 line; do
+	printf '%s\n' "$line" >>"$TEST_DIR/stdout"
+	case "$line" in *"Open this link"*) opened=1 ;; esac
 done
+[ "$opened" = 1 ] || fail "auth login exited before opening the receiver"
+# Keep reading, or the run would write to a FIFO that nobody holds.
+cat <&8 >>"$TEST_DIR/stdout" &
+drain=$!
+exec 8<&-
 
 kill -INT "$pid"
 set +e
 wait "$pid"
 status=$?
+wait "$drain"
 set -e
 
 [ "$status" -ne 0 ] || fail "interrupted auth login succeeded"

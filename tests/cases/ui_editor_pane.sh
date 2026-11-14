@@ -17,19 +17,20 @@ session()
 {
     local name="$1"; shift
 
-    # The case releases the editor when its screen shows that it runs. The
-    # path is in the script: the editor does not get the environment of the
-    # case.
+    mock_start chat_stream.json
+    # The case releases the editor when its screen shows that it runs: the
+    # editor reads a FIFO, and the touch step of the driver opens it for
+    # writing, which wakes the read. The FIFO is outside the project. The path
+    # is in the script: the editor does not get the environment of the case.
+    export MOCK_NOTIFY_DIR
+    mkfifo "$MOCK_NOTIFY_DIR/release-$name" || fail "cannot make the FIFO"
     cat >"$TEST_DIR/editor-$name.sh" <<EOF
 #!/bin/sh
 printf 'EDITOR-RUNNING\n'
-while [ ! -e "$TEST_DIR/release-$name" ]; do
-    sleep 0.02
-done
+read -r _ <"$MOCK_NOTIFY_DIR/release-$name"
 printf 'edited prompt' >"\$1"
 EOF
     chmod +x "$TEST_DIR/editor-$name.sh"
-    mock_start chat_stream.json
     export name
     EDITOR="$TEST_DIR/editor-$name.sh" \
     pty_run "$TEST_DIR/$name.out" \
@@ -42,7 +43,7 @@ steps:
   - write: "draft prompt\a"
   - wait: EDITOR-RUNNING
     timeout: 6
-  - touch: "${TEST_DIR}/release-${name}"
+  - touch: "${MOCK_NOTIFY_DIR}/release-${name}"
   - wait: edited prompt
     timeout: 6
   - write: "\n"

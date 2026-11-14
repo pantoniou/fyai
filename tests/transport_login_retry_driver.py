@@ -12,6 +12,7 @@ reply only. The case needs no refresh and no network but the mock provider.
 
 import json
 import os
+import select
 import sys
 import time
 
@@ -32,11 +33,18 @@ def main(fyai, mock_url, arena):
              "credential": "oauth:chatgpt"}])
         agent = Agent(tr, 7, [{"profile": "main"}])
 
+        # The mock writes a line to this FIFO for each request: the wait is
+        # on it, and the deadline bounds a failure. It is opened before the
+        # first request, so no line is lost.
+        notify = os.open(os.environ["FYAI_MOCK_NOTIFY"], os.O_RDWR)
+
         def renew():
             deadline = time.monotonic() + 60
             while not os.path.exists(log) or not open(log).read().strip():
-                check(time.monotonic() < deadline, "the provider saw no request")
-                time.sleep(0.01)
+                left = deadline - time.monotonic()
+                check(left > 0 and select.select([notify], [], [], left)[0],
+                      "the provider saw no request")
+                os.read(notify, 4096)
             write_store(3600, access="secret-new")
             open(os.path.join(run, "release"), "w").close()
 

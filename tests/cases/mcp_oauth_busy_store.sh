@@ -13,39 +13,38 @@ export PATH="$TESTS_DIR/mock:$PATH"
 state="$XDG_STATE_HOME/fyai"
 mkdir -p "$state"
 chmod 700 "$state"
-: > "$TEST_DIR/held"
+# The case and the sibling signal each other through FIFOs, which wake a read
+# and need no polling. The FIFOs are outside the project.
+held="$MOCK_NOTIFY_DIR/held"
+release="$MOCK_NOTIFY_DIR/release"
+mkfifo "$held" "$release" || fail "cannot make the FIFOs"
 
 # The sibling holds the lock until the registration is recorded.
 (
 	exec 9>"$state/auth.lock"
 	flock 9
-	echo held > "$TEST_DIR/held"
-	while [ ! -e "$TEST_DIR/release" ]; do
-		sleep 0.05
-	done
+	echo held >"$held"
+	read -r _ <"$release" || true
 ) &
 holder=$!
-while [ ! -s "$TEST_DIR/held" ]; do
-	sleep 0.05
-done
+read -r _ <"$held" || fail "the sibling did not take the lock"
 
+mock_watch
 "$FYAI_BIN" -k test-key --color off --set api=chat-completions \
 	--set display/stream=false --set mcp/enabled=true \
 	--set "mcp/servers/default={endpoint: '$MOCK_URL/mcp', auth: \
 {type: oauth, allow_browser: true}}" \
 	--set api_url="$MOCK_URL/v1/chat/completions" \
 	-m mock-model "connect MCP" \
-	>"$TEST_DIR/stdout" 2>"$TEST_DIR/stderr" </dev/null &
+	>"$TEST_DIR/stdout" 2>"$TEST_DIR/stderr" </dev/null 8<&- &
 agent=$!
 
-tries=$((400 * FYAI_TIMEOUT_SCALE))
-i=0
+# Each request wakes the read; the registration is one of them.
 until grep -q '/oauth/register' "$TEST_DIR/requests.jsonl" 2>/dev/null; do
-	i=$((i + 1))
-	[ "$i" -lt "$tries" ] || fail "the client was not registered"
-	sleep 0.05
+	read -r -t $((300 * FYAI_TIMEOUT_SCALE)) -u 8 _ ||
+		fail "the client was not registered"
 done
-touch "$TEST_DIR/release"
+echo release >"$release"
 wait "$holder"
 set +e
 wait "$agent"

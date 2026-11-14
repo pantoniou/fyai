@@ -70,14 +70,8 @@ fi
 wait "$pid" || fail "fyai failed: $(cat "$TEST_DIR/stderr")"
 grep -q "slow reply" "$TEST_DIR/stdout" || fail "no reply"
 assert_request 0 'r["auth"] == "Bearer '"$KEY_ARG"'"'
-# The transport ends with the run. A pidfd is readable when the process has
-# exited, a zombie included, so the wait is for the exit and not for a poll.
-python3 -I -c '
-import os, select, sys
-try:
-    fd = os.pidfd_open(int(sys.argv[1]))
-except ProcessLookupError:
-    sys.exit(0)
-sys.exit(0 if select.select([fd], [], [], float(sys.argv[2]))[0] else 1)
-' "$tpid" $((300 * FYAI_TIMEOUT_SCALE)) || fail "the transport outlived the run"
+# The transport ends with the run. The wait is on the kernel, which reports
+# the exit of a process that is not a child, a zombie included.
+"$PYTHON" -I "$TESTS_DIR/wait_exit.py" "$tpid" $((300 * FYAI_TIMEOUT_SCALE)) ||
+	fail "the transport outlived the run"
 mock_stop 1

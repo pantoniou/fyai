@@ -28,14 +28,9 @@ PTY
 
 [ -s "$TEST_DIR/shell.pid" ] || fail "the shell did not record its process"
 shell=$(cat "$TEST_DIR/shell.pid")
-tries=$((100 * FYAI_TIMEOUT_SCALE))
-while kill -0 "$shell" 2>/dev/null; do
-    tries=$((tries - 1))
-    if [ "$tries" -le 0 ]; then
-        kill -KILL "$shell" 2>/dev/null || true
-        fail "the shell outlived the process that owned its session"
-    fi
-    sleep 0.05
-done
+"$PYTHON" -I "$TESTS_DIR/wait_exit.py" "$shell" $((100 * FYAI_TIMEOUT_SCALE)) || {
+    kill -KILL "$shell" 2>/dev/null || true
+    fail "the shell outlived the process that owned its session"
+}
 
 pass

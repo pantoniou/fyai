@@ -393,25 +393,29 @@ assert_file_content() {
 	[ "$(cat "$1")" = "$2" ] || fail "bad content in $1: $(cat "$1")"
 }
 
-# wait_requests <count>: wait until the mock has recorded that many requests.
-# The record is written before the step's delay, thus a case that must act
-# while a request is in flight waits for the record of it instead of guessing
-# how long the run takes to get there. A loaded runner gets there later; it
-# does not get there differently.
-wait_requests() {
-	local want="$1"
-	local tries=$((400 * FYAI_TIMEOUT_SCALE))
-	local have=0
-	local i=0
+# mock_watch: start counting the requests of the mock. Call it before the run
+# that makes them, and start that run with 8<&- so that it does not hold the
+# descriptor. The mock writes a line to a FIFO for each request, and this
+# keeps the FIFO open, so no line is lost.
+mock_watch() {
+	exec 8<>"$FYAI_MOCK_NOTIFY"
+	MOCK_SEEN=0
+}
 
-	while :; do
-		have="$(wc -l < "$TEST_DIR/requests.jsonl" 2>/dev/null || echo 0)"
-		[ "$((have))" -ge "$want" ] && return 0
-		i=$((i + 1))
-		[ "$i" -lt "$tries" ] || \
-			fail "the mock recorded $((have)) of $want requests"
-		sleep 0.05
+# wait_requests <count>: wait until the mock has recorded that many requests
+# since mock_watch. The record is written before the delay of the step, thus a
+# case that must act while a request is in flight waits for the record of it
+# instead of guessing how long the run takes to get there. The read wakes when
+# the mock writes; its deadline bounds a failure.
+wait_requests() {
+	local want="$1" line
+
+	while [ "$MOCK_SEEN" -lt "$want" ]; do
+		read -r -t $((300 * FYAI_TIMEOUT_SCALE)) -u 8 line ||
+			fail "the mock recorded $MOCK_SEEN of $want requests"
+		[ "$line" = request ] && MOCK_SEEN=$((MOCK_SEEN + 1))
 	done
+	return 0
 }
 
 # assert_request <index> <python-expression over r>

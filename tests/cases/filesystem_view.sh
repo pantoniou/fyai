@@ -198,16 +198,18 @@ try:
         if select.select([fd], [], [], 0.1)[0]:
             output += os.read(fd, 65536)
     assert b'interrupt-ready' in output, output
-    time.sleep(0.1)
     os.write(fd, b'\x03')
+    # The end of the terminal wakes the wait: the child has closed it.
     while time.monotonic() < deadline:
-        done, current = os.waitpid(pid, os.WNOHANG)
-        if done:
-            status = current
-            break
-        time.sleep(0.02)
+        if select.select([fd], [], [], 0.1)[0]:
+            try:
+                if not os.read(fd, 65536):
+                    break
+            except OSError:
+                break
     else:
         raise AssertionError('command ignored Ctrl-C')
+    done, status = os.waitpid(pid, 0)
     assert os.waitstatus_to_exitcode(status) == 130, status
 finally:
     if status is None or not os.WIFEXITED(status):
@@ -243,20 +245,13 @@ run_fyai view enter demo sh -c 'test "$(cat file)" = "host changed" && test ! -e
 assert_status 0
 
 # The program holds the view until its standard input closes.
-mkfifo hold
+mkfifo hold holding
 "$FYAI_BIN" view enter demo sh -c 'printf holding; cat > /dev/null' < hold > holding &
 writer=$!
 exec 9> hold
-"$PYTHON" - holding <<'PY'
-import pathlib, sys, time
-p = pathlib.Path(sys.argv[1])
-for _ in range(200):
-    if p.read_bytes() == b'holding':
-        break
-    time.sleep(0.02)
-else:
-    raise SystemExit('writer did not start')
-PY
+# The program says that it holds the view on a FIFO: the read wakes then.
+IFS= read -r -N 7 said < holding || fail 'writer did not start'
+[ "$said" = holding ] || fail "writer said '$said'"
 run_fyai view update demo
 assert_status 1
 run_fyai view sync demo

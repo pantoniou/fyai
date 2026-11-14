@@ -32,9 +32,10 @@ export MOCKPROV_API_KEY=mock-secret
 
 # Interactive over a pipe (non-tty): one prompt, whose request stalls 5s in the
 # mock. Send SIGINT while that request is in flight, then let stdin hit EOF.
+mock_watch
 set +e
 "$FYAI_BIN" --color off --set display/markdown=false --set display/stream=false -i -m foo \
-	>"$TEST_DIR/stdout" 2>"$TEST_DIR/stderr" <<'EOF' &
+	>"$TEST_DIR/stdout" 2>"$TEST_DIR/stderr" 8<&- <<'EOF' &
 please answer slowly
 EOF
 FPID=$!
