@@ -780,11 +780,17 @@ is a series. Check an item again before work on it.
 
 ### Rule violations
 
-1. Nested loop in a callback (M). `fyai_ask_user_page`
-   (`src/fyai_tools.c:1668`) runs `fyai_event_loop_step()` in a loop while it
-   serves the `user/ask` request of a child. Another step loop is at
-   `src/fyai_tools.c:1613` (unverified: callback or not). Answer the request
-   from the callback of `fyai_ask_open()` instead.
+1. Done for the parent. The `ask_user` tool of the process is an entry of the
+   tool group (`fyai_ask_call_start()`), and the callback of `fyai_ask_open()`
+   settles it: nothing steps the loop to wait for the user. The `user/ask`
+   request that a parent receives from a child goes through
+   `fyai_ask_open()` and its callback too (`src/fyai_agents.c`). A cancel of the group takes the questions back
+   (`fyai_ask_call_cancel()`). Open, by design: a delegated child that asks
+   its parent steps its own loop in the dispatch of its tool child
+   (`fyai_ask_user_upward()`, `src/fyai_tools.c`). That dispatch is the top
+   level of the child, as the serve loop of a terminal session is, and no
+   callback is on its stack. The text path (`--answer`, a terminal with no
+   page) reads a line and steps nothing.
 2. Done. No error-check condition holds an operation that does work.
 3. Done. `tests/sink-only.sh` also matches `write` on descriptors 1 and 2.
 4. Done. A failed write of machine output stops the command with a cause.
