@@ -66,6 +66,8 @@ static inline struct fyai_transport_state *fyai_test_transport_of(struct fyai_ct
  * has no sink reports into the sink of the configuration, which is muted
  * when it has none.
  */
+static inline void fyai_test_attach(struct fyai_ctx *ctx);
+
 static inline struct fyai_loop *fyai_test_loop_of(struct fyai_ctx *ctx)
 {
 	if (!ctx->loop) {
@@ -74,8 +76,8 @@ static inline struct fyai_loop *fyai_test_loop_of(struct fyai_ctx *ctx)
 			return NULL;
 		fyai_loop_init(ctx->loop, fyai_cfg_diag(ctx->cfg));
 	}
-	fyai_test_link_of(ctx)->loop = ctx->loop;
-	fyai_test_transport_of(ctx);
+	fyai_test_attach(ctx);
+	ctx->link->loop = ctx->loop;
 	/* A loop that a test declared itself starts with no sink. */
 	if (!ctx->loop->diag)
 		ctx->loop->diag = fyai_cfg_diag(ctx->cfg);
@@ -157,6 +159,67 @@ static inline struct fyai_askq *fyai_test_askq_of(struct fyai_ctx *ctx)
 		fyai_askq_init(ctx->askq, fyai_cfg_diag(ctx->cfg));
 	}
 	return ctx->askq;
+}
+
+/* The scope, terminal, skill files and tool specification components. */
+static inline struct fyai_scope *fyai_test_scope_of(struct fyai_ctx *ctx)
+{
+	if (!ctx->scope) {
+		ctx->scope = calloc(1, sizeof(*ctx->scope));
+		if (!ctx->scope)
+			return NULL;
+		fyai_scope_state_init(ctx->scope, ctx->loop, fyai_cfg_diag(ctx->cfg));
+	}
+	return ctx->scope;
+}
+
+static inline struct fyai_tty *fyai_test_tty_of(struct fyai_ctx *ctx)
+{
+	if (!ctx->tty) {
+		ctx->tty = calloc(1, sizeof(*ctx->tty));
+		if (!ctx->tty)
+			return NULL;
+		fyai_tty_init(ctx->tty, ctx->loop, fyai_cfg_diag(ctx->cfg));
+	}
+	return ctx->tty;
+}
+
+static inline struct fyai_skills *fyai_test_skills_of(struct fyai_ctx *ctx)
+{
+	if (!ctx->skills) {
+		ctx->skills = calloc(1, sizeof(*ctx->skills));
+		if (!ctx->skills)
+			return NULL;
+		fyai_skills_init(ctx->skills, ctx->arena, ctx->transient);
+	}
+	return ctx->skills;
+}
+
+static inline struct fyai_toolspec *fyai_test_toolspec_of(struct fyai_ctx *ctx)
+{
+	if (!ctx->toolspec) {
+		ctx->toolspec = calloc(1, sizeof(*ctx->toolspec));
+		if (!ctx->toolspec)
+			return NULL;
+		fyai_toolspec_init(ctx->toolspec, fyai_test_skills_of(ctx));
+	}
+	return ctx->toolspec;
+}
+
+/*
+ * Give a test context every component that it lacks. The ones that the test
+ * gave it stay.
+ */
+static inline void fyai_test_attach(struct fyai_ctx *ctx)
+{
+	fyai_test_link_of(ctx);
+	fyai_test_transport_of(ctx);
+	fyai_test_mcp_of(ctx);
+	fyai_test_waitq_of(ctx);
+	fyai_test_askq_of(ctx);
+	fyai_test_scope_of(ctx);
+	fyai_test_tty_of(ctx);
+	fyai_test_toolspec_of(ctx);
 }
 
 #endif

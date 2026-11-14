@@ -8,12 +8,14 @@
 #define FYAI_MODULE FYAIEM_UNKNOWN
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "fyai.h"
 #include "fyai_tools.h"
 #include "fyai_test.h"
 
+#include "fyai_test_diag.h"
 #include "fyai_test_registry.h"
 
 FYAI_TEST_ENTRY(fork, disown_drops_parent_state, fork_disown_drops_parent_state)
@@ -23,16 +25,13 @@ int fork_disown_drops_parent_state(void)
 {
 	struct fyai_cfg cfg = { 0 };
 	struct fyai_loop loop;
-	struct fyai_transport_state tstate = {};
-	struct fyai_mcp mcpstate = {};
-	struct fyai_waitq waitq = {};
-	struct fyai_askq askq = {};
-	struct fyai_ctx ctx = { .cfg = &cfg, .loop = &loop, .link = &(struct fyai_link){ .loop = &loop }, .transport = &tstate, .mcp = &mcpstate, .waitq = &waitq, .askq = &askq };
+	struct fyai_ctx ctx = { .cfg = &cfg, .loop = &loop };
 	char parent;
 	size_t i;
 
 	fyai_loop_init(&loop, NULL);
 	loop.dump_fd = 7;
+	fyai_test_attach(&ctx);
 	ctx.workpane = (struct fyai_workpane_manager *)&parent;
 	ctx.cmd_call = (struct fyai_cmd_call *)&parent;
 	ctx.catalog_update = (struct fyai_catalog_update_request *)&parent;

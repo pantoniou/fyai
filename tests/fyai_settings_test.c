@@ -58,7 +58,7 @@ static int settings_setup(void)
 	memset(&test_cfg, 0, sizeof(test_cfg));
 	free(test_ctx.mcp);
 	memset(&test_ctx, 0, sizeof(test_ctx));
-	fyai_test_mcp_of(&test_ctx);
+	fyai_test_attach(&test_ctx);
 	test_ctx.cfg = &test_cfg;
 	fyai_test_transient_of(&test_ctx)->gb = fy_generic_builder_create(&gb_cfg);
 	if (!fyai_test_transient_of(&test_ctx)->gb)
@@ -66,7 +66,7 @@ static int settings_setup(void)
 	fyai_test_arena_of(&test_ctx)->durable_gb = fyai_test_transient_of(&test_ctx)->gb;
 	fyai_test_arena_of(&test_ctx)->gb = fyai_test_transient_of(&test_ctx)->gb;
 	test_cfg.gb = fyai_test_transient_of(&test_ctx)->gb;
-	test_ctx.tools_spec = fy_invalid;
+	test_ctx.toolspec->spec = fy_invalid;
 	/* No catalogue in the branch: the embedded snapshot is read. */
 	test_ctx.arena_catalog = fy_invalid;
 	test_cfg.model_access = FYAI_MODEL_REVIEW;
@@ -254,7 +254,7 @@ static bool offers_settings(void)
 {
 	fy_generic tool;
 
-	test_ctx.tools_spec = fy_invalid;
+	test_ctx.toolspec->spec = fy_invalid;
 	fy_foreach(tool, make_tools_filtered(&test_ctx))
 		if (fy_equal(fy_get(fy_get(tool, "function", fy_invalid),
 				    "name", fy_invalid), "settings"))
@@ -538,7 +538,7 @@ int settings_export(void)
 	FYAI_TCHECK(n > 0 && strstr(text, "\"temperature\""));
 	FYAI_TCHECK(!strstr(text, "KEY") && !strstr(text, "TOK"));
 	free(text);
-	FYAI_TCHECK(!stat(test_ctx.settings_export_dir, &st) &&
+	FYAI_TCHECK(!stat(test_ctx.skills->export_dir, &st) &&
 		    (st.st_mode & 077) == 0);
 
 	r = run("{action: export, shape: rows, format: yaml}", &ok);
@@ -549,9 +549,9 @@ int settings_export(void)
 		      "select gives rows");
 
 	/* Cleanup removes the files and their directory. */
-	snprintf(dir, sizeof(dir), "%s", test_ctx.settings_export_dir);
+	snprintf(dir, sizeof(dir), "%s", test_ctx.skills->export_dir);
 	fyai_settings_release(&test_ctx);
-	FYAI_TCHECK(!test_ctx.settings_export_dir);
+	FYAI_TCHECK(!test_ctx.skills->export_dir);
 	FYAI_TCHECK(stat(dir, &st) && access(dir, F_OK));
 
 	settings_teardown();

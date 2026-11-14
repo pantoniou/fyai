@@ -25,8 +25,7 @@ static void wait_ctx_setup(void)
 	free(wait_ctx.waitq);
 	free(wait_ctx.askq);
 	memset(&wait_ctx, 0, sizeof(wait_ctx));
-	fyai_test_waitq_of(&wait_ctx);
-	fyai_test_askq_of(&wait_ctx);
+	fyai_test_attach(&wait_ctx);
 }
 
 static void wait_ctx_teardown(void)

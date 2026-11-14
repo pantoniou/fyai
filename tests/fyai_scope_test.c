@@ -22,22 +22,23 @@ FYAI_TEST_ENTRY(scope, pin_handle_balances, scope_pin_handle)
 int scope_pin_handle(void)
 {
 	struct fyai_cfg cfg = { 0 };
-	struct fyai_ctx ctx = { .cfg = &cfg };
+	struct fyai_scope scope = {};
+	struct fyai_ctx ctx = { .cfg = &cfg, .scope = &scope };
 	struct fyai_scope_pin a = { 0 }, b = { 0 };
 
 	/* The positive control: a held handle counts. */
 	fyai_scope_pin(&ctx, &a);
-	FYAI_TCHECK(ctx.scope_pins == 1);
+	FYAI_TCHECK(ctx.scope->pins == 1);
 	fyai_scope_pin(&ctx, &b);
-	FYAI_TCHECK(ctx.scope_pins == 2);
+	FYAI_TCHECK(ctx.scope->pins == 2);
 	fyai_scope_pin(&ctx, &a);
-	FYAI_TCHECK(ctx.scope_pins == 2);
+	FYAI_TCHECK(ctx.scope->pins == 2);
 	fyai_scope_unpin(&ctx, &a);
-	FYAI_TCHECK(ctx.scope_pins == 1);
+	FYAI_TCHECK(ctx.scope->pins == 1);
 	fyai_scope_unpin(&ctx, &a);
-	FYAI_TCHECK(ctx.scope_pins == 1);
+	FYAI_TCHECK(ctx.scope->pins == 1);
 	FYAI_TCHECK(b.held);
 	fyai_scope_unpin(&ctx, &b);
-	FYAI_TCHECK(ctx.scope_pins == 0);
+	FYAI_TCHECK(ctx.scope->pins == 0);
 	return 0;
 }

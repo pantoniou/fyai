@@ -213,12 +213,11 @@ int branch_adopt_ends_unstored(void)
 	FYAI_TCHECK(gb);
 	memset(&cfg, 0, sizeof(cfg));
 	memset(&ctx, 0, sizeof(ctx));
+	fyai_test_attach(&ctx);
 	cfg.gb = builder_new();
 	FYAI_TCHECK(cfg.gb);
 	ctx.cfg = &cfg;
 	fyai_test_arena_of(&ctx)->gb = gb;
-	fyai_test_waitq_of(&ctx);
-	fyai_test_askq_of(&ctx);
 	ctx.last_message = fy_invalid;
 	ctx.arena_config = fy_invalid;
 	ctx.arena_catalog = fy_invalid;
@@ -257,11 +256,10 @@ int branch_name_outlives_change(void)
 	FYAI_TCHECK(gb);
 	memset(&cfg, 0, sizeof(cfg));
 	memset(&ctx, 0, sizeof(ctx));
+	fyai_test_attach(&ctx);
 	cfg.gb = gb;
 	ctx.cfg = &cfg;
 	fyai_test_arena_of(&ctx)->gb = gb;
-	fyai_test_waitq_of(&ctx);
-	fyai_test_askq_of(&ctx);
 
 	FYAI_TCHECK(!fyai_ctx_set_branch(&ctx, "session/first"));
 	first = fyai_ctx_branch(&ctx);

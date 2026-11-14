@@ -18,6 +18,7 @@
 #include "fyai_terminal.h"
 #include "fyai_uimodel.h"
 
+#include "fyai_test_diag.h"
 #include "fyai_test_registry.h"
 
 FYAI_TEST_ENTRY(sink, chunked_equals_whole, sink_chunked_equals_whole)
@@ -69,7 +70,8 @@ static void fixture_open(struct sink_fixture *f)
 	f->ctx.transient = &f->transient;
 	f->ctx.last_message = fy_invalid;
 	f->ctx.tools = fy_invalid;
-	f->ctx.tools_spec = fy_invalid;
+	fyai_test_attach(&f->ctx);
+	f->ctx.toolspec->spec = fy_invalid;
 	f->ctx.arena_config = fy_invalid;
 	f->ctx.arena_catalog = fy_invalid;
 	f->ctx.arena_branches = fy_invalid;
@@ -352,9 +354,10 @@ static void test_protocol_fd_stays_clean(void)
 	f.cfg.tool_child = true;
 	f.ctx.cfg = &f.cfg;
 	f.ctx.transient = &f.transient;
+	fyai_test_attach(&f.ctx);
 	f.ctx.last_message = fy_invalid;
 	f.ctx.tools = fy_invalid;
-	f.ctx.tools_spec = fy_invalid;
+	f.ctx.toolspec->spec = fy_invalid;
 	f.ctx.arena_config = fy_invalid;
 	f.ctx.arena_catalog = fy_invalid;
 	f.ctx.arena_branches = fy_invalid;
@@ -451,10 +454,11 @@ static void test_reflow_follows_width(void)
 	f.cfg.render_width = 60;
 	f.ctx.cfg = &f.cfg;
 	f.ctx.transient = &f.transient;
-	f.ctx.stdout_tty = true;	/* enable live terminal rendering */
+	fyai_test_attach(&f.ctx);
+	f.ctx.tty->stdout_tty = true;	/* enable live terminal rendering */
 	f.ctx.last_message = fy_invalid;
 	f.ctx.tools = fy_invalid;
-	f.ctx.tools_spec = fy_invalid;
+	f.ctx.toolspec->spec = fy_invalid;
 	f.ctx.arena_config = fy_invalid;
 	f.ctx.arena_catalog = fy_invalid;
 	f.ctx.arena_branches = fy_invalid;

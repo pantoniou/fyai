@@ -40,6 +40,10 @@ FYAI_TEST_ENTRY(app, wires_transport, app_wires_transport)
 FYAI_TEST_ENTRY(app, wires_mcp, app_wires_mcp)
 FYAI_TEST_ENTRY(app, wires_waitq, app_wires_waitq)
 FYAI_TEST_ENTRY(app, wires_askq, app_wires_askq)
+FYAI_TEST_ENTRY(app, wires_scope, app_wires_scope)
+FYAI_TEST_ENTRY(app, wires_tty, app_wires_tty)
+FYAI_TEST_ENTRY(app, wires_skills, app_wires_skills)
+FYAI_TEST_ENTRY(app, wires_toolspec, app_wires_toolspec)
 FYAI_TEST_ENTRY(app, wires_link, app_wires_link)
 FYAI_TEST_ENTRY(app, wires_cred, app_wires_cred)
 FYAI_TEST_ENTRY(app, cred_holds_login_state, app_cred_holds_login_state)
@@ -174,6 +178,58 @@ int app_wires_askq(void)
 	FYAI_TCHECK(!app.askq.serial && !app.askq.seq);
 	fyai_app_cleanup(&app);
 	printf("ok - the questions component starts empty\n");
+	return 0;
+}
+
+int app_wires_scope(void)
+{
+	struct fyai_app app;
+
+	FYAI_TCHECK(!fyai_app_init(&app));
+	FYAI_TCHECK(app.scope.loop == &app.loop && app.scope.diag == &app.diag);
+	FYAI_TCHECK(!app.scope.pins && !app.scope.open && !app.scope.orphans);
+	FYAI_TCHECK(!app.scope.home && !app.scope.sandbox_applied);
+	fyai_app_cleanup(&app);
+	printf("ok - the scope component starts with no pin\n");
+	return 0;
+}
+
+int app_wires_tty(void)
+{
+	struct fyai_app app;
+
+	FYAI_TCHECK(!fyai_app_init(&app));
+	FYAI_TCHECK(app.tty.loop == &app.loop && app.tty.diag == &app.diag);
+	FYAI_TCHECK(!app.tty.stdout_tty && !app.tty.rows && !app.tty.cols);
+	FYAI_TCHECK(!app.tty.session && !app.tty.winch_src);
+	fyai_app_cleanup(&app);
+	printf("ok - the terminal component starts with no size\n");
+	return 0;
+}
+
+int app_wires_skills(void)
+{
+	struct fyai_app app;
+
+	FYAI_TCHECK(!fyai_app_init(&app));
+	FYAI_TCHECK(app.skills.arena == &app.arena);
+	FYAI_TCHECK(app.skills.transient == &app.transient);
+	FYAI_TCHECK(!app.skills.root && !app.skills.export_dir && !app.skills.dirs);
+	fyai_app_cleanup(&app);
+	printf("ok - the skill files component starts empty\n");
+	return 0;
+}
+
+int app_wires_toolspec(void)
+{
+	struct fyai_app app;
+
+	FYAI_TCHECK(!fyai_app_init(&app));
+	FYAI_TCHECK(app.toolspec.skills == &app.skills);
+	FYAI_TCHECK(fy_is_invalid(app.toolspec.spec) && fy_is_invalid(app.toolspec.allow));
+	FYAI_TCHECK(!app.toolspec.generation && !app.toolspec.agent_child);
+	fyai_app_cleanup(&app);
+	printf("ok - the tool specification starts unbuilt\n");
 	return 0;
 }
 

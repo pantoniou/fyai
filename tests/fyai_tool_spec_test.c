@@ -44,7 +44,7 @@ static int tools_setup(void)
 	memset(&test_cfg, 0, sizeof(test_cfg));
 	free(test_ctx.mcp);
 	memset(&test_ctx, 0, sizeof(test_ctx));
-	fyai_test_mcp_of(&test_ctx);
+	fyai_test_attach(&test_ctx);
 
 	test_ctx.cfg = &test_cfg;
 	fyai_test_transient_of(&test_ctx)->gb = fy_generic_builder_create(&gb_cfg);
@@ -53,7 +53,7 @@ static int tools_setup(void)
 	fyai_test_arena_of(&test_ctx)->durable_gb = fyai_test_transient_of(&test_ctx)->gb;
 	fyai_test_arena_of(&test_ctx)->gb = fyai_test_transient_of(&test_ctx)->gb;
 	test_cfg.gb = fyai_test_transient_of(&test_ctx)->gb;
-	test_ctx.tools_spec = fy_invalid;
+	test_ctx.toolspec->spec = fy_invalid;
 	return 0;
 }
 
@@ -274,7 +274,7 @@ static void test_cache(void)
 	first = make_tools_filtered(&test_ctx);
 	second = make_tools_filtered(&test_ctx);
 	require(fy_equal(first, second), "the cached tool set must be stable");
-	require(fy_equal(first, test_ctx.tools_spec),
+	require(fy_equal(first, test_ctx.toolspec->spec),
 		"the context must keep the cached tool set");
 
 	personas = personas_doc(fyai_test_arena_of(&test_ctx)->gb);
