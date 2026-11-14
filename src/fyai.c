@@ -2744,7 +2744,6 @@ int fyai_setup(struct fyai_ctx *ctx, struct fyai_app *app)
 	/* A wait that stands on the loop looks at an interrupt when it comes. */
 	ctx->loop->on_interrupt = fyai_loop_interrupt_hook;
 	ctx->loop->on_interrupt_data = ctx;
-	ctx->auth.registrations = fy_invalid;
 	/* A holder that an ancestor started is in the environment, which a tool clears. */
 	fyai_cover_init(&ctx->cover);
 

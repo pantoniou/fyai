@@ -238,7 +238,7 @@ static int xfer_curl_send(struct fyai_xfer *x)
 		fyai_error_check(ctx, !rc, err_out,
 				 "the credential cannot authenticate this request");
 		if (x->login)
-			x->tag = fyai_cred_tag(ctx->auth.access_token);
+			x->tag = fyai_cred_tag(ctx->cred->auth.access_token);
 		curl_easy_setopt(ctx->curl, CURLOPT_HTTPHEADER, x->headers);
 	}
 	curl_easy_setopt(ctx->curl, CURLOPT_WRITEFUNCTION, xfer_write);

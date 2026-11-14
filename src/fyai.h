@@ -902,8 +902,6 @@ struct fyai_ctx {
 	bool tool_diff_tracking;
 	struct curl_slist *headers;
 	char *auth_header;
-	/* Refresh requests whose token request is out after a cancel. */
-	unsigned int auth_detached;
 	char *user_agent;
 	fy_generic mcp_tools;
 	/* Names activated from a large MCP catalogue for this invocation. */
@@ -912,8 +910,6 @@ struct fyai_ctx {
 	bool mcp_stopping;
 	/* The invocation added servers: MCP is on whatever the configuration says. */
 	bool mcp_invocation;
-	struct fyai_credentials auth;
-	struct fy_generic_builder *auth_gb;
 	/* The shared refresh of the login and its waiters (fyai_cred.h). */
 	struct fyai_cred *cred;
 	bool stdout_tty;			/* stdout is a terminal (cached) */

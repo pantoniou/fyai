@@ -49,6 +49,7 @@ void fyai_cred_init(struct fyai_cred *cred, struct fyai_loop *loop)
 {
 	memset(cred, 0, sizeof(*cred));
 	cred->loop = loop;
+	cred->auth.registrations = fy_invalid;
 }
 
 void fyai_cred_bind(struct fyai_cred *cred, struct fyai_ctx *ctx)
@@ -557,7 +558,7 @@ void fyai_cred_abandon(struct fyai_ctx *ctx)
 	 * describe the work and stay.
 	 */
 	cred->refresh = NULL;
-	ctx->auth_detached = 0;
+	cred->auth_detached = 0;
 	cred->head = cred->tail = NULL;
 	/* The timer is a source of the loop of the parent. */
 	cred->timer = NULL;

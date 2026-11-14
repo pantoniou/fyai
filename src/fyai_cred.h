@@ -19,8 +19,11 @@
 #include <stdint.h>
 #include <time.h>
 
+#include "fyai_auth.h"
+
 struct fyai_ctx;
 struct fyai_loop;
+struct fy_generic_builder;
 struct fyai_event_source;
 struct fyai_auth_refresh_request;
 struct curl_slist;
@@ -49,6 +52,11 @@ struct fyai_cred_mem {
  * the context that the refresh runs the login for, set by fyai_cred_bind().
  */
 struct fyai_cred {
+	/* The login: the tokens, in the builder below, and the refreshes cut loose. */
+	struct fyai_credentials auth;
+	struct fy_generic_builder *auth_gb;
+	/* Refresh requests whose token request is out after a cancel. */
+	unsigned int auth_detached;
 	struct fyai_loop *loop;			/* dependency: the timer */
 	struct fyai_ctx *ctx;			/* the login the refresh serves */
 	struct fyai_event_source *timer;	/* the scheduled refresh */
