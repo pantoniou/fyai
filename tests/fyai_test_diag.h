@@ -239,6 +239,28 @@ static inline struct fyai_turnstate *fyai_test_turn_of(struct fyai_ctx *ctx)
 	return ctx->turn;
 }
 
+static inline struct fyai_jobs *fyai_test_jobs_of(struct fyai_ctx *ctx)
+{
+	if (!ctx->jobs) {
+		ctx->jobs = calloc(1, sizeof(*ctx->jobs));
+		if (!ctx->jobs)
+			return NULL;
+		fyai_jobs_init(ctx->jobs, ctx->loop, fyai_cfg_diag(ctx->cfg));
+	}
+	return ctx->jobs;
+}
+
+static inline struct fyai_agent_state *fyai_test_astate_of(struct fyai_ctx *ctx)
+{
+	if (!ctx->astate) {
+		ctx->astate = calloc(1, sizeof(*ctx->astate));
+		if (!ctx->astate)
+			return NULL;
+		fyai_agent_state_init(ctx->astate, ctx->bstate, fyai_cfg_diag(ctx->cfg));
+	}
+	return ctx->astate;
+}
+
 /*
  * Give a test context every component that it lacks. The ones that the test
  * gave it stay.
@@ -256,6 +278,8 @@ static inline void fyai_test_attach(struct fyai_ctx *ctx)
 	fyai_test_bstate_of(ctx);
 	fyai_test_usage_of(ctx);
 	fyai_test_turn_of(ctx);
+	fyai_test_jobs_of(ctx);
+	fyai_test_astate_of(ctx);
 }
 
 #endif

@@ -198,7 +198,7 @@ static void test_filtered(void)
 
 	/* A sub-agent context removes agent and parent agent controls. */
 	test_cfg.agent_child = true;
-	test_ctx.tool_rpc = (struct jsonrpc_conn *)1;
+	test_ctx.jobs->rpc = (struct jsonrpc_conn *)1;
 	tools = make_tools_filtered(&test_ctx);
 	has_ask_user = has_ask_parent = has_agent = false;
 	fy_foreach(tool, tools) {
@@ -215,7 +215,7 @@ static void test_filtered(void)
 		"delegated agent has ask_parent, not ask_user");
 
 	/* An admitted agent can delegate recursively. */
-	test_ctx.agent_execution = 3;
+	test_ctx.astate->execution = 3;
 	tools = make_tools_filtered(&test_ctx);
 	has_ask_user = has_ask_parent = has_agent = false;
 	fy_foreach(tool, tools) {
@@ -231,8 +231,8 @@ static void test_filtered(void)
 		"recursive agent keeps delegation and ask_parent");
 
 	/* A user-resumed branch has no parent connection. */
-	test_ctx.tool_rpc = NULL;
-	test_ctx.agent_execution = 0;
+	test_ctx.jobs->rpc = NULL;
+	test_ctx.astate->execution = 0;
 	tools = make_tools_filtered(&test_ctx);
 	has_ask_user = has_ask_parent = false;
 	fy_foreach(tool, tools) {

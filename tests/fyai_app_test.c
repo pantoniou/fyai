@@ -47,6 +47,8 @@ FYAI_TEST_ENTRY(app, wires_toolspec, app_wires_toolspec)
 FYAI_TEST_ENTRY(app, wires_bstate, app_wires_bstate)
 FYAI_TEST_ENTRY(app, wires_usage, app_wires_usage)
 FYAI_TEST_ENTRY(app, wires_turn, app_wires_turn)
+FYAI_TEST_ENTRY(app, wires_jobs, app_wires_jobs)
+FYAI_TEST_ENTRY(app, wires_astate, app_wires_astate)
 FYAI_TEST_ENTRY(app, wires_link, app_wires_link)
 FYAI_TEST_ENTRY(app, wires_cred, app_wires_cred)
 FYAI_TEST_ENTRY(app, cred_holds_login_state, app_cred_holds_login_state)
@@ -275,6 +277,33 @@ int app_wires_turn(void)
 	FYAI_TCHECK(!fy_len(app.turn.media_pending));
 	fyai_app_cleanup(&app);
 	printf("ok - the turn component starts with no message\n");
+	return 0;
+}
+
+int app_wires_jobs(void)
+{
+	struct fyai_app app;
+
+	FYAI_TCHECK(!fyai_app_init(&app));
+	FYAI_TCHECK(app.jobs.loop == &app.loop && app.jobs.diag == &app.diag);
+	FYAI_TCHECK(!app.jobs.tools && !app.jobs.btw && !app.jobs.agent_bg);
+	FYAI_TCHECK(!app.jobs.monitors && !app.jobs.sessions && !app.jobs.rpc);
+	FYAI_TCHECK(!app.jobs.submit_error && !app.jobs.output_displayed);
+	fyai_app_cleanup(&app);
+	printf("ok - the jobs component starts with no job\n");
+	return 0;
+}
+
+int app_wires_astate(void)
+{
+	struct fyai_app app;
+
+	FYAI_TCHECK(!fyai_app_init(&app));
+	FYAI_TCHECK(app.astate.bstate == &app.bstate && app.astate.diag == &app.diag);
+	FYAI_TCHECK(!app.astate.registry && !app.astate.execution && !app.astate.parent);
+	FYAI_TCHECK(fy_is_invalid(app.astate.spawn));
+	fyai_app_cleanup(&app);
+	printf("ok - the sub-agent identity starts empty\n");
 	return 0;
 }
 

@@ -66,7 +66,8 @@ int shell_session_stop(void)
 	struct fyai_cfg cfg = { 0 };
 	struct fyai_waitq waitq = {};
 	struct fyai_branch_state bstate = {};
-	struct fyai_ctx ctx = { .cfg = &cfg, .waitq = &waitq, .bstate = &bstate };
+	struct fyai_jobs jobs = {};
+	struct fyai_ctx ctx = { .cfg = &cfg, .waitq = &waitq, .bstate = &bstate, .jobs = &jobs };
 	struct fyai_shell_session *sess;
 	fy_generic item, shown;
 	int i;
