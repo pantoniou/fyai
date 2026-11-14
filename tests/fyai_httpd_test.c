@@ -38,6 +38,7 @@
 #include "fyai_ws_client.h"
 
 #include "fyai_test_registry.h"
+#include "fyai_test_diag.h"
 
 FYAI_TEST_ENTRY(net, url_parse, net_url_parse)
 FYAI_TEST_ENTRY(httpd, parse_a_request, httpd_parse)
@@ -73,7 +74,7 @@ static int httpd_run(void (*testfn)(void))
 	memset(&test_cfg, 0, sizeof(test_cfg));
 	memset(&test_ctx, 0, sizeof(test_ctx));
 	test_ctx.cfg = &test_cfg;
-	rc = fyai_diag_setup(&test_cfg.diag);
+	rc = fyai_test_diag_setup(&test_cfg);
 	FYAI_TCHECK(!rc);
 	curl_global_init(CURL_GLOBAL_DEFAULT);
 	test_ctx.curl = curl_easy_init();
@@ -116,7 +117,7 @@ static void test_url_parse(void)
 	FYAI_TCHECK(fyai_net_url_parse(&test_ctx, "http://", &u));
 	FYAI_TCHECK(fyai_net_url_parse(&test_ctx, "http://example.org:port/", &u));
 	FYAI_TCHECK(fyai_net_url_parse(&test_ctx, "http://user:secret@example.org/", &u));
-	fyai_diag_reset(&test_cfg.diag);
+	fyai_diag_reset(test_cfg.diag);
 }
 
 /* ---- the request head ---------------------------------------------------- */
@@ -667,11 +668,11 @@ static void wsc_go(struct server *s, struct wsc_run *run, const char *path,
 /* True when the diagnostics hold @text; they are cleared. */
 static bool diag_has(const char *text)
 {
-	char *why = fyai_diag_string(&test_cfg.diag);
+	char *why = fyai_diag_string(test_cfg.diag);
 	bool has = why && strstr(why, text);
 
 	free(why);
-	fyai_diag_reset(&test_cfg.diag);
+	fyai_diag_reset(test_cfg.diag);
 	return has;
 }
 
@@ -832,12 +833,12 @@ static void test_websocket(void)
 	/* A path that does not upgrade is an answer, and the client says why. */
 	run_client(&s, &run, "/nowhere");
 	FYAI_TCHECK(run.rc);
-	why = fyai_diag_string(&test_cfg.diag);
+	why = fyai_diag_string(test_cfg.diag);
 	FYAI_TCHECK(why && strstr(why, "did not upgrade"));
 	free(why);
 	srv_wait_closed(&s, 2);
 	srv_stop(&s);
-	fyai_diag_reset(&test_cfg.diag);
+	fyai_diag_reset(test_cfg.diag);
 }
 
 int net_url_parse(void)

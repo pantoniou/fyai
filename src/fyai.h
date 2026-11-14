@@ -642,19 +642,19 @@ struct fyai_cfg {
 	const char *auth_refresh_base;
 
 	/*
-	 * Collected diagnostics. Lives here rather than on the context because
-	 * it has to outlive it: option parsing and the verb argument hooks run
-	 * before fyai_run() declares a context, and raise a third of the
-	 * diagnostics in the tree.
-	 */
-	/*
 	 * The session layer: settings that this session changed and does not
 	 * store. It goes on top of the stored configuration, --config, and
 	 * --set, and lives in @gb.
 	 */
 	fy_generic config_session;
 
-	struct fyai_diag diag;
+	/*
+	 * Collected diagnostics: a dependency, owned by struct fyai_app, which
+	 * outlives the context. Option parsing and the verb argument hooks run
+	 * before fyai_run() declares a context and raise a third of the
+	 * diagnostics in the tree. NULL: a diagnostic is written at once.
+	 */
+	struct fyai_diag *diag;
 };
 
 /* The properties of what @cfg runs, or NULL before it is chosen. */

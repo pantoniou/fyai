@@ -88,6 +88,13 @@ void fyai_diag_set_bare(bool bare);
 /* The highest severity drained since the last call, and clear it. */
 enum fyai_error_type fyai_diag_take_drained_max(void);
 
+/* Enable or disable the severity @type. A NULL sink has no mask. */
+void fyai_diag_enable(struct fyai_diag *diag, enum fyai_error_type type,
+		      bool on);
+/* Drain the file, the line and the function of each diagnostic, or not. */
+void fyai_diag_set_source(struct fyai_diag *diag, bool on);
+bool fyai_diag_source(const struct fyai_diag *diag);
+
 int fyai_diag_setup(struct fyai_diag *diag);
 void fyai_diag_cleanup(struct fyai_diag *diag);
 

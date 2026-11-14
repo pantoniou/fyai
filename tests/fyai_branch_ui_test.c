@@ -15,6 +15,7 @@
 #include "fyai_wait.h"
 #include "fyai_test.h"
 #include "fyai_test_registry.h"
+#include "fyai_test_diag.h"
 
 FYAI_TEST_ENTRY(branch_ui, template_unbounded, branch_ui_template_unbounded)
 FYAI_TEST_ENTRY(branch_ui, template_literal, branch_ui_template_literal)
@@ -354,7 +355,7 @@ int branch_ui_unknown_state(void)
 	int rc;
 
 	FYAI_TCHECK(gb != NULL);
-	rc = fyai_diag_setup(&cfg.diag);
+	rc = fyai_test_diag_setup(&cfg);
 	FYAI_TCHECK(!rc);
 	params = fy_gb_mapping(gb, "branch", "main/agent:one", "parent", 0LL);
 	(void)fyai_agents_serve(&ctx, NULL, "agent/admit", params,
@@ -373,10 +374,10 @@ int branch_ui_unknown_state(void)
 		fy_invalid, &result, &error);
 	FYAI_TCHECK(!strcmp(fyai_agents_state(&ctx, "main/agent:one"),
 			    "waiting for input"));
-	FYAI_TCHECK(fyai_diag_pending(&cfg.diag));
+	FYAI_TCHECK(fyai_diag_pending(cfg.diag));
 	unknown_state_text[0] = '\0';
 	fyai_diag_drain_tap(unknown_state_tap, NULL);
-	fyai_diag_drain(&cfg.diag);
+	fyai_diag_drain(cfg.diag);
 	fyai_diag_drain_tap(NULL, NULL);
 	FYAI_TCHECK(strstr(unknown_state_text, "runing") &&
 		    strstr(unknown_state_text, "main/agent:one"));
@@ -387,7 +388,7 @@ int branch_ui_unknown_state(void)
 	FYAI_TCHECK(!strcmp(fyai_agents_state(&ctx, "main/agent:one"),
 			    "completed"));
 	fyai_agents_cleanup(&ctx);
-	fyai_diag_cleanup(&cfg.diag);
+	fyai_test_diag_cleanup(&cfg);
 	fy_generic_builder_destroy(gb);
 	return 0;
 }

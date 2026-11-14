@@ -2256,8 +2256,8 @@ bool fyai_cmd_session_step(struct fyai_ctx *ctx)
 	ctx->cmd_call = NULL;
 	fyai_ui_pane_begin(ctx);
 	rc = call_present(call);
-	error = rc || fyai_diag_got_error(&ctx->cfg->diag);
-	fyai_diag_drain(&ctx->cfg->diag);
+	error = rc || fyai_diag_got_error(ctx->cfg->diag);
+	fyai_diag_drain(ctx->cfg->diag);
 	fyai_ui_pane_end(ctx, call->path, error,
 			 !fy_get(call->def, "view", false));
 	fyai_cmd_call_release(call);

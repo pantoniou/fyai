@@ -39,6 +39,7 @@
 #include "fyai_test.h"
 
 #include "fyai_test_registry.h"
+#include "fyai_test_diag.h"
 
 FYAI_TEST_ENTRY(event, create_destroy, event_create_destroy)
 FYAI_TEST_ENTRY(event, pool_reuse, event_pool_reuse)
@@ -283,7 +284,7 @@ static void test_arm_failure_is_clean(void)
 	fyai_event_loop_destroy(el);
 
 	/* These failures were expected; drop them so main() drains clean. */
-	fyai_diag_reset(&test_cfg.diag);
+	fyai_diag_reset(test_cfg.diag);
 
 	printf("ok - a failed arm leaves nothing registered\n");
 }
@@ -1915,13 +1916,13 @@ int event_create_destroy(void)
 {
 	int rc;
 
-	rc = fyai_diag_setup(&test_cfg.diag);
+	rc = fyai_test_diag_setup(&test_cfg);
 	FYAI_TCHECK(!rc);
 
 	test_create_destroy();
 
-	fyai_diag_drain(&test_cfg.diag);
-	fyai_diag_cleanup(&test_cfg.diag);
+	fyai_diag_drain(test_cfg.diag);
+	fyai_test_diag_cleanup(&test_cfg);
 	fyai_event_pool_drain(&test_ctx);
 	return 0;
 }
@@ -1930,13 +1931,13 @@ int event_pool_reuse(void)
 {
 	int rc;
 
-	rc = fyai_diag_setup(&test_cfg.diag);
+	rc = fyai_test_diag_setup(&test_cfg);
 	FYAI_TCHECK(!rc);
 
 	test_pool_reuse();
 
-	fyai_diag_drain(&test_cfg.diag);
-	fyai_diag_cleanup(&test_cfg.diag);
+	fyai_diag_drain(test_cfg.diag);
+	fyai_test_diag_cleanup(&test_cfg);
 	fyai_event_pool_drain(&test_ctx);
 	return 0;
 }
@@ -1945,13 +1946,13 @@ int event_arm_failure_is_clean(void)
 {
 	int rc;
 
-	rc = fyai_diag_setup(&test_cfg.diag);
+	rc = fyai_test_diag_setup(&test_cfg);
 	FYAI_TCHECK(!rc);
 
 	test_arm_failure_is_clean();
 
-	fyai_diag_drain(&test_cfg.diag);
-	fyai_diag_cleanup(&test_cfg.diag);
+	fyai_diag_drain(test_cfg.diag);
+	fyai_test_diag_cleanup(&test_cfg);
 	fyai_event_pool_drain(&test_ctx);
 	return 0;
 }
@@ -1960,13 +1961,13 @@ int event_fd_reregister_in_dispatch(void)
 {
 	int rc;
 
-	rc = fyai_diag_setup(&test_cfg.diag);
+	rc = fyai_test_diag_setup(&test_cfg);
 	FYAI_TCHECK(!rc);
 
 	test_fd_reregister_in_dispatch();
 
-	fyai_diag_drain(&test_cfg.diag);
-	fyai_diag_cleanup(&test_cfg.diag);
+	fyai_diag_drain(test_cfg.diag);
+	fyai_test_diag_cleanup(&test_cfg);
 	fyai_event_pool_drain(&test_ctx);
 	return 0;
 }
@@ -1975,13 +1976,13 @@ int event_fork_child_abandons_loop(void)
 {
 	int rc;
 
-	rc = fyai_diag_setup(&test_cfg.diag);
+	rc = fyai_test_diag_setup(&test_cfg);
 	FYAI_TCHECK(!rc);
 
 	test_fork_child_abandons_loop();
 
-	fyai_diag_drain(&test_cfg.diag);
-	fyai_diag_cleanup(&test_cfg.diag);
+	fyai_diag_drain(test_cfg.diag);
+	fyai_test_diag_cleanup(&test_cfg);
 	fyai_event_pool_drain(&test_ctx);
 	return 0;
 }
@@ -2022,13 +2023,13 @@ int event_sleep_until_done(void)
 {
 	int rc;
 
-	rc = fyai_diag_setup(&test_cfg.diag);
+	rc = fyai_test_diag_setup(&test_cfg);
 	FYAI_TCHECK(!rc);
 
 	test_sleep_until_done();
 
-	fyai_diag_drain(&test_cfg.diag);
-	fyai_diag_cleanup(&test_cfg.diag);
+	fyai_diag_drain(test_cfg.diag);
+	fyai_test_diag_cleanup(&test_cfg);
 	fyai_event_pool_drain(&test_ctx);
 	return 0;
 }
@@ -2037,13 +2038,13 @@ int event_idle_returns(void)
 {
 	int rc;
 
-	rc = fyai_diag_setup(&test_cfg.diag);
+	rc = fyai_test_diag_setup(&test_cfg);
 	FYAI_TCHECK(!rc);
 
 	test_idle_returns();
 
-	fyai_diag_drain(&test_cfg.diag);
-	fyai_diag_cleanup(&test_cfg.diag);
+	fyai_diag_drain(test_cfg.diag);
+	fyai_test_diag_cleanup(&test_cfg);
 	fyai_event_pool_drain(&test_ctx);
 	return 0;
 }
@@ -2052,13 +2053,13 @@ int event_done_flag(void)
 {
 	int rc;
 
-	rc = fyai_diag_setup(&test_cfg.diag);
+	rc = fyai_test_diag_setup(&test_cfg);
 	FYAI_TCHECK(!rc);
 
 	test_done_flag();
 
-	fyai_diag_drain(&test_cfg.diag);
-	fyai_diag_cleanup(&test_cfg.diag);
+	fyai_diag_drain(test_cfg.diag);
+	fyai_test_diag_cleanup(&test_cfg);
 	fyai_event_pool_drain(&test_ctx);
 	return 0;
 }
@@ -2067,13 +2068,13 @@ int event_timeout(void)
 {
 	int rc;
 
-	rc = fyai_diag_setup(&test_cfg.diag);
+	rc = fyai_test_diag_setup(&test_cfg);
 	FYAI_TCHECK(!rc);
 
 	test_timeout();
 
-	fyai_diag_drain(&test_cfg.diag);
-	fyai_diag_cleanup(&test_cfg.diag);
+	fyai_diag_drain(test_cfg.diag);
+	fyai_test_diag_cleanup(&test_cfg);
 	fyai_event_pool_drain(&test_ctx);
 	return 0;
 }
@@ -2082,13 +2083,13 @@ int event_timer_lost_registration(void)
 {
 	int rc;
 
-	rc = fyai_diag_setup(&test_cfg.diag);
+	rc = fyai_test_diag_setup(&test_cfg);
 	FYAI_TCHECK(!rc);
 
 	test_timer_lost_registration();
 
-	fyai_diag_drain(&test_cfg.diag);
-	fyai_diag_cleanup(&test_cfg.diag);
+	fyai_diag_drain(test_cfg.diag);
+	fyai_test_diag_cleanup(&test_cfg);
 	fyai_event_pool_drain(&test_ctx);
 	return 0;
 }
@@ -2097,13 +2098,13 @@ int event_timer_oneshot(void)
 {
 	int rc;
 
-	rc = fyai_diag_setup(&test_cfg.diag);
+	rc = fyai_test_diag_setup(&test_cfg);
 	FYAI_TCHECK(!rc);
 
 	test_timer_oneshot();
 
-	fyai_diag_drain(&test_cfg.diag);
-	fyai_diag_cleanup(&test_cfg.diag);
+	fyai_diag_drain(test_cfg.diag);
+	fyai_test_diag_cleanup(&test_cfg);
 	fyai_event_pool_drain(&test_ctx);
 	return 0;
 }
@@ -2154,13 +2155,13 @@ int event_timer_first_delay(void)
 {
 	int rc;
 
-	rc = fyai_diag_setup(&test_cfg.diag);
+	rc = fyai_test_diag_setup(&test_cfg);
 	FYAI_TCHECK(!rc);
 
 	test_timer_first_delay();
 
-	fyai_diag_drain(&test_cfg.diag);
-	fyai_diag_cleanup(&test_cfg.diag);
+	fyai_diag_drain(test_cfg.diag);
+	fyai_test_diag_cleanup(&test_cfg);
 	fyai_event_pool_drain(&test_ctx);
 	return 0;
 }
@@ -2169,13 +2170,13 @@ int event_timer_repeating(void)
 {
 	int rc;
 
-	rc = fyai_diag_setup(&test_cfg.diag);
+	rc = fyai_test_diag_setup(&test_cfg);
 	FYAI_TCHECK(!rc);
 
 	test_timer_repeating();
 
-	fyai_diag_drain(&test_cfg.diag);
-	fyai_diag_cleanup(&test_cfg.diag);
+	fyai_diag_drain(test_cfg.diag);
+	fyai_test_diag_cleanup(&test_cfg);
 	fyai_event_pool_drain(&test_ctx);
 	return 0;
 }
@@ -2184,13 +2185,13 @@ int event_timer_rearm_in_callback(void)
 {
 	int rc;
 
-	rc = fyai_diag_setup(&test_cfg.diag);
+	rc = fyai_test_diag_setup(&test_cfg);
 	FYAI_TCHECK(!rc);
 
 	test_timer_rearm_in_callback();
 
-	fyai_diag_drain(&test_cfg.diag);
-	fyai_diag_cleanup(&test_cfg.diag);
+	fyai_diag_drain(test_cfg.diag);
+	fyai_test_diag_cleanup(&test_cfg);
 	fyai_event_pool_drain(&test_ctx);
 	return 0;
 }
@@ -2199,13 +2200,13 @@ int event_timer_rearm_keeps_interval(void)
 {
 	int rc;
 
-	rc = fyai_diag_setup(&test_cfg.diag);
+	rc = fyai_test_diag_setup(&test_cfg);
 	FYAI_TCHECK(!rc);
 
 	test_timer_rearm_keeps_interval();
 
-	fyai_diag_drain(&test_cfg.diag);
-	fyai_diag_cleanup(&test_cfg.diag);
+	fyai_diag_drain(test_cfg.diag);
+	fyai_test_diag_cleanup(&test_cfg);
 	fyai_event_pool_drain(&test_ctx);
 	return 0;
 }
@@ -2214,13 +2215,13 @@ int event_timer_order(void)
 {
 	int rc;
 
-	rc = fyai_diag_setup(&test_cfg.diag);
+	rc = fyai_test_diag_setup(&test_cfg);
 	FYAI_TCHECK(!rc);
 
 	test_timer_order();
 
-	fyai_diag_drain(&test_cfg.diag);
-	fyai_diag_cleanup(&test_cfg.diag);
+	fyai_diag_drain(test_cfg.diag);
+	fyai_test_diag_cleanup(&test_cfg);
 	fyai_event_pool_drain(&test_ctx);
 	return 0;
 }
@@ -2229,13 +2230,13 @@ int event_fd_read_eof(void)
 {
 	int rc;
 
-	rc = fyai_diag_setup(&test_cfg.diag);
+	rc = fyai_test_diag_setup(&test_cfg);
 	FYAI_TCHECK(!rc);
 
 	test_fd_read_eof();
 
-	fyai_diag_drain(&test_cfg.diag);
-	fyai_diag_cleanup(&test_cfg.diag);
+	fyai_diag_drain(test_cfg.diag);
+	fyai_test_diag_cleanup(&test_cfg);
 	fyai_event_pool_drain(&test_ctx);
 	return 0;
 }
@@ -2244,13 +2245,13 @@ int event_fd_write(void)
 {
 	int rc;
 
-	rc = fyai_diag_setup(&test_cfg.diag);
+	rc = fyai_test_diag_setup(&test_cfg);
 	FYAI_TCHECK(!rc);
 
 	test_fd_write();
 
-	fyai_diag_drain(&test_cfg.diag);
-	fyai_diag_cleanup(&test_cfg.diag);
+	fyai_diag_drain(test_cfg.diag);
+	fyai_test_diag_cleanup(&test_cfg);
 	fyai_event_pool_drain(&test_ctx);
 	return 0;
 }
@@ -2259,13 +2260,13 @@ int event_child_exit(void)
 {
 	int rc;
 
-	rc = fyai_diag_setup(&test_cfg.diag);
+	rc = fyai_test_diag_setup(&test_cfg);
 	FYAI_TCHECK(!rc);
 
 	test_child_exit();
 
-	fyai_diag_drain(&test_cfg.diag);
-	fyai_diag_cleanup(&test_cfg.diag);
+	fyai_diag_drain(test_cfg.diag);
+	fyai_test_diag_cleanup(&test_cfg);
 	fyai_event_pool_drain(&test_ctx);
 	return 0;
 }
@@ -2274,13 +2275,13 @@ int event_child_signalled(void)
 {
 	int rc;
 
-	rc = fyai_diag_setup(&test_cfg.diag);
+	rc = fyai_test_diag_setup(&test_cfg);
 	FYAI_TCHECK(!rc);
 
 	test_child_signalled();
 
-	fyai_diag_drain(&test_cfg.diag);
-	fyai_diag_cleanup(&test_cfg.diag);
+	fyai_diag_drain(test_cfg.diag);
+	fyai_test_diag_cleanup(&test_cfg);
 	fyai_event_pool_drain(&test_ctx);
 	return 0;
 }
@@ -2289,13 +2290,13 @@ int event_child_already_exited(void)
 {
 	int rc;
 
-	rc = fyai_diag_setup(&test_cfg.diag);
+	rc = fyai_test_diag_setup(&test_cfg);
 	FYAI_TCHECK(!rc);
 
 	test_child_already_exited();
 
-	fyai_diag_drain(&test_cfg.diag);
-	fyai_diag_cleanup(&test_cfg.diag);
+	fyai_diag_drain(test_cfg.diag);
+	fyai_test_diag_cleanup(&test_cfg);
 	fyai_event_pool_drain(&test_ctx);
 	return 0;
 }
@@ -2304,13 +2305,13 @@ int event_child_nested_run(void)
 {
 	int rc;
 
-	rc = fyai_diag_setup(&test_cfg.diag);
+	rc = fyai_test_diag_setup(&test_cfg);
 	FYAI_TCHECK(!rc);
 
 	test_child_nested_run();
 
-	fyai_diag_drain(&test_cfg.diag);
-	fyai_diag_cleanup(&test_cfg.diag);
+	fyai_diag_drain(test_cfg.diag);
+	fyai_test_diag_cleanup(&test_cfg);
 	fyai_event_pool_drain(&test_ctx);
 	return 0;
 }
@@ -2319,13 +2320,13 @@ int event_child_terminate_polite(void)
 {
 	int rc;
 
-	rc = fyai_diag_setup(&test_cfg.diag);
+	rc = fyai_test_diag_setup(&test_cfg);
 	FYAI_TCHECK(!rc);
 
 	test_child_terminate_polite();
 
-	fyai_diag_drain(&test_cfg.diag);
-	fyai_diag_cleanup(&test_cfg.diag);
+	fyai_diag_drain(test_cfg.diag);
+	fyai_test_diag_cleanup(&test_cfg);
 	fyai_event_pool_drain(&test_ctx);
 	return 0;
 }
@@ -2334,13 +2335,13 @@ int event_child_terminate_sigterm(void)
 {
 	int rc;
 
-	rc = fyai_diag_setup(&test_cfg.diag);
+	rc = fyai_test_diag_setup(&test_cfg);
 	FYAI_TCHECK(!rc);
 
 	test_child_terminate_sigterm();
 
-	fyai_diag_drain(&test_cfg.diag);
-	fyai_diag_cleanup(&test_cfg.diag);
+	fyai_diag_drain(test_cfg.diag);
+	fyai_test_diag_cleanup(&test_cfg);
 	fyai_event_pool_drain(&test_ctx);
 	return 0;
 }
@@ -2349,13 +2350,13 @@ int event_child_terminate_sigkill(void)
 {
 	int rc;
 
-	rc = fyai_diag_setup(&test_cfg.diag);
+	rc = fyai_test_diag_setup(&test_cfg);
 	FYAI_TCHECK(!rc);
 
 	test_child_terminate_sigkill();
 
-	fyai_diag_drain(&test_cfg.diag);
-	fyai_diag_cleanup(&test_cfg.diag);
+	fyai_diag_drain(test_cfg.diag);
+	fyai_test_diag_cleanup(&test_cfg);
 	fyai_event_pool_drain(&test_ctx);
 	return 0;
 }
@@ -2364,13 +2365,13 @@ int event_child_terminate_concurrent(void)
 {
 	int rc;
 
-	rc = fyai_diag_setup(&test_cfg.diag);
+	rc = fyai_test_diag_setup(&test_cfg);
 	FYAI_TCHECK(!rc);
 
 	test_child_terminate_concurrent();
 
-	fyai_diag_drain(&test_cfg.diag);
-	fyai_diag_cleanup(&test_cfg.diag);
+	fyai_diag_drain(test_cfg.diag);
+	fyai_test_diag_cleanup(&test_cfg);
 	fyai_event_pool_drain(&test_ctx);
 	return 0;
 }
@@ -2379,13 +2380,13 @@ int event_signal(void)
 {
 	int rc;
 
-	rc = fyai_diag_setup(&test_cfg.diag);
+	rc = fyai_test_diag_setup(&test_cfg);
 	FYAI_TCHECK(!rc);
 
 	test_signal();
 
-	fyai_diag_drain(&test_cfg.diag);
-	fyai_diag_cleanup(&test_cfg.diag);
+	fyai_diag_drain(test_cfg.diag);
+	fyai_test_diag_cleanup(&test_cfg);
 	fyai_event_pool_drain(&test_ctx);
 	return 0;
 }
@@ -2394,13 +2395,13 @@ int event_signal_nested_teardown(void)
 {
 	int rc;
 
-	rc = fyai_diag_setup(&test_cfg.diag);
+	rc = fyai_test_diag_setup(&test_cfg);
 	FYAI_TCHECK(!rc);
 
 	test_signal_nested_teardown();
 
-	fyai_diag_drain(&test_cfg.diag);
-	fyai_diag_cleanup(&test_cfg.diag);
+	fyai_diag_drain(test_cfg.diag);
+	fyai_test_diag_cleanup(&test_cfg);
 	fyai_event_pool_drain(&test_ctx);
 	return 0;
 }
@@ -2409,13 +2410,13 @@ int event_interrupt_watchdog_acked(void)
 {
 	int rc;
 
-	rc = fyai_diag_setup(&test_cfg.diag);
+	rc = fyai_test_diag_setup(&test_cfg);
 	FYAI_TCHECK(!rc);
 
 	test_interrupt_watchdog_acked();
 
-	fyai_diag_drain(&test_cfg.diag);
-	fyai_diag_cleanup(&test_cfg.diag);
+	fyai_diag_drain(test_cfg.diag);
+	fyai_test_diag_cleanup(&test_cfg);
 	fyai_event_pool_drain(&test_ctx);
 	return 0;
 }
@@ -2424,13 +2425,13 @@ int event_interrupt_watchdog_escalates(void)
 {
 	int rc;
 
-	rc = fyai_diag_setup(&test_cfg.diag);
+	rc = fyai_test_diag_setup(&test_cfg);
 	FYAI_TCHECK(!rc);
 
 	test_interrupt_watchdog_escalates();
 
-	fyai_diag_drain(&test_cfg.diag);
-	fyai_diag_cleanup(&test_cfg.diag);
+	fyai_diag_drain(test_cfg.diag);
+	fyai_test_diag_cleanup(&test_cfg);
 	fyai_event_pool_drain(&test_ctx);
 	return 0;
 }
@@ -2439,13 +2440,13 @@ int event_state_dump(void)
 {
 	int rc;
 
-	rc = fyai_diag_setup(&test_cfg.diag);
+	rc = fyai_test_diag_setup(&test_cfg);
 	FYAI_TCHECK(!rc);
 
 	test_state_dump();
 
-	fyai_diag_drain(&test_cfg.diag);
-	fyai_diag_cleanup(&test_cfg.diag);
+	fyai_diag_drain(test_cfg.diag);
+	fyai_test_diag_cleanup(&test_cfg);
 	fyai_event_pool_drain(&test_ctx);
 	return 0;
 }
@@ -2454,13 +2455,13 @@ int event_state_dump_while_stuck(void)
 {
 	int rc;
 
-	rc = fyai_diag_setup(&test_cfg.diag);
+	rc = fyai_test_diag_setup(&test_cfg);
 	FYAI_TCHECK(!rc);
 
 	test_state_dump_while_stuck();
 
-	fyai_diag_drain(&test_cfg.diag);
-	fyai_diag_cleanup(&test_cfg.diag);
+	fyai_diag_drain(test_cfg.diag);
+	fyai_test_diag_cleanup(&test_cfg);
 	fyai_event_pool_drain(&test_ctx);
 	return 0;
 }
@@ -2469,13 +2470,13 @@ int event_nested_run(void)
 {
 	int rc;
 
-	rc = fyai_diag_setup(&test_cfg.diag);
+	rc = fyai_test_diag_setup(&test_cfg);
 	FYAI_TCHECK(!rc);
 
 	test_nested_run();
 
-	fyai_diag_drain(&test_cfg.diag);
-	fyai_diag_cleanup(&test_cfg.diag);
+	fyai_diag_drain(test_cfg.diag);
+	fyai_test_diag_cleanup(&test_cfg);
 	fyai_event_pool_drain(&test_ctx);
 	return 0;
 }
@@ -2484,13 +2485,13 @@ int event_remove_after_nested_run(void)
 {
 	int rc;
 
-	rc = fyai_diag_setup(&test_cfg.diag);
+	rc = fyai_test_diag_setup(&test_cfg);
 	FYAI_TCHECK(!rc);
 
 	test_remove_after_nested_run();
 
-	fyai_diag_drain(&test_cfg.diag);
-	fyai_diag_cleanup(&test_cfg.diag);
+	fyai_diag_drain(test_cfg.diag);
+	fyai_test_diag_cleanup(&test_cfg);
 	fyai_event_pool_drain(&test_ctx);
 	return 0;
 }
@@ -2499,13 +2500,13 @@ int event_abort(void)
 {
 	int rc;
 
-	rc = fyai_diag_setup(&test_cfg.diag);
+	rc = fyai_test_diag_setup(&test_cfg);
 	FYAI_TCHECK(!rc);
 
 	test_abort();
 
-	fyai_diag_drain(&test_cfg.diag);
-	fyai_diag_cleanup(&test_cfg.diag);
+	fyai_diag_drain(test_cfg.diag);
+	fyai_test_diag_cleanup(&test_cfg);
 	fyai_event_pool_drain(&test_ctx);
 	return 0;
 }
@@ -2514,13 +2515,13 @@ int event_stop_preserves_batch(void)
 {
 	int rc;
 
-	rc = fyai_diag_setup(&test_cfg.diag);
+	rc = fyai_test_diag_setup(&test_cfg);
 	FYAI_TCHECK(!rc);
 
 	test_stop_preserves_batch();
 
-	fyai_diag_drain(&test_cfg.diag);
-	fyai_diag_cleanup(&test_cfg.diag);
+	fyai_diag_drain(test_cfg.diag);
+	fyai_test_diag_cleanup(&test_cfg);
 	fyai_event_pool_drain(&test_ctx);
 	return 0;
 }
@@ -2529,13 +2530,13 @@ int event_self_remove(void)
 {
 	int rc;
 
-	rc = fyai_diag_setup(&test_cfg.diag);
+	rc = fyai_test_diag_setup(&test_cfg);
 	FYAI_TCHECK(!rc);
 
 	test_self_remove();
 
-	fyai_diag_drain(&test_cfg.diag);
-	fyai_diag_cleanup(&test_cfg.diag);
+	fyai_diag_drain(test_cfg.diag);
+	fyai_test_diag_cleanup(&test_cfg);
 	fyai_event_pool_drain(&test_ctx);
 	return 0;
 }
@@ -2544,13 +2545,13 @@ int event_defer_coalesce(void)
 {
 	int rc;
 
-	rc = fyai_diag_setup(&test_cfg.diag);
+	rc = fyai_test_diag_setup(&test_cfg);
 	FYAI_TCHECK(!rc);
 
 	test_defer_coalesce();
 
-	fyai_diag_drain(&test_cfg.diag);
-	fyai_diag_cleanup(&test_cfg.diag);
+	fyai_diag_drain(test_cfg.diag);
+	fyai_test_diag_cleanup(&test_cfg);
 	fyai_event_pool_drain(&test_ctx);
 	return 0;
 }
@@ -2559,13 +2560,13 @@ int event_defer_drain_once(void)
 {
 	int rc;
 
-	rc = fyai_diag_setup(&test_cfg.diag);
+	rc = fyai_test_diag_setup(&test_cfg);
 	FYAI_TCHECK(!rc);
 
 	test_defer_drain_once();
 
-	fyai_diag_drain(&test_cfg.diag);
-	fyai_diag_cleanup(&test_cfg.diag);
+	fyai_diag_drain(test_cfg.diag);
+	fyai_test_diag_cleanup(&test_cfg);
 	fyai_event_pool_drain(&test_ctx);
 	return 0;
 }
@@ -2574,13 +2575,13 @@ int event_defer_cancel(void)
 {
 	int rc;
 
-	rc = fyai_diag_setup(&test_cfg.diag);
+	rc = fyai_test_diag_setup(&test_cfg);
 	FYAI_TCHECK(!rc);
 
 	test_defer_cancel();
 
-	fyai_diag_drain(&test_cfg.diag);
-	fyai_diag_cleanup(&test_cfg.diag);
+	fyai_diag_drain(test_cfg.diag);
+	fyai_test_diag_cleanup(&test_cfg);
 	fyai_event_pool_drain(&test_ctx);
 	return 0;
 }
@@ -2589,13 +2590,13 @@ int event_defer_under_nested_run(void)
 {
 	int rc;
 
-	rc = fyai_diag_setup(&test_cfg.diag);
+	rc = fyai_test_diag_setup(&test_cfg);
 	FYAI_TCHECK(!rc);
 
 	test_defer_under_nested_run();
 
-	fyai_diag_drain(&test_cfg.diag);
-	fyai_diag_cleanup(&test_cfg.diag);
+	fyai_diag_drain(test_cfg.diag);
+	fyai_test_diag_cleanup(&test_cfg);
 	fyai_event_pool_drain(&test_ctx);
 	return 0;
 }
@@ -2604,13 +2605,13 @@ int event_flush_timer_retires(void)
 {
 	int rc;
 
-	rc = fyai_diag_setup(&test_cfg.diag);
+	rc = fyai_test_diag_setup(&test_cfg);
 	FYAI_TCHECK(!rc);
 
 	test_flush_timer_retires();
 
-	fyai_diag_drain(&test_cfg.diag);
-	fyai_diag_cleanup(&test_cfg.diag);
+	fyai_diag_drain(test_cfg.diag);
+	fyai_test_diag_cleanup(&test_cfg);
 	fyai_event_pool_drain(&test_ctx);
 	return 0;
 }

@@ -768,7 +768,7 @@ static void ensure_personas(struct fyai_ctx *ctx, struct fyai_transport_grant *g
 	fy_generic personas = fy_get(fy_get(ctx->cfg->config_doc, "agent"),
 				     "personas", fy_invalid);
 	fy_generic key, persona;
-	bool had_error = fyai_diag_got_error(&ctx->cfg->diag);
+	bool had_error = fyai_diag_got_error(ctx->cfg->diag);
 	struct fyai_cfg pc;
 	const char *why;
 
@@ -779,7 +779,7 @@ static void ensure_personas(struct fyai_ctx *ctx, struct fyai_transport_grant *g
 			continue;
 		if (fyai_agent_persona_cfg(ctx, persona, false, &pc)) {
 			if (!had_error)
-				fyai_diag_reset(&ctx->cfg->diag);
+				fyai_diag_reset(ctx->cfg->diag);
 			continue;
 		}
 		(void)ensure_add(&pc, grant, names, n, &why);

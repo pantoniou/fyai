@@ -27,6 +27,7 @@
 #include "fyai_test.h"
 
 #include "fyai_test_registry.h"
+#include "fyai_test_diag.h"
 
 #include <libfypalette.h>
 
@@ -237,11 +238,11 @@ int markdown_window_bounds_render(void)
 {
 	int rc;
 
-	rc = fyai_diag_setup(&test_cfg.diag);
+	rc = fyai_test_diag_setup(&test_cfg);
 	FYAI_TCHECK(!rc);
 	test_window_bounds_render();
-	fyai_diag_drain(&test_cfg.diag);
-	fyai_diag_cleanup(&test_cfg.diag);
+	fyai_diag_drain(test_cfg.diag);
+	fyai_test_diag_cleanup(&test_cfg);
 	return 0;
 }
 
@@ -249,11 +250,11 @@ int markdown_window_reopens_fence(void)
 {
 	int rc;
 
-	rc = fyai_diag_setup(&test_cfg.diag);
+	rc = fyai_test_diag_setup(&test_cfg);
 	FYAI_TCHECK(!rc);
 	test_window_reopens_fence();
-	fyai_diag_drain(&test_cfg.diag);
-	fyai_diag_cleanup(&test_cfg.diag);
+	fyai_diag_drain(test_cfg.diag);
+	fyai_test_diag_cleanup(&test_cfg);
 	return 0;
 }
 
@@ -261,11 +262,11 @@ int markdown_window_off_when_unbounded(void)
 {
 	int rc;
 
-	rc = fyai_diag_setup(&test_cfg.diag);
+	rc = fyai_test_diag_setup(&test_cfg);
 	FYAI_TCHECK(!rc);
 	test_window_off_when_unbounded();
-	fyai_diag_drain(&test_cfg.diag);
-	fyai_diag_cleanup(&test_cfg.diag);
+	fyai_diag_drain(test_cfg.diag);
+	fyai_test_diag_cleanup(&test_cfg);
 	return 0;
 }
 
@@ -273,11 +274,11 @@ int markdown_final_render_is_whole(void)
 {
 	int rc;
 
-	rc = fyai_diag_setup(&test_cfg.diag);
+	rc = fyai_test_diag_setup(&test_cfg);
 	FYAI_TCHECK(!rc);
 	test_final_render_is_whole();
-	fyai_diag_drain(&test_cfg.diag);
-	fyai_diag_cleanup(&test_cfg.diag);
+	fyai_diag_drain(test_cfg.diag);
+	fyai_test_diag_cleanup(&test_cfg);
 	return 0;
 }
 
@@ -323,12 +324,12 @@ int markdown_tool_head_chrome(void)
 {
 	int rc;
 
-	rc = fyai_diag_setup(&test_cfg.diag);
+	rc = fyai_test_diag_setup(&test_cfg);
 	FYAI_TCHECK(!rc);
 	test_cfg.color = "off";
 	test_tool_head_chrome();
-	fyai_diag_drain(&test_cfg.diag);
-	fyai_diag_cleanup(&test_cfg.diag);
+	fyai_diag_drain(test_cfg.diag);
+	fyai_test_diag_cleanup(&test_cfg);
 	return 0;
 }
 
@@ -570,7 +571,7 @@ int markdown_gutter_palette(void)
 	int pass;
 	int rc;
 
-	rc = fyai_diag_setup(&test_cfg.diag);
+	rc = fyai_test_diag_setup(&test_cfg);
 	FYAI_TCHECK(!rc);
 	test_cfg.color = "off";
 	test_cfg.palette = NULL;
@@ -629,8 +630,8 @@ int markdown_gutter_palette(void)
 	test_cfg.diagram_charset = NULL;
 	fypal_ctx_destroy(test_cfg.palette);
 	test_cfg.palette = NULL;
-	fyai_diag_drain(&test_cfg.diag);
-	fyai_diag_cleanup(&test_cfg.diag);
+	fyai_diag_drain(test_cfg.diag);
+	fyai_test_diag_cleanup(&test_cfg);
 	return 0;
 }
 
@@ -646,7 +647,7 @@ int markdown_reasoning_palette(void)
 	struct fyai_buf out = {0};
 	int rc;
 
-	rc = fyai_diag_setup(&test_cfg.diag);
+	rc = fyai_test_diag_setup(&test_cfg);
 	FYAI_TCHECK(!rc);
 	test_cfg.color = "off";
 	test_cfg.palette = NULL;
@@ -677,8 +678,8 @@ int markdown_reasoning_palette(void)
 	free(out.data);
 	fypal_ctx_destroy(test_cfg.palette);
 	test_cfg.palette = NULL;
-	fyai_diag_drain(&test_cfg.diag);
-	fyai_diag_cleanup(&test_cfg.diag);
+	fyai_diag_drain(test_cfg.diag);
+	fyai_test_diag_cleanup(&test_cfg);
 	return 0;
 }
 
@@ -738,7 +739,7 @@ int markdown_head_regions_test(void)
 	char *head;
 	int rc;
 
-	rc = fyai_diag_setup(&test_cfg.diag);
+	rc = fyai_test_diag_setup(&test_cfg);
 	FYAI_TCHECK(!rc);
 	test_cfg.color = "off";
 	test_cfg.palette = NULL;
@@ -760,8 +761,8 @@ int markdown_head_regions_test(void)
 	free(out.data);
 	free(head);
 	free(title);
-	fyai_diag_drain(&test_cfg.diag);
-	fyai_diag_cleanup(&test_cfg.diag);
+	fyai_diag_drain(test_cfg.diag);
+	fyai_test_diag_cleanup(&test_cfg);
 	return 0;
 }
 

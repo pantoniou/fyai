@@ -690,7 +690,7 @@ static int skill_import_try(struct skill_import *im, const char *md,
 	int rc;
 
 	rc = skill_import_one(im, md, dir);
-	if (rc && !fyai_diag_got_error(&im->ctx->cfg->diag))
+	if (rc && !fyai_diag_got_error(im->ctx->cfg->diag))
 		return 0;
 	return rc;
 }

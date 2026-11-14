@@ -1730,6 +1730,9 @@ static int config_doc_finalize(struct fyai_cfg *cfg)
 	struct fyai_cfg tmp;
 
 	tmp = *cfg;
+	/* The copy only checks the document: what it raises is raised again
+	 * when the real configuration resolves. */
+	tmp.diag = NULL;
 	if (fyai_config_resolve_model(&tmp))
 		return -1;
 	if (fyai_config_grammar_gate(&tmp))
@@ -3266,11 +3269,11 @@ void fyai_config_set_defaults(struct fyai_cfg *cfg)
 
 void fyai_config_cleanup(struct fyai_cfg *cfg)
 {
+	struct fyai_diag *diag;
+
 	if (!cfg)
 		return;
 
-	/* Drains whatever no earlier boundary reported. */
-	fyai_diag_cleanup(&cfg->diag);
 	free(cfg->reload_branch);
 	free(cfg->reload_config);
 	free(cfg->reload_session);
@@ -3279,8 +3282,12 @@ void fyai_config_cleanup(struct fyai_cfg *cfg)
 	free(cfg->root_spec);
 	free(cfg->terminal_input);
 	markdown_palettes_destroy(cfg);
-	fy_generic_builder_destroy(cfg->gb);
+	if (cfg->gb)
+		fy_generic_builder_destroy(cfg->gb);
+	/* The diagnostics are not the configuration's: a later report goes there. */
+	diag = cfg->diag;
 	memset(cfg, 0, sizeof(*cfg));
+	cfg->diag = diag;
 }
 
 enum {
@@ -3929,9 +3936,9 @@ static int config_parse_cli_options(struct fyai_cfg *cfg, int argc, char *argv[]
 			 * fallbacks, and the chain of callers unwinding behind
 			 * the error that caused it, each with its origin.
 			 */
-			cfg->diag.mask |= (1u << FYAIET_DEBUG) |
-					  (1u << FYAIET_INFO);
-			cfg->diag.source = true;
+			fyai_diag_enable(cfg->diag, FYAIET_DEBUG, true);
+			fyai_diag_enable(cfg->diag, FYAIET_INFO, true);
+			fyai_diag_set_source(cfg->diag, true);
 			break;
 		case OPT_COLOR:
 			if (config_queue_set_quoted(cfg, "display/color", optarg,
@@ -4093,11 +4100,6 @@ static int config_setup_init(struct config_setup *s)
 	gb_cfg.flags = FYGBCF_SCOPE_LEADER | FYGBCF_DEDUP_ENABLED;
 	cfg->gb = fy_generic_builder_create(&gb_cfg);
 	if (!cfg->gb)
-		goto err_out;
-
-	/* Before anything that can fail below: the option parsing that follows
-	 * reports through it. */
-	if (fyai_diag_setup(&cfg->diag))
 		goto err_out;
 
 	fyai_config_set_defaults(cfg);
@@ -4397,12 +4399,17 @@ int fyai_config_setup(struct fyai_cfg *cfg, int argc, char *argv[])
 {
 	struct config_setup s = { .cfg = cfg, .argc = argc, .argv = argv,
 				  .ret = -1 };
+	struct fyai_diag *diag;
 	int rc;
 
 	if (!cfg)
 		return -1;
 
+	/* The diagnostics are a dependency of the configuration: the owner
+	 * set them before this call, and every report below goes there. */
+	diag = cfg->diag;
 	memset(cfg, 0, sizeof(*cfg));
+	cfg->diag = diag;
 
 	rc = config_setup_init(&s) || config_setup_args(&s) ||
 	     config_setup_load(&s) || config_setup_dispatch(&s);

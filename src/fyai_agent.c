@@ -1089,7 +1089,7 @@ static fy_generic tool_agent(struct fyai_ctx *ctx, fy_generic args, bool *okp)
 	if (!ctx->transient_gb && fyai_setup_transient_builder(ctx))
 		return fy_invalid;
 	/* Quote the cause without consuming the user's diagnostic. */
-	diag = fyai_diag_string(&ctx->cfg->diag);
+	diag = fyai_diag_string(ctx->cfg->diag);
 	result_generic = fy_stringf(ctx->transient_gb,
 		"tool error: sub-agent%s%s%s failed: %s",
 		who && *who ? " '" : "", who ? who : "",
@@ -1250,7 +1250,7 @@ static fy_generic agent_rpc_failure(struct fyai_ctx *ctx)
 	fy_generic error;
 	char *why;
 
-	why = fyai_diag_string(&ctx->cfg->diag);
+	why = fyai_diag_string(ctx->cfg->diag);
 	error = fy_gb_mapping(fyai_ctx_transient_gb(ctx),
 			      "code", -32000LL,
 			      "message", "the sub-agent did not complete",

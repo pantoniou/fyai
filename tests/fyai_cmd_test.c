@@ -21,6 +21,7 @@
 
 #include "fyai_test.h"
 #include "fyai_test_registry.h"
+#include "fyai_test_diag.h"
 
 FYAI_TEST_ENTRY(cmd, registry, cmd_registry)
 FYAI_TEST_ENTRY(cmd, descriptions, cmd_descriptions)
@@ -60,13 +61,13 @@ static void cmd_test_open(struct cmd_test *t)
 	memset(t, 0, sizeof(*t));
 	t->gb = fy_generic_builder_create(&cfg);
 	FYAI_TCHECK(t->gb);
-	rc = fyai_diag_setup(&t->cfg.diag);
+	rc = fyai_test_diag_setup(&t->cfg);
 	FYAI_TCHECK(!rc);
 }
 
 static void cmd_test_close(struct cmd_test *t)
 {
-	fyai_diag_cleanup(&t->cfg.diag);
+	fyai_test_diag_cleanup(&t->cfg);
 	fy_generic_builder_destroy(t->gb);
 }
 
@@ -75,8 +76,8 @@ static char *cmd_test_diag(struct cmd_test *t)
 {
 	char *s;
 
-	s = fyai_diag_string(&t->cfg.diag);
-	fyai_diag_reset(&t->cfg.diag);
+	s = fyai_diag_string(t->cfg.diag);
+	fyai_diag_reset(t->cfg.diag);
 	return s;
 }
 
@@ -241,7 +242,7 @@ int cmd_parse_cli(void)
 	rc = cmd_test_parse(&t, FYAI_CMD_CLI, "branch --help", &p);
 	FYAI_TCHECK(!rc && p.help && !strcmp(p.path, "branch"));
 
-	FYAI_TCHECK(!fyai_diag_got_error(&t.cfg.diag));
+	FYAI_TCHECK(!fyai_diag_got_error(t.cfg.diag));
 	cmd_test_close(&t);
 	return 0;
 }
@@ -317,7 +318,7 @@ int cmd_parse_session(void)
 	/* --output is a verb option. */
 	rc = cmd_test_parse(&t, FYAI_CMD_SESSION, "model --output json", &p);
 	FYAI_TCHECK(rc);
-	fyai_diag_reset(&t.cfg.diag);
+	fyai_diag_reset(t.cfg.diag);
 	cmd_test_close(&t);
 	return 0;
 }

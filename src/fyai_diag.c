@@ -288,6 +288,28 @@ static void trace_diag(enum fyai_error_type type, enum fyai_error_module module,
 	trace_write(head, body);
 }
 
+void fyai_diag_enable(struct fyai_diag *diag, enum fyai_error_type type,
+		      bool on)
+{
+	if (!diag)
+		return;
+	if (on)
+		diag->mask |= 1u << type;
+	else
+		diag->mask &= ~(1u << type);
+}
+
+void fyai_diag_set_source(struct fyai_diag *diag, bool on)
+{
+	if (diag)
+		diag->source = on;
+}
+
+bool fyai_diag_source(const struct fyai_diag *diag)
+{
+	return diag && diag->source;
+}
+
 int fyai_diag_setup(struct fyai_diag *diag)
 {
 	struct fy_generic_builder_cfg gb_cfg;
@@ -627,12 +649,22 @@ void fyai_diag_adopt_agent(struct fyai_diag *diag, fy_generic list,
 	diag_adopt(diag, list, origin, true);
 }
 
-struct fyai_diag *fyai_ctx_diag(struct fyai_ctx *ctx)
-{
-	return ctx && ctx->cfg ? &ctx->cfg->diag : NULL;
-}
+/*
+ * The sink of a configuration that was given none, such as a scratch copy
+ * that a function fills in to check it: nothing is enabled and nothing is
+ * collected. A NULL context or configuration is another case, and reports
+ * at once.
+ */
+static struct fyai_diag diag_muted;
 
 struct fyai_diag *fyai_cfg_diag(struct fyai_cfg *cfg)
 {
-	return cfg ? &cfg->diag : NULL;
+	if (!cfg)
+		return NULL;
+	return cfg->diag ? cfg->diag : &diag_muted;
+}
+
+struct fyai_diag *fyai_ctx_diag(struct fyai_ctx *ctx)
+{
+	return ctx ? fyai_cfg_diag(ctx->cfg) : NULL;
 }

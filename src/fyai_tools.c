@@ -2444,7 +2444,7 @@ void fyai_ctx_fork_disown(struct fyai_ctx *ctx)
 	free(ctx->patch_display);
 	ctx->patch_display = NULL;
 	fyai_output_cleanup(ctx);		/* the document it has open */
-	fyai_diag_reset(&ctx->cfg->diag);	/* what the parent has not drained yet */
+	fyai_diag_reset(ctx->cfg->diag);	/* what the parent has not drained yet */
 	fyai_cover_abandon(&ctx->cover);	/* the holder that it does not own */
 	fyai_session_btw_abandon(ctx);		/* its side questions */
 	fyai_orphan_abandon(ctx);		/* and the processes that the scope keeps */
@@ -2668,7 +2668,7 @@ static fy_generic fyai_view_tool(struct fyai_ctx *ctx, fy_generic args, bool *ok
 	rc = fyai_view_pull_agent(ctx, ctx->transient_gb, name, selected, count, mode, &result);
 	free(selected);
 	if (rc) {
-		diag = fyai_diag_string(&ctx->cfg->diag);
+		diag = fyai_diag_string(ctx->cfg->diag);
 		result = fy_gb_internalize(ctx->transient_gb,
 			fy_stringf("tool error: %s", diag && *diag ? diag : "the view could not be read"));
 		free(diag);

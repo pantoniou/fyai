@@ -36,6 +36,7 @@
 #include "fyai_test.h"
 #include "fyai_test_registry.h"
 #include "utils.h"
+#include "fyai_test_diag.h"
 
 #define STEP_BOUND 2000
 
@@ -227,7 +228,7 @@ __attribute__((unused)) static void mock_start(struct mock *m,
 	sigaddset(&mask, SIGPIPE);
 	sigprocmask(SIG_BLOCK, &mask, NULL);
 	if (!diag_ready) {
-		rc = fyai_diag_setup(&cfg.diag);
+		rc = fyai_test_diag_setup(&cfg);
 		FYAI_TCHECK(!rc);
 		diag_ready = true;
 	}

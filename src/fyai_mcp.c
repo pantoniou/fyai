@@ -1971,7 +1971,7 @@ static void mcp_startup_req_done(struct jsonrpc_request *req, void *userdata)
 			 * release its error latch. Any discovery failure below
 			 * becomes the visible cause instead of debug unwind.
 			 */
-			fyai_diag_reset(&ctx->cfg->diag);
+			fyai_diag_reset(ctx->cfg->diag);
 			mcp->oauth_force_refresh = mcp->auth_token &&
 				*mcp->auth_token;
 			if (mcp->oauth_refresh_timer) {
@@ -3036,7 +3036,7 @@ static void fyai_mcp_call_req_done(struct jsonrpc_request *req, void *userdata)
 	    request->mcp->oauth_resource_metadata &&
 	    !request->auth_retry_done) {
 		request->auth_retry_done = true;
-		fyai_diag_reset(&ctx->cfg->diag);
+		fyai_diag_reset(ctx->cfg->diag);
 		request->mcp->oauth_force_refresh = true;
 		if (request->mcp->oauth_refresh_timer) {
 			fyai_event_source_remove(

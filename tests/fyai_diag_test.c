@@ -18,6 +18,7 @@
 
 #include "fyai_test_registry.h"
 #include "fyai_test_scratch.h"
+#include "fyai_test_diag.h"
 
 FYAI_TEST_ENTRY(diag, format, diag_format)
 FYAI_TEST_ENTRY(diag, order, diag_order)
@@ -468,19 +469,19 @@ static int diag_run(void (*testfn)(struct fyai_diag *diag))
 	memset(&test_ctx, 0, sizeof(test_ctx));
 	test_ctx.cfg = &test_cfg;
 
-	if (fyai_diag_setup(&test_cfg.diag)) {
+	if (fyai_test_diag_setup(&test_cfg)) {
 		fprintf(stderr, "fyai_diag_setup() failed\n");
 		return 1;
 	}
 	diag = fyai_ctx_diag(&test_ctx);
-	if (diag != &test_cfg.diag) {
+	if (diag != test_cfg.diag) {
 		fprintf(stderr, "FAIL: fyai_ctx_diag() did not resolve\n");
 		return 1;
 	}
 
 	testfn(diag);
 
-	fyai_diag_cleanup(&test_cfg.diag);
+	fyai_test_diag_cleanup(&test_cfg);
 	return failures ? 1 : 0;
 }
 

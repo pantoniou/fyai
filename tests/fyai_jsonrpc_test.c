@@ -28,6 +28,7 @@
 #include "fyai_test.h"
 
 #include "fyai_test_registry.h"
+#include "fyai_test_diag.h"
 
 FYAI_TEST_ENTRY(jsonrpc, request_response, jsonrpc_request_response)
 FYAI_TEST_ENTRY(jsonrpc, ignores_other_ids, jsonrpc_ignores_other_ids)
@@ -542,7 +543,7 @@ static void test_closed_peer_is_no_error(void)
 		FYAI_TCHECK(rc >= 0);
 	}
 	FYAI_TCHECK(jsonrpc_conn_closed(p.conn));
-	FYAI_TCHECK(!fyai_diag_got_error(&test_cfg.diag));
+	FYAI_TCHECK(!fyai_diag_got_error(test_cfg.diag));
 	/* Nothing is left to wait for: a caller that flushes the connection
 	 * before it exits must not wait for output that cannot be written. */
 	FYAI_TCHECK(!jsonrpc_conn_has_output(p.conn));
@@ -863,14 +864,14 @@ static int jsonrpc_run(void (*testfn)(void))
 {
 	int rc;
 
-	rc = fyai_diag_setup(&test_cfg.diag);
+	rc = fyai_test_diag_setup(&test_cfg);
 	FYAI_TCHECK(!rc);
 	setup_builders();
 
 	testfn();
 
-	fyai_diag_drain(&test_cfg.diag);
-	fyai_diag_cleanup(&test_cfg.diag);
+	fyai_diag_drain(test_cfg.diag);
+	fyai_test_diag_cleanup(&test_cfg);
 	fyai_event_pool_drain(&test_ctx);
 	return 0;
 }

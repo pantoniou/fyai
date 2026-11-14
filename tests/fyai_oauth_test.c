@@ -34,6 +34,7 @@
 #include "fyai_test.h"
 
 #include "fyai_test_registry.h"
+#include "fyai_test_diag.h"
 
 FYAI_TEST_ENTRY(oauth, plain_redirect, oauth_plain_redirect)
 FYAI_TEST_ENTRY(oauth, favicon_does_not_fail_login, oauth_favicon_does_not_fail_login)
@@ -691,7 +692,7 @@ static int oauth_run(void (*testfn)(void))
 	memset(&test_cfg, 0, sizeof(test_cfg));
 	memset(&test_ctx, 0, sizeof(test_ctx));
 	test_ctx.cfg = &test_cfg;
-	rc = fyai_diag_setup(&test_cfg.diag);
+	rc = fyai_test_diag_setup(&test_cfg);
 	FYAI_TCHECK(!rc);
 
 	curl_global_init(CURL_GLOBAL_DEFAULT);

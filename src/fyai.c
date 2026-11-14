@@ -2426,7 +2426,7 @@ done:
 	/* Add a cause if the result and the sink do not have one. */
 	diag = fy_generic_get_diag(result);
 	if (fy_is_invalid(result) && (!fy_is_valid(diag) || fy_is_null(diag)) &&
-	    !fyai_diag_got_error(&ctx->cfg->diag))
+	    !fyai_diag_got_error(ctx->cfg->diag))
 		fyai_error(ctx, "the turn did not complete");
 	fyai_turn_run_destroy(run);
 	return result;
@@ -3355,7 +3355,7 @@ fyai_interactive_finish_turn(struct fyai_ctx *ctx,
 	/* add a cause if neither the result nor the sink has one */
 	diag = fy_generic_get_diag(result);
 	if (fy_is_invalid(result) && (!fy_is_valid(diag) || fy_is_null(diag)) &&
-	    !fyai_diag_got_error(&ctx->cfg->diag))
+	    !fyai_diag_got_error(ctx->cfg->diag))
 		fyai_error(ctx, "the turn did not complete");
 	result = fyai_report_diag(ctx, result);
 	rc = 0;
@@ -3534,7 +3534,7 @@ static int fyai_scratch_enter(struct fyai_ctx *ctx,
 		return rc;
 	}
 	/* A drain resets the sink storage, so hold the turn's diagnostics. */
-	st->held = fyai_diag_take_generic(&ctx->cfg->diag, ctx->transient_gb);
+	st->held = fyai_diag_take_generic(ctx->cfg->diag, ctx->transient_gb);
 	st->entered = true;
 	return 0;
 }
@@ -3548,7 +3548,7 @@ static void fyai_scratch_leave(struct fyai_ctx *ctx,
 	st->entered = false;
 	/* Raise the held diagnostics again before the scratch builder goes. */
 	if (fy_is_sequence(st->held))
-		fyai_diag_adopt(&ctx->cfg->diag, st->held, NULL);
+		fyai_diag_adopt(ctx->cfg->diag, st->held, NULL);
 	st->held = fy_invalid;
 	fyai_cleanup_transient_builder(ctx);
 	ctx->transient_gb = st->gb;
@@ -4413,10 +4413,10 @@ out:
 	 * The backstop: err_out falls through here, so one drain covers every
 	 * path out of a verb and nothing collected can be dropped unreported.
 	 */
-	fyai_diag_drain(&cfg->diag);
+	fyai_diag_drain(cfg->diag);
 	fyai_cleanup(&ctx);
 	/* Teardown can report after the first drain. */
-	fyai_diag_drain(&cfg->diag);
+	fyai_diag_drain(cfg->diag);
 	return rc ? -1 : 0;
 
 err_out:

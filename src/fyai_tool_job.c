@@ -484,7 +484,7 @@ static int fyai_tool_job_spawn(struct fyai_ctx *ctx,
 		fyai_ctx_fork_disown(ctx);
 		ctx->cfg->tool_child = true;
 		if (agent_runtime)
-			ctx->cfg->diag.mask &= ~(1u << FYAIET_NOTICE);
+			fyai_diag_enable(ctx->cfg->diag, FYAIET_NOTICE, false);
 		fyai_diag_trace_reopen();
 		fyai_tool_child_signals(ctx);
 		if (fyai_setup_transient_builder(ctx))

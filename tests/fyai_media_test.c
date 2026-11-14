@@ -22,6 +22,7 @@
 #include "fyai_test.h"
 #include "fyai_test_registry.h"
 #include "fyai_test_scratch.h"
+#include "fyai_test_diag.h"
 
 FYAI_TEST_ENTRY(media, sniff_types, media_sniff_types)
 FYAI_TEST_ENTRY(media, dimensions, media_dimensions)
@@ -348,7 +349,7 @@ int media_import_content(void)
 	cfg.gb = ctx.gb;
 	cfg.media_max_bytes = 1024;
 	cfg.media_max_per_message = 2;
-	rc = fyai_diag_setup(&cfg.diag);
+	rc = fyai_test_diag_setup(&cfg);
 	FYAI_TCHECK(!rc);
 
 	rc = fyai_media_image_bytes(&ctx, ctx.gb, png_head, sizeof(png_head),
@@ -426,7 +427,7 @@ int media_import_content(void)
 	FYAI_TCHECK(fy_is_invalid(out));
 	fyai_diag_reset(fyai_ctx_diag(&ctx));
 
-	fyai_diag_cleanup(&cfg.diag);
+	fyai_test_diag_cleanup(&cfg);
 	fy_generic_builder_destroy(ctx.gb);
 	return 0;
 }
@@ -722,7 +723,7 @@ int media_mentions(void)
 	cfg.media_max_bytes = 1024 * 1024;
 	cfg.media_max_per_message = 8;
 	ctx.media_pending = fy_seq_empty;
-	FYAI_TCHECK(!fyai_diag_setup(&cfg.diag));
+	FYAI_TCHECK(!fyai_test_diag_setup(&cfg));
 
 	/* a text file and a quoted image path with a blank */
 	snprintf(line, sizeof(line), "see @%s and @\"%s\"", notes, shot);
@@ -819,7 +820,7 @@ int media_mentions(void)
 	fyai_diag_reset(fyai_ctx_diag(&ctx));
 
 	fyai_media_pending_clear(&ctx);
-	fyai_diag_cleanup(&cfg.diag);
+	fyai_test_diag_cleanup(&cfg);
 	fy_generic_builder_destroy(ctx.gb);
 	return 0;
 }

@@ -39,6 +39,7 @@
 #include "fyai_crash.h"
 #include "fyai_terminal.h"
 #include "fyai_prof.h"
+#include "fyai_app.h"
 
 /*
  * libcurl initialises itself, and OpenSSL with it, when the first handle is
@@ -47,7 +48,8 @@
  */
 int main(int argc, char **argv)
 {
-	struct fyai_cfg cfg = { };
+	struct fyai_app app;
+	struct fyai_cfg *cfg = &app.cfg;
 	char **sdk_argv;
 	int rc, ret = EXIT_FAILURE;
 
@@ -72,18 +74,24 @@ int main(int argc, char **argv)
 		argv = sdk_argv;
 	}
 
-	rc = fyai_config_setup(&cfg, argc, argv);
+	rc = fyai_app_init(&app);
+	if (rc) {
+		free(sdk_argv);
+		return EXIT_FAILURE;
+	}
+	rc = fyai_config_setup(cfg, argc, argv);
 	/*
 	 * Report what the option parsing raised before the verb runs - it has
 	 * no context, so this is the only boundary its diagnostics reach. A
-	 * failed setup released cfg itself, leaving a zeroed sink this skips.
+	 * failed setup released cfg itself; the diagnostics stay with the app.
 	 */
 	if (rc) {
-		fyai_diag_drain(&cfg.diag);
+		fyai_diag_drain(&app.diag);
+		fyai_app_cleanup(&app);
 		free(sdk_argv);
 		return rc > 0 ? EXIT_SUCCESS : EXIT_FAILURE;
 	}
-	cfg.argv = argv;
+	cfg->argv = argv;
 
 	/*
 	 * With isolation on, this image is the bootstrap: it starts the
@@ -93,23 +101,23 @@ int main(int argc, char **argv)
 	 * reported after the bootstrap: once, by the image that runs the verb,
 	 * or with the cause when the bootstrap stops.
 	 */
-	if (fyai_transport_bootstrap(&cfg, argc, argv)) {
-		fyai_diag_drain(&cfg.diag);
-		fyai_config_cleanup(&cfg);
+	if (fyai_transport_bootstrap(cfg, argc, argv)) {
+		fyai_diag_drain(&app.diag);
+		fyai_app_cleanup(&app);
 		curl_global_cleanup();
 		free(sdk_argv);
 		return EXIT_FAILURE;
 	}
-	fyai_diag_drain(&cfg.diag);
+	fyai_diag_drain(&app.diag);
 
-	rc = fyai_run(&cfg);
-	ret = rc ? EXIT_FAILURE : cfg.exit_status;
-	if (!rc && cfg.reload_branch) {
-		ret = fyai_config_reload_exec(&cfg) ? EXIT_FAILURE : EXIT_SUCCESS;
-		fyai_diag_drain(&cfg.diag);
+	rc = fyai_run(cfg);
+	ret = rc ? EXIT_FAILURE : cfg->exit_status;
+	if (!rc && cfg->reload_branch) {
+		ret = fyai_config_reload_exec(cfg) ? EXIT_FAILURE : EXIT_SUCCESS;
+		fyai_diag_drain(&app.diag);
 	}
 
-	fyai_config_cleanup(&cfg);
+	fyai_app_cleanup(&app);
 	curl_global_cleanup();
 	fyai_prof_report();
 	free(sdk_argv);
