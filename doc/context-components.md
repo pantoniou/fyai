@@ -1,7 +1,7 @@
 # The context as a set of components
 
-Status: design, and the first step is done: `struct fyai_app` exists and holds
-`diag` and `cfg`. The counts come from a script over
+Status: design, and the first two steps are done: `struct fyai_app` exists and
+holds `diag`, `loop` and `cfg`. The counts come from a script over
 `src/*.c` that counts `ctx->FIELD` per file; check a row against the code
 before a change. The first step is at the end.
 
@@ -197,9 +197,17 @@ Each step builds, passes both suites, and lands as its own patch series
    configuration reports at once. A test that builds a configuration of its
    own gives it a sink with `fyai_test_diag_setup()`. This is step 2 of the
    TUI plan.
-2. `loop`, with `diag` as its dependency. Move the loop, the pools, the signal
-   state and the interrupt state into it. This is step 1 of the TUI plan.
-   `fyai_ctx_loop()` stays as a thin accessor until the last user is gone.
+2. `loop` (done), with `diag` as its dependency. `struct fyai_loop` holds the
+   application loop and its timers and sources, the pools, the signal state,
+   the interrupt state and the terminate request, the curl multi state, and
+   the output of the loop dump. The context holds a pointer to it
+   (`ctx->loop`), and the event functions take the component, not the
+   context. The one thing that the loop told the waits through the context, an
+   interrupt that is pending, is a hook of the component
+   (`on_interrupt`), which the context sets. `fyai_ctx_loop()` and
+   `fyai_ctx_loop_abandon()` stay as thin accessors until the last user is
+   gone. A test that builds a context of its own gives it a loop
+   (`fyai_test_loop_of()`). This is step 1 of the TUI plan.
 3. `scratch` and `arena`: the builders, with `loop` for the idle release.
 4. `cred`, then `transport`, `xfer`, `mcp`: the example of the first
    consumers. `cred` takes `loop` and `diag`; its 17 reads of `transient_gb`
