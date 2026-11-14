@@ -2,9 +2,8 @@
 
 Status: the document has four parts.
 
-- Part 1 lists implicit state machines. Open: the shell session end and its
-  display mode (item 2) and the reset of the publish record in a forked child.
-  The entries that stay were checked and need no change.
+- Part 1 lists implicit state machines. Open: the reset of the publish record
+  in a forked child. The entries that stay were checked and need no change.
 - Part 2 plans the split of the TUI from the core. It is a plan, and no step
   is done.
 - "Other cleanups" lists what is open: the parallel-construction oracles
@@ -55,15 +54,6 @@ the code before a change.
 
 ## High priority
 
-### 2. Shell session end
-
-`struct fyai_shell_session`, `fyai_shell_session.c`.
-
-- Open: the clearing sequence of `fyai_shell_session_exited()`, and the display
-  mode (`inline_block` or `surface`).
-- After the end `job` can stay set and `wants_input` can stay stale; `waiter`
-  and `pinned` are cleared by `exited()`.
-
 ### 6. Transport server request
 
 `struct req`, `fyai_transport_server.c`.
@@ -87,6 +77,16 @@ the code before a change.
 
 ## Medium priority
 
+- Shell session end and display (`struct fyai_shell_session`): checked, one
+  fix. `fyai_shell_session_exited()` now clears `wants_input`, which stayed
+  stale after the end. `job` stays set until the job is released: the
+  handler of the job reaches the session through `job->session` for
+  `shell/output`. The display is `inline_block` or `surface`, and neither is a
+  lifecycle state: the open function sets one of them, never both, and the end
+  and the retire clear it. An enum would repeat what the pointer says. `exited` stays a latch that
+  `fyai_event_sleep_until()` waits on, `keep_tile` and `close_on_exit` are
+  independent requests, and `wants_input`, `drew`, `pipes` and `takes_pane`
+  are not states.
 - Interrupt and terminate (`fyai.h`): checked, no change. `terminate_pending` is
   a one-way request that ends the invocation (SIGTERM, or a cancel of an
   agent), so it is never cleared. `interrupt_pending` is acknowledged and
@@ -400,8 +400,7 @@ Each step builds, passes the suites and lands as its own patch series, in
 this order: implementation, tests, documentation.
 
 0. Prepare. Finish the parallel construction and delete the legacy paths and
-   the oracle. Close item 2 of this document, so that
-   each machine has one owner and an enum. List every field of the ctx with
+   the oracle. Give each state machine of this document one owner. List every field of the ctx with
    its owner.
 1. Parcel out the loop. Make `struct fyai_loop_ctx` and move the loop, pool,
    interrupt and watchdog state into it. `struct fyai_ctx` holds a pointer.
