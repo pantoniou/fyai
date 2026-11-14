@@ -294,7 +294,7 @@ static void trace_diag(enum fyai_error_type type, enum fyai_error_module module,
  * collected. It is shared by every such copy, so it never changes. A NULL
  * context or configuration is another case, and reports at once.
  */
-static struct fyai_diag diag_muted;
+static const struct fyai_diag diag_muted;
 
 void fyai_diag_enable(struct fyai_diag *diag, enum fyai_error_type type,
 		      bool on)
@@ -661,7 +661,8 @@ struct fyai_diag *fyai_cfg_diag(struct fyai_cfg *cfg)
 {
 	if (!cfg)
 		return NULL;
-	return cfg->diag ? cfg->diag : &diag_muted;
+	/* Never written: every mutation checks for the muted sink first. */
+	return cfg->diag ? cfg->diag : (struct fyai_diag *)&diag_muted;
 }
 
 struct fyai_diag *fyai_ctx_diag(struct fyai_ctx *ctx)
