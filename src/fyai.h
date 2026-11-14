@@ -500,16 +500,18 @@ struct fyai_cfg {
 	 */
 	bool fresh_session;
 	/*
-	 * Owned name of the fresh session, else storage names it. A session
-	 * that a program names takes the configuration of the branch HEAD names,
-	 * not of the session that ran last in its directory.
+	 * Name of the fresh session, interned in the configuration builder, else
+	 * storage names it. A session that a program names takes the
+	 * configuration of the branch HEAD names, not of the session that ran
+	 * last in its directory.
 	 */
-	char *fresh_session_name;
+	const char *fresh_session_name;
 	/*
-	 * Owned name of a branch that the fresh session starts from: its
-	 * conversation and configuration, as a fork of it.
+	 * Name of a branch that the fresh session starts from, interned in the
+	 * configuration builder: its conversation and configuration, as a fork
+	 * of it.
 	 */
-	char *fresh_session_from;
+	const char *fresh_session_from;
 	/* Owned branch name for a restart after the session closes. */
 	char *reload_branch;
 	char *reload_config;

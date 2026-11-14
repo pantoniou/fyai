@@ -3277,8 +3277,6 @@ void fyai_config_cleanup(struct fyai_cfg *cfg)
 	free(cfg->reload_key);
 	free(cfg->reload_arena);
 	free(cfg->root_spec);
-	free(cfg->fresh_session_name);
-	free(cfg->fresh_session_from);
 	free(cfg->terminal_input);
 	markdown_palettes_destroy(cfg);
 	fy_generic_builder_destroy(cfg->gb);

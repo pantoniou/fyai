@@ -673,10 +673,8 @@ int fyai_cmd_claude_sdk_early(struct fyai_cfg *cfg, fy_generic args)
 		valid = sdk_id_valid(resume);
 		fyai_cfg_error_check(cfg, valid, err,
 				     "claude-sdk: invalid session ID '%s'", resume);
-		cfg->fresh_session_from = strdup(fy_sprintfa("%s%s",
-						 SDK_BRANCH_PREFIX, resume));
-		fyai_cfg_error_check(cfg, cfg->fresh_session_from, err,
-				     "claude-sdk: cannot keep the session name");
+		cfg->fresh_session_from = fy_gb_intern_string(cfg->gb,
+			fy_sprintfa("%s%s", SDK_BRANCH_PREFIX, resume));
 		resume = NULL;
 	}
 	/*
@@ -692,10 +690,8 @@ int fyai_cmd_claude_sdk_early(struct fyai_cfg *cfg, fy_generic args)
 			/* A new session starts from the configuration of HEAD. */
 			cfg->branch_explicit = false;
 			cfg->fresh_session = true;
-			cfg->fresh_session_name = strdup(cfg->branch);
-			fyai_cfg_error_check(cfg, cfg->fresh_session_name, err,
-					     "claude-sdk: cannot keep the "
-					     "session name");
+			cfg->fresh_session_name = fy_gb_intern_string(cfg->gb,
+								      cfg->branch);
 		}
 		goto system_prompt;
 	}
@@ -725,9 +721,7 @@ int fyai_cmd_claude_sdk_early(struct fyai_cfg *cfg, fy_generic args)
 			goto err;
 	} else {
 		cfg->fresh_session = true;
-		cfg->fresh_session_name = strdup(name);
-		fyai_cfg_error_check(cfg, cfg->fresh_session_name, err,
-				     "claude-sdk: cannot keep the session name");
+		cfg->fresh_session_name = fy_gb_intern_string(cfg->gb, name);
 	}
 
 system_prompt:
