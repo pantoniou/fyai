@@ -2460,7 +2460,7 @@ void fyai_ctx_fork_disown(struct fyai_ctx *ctx)
 	ctx->winch_src = NULL;			/* a source on the loop it owns */
 	/* The child owns neither the loop nor the dump of its parent. */
 	fyai_loop_abandon(ctx->loop);
-	ctx->transport.src = NULL;
+	ctx->transport->src = NULL;
 	ctx->cmd_call = NULL;			/* the command that it runs */
 	ctx->catalog_update = NULL;		/* and the update that it started */
 	ctx->acp_rpc = NULL;			/* its connection to a client */

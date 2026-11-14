@@ -134,7 +134,7 @@ static void xfer_finish(struct fyai_xfer *x, CURLcode result, long status,
 /* The login is the credential of this request, and this process holds it. */
 static bool xfer_uses_login(const struct fyai_ctx *ctx)
 {
-	return ctx->cfg->chatgpt_auth && !ctx->transport.client &&
+	return ctx->cfg->chatgpt_auth && !ctx->transport->client &&
 	       !fyai_auth_uses_transport(ctx->cfg);
 }
 
@@ -146,7 +146,7 @@ static bool xfer_uses_rekey(const struct fyai_ctx *ctx)
 {
 	const struct fyai_cfg *cfg = ctx->cfg;
 
-	return !ctx->transport.client && cfg->api_key_explicit &&
+	return !ctx->transport->client && cfg->api_key_explicit &&
 	       !fy_str_empty(cfg->api_key) && cfg->api_key_ref &&
 	       !strncmp(cfg->api_key_ref, "secret:", 7);
 }
@@ -469,7 +469,7 @@ static struct fyai_xfer *xfer_tp_submit(struct fyai_ctx *ctx, struct fyai_xfer *
 		free(x);
 		return NULL;
 	}
-	x->call = fyai_tclient_submit(ctx->transport.client, &rq, &cb);
+	x->call = fyai_tclient_submit(ctx->transport->client, &rq, &cb);
 	if (!x->call) {
 		free(x);
 		return NULL;
@@ -494,7 +494,7 @@ struct fyai_xfer *fyai_xfer_submit(struct fyai_ctx *ctx, fyai_xfer_write_fn writ
 	x->done = done;
 	x->done_ud = done_userdata;
 
-	if (ctx->transport.client)
+	if (ctx->transport->client)
 		return xfer_tp_submit(ctx, x);
 	x->waiter.run = xfer_waiter_run;
 	x->waiter.userdata = x;

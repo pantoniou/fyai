@@ -389,7 +389,7 @@ static int fyai_tool_job_spawn(struct fyai_ctx *ctx,
 	int master = -1, slave = -1;
 	struct winsize ws = {};
 	int rows = 0, cols = 0;
-	bool tp = exec && ctx->transport.client;
+	bool tp = exec && ctx->transport->client;
 	pid_t pid;
 	int pidfd, rc;
 
@@ -1028,7 +1028,7 @@ static int fyai_tool_job_submit_isolation(struct fyai_ctx *ctx,
 	 * could not be told from the parent by the transport. With credential
 	 * isolation it must be an executed child.
 	 */
-	if (ctx->transport.client && fy_equal(name, "agent") && !fyai_agent_spawn_exec(ctx))
+	if (ctx->transport->client && fy_equal(name, "agent") && !fyai_agent_spawn_exec(ctx))
 		fyai_tool_submit_error_set(ctx,
 			"tool error: with credential isolation a sub-agent must "
 			"execute fyai again: use agent/spawn exec with a saved "

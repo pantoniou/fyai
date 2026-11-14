@@ -1614,10 +1614,10 @@ fy_generic fyai_session_values(struct fyai_ctx *ctx,
 	v = session_put_str(gb, v, "attached", attached);
 	state = attached ? fyai_agents_state(ctx, attached) : NULL;
 	v = session_put_str(gb, v, "attached_state", state);
-	if (ctx->transport.client)
+	if (ctx->transport->client)
 		v = session_put(gb, v, "isolation", fy_mapping(gb,
 			"level", fyai_transport_effective_level(ctx),
-			"alive", fyai_tclient_alive(ctx->transport.client)));
+			"alive", fyai_tclient_alive(ctx->transport->client)));
 	else
 		v = session_drop(gb, v, "isolation");
 	v = session_put_str(gb, v, "view", fyai_view_session_name(ctx));
