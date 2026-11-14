@@ -1,7 +1,7 @@
 # The context as a set of components
 
-Status: design, and the first two steps are done: `struct fyai_app` exists and
-holds `diag`, `loop` and `cfg`. The counts come from a script over
+Status: design, and the first three steps are done: `struct fyai_app` exists
+and holds `diag`, `loop`, `transient` and `cfg`. The counts come from a script over
 `src/*.c` that counts `ctx->FIELD` per file; check a row against the code
 before a change. The order of the work is near the end.
 
@@ -67,11 +67,13 @@ owner is a defect of today's layout.
 |---|---|---|---|
 | `diag` | the sink: the collected list, its builder and the trace | nothing | `cfg->diag` (now `app->diag`) |
 | `arena` | the durable allocator and builder, the overlay, the working builder `gb`, the refs head | `diag` | `durable_allocator`, `durable_gb`, `overlay_allocator`, `gb`, `refs_head` |
-| `scratch` | the transient builder and its allocator; releases itself on an idle iteration | `loop`, `diag` | `transient_allocator`, `transient_gb`, `transient_autorelease` |
+| `transient` | the transient builder and its allocator; the idle loop releases a builder that an idle operation made | the slot of the arena builder; a hook to its owner | `transient_allocator`, `transient_gb`, `transient_autorelease` (now `app->transient`) |
 
-`scratch` needs the loop for its idle release: that edge is a callback source
-that the loop component accepts, so `scratch` depends on `loop`, and `loop`
-does not depend on `scratch`. The dump output of the loop is not the sink: it
+The component is called `transient`, because `fyai_scratch` is the bump arena
+of the project capture. It stacks on the working builder of the arena, which
+the arena replaces when it reopens, so it holds a pointer to the slot and reads
+it when it makes the builder. The idle release is the loop of the owner
+reading `autorelease`, so it does not depend on `loop`. The dump output of the loop is not the sink: it
 belongs to the loop, which dumps itself.
 
 ### The loop
@@ -96,7 +98,7 @@ is named in 14 places only; the rest reach the loop through
 | `cred` | the shared refresh of the login, its waiters, the detached refresh count, the credentials, the builder of the credential strings (`auth`, `auth_gb`, `auth_detached`, `cred`) | `loop`, `diag`, the secret store |
 | `transport` | the transport client state (`ctx->transport`, `struct fyai_transport_state`) | `loop`, `diag`, `cred` |
 | `xfer` | the model transfer: the curl handle, the headers, the auth header, the user agent, the outcome of the last transfer, the request cache | `loop`, `diag`, `cred`, `transport`, the configuration |
-| `mcp` | the connections to the servers, the tool catalogue, the active names | `loop`, `diag`, `cred`, `scratch` |
+| `mcp` | the connections to the servers, the tool catalogue, the active names | `loop`, `diag`, `cred`, `transient` |
 
 Counts that say where the dependencies are loose today: `auth` reads
 `transient_gb` 17 times, which a builder of its own (`auth_gb` exists)
@@ -110,12 +112,12 @@ configuration 33 times.
 |---|---|---|
 | `scope` | the cover, the scope pins, the orphans and their kill timer, the home of the tools, the sandbox flags | `loop`, `diag`, the configuration |
 | `terminal` | the size of the real terminal, the pseudo-terminal session, the resize source, the `stdout_tty` fact | `loop`, `diag` |
-| `jobs` | the tool jobs, the control channel to a tool child, the background runs of sub-agents, side questions and monitors, the shell sessions, the live shell stream, the patch display | `loop`, `diag`, `scratch`, `scope`, `terminal`, `ui` (a callback set), `turn` (a callback set) |
+| `jobs` | the tool jobs, the control channel to a tool child, the background runs of sub-agents, side questions and monitors, the shell sessions, the live shell stream, the patch display | `loop`, `diag`, `transient`, `scope`, `terminal`, `ui` (a callback set), `turn` (a callback set) |
 | `toolspec` | the tool specification and its generation, the allow list | the registry, `skills`, the configuration |
-| `skills` | the directory that the skills are written to, the skill trees, the settings export directory | `scratch`, `arena` (reads the branch skills) |
+| `skills` | the directory that the skills are written to, the skill trees, the settings export directory | `transient`, `arena` (reads the branch skills) |
 
 `jobs` has the widest list of users (118 reads of the configuration, 79 of
-`scratch`, 67 of the UI). Most UI reads are presentation: they become the
+`transient`, 67 of the UI). Most UI reads are presentation: they become the
 display callbacks of the job (open a band, paint a head, commit), the same
 callbacks that the remote worker must provide in the TUI split.
 
@@ -137,7 +139,7 @@ loop wakes on).
 |---|---|---|
 | `branch` | the active branch, the head branch, the unstored session, the branch table, the arena config, catalogue and skills, the record of the next publish (`branch_prev`, `branch_desc`, `branch_op`, `branch_op_from`, `branch_agent`, `branch_store`), the project states and the tool changes | `arena`, `diag`, the configuration |
 | `usage` | the usage of the run, the usage of the sub-agents, the cost of a model switch, the usage of the last call | `diag` |
-| `turn` | the last message, the observers, the gate, the stop reason, the output schema, the cost limit, the response chain, the token extents, the pending attachments | `branch`, `usage`, `xfer`, `toolspec`, `jobs`, `mcp`, `waits`, `scratch`, `loop`, `diag`, `ui` (callbacks) |
+| `turn` | the last message, the observers, the gate, the stop reason, the output schema, the cost limit, the response chain, the token extents, the pending attachments | `branch`, `usage`, `xfer`, `toolspec`, `jobs`, `mcp`, `waits`, `transient`, `loop`, `diag`, `ui` (callbacks) |
 | `agents` | the registry, the execution and parent ids, the agent branch and the spawn state, the gate relays | `branch`, `jobs`, `turn` (callback), `loop` |
 
 `turn` is the hub: its files read the fields of 18 components. That is the
@@ -150,7 +152,7 @@ times and by `jobs` 13; nothing else reads it.
 | Component | Owns | Depends on |
 |---|---|---|
 | `sink` | the one rendering component (`ctx->sink`) | `diag`, `loop`, the display configuration |
-| `uimodel` | the stores that renderers read, the work store, the transcript store, the log span, the renderer of the model | `scratch`, `diag` |
+| `uimodel` | the stores that renderers read, the work store, the transcript store, the log span, the renderer of the model | `transient`, `diag` |
 | `ui` | the terminal UI, the page, the work pane, the browser, the command in flight, the editor and catalogue update requests | `sink`, `uimodel`, `loop`, `terminal`, `diag` |
 
 This is the part that the TUI split moves to the other thread. Its reads of the
@@ -187,7 +189,7 @@ and to `turn`).
                  \  |  |     \     |         \ |
                   \ |  |    arena  cred -- transport
                    \|  |      |      |        |
-                   scratch   |       |        |
+                 transient   |       |        |
                       \      |       |        |
                        +-----+-------+--------+
                                 |
@@ -224,7 +226,16 @@ Each step builds, passes both suites, and lands as its own patch series
    `fyai_ctx_loop()` and `fyai_ctx_loop_abandon()` stay as thin accessors
    until the last user is gone. A test that builds a context of its own gives
    it a loop (`fyai_test_loop_of()`). This is step 1 of the TUI plan.
-3. `scratch` and `arena`: the builders, with `loop` for the idle release.
+3. `transient` (done) and `arena`. `struct fyai_transient` holds the allocator
+   and the builder, the idle flag, the slot of the working builder and the
+   release hook (`fyai_request_cache_forget()` is the hook of the context). The
+   context holds a pointer to it (`ctx->transient`), and the ctx wrappers
+   (`fyai_setup_transient_builder()`, `fyai_cleanup_transient_builder()`,
+   `fyai_ctx_transient_gb()`) call it. The scratch state of a bang command
+   saves and restores the whole component. A copy of the context that renders
+   gets a component of its own. `arena` is next: it owns the durable
+   allocator and builder, the overlay and the working builder, which the 266
+   uses of `ctx->gb` read.
 4. `cred`, then `transport`, `xfer`, `mcp`: the example of the first
    consumers. `cred` takes `loop` and `diag`; its 17 reads of `transient_gb`
    become its own builder. Each of the four ends with a unit test that builds

@@ -170,8 +170,10 @@ initialize each generic field explicitly.
 - `src/fyai_app.c`: `struct fyai_app`, the root that owns the components that
   the whole program shares, in dependency order (`doc/context-components.md`).
   `main()` declares it and everything else borrows from it. Today it holds the
-  diagnostics, the event loop and the configuration; the other components move
-  in one by one.
+  diagnostics, the event loop, the transient builder and the configuration;
+  the other components move in one by one.
+- `src/fyai_transient.c`: `struct fyai_transient`, the builder for the values of
+  one operation. `ctx->transient` points at the one in the app.
 - `src/fyai_loop.h`: `struct fyai_loop`, the event loop component: the loop,
   its timers and sources and their pools, the signals, and the interrupt state.
   `ctx->loop` points at the one in the app. `src/fyai_event*.c` implement it.
