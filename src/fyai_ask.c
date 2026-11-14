@@ -431,8 +431,8 @@ int fyai_ask_open(struct fyai_ctx *ctx, fy_generic questions, const char *from,
 	for (ep = &ctx->ask_entries; *ep; ep = &(*ep)->next)
 		;
 	*ep = e;
-	/* The legacy path: the oracle of the store. */
-	if (fyai_ui_ask_oracle(ctx, e->qid, questions, from)) {
+	/* A display whose page stopped cannot show the set. */
+	if (fyai_ui_active(ctx) && !fyai_ui_ask_available(ctx)) {
 		*ep = NULL;
 		ask_store_remove(ctx, e->qid);
 		free(e);
@@ -456,7 +456,6 @@ void fyai_ask_close(struct fyai_ctx *ctx, void *user)
 			continue;
 		}
 		*ep = e->next;
-		fyai_ui_ask_oracle_drop(ctx, e->qid);
 		ask_store_remove(ctx, e->qid);
 		free(e);
 	}

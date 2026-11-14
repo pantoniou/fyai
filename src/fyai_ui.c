@@ -169,8 +169,6 @@ struct fyai_ui {
 	char page_focus[FYTIM_PAGE_ID_MAX + 1];
 	struct fyai_page_keys page_keys;	/* the keys the page has bound */
 	struct ui_question *questions;	/* first the one the input area shows */
-	/* The legacy copies of the sets of questions, the oracle of the store. */
-	struct ui_question *oracle;
 	unsigned long long questions_seq;
 	char *editor_path;
 	size_t tool_body_len;
@@ -1745,77 +1743,6 @@ err_out:
 	return NULL;
 }
 
-/* The text of @q in one string, to compare a question with its oracle. */
-static char *ui_question_canonical(const struct ui_question *q)
-{
-	struct fyai_buf out = {0};
-	const struct ui_qtext *t;
-	size_t i, o;
-	int rc;
-
-	rc = fyai_buf_append(&out, fy_sprintfa("from: %s\n",
-						      q->from ? q->from : ""));
-	for (i = 0; !rc && i < q->nq; i++) {
-		t = &q->text[i];
-		rc = fyai_buf_append(&out, fy_sprintfa(
-			"%zu: %s | %s | %s | %s | %s\n", i, t->header,
-			t->question, t->multi ? "multi" : "one", t->proposal,
-			t->diff));
-		for (o = 0; !rc && o < t->nopts; o++)
-			rc = fyai_buf_append(&out, fy_sprintfa(
-				"  %zu: %s | %s | %s\n", o, t->opt[o].label,
-				t->opt[o].description, t->opt[o].preview));
-	}
-	if (rc) {
-		free(out.data);
-		return NULL;
-	}
-	return out.data;
-}
-
-int fyai_ui_ask_oracle(struct fyai_ctx *ctx, const char *qid,
-		       fy_generic questions, const char *from)
-{
-	struct fyai_ui *ui = ctx ? ctx->ui : NULL;
-	struct ui_question *q;
-
-	/* With no display the questions go to a remote consumer only. */
-	if (!ui)
-		return 0;
-	if (!ui->page)
-		return -1;
-	q = ui_question_make(ctx, qid, questions, from);
-	if (!q)
-		return -1;
-	q->next = ui->oracle;
-	ui->oracle = q;
-	ui->frame_pending = true;
-	fyai_ui_wake(ctx);
-	return 0;
-}
-
-/* Unlink the oracle copy of the set @qid and return it, or NULL. */
-static struct ui_question *ui_oracle_take(struct fyai_ui *ui, const char *qid)
-{
-	struct ui_question **qp, *q;
-
-	for (qp = &ui->oracle; (q = *qp); qp = &q->next) {
-		if (strcmp(q->qid, qid))
-			continue;
-		*qp = q->next;
-		return q;
-	}
-	return NULL;
-}
-
-void fyai_ui_ask_oracle_drop(struct fyai_ctx *ctx, const char *qid)
-{
-	struct fyai_ui *ui = ctx ? ctx->ui : NULL;
-
-	if (ui)
-		ui_question_free(ui_oracle_take(ui, qid));
-}
-
 /* Whether the member "open" of the questions store holds the set @qid. */
 static bool ui_questions_open(fy_generic open, const char *qid)
 {
@@ -1830,16 +1757,15 @@ static bool ui_questions_open(fy_generic open, const char *qid)
 /*
  * Make the questions of the input area those of the questions store: drop
  * each set that the store no longer holds, and add each new set after the
- * others, compared with its oracle copy. What the user chose for a set that
+ * others. What the user chose for a set that
  * stays is kept.
  */
 static void ui_questions_sync(struct fyai_ui *ui)
 {
 	struct fyai_ctx *ctx = ui->ctx;
-	struct ui_question **qp, *q, *oracle;
+	struct ui_question **qp, *q;
 	fy_generic open, item;
 	const char *qid;
-	char *model, *legacy;
 	bool found;
 
 	if (fyai_uimodel_seq(ctx, FYAI_UI_QUESTIONS) == ui->questions_seq)
@@ -1877,14 +1803,6 @@ static void ui_questions_sync(struct fyai_ui *ui)
 			fyai_ask_settle(ctx, qid, NULL, 0);
 			continue;
 		}
-		oracle = ui_oracle_take(ui, qid);
-		model = ui_question_canonical(q);
-		legacy = oracle ? ui_question_canonical(oracle) : NULL;
-		fyai_uimodel_check(ctx, FYAI_UI_QUESTIONS, "question", model,
-				   legacy);
-		free(model);
-		free(legacy);
-		ui_question_free(oracle);
 		for (qp = &ui->questions; *qp; qp = &(*qp)->next)
 			;
 		*qp = q;
@@ -3821,11 +3739,6 @@ void fyai_ui_close(struct fyai_ctx *ctx)
 	while (ui->questions) {
 		q = ui->questions;
 		ui->questions = q->next;
-		ui_question_free(q);
-	}
-	while (ui->oracle) {
-		q = ui->oracle;
-		ui->oracle = q->next;
 		ui_question_free(q);
 	}
 	fyai_ask_settle_all(ctx);
