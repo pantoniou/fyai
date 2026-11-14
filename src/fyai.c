@@ -707,7 +707,7 @@ static int fyai_model_step_submit_request(struct fyai_model_step *step,
 	fyai_prof_once_from_base("start_to_first_send");
 	fyai_prof_stamp(&step->send_started);
 
-	ctx->response_chain = response_linked ? FYAI_CHAIN_LINKED :
+	ctx->turn->response_chain = response_linked ? FYAI_CHAIN_LINKED :
 						FYAI_CHAIN_UNLINKED;
 	step->want_extents_lp = want_extents_lp;
 	rc = fyai_model_step_transition(step, FYAIMSS_REQUEST_PENDING);
@@ -739,8 +739,8 @@ out:
 static long long fyai_model_step_max_tokens(struct fyai_ctx *ctx,
 					    struct fyai_cfg *cfg)
 {
-	return ctx->context_max_tokens > 0 ?
-	       ctx->context_max_tokens : cfg->max_tokens;
+	return ctx->turn->context_max_tokens > 0 ?
+	       ctx->turn->context_max_tokens : cfg->max_tokens;
 }
 
 /* Reject full prompts and limit output to the remaining context space. */
@@ -749,8 +749,8 @@ static int fyai_model_step_context_check(struct fyai_ctx *ctx, fy_generic turn)
 	struct fyai_context_prompt p;
 	long long window;
 
-	ctx->context_max_tokens = 0;
-	if (ctx->compacting)
+	ctx->turn->context_max_tokens = 0;
+	if (ctx->turn->compacting)
 		return 0;
 	window = fyai_context_window(ctx);
 	if (window <= 0)
@@ -769,7 +769,7 @@ static int fyai_model_step_context_check(struct fyai_ctx *ctx, fy_generic turn)
 		return -1;
 	}
 
-	ctx->context_max_tokens = fyai_context_output_tokens(ctx, p.prompt,
+	ctx->turn->context_max_tokens = fyai_context_output_tokens(ctx, p.prompt,
 							     window);
 	return 0;
 }
@@ -819,7 +819,7 @@ static int fyai_model_step_start(struct fyai_model_step *step)
 	fyai_prof_stamp(&t_emit);
 
 	/* Never let a stale streamed collection attach to this step's turn. */
-	ctx->last_token_extents = fy_invalid;
+	ctx->turn->last_token_extents = fy_invalid;
 
 	previous_response_id = fy_get(fyai_turn_meta(previous), "response_id");
 	req.instructions = cfg->system_prompt;
@@ -846,7 +846,7 @@ static int fyai_model_step_start(struct fyai_model_step *step)
 	 * chunk extents from the stream.
 	 */
 	req.extents_lp = cfg->token_extents && cfg->stream &&
-		!ctx->token_extents_off && grammar->logprobs && !reasoning &&
+		!ctx->turn->token_extents_off && grammar->logprobs && !reasoning &&
 		fyai_model_supports_logprobs(cat_model);
 
 	/*
@@ -983,7 +983,7 @@ static void fyai_model_step_request_complete(struct fyai_model_step *step,
 					       response_doc);
 			return;
 		}
-		if (ctx->response_chain == FYAI_CHAIN_MISSED) {
+		if (ctx->turn->response_chain == FYAI_CHAIN_MISSED) {
 			rc = fyai_model_step_retry(step, fy_null);
 			if (!rc)
 				return;
@@ -998,7 +998,7 @@ static void fyai_model_step_request_complete(struct fyai_model_step *step,
 		     fy_is_null(diag))) {
 			status = fyai_xfer_last_status(ctx);
 			if (status >= 400 && status < 500) {
-				ctx->token_extents_off = true;
+				ctx->turn->token_extents_off = true;
 				rc = fyai_model_step_retry(step,
 							  step->previous);
 				if (!rc)
@@ -1255,8 +1255,8 @@ static void fyai_turn_run_observe(struct fyai_turn_run *run)
 {
 	struct fyai_ctx *ctx = run->ctx;
 
-	if (ctx->turn_observe)
-		ctx->turn_observe(ctx, run->turn, ctx->turn_observe_data);
+	if (ctx->turn->observe)
+		ctx->turn->observe(ctx, run->turn, ctx->turn->observe_data);
 }
 
 /*
@@ -1412,7 +1412,7 @@ fyai_turn_run_request_failed(struct fyai_turn_run *run, fy_generic response)
 	fy_generic diag;
 	const char *msg;
 
-	run->ctx->turn_stop = FYAI_TURN_STOP_REQUEST;
+	run->ctx->turn->stop = FYAI_TURN_STOP_REQUEST;
 	diag = fy_generic_get_diag(response);
 	msg = fy_is_valid(diag) &&
 	      !fy_is_null(diag) ?
@@ -1534,24 +1534,24 @@ static int fyai_turn_run_submit_model(struct fyai_turn_run *run)
 		return -1;
 	}
 	/* A tool that answers for the turn ends it, as a final response does. */
-	if (ctx->turn_end_requested) {
-		ctx->turn_end_requested = false;
+	if (ctx->turn->end_requested) {
+		ctx->turn->end_requested = false;
 		fyai_turn_run_finish(run, run->turn, true);
 		return 0;
 	}
 	if (run->iteration >= cfg->max_tool_iterations) {
 		/* tool loop limit reached */
-		ctx->turn_stop = FYAI_TURN_STOP_LIMIT;
+		ctx->turn->stop = FYAI_TURN_STOP_LIMIT;
 		fyai_turn_run_stop(run,
 			fy_sprintfa("the tool loop reached its limit of %d iterations",
 				    cfg->max_tool_iterations));
 		return -1;
 	}
-	if (ctx->turn_cost_limit > 0 && ctx->usage->cost >= ctx->turn_cost_limit) {
-		ctx->turn_stop = FYAI_TURN_STOP_COST;
+	if (ctx->turn->cost_limit > 0 && ctx->usage->cost >= ctx->turn->cost_limit) {
+		ctx->turn->stop = FYAI_TURN_STOP_COST;
 		fyai_turn_run_stop(run,
 			fy_sprintfa("the cost reached its limit of $%.4f",
-				    ctx->turn_cost_limit));
+				    ctx->turn->cost_limit));
 		return -1;
 	}
 	if (fyai_turn_run_take_pending_user(run)) {
@@ -1566,7 +1566,7 @@ static int fyai_turn_run_submit_model(struct fyai_turn_run *run)
 	 */
 	previous = cfg->response_chain ? run->previous : fy_null;
 	/* A gate decides on the calls of a response before any of them runs. */
-	open_group = cfg->stream && !ctx->tool_gate;
+	open_group = cfg->stream && !ctx->turn->gate;
 	run->tool_group = open_group ?
 		fyai_tool_job_group_create_open(ctx,
 			fyai_turn_run_tool_complete, run) : NULL;
@@ -1676,8 +1676,8 @@ static void fyai_turn_run_gate_clear(struct fyai_turn_run *run)
 	run->gate_pending = 0;
 	run->gate_phase = FYAI_GATE_IDLE;
 	run->gate_items = fy_invalid;
-	if (run->ctx->tool_gate_run == run)
-		run->ctx->tool_gate_run = NULL;
+	if (run->ctx->turn->gate_run == run)
+		run->ctx->turn->gate_run = NULL;
 }
 
 /*
@@ -1690,7 +1690,7 @@ static int fyai_turn_run_gate_open(struct fyai_turn_run *run, fy_generic items,
 				   bool after, size_t next)
 {
 	struct fyai_ctx *ctx = run->ctx;
-	const struct fyai_tool_gate_ops *ops = ctx->tool_gate;
+	const struct fyai_tool_gate_ops *ops = ctx->turn->gate;
 	fy_generic item;
 	uint64_t id;
 	size_t i, n;
@@ -1706,22 +1706,22 @@ static int fyai_turn_run_gate_open(struct fyai_turn_run *run, fy_generic items,
 	run->gate_pending = n;
 	run->gate_phase = after ? FYAI_GATE_AFTER : FYAI_GATE_ASKING;
 	run->gate_next = next;
-	id = ++ctx->tool_gate_seq;
+	id = ++ctx->turn->gate_seq;
 	run->gate_id = id;
-	ctx->tool_gate_run = run;
+	ctx->turn->gate_run = run;
 	rc = fyai_turn_run_transition(run, FYAITRS_GATE);
 	fyai_error_check(ctx, !rc, err,
 			 "could not advance turn to the tool gate");
 	/* An answer can come during the call, and the last one ends the round. */
-	for (i = 0; i < n && ctx->tool_gate_run == run && run->gate_id == id;
+	for (i = 0; i < n && ctx->turn->gate_run == run && run->gate_id == id;
 	     i++) {
 		item = fy_get_at(items, i);
 		if (after)
 			ops->after(ctx, id, i, fy_get(item, "call", fy_invalid),
 				   fy_get(item, "result", fy_invalid),
-				   fy_get(item, "ok", false), ctx->tool_gate_data);
+				   fy_get(item, "ok", false), ctx->turn->gate_data);
 		else
-			ops->before(ctx, id, i, item, ctx->tool_gate_data);
+			ops->before(ctx, id, i, item, ctx->turn->gate_data);
 	}
 	if (!n)
 		(void)fyai_event_defer(fyai_ctx_loop(ctx), fyai_turn_run_service,
@@ -1739,7 +1739,7 @@ fyai_tool_gate_slot(struct fyai_ctx *ctx, uint64_t id, size_t index,
 {
 	struct fyai_turn_run *run;
 
-	run = ctx ? ctx->tool_gate_run : NULL;
+	run = ctx ? ctx->turn->gate_run : NULL;
 	if (!run || run->gate_id != id || index >= run->gate_count ||
 	    run->gate[index].answered)
 		return NULL;
@@ -1783,8 +1783,8 @@ void fyai_tool_gate_relays_drop(struct fyai_ctx *ctx)
 {
 	struct fyai_gate_relay *r;
 
-	while ((r = ctx->gate_relays)) {
-		ctx->gate_relays = r->next;
+	while ((r = ctx->turn->gate_relays)) {
+		ctx->turn->gate_relays = r->next;
 		fyai_gate_relay_free(r);
 	}
 }
@@ -1795,7 +1795,7 @@ static struct fyai_gate_relay *fyai_gate_relay_take(struct fyai_ctx *ctx,
 {
 	struct fyai_gate_relay **pp, *r;
 
-	for (pp = &ctx->gate_relays; (r = *pp); pp = &r->next)
+	for (pp = &ctx->turn->gate_relays; (r = *pp); pp = &r->next)
 		if (r->id == id) {
 			if (r->after != after)
 				return NULL;
@@ -1821,7 +1821,7 @@ static void fyai_gate_relay_answer(struct fyai_ctx *ctx,
 int fyai_tool_gate_relay(struct fyai_ctx *ctx, const char *branch,
 			 long long rpc_id, fy_generic params)
 {
-	const struct fyai_tool_gate_ops *ops = ctx->tool_gate;
+	const struct fyai_tool_gate_ops *ops = ctx->turn->gate;
 	struct fyai_gate_relay *r;
 	fy_generic call;
 
@@ -1832,19 +1832,19 @@ int fyai_tool_gate_relay(struct fyai_ctx *ctx, const char *branch,
 	r->branch = strdup(branch ? branch : "");
 	fyai_error_check(ctx, r->branch, err_free,
 			 "could not relay a tool call");
-	r->id = ++ctx->tool_gate_seq;
+	r->id = ++ctx->turn->gate_seq;
 	r->after = fy_equal(fy_get(params, "phase", fy_invalid), "after");
 	r->rpc_id = rpc_id;
 	/* The gate can answer during the call. */
-	r->next = ctx->gate_relays;
-	ctx->gate_relays = r;
+	r->next = ctx->turn->gate_relays;
+	ctx->turn->gate_relays = r;
 	call = fy_get(params, "call", fy_invalid);
 	if (r->after)
 		ops->after(ctx, r->id, 0, call,
 			   fy_get(params, "result", fy_invalid),
-			   fy_get(params, "ok", false), ctx->tool_gate_data);
+			   fy_get(params, "ok", false), ctx->turn->gate_data);
 	else
-		ops->before(ctx, r->id, 0, call, ctx->tool_gate_data);
+		ops->before(ctx, r->id, 0, call, ctx->turn->gate_data);
 	return 0;
 err_free:
 	free(r);
@@ -2088,7 +2088,7 @@ static int fyai_turn_run_collect_tools(struct fyai_turn_run *run)
 		fyai_error_check(ctx, fy_is_valid(run->turn), err,
 				 "could not append tool job result");
 		fyai_turn_run_observe(run);
-		if (ctx->tool_gate)
+		if (ctx->turn->gate)
 			reports = fy_append(ctx->transient->gb, reports,
 				fy_mapping(ctx->transient->gb, "call", tool_call,
 					   "result", result, "ok", (_Bool)ok));
@@ -2101,7 +2101,7 @@ static int fyai_turn_run_collect_tools(struct fyai_turn_run *run)
 			 "could not append the tool calls");
 	if (effect)
 		fyai_turn_run_tool_diff(run);
-	if (ctx->ask_abort) {
+	if (ctx->turn->ask_abort) {
 		fyai_turn_run_finish(run, fy_null, true);
 		return 0;
 	}
@@ -2113,7 +2113,7 @@ static int fyai_turn_run_collect_tools(struct fyai_turn_run *run)
 		return 0;
 	}
 	next = run->group_parallel ? 0 : run->exclusive_index + 1;
-	if (ctx->tool_gate && !fy_empty(reports))
+	if (ctx->turn->gate && !fy_empty(reports))
 		return fyai_turn_run_gate_open(run, reports, true, next);
 	return fyai_turn_run_submit_exclusive(run, next);
 
@@ -2248,7 +2248,7 @@ fyai_turn_run_start_tools(struct fyai_turn_run *run, fy_generic response)
 	if (run->ctx->cfg->response_chain)
 		run->previous = run->turn;
 	run->tool_calls = fyai_response_tool_calls(run->ctx, response);
-	if (run->ctx->tool_gate) {
+	if (run->ctx->turn->gate) {
 		fyai_turn_run_drop_tool_group(run);
 		return fyai_turn_run_gate_open(run, run->tool_calls, false, 0);
 	}
@@ -2317,7 +2317,7 @@ fyai_turn_run_submit(struct fyai_ctx *ctx, fy_generic turn)
 	run->gate_items = fy_invalid;
 	run->state = FYAITRS_NEW;
 	/* A request of a turn that stopped does not end this one. */
-	ctx->turn_end_requested = false;
+	ctx->turn->end_requested = false;
 	ctx->tool_output_displayed = false;
 	rc = fyai_output_begin(ctx, FYAI_OUTPUT_ASSISTANT);
 	fyai_error_check(ctx, !rc, err_free,
@@ -2744,6 +2744,7 @@ int fyai_setup(struct fyai_ctx *ctx, struct fyai_app *app)
 	ctx->waitq = &app->waitq;
 	ctx->askq = &app->askq;
 	ctx->bstate = &app->bstate;
+	ctx->turn = &app->turn;
 	ctx->usage = &app->usage;
 	ctx->scope = &app->scope;
 	ctx->tty = &app->tty;
@@ -2772,15 +2773,15 @@ int fyai_setup(struct fyai_ctx *ctx, struct fyai_app *app)
 	ctx->tools = fy_invalid;
 	ctx->mcp->active_tools = fy_invalid;
 	ctx->toolspec->spec = fy_invalid;
-	ctx->last_message = fy_invalid;
+	ctx->turn->last_message = fy_invalid;
 	ctx->usage->head = fy_invalid;
 	ctx->usage->agents_root = fy_invalid;
 	ctx->bstate->config = fy_invalid;
 	ctx->bstate->catalog = fy_invalid;
 	ctx->bstate->skills = fy_invalid;
 	ctx->toolspec->allow = fy_invalid;
-	ctx->output_schema = fy_invalid;
-	ctx->structured_output = fy_invalid;
+	ctx->turn->output_schema = fy_invalid;
+	ctx->turn->structured_output = fy_invalid;
 	/* A zeroed fy_generic is an empty sequence, not fy_invalid. */
 	ctx->bstate->branches = fy_invalid;
 	ctx->bstate->prev = fy_invalid;
@@ -2790,8 +2791,8 @@ int fyai_setup(struct fyai_ctx *ctx, struct fyai_app *app)
 	ctx->bstate->store = fy_invalid;
 	ctx->bstate->project_state = fy_invalid;
 	ctx->bstate->tool_changes = fy_seq_empty;
-	ctx->last_token_extents = fy_invalid;
-	ctx->media_pending = fy_seq_empty;
+	ctx->turn->last_token_extents = fy_invalid;
+	ctx->turn->media_pending = fy_seq_empty;
 	if (fyai_signals_open(ctx))
 		goto err;
 	if (fyai_uimodel_create(ctx))	/* it says why it cannot */
@@ -2856,7 +2857,7 @@ int fyai_setup(struct fyai_ctx *ctx, struct fyai_app *app)
 	 * the copy they were started with). Only for a fresh conversation -
 	 * an existing chain already carries its own system turn.
 	 */
-	if (fy_is_invalid(ctx->last_message)) {
+	if (fy_is_invalid(ctx->turn->last_message)) {
 		if (cfg->parallel_tool_calls &&
 		    cfg->parallel_tool_calls_prompt &&
 		    *cfg->parallel_tool_calls_prompt) {
@@ -2888,10 +2889,10 @@ int fyai_setup(struct fyai_ctx *ctx, struct fyai_app *app)
 	 * it in a field of its own, such as `instructions` or `system`, drops it
 	 * from the input.
 	 */
-	if (fy_is_invalid(ctx->last_message)) {
-		ctx->last_message = fyai_turn_append(ctx, ctx->last_message,
+	if (fy_is_invalid(ctx->turn->last_message)) {
+		ctx->turn->last_message = fyai_turn_append(ctx, ctx->turn->last_message,
 			fy_sequence(fyai_make_system_message(ctx, cfg->system_prompt)));
-		ctx->last_message = fyai_output_record(ctx, ctx->last_message,
+		ctx->turn->last_message = fyai_output_record(ctx, ctx->turn->last_message,
 			FYAI_OUTPUT_SYSTEM, cfg->system_prompt);
 	}
 
@@ -2916,11 +2917,11 @@ int fyai_setup(struct fyai_ctx *ctx, struct fyai_app *app)
 				 "no enabled skill for '%s' on branch '%s'",
 				 prompt, fyai_ctx_branch(ctx));
 		shown = fyai_media_pending_display(ctx, prompt);
-		ctx->last_message = fyai_turn_append(ctx, ctx->last_message,
+		ctx->turn->last_message = fyai_turn_append(ctx, ctx->turn->last_message,
 			fy_sequence(fyai_make_user_message(ctx,
 				fy_is_string(skill_msg) ?
 				fy_castp(&skill_msg, prompt) : prompt)));
-		ctx->last_message = fyai_output_record(ctx, ctx->last_message,
+		ctx->turn->last_message = fyai_output_record(ctx, ctx->turn->last_message,
 			FYAI_OUTPUT_USER, shown ? shown : prompt);
 		shown = NULL;
 		free(prompt);
@@ -2928,8 +2929,8 @@ int fyai_setup(struct fyai_ctx *ctx, struct fyai_app *app)
 	}
 
 	/* intern all to durable */
-	ctx->last_message = fy_gb_internalize(ctx->arena->gb, ctx->last_message);
-	fyai_error_check(ctx, fy_is_valid(ctx->last_message), err,
+	ctx->turn->last_message = fy_gb_internalize(ctx->arena->gb, ctx->turn->last_message);
+	fyai_error_check(ctx, fy_is_valid(ctx->turn->last_message), err,
 			 "could not retain the initial turn");
 
 	(void)fyai_cleanup_transient_builder(ctx);
@@ -3301,11 +3302,11 @@ int fyai_prompt_batch(struct fyai_ctx *ctx)
 	assert(!rc);
 
 	/* not interactive? single run */
-	v = fyai_run_turn(ctx, ctx->last_message);
+	v = fyai_run_turn(ctx, ctx->turn->last_message);
 	v = fyai_report_diag(ctx, v);
 	if (fy_is_invalid(v))
 		goto err_out;
-	ctx->last_message = v;
+	ctx->turn->last_message = v;
 
 	/*
 	 * Close the assistant turn with a blank line so it does not butt up
@@ -3353,7 +3354,7 @@ fyai_interactive_finish_turn(struct fyai_ctx *ctx,
 	result = fyai_report_diag(ctx, result);
 	rc = 0;
 	if (fy_is_valid(result)) {
-		ctx->last_message = result;
+		ctx->turn->last_message = result;
 		rc = fyai_publish_state(ctx);
 		fyai_error_check(ctx, !rc, out,
 				 "could not publish the completed turn");
@@ -3420,7 +3421,7 @@ static void fyai_interactive_record_command(struct fyai_ctx *ctx,
 	output = fyai_ui_pane_take(ctx);
 	/* A session that holds no exchange yet is not stored for a command. */
 	if (ctx->bstate->session_unstored ||
-	    ctx->last_message.v != head.v || fy_is_invalid(head) ||
+	    ctx->turn->last_message.v != head.v || fy_is_invalid(head) ||
 	    !ctx->bstate->name || !branch || strcmp(ctx->bstate->name, branch))
 		goto out;
 	gb = fyai_ctx_transient_gb(ctx);
@@ -3433,8 +3434,8 @@ static void fyai_interactive_record_command(struct fyai_ctx *ctx,
 	turn = fyai_turn_append_display_output(ctx, turn, record);
 	fyai_error_check(ctx, fy_is_valid(turn), out,
 			 "could not store the command %s", line);
-	ctx->last_message = fy_gb_internalize(ctx->arena->gb, turn);
-	fyai_error_check(ctx, fy_is_valid(ctx->last_message), err_restore,
+	ctx->turn->last_message = fy_gb_internalize(ctx->arena->gb, turn);
+	fyai_error_check(ctx, fy_is_valid(ctx->turn->last_message), err_restore,
 			 "could not store the command %s", line);
 	fyai_branch_op_set(ctx, FYAI_BRANCH_OP_COMMAND, NULL);
 	if (fyai_publish_state(ctx))
@@ -3444,7 +3445,7 @@ out:
 	free(output);
 	return;
 err_restore:
-	ctx->last_message = head;
+	ctx->turn->last_message = head;
 	free(output);
 }
 
@@ -3474,7 +3475,7 @@ static int fyai_interactive_handle_slash(struct fyai_ctx *ctx,
 	fyai_ui_history_save(ctx, histfile, line);
 	if (transcript)
 		fyai_echo_user_turn(ctx, line);
-	head = ctx->last_message;
+	head = ctx->turn->last_message;
 	branch = ctx->bstate->name;
 	fyai_ui_pane_status(ctx, status);
 	rc = fyai_session_slash(ctx, line);
@@ -3602,7 +3603,7 @@ static fy_generic fyai_interactive_append_user_turn(struct fyai_ctx *ctx,
 	shown = fyai_media_pending_display(ctx, line);
 	message = fyai_skill_user_message(ctx, fyai_ctx_transient_gb(ctx), line);
 	text = fy_is_string(message) ? fy_castp(&message, line) : line;
-	turn = fyai_turn_append(ctx, ctx->last_message,
+	turn = fyai_turn_append(ctx, ctx->turn->last_message,
 			fy_sequence(fyai_make_user_message(ctx, text)));
 	turn = fyai_output_record(ctx, turn, FYAI_OUTPUT_USER,
 				  shown ? shown : line);
@@ -3731,7 +3732,7 @@ static int fyai_interactive_finish_run(struct fyai_ctx *ctx,
 		return rc;
 	if (*initial) {
 		*initial = false;
-		if (fy_is_invalid(ctx->last_message))
+		if (fy_is_invalid(ctx->turn->last_message))
 			*done = true;
 	}
 	return 0;
@@ -3774,7 +3775,7 @@ static int fyai_interactive_submit_initial(struct fyai_ctx *ctx,
 	rc = fyai_setup_transient_builder(ctx);
 	fyai_error_check(ctx, !rc, err,
 			 "could not create transient initial storage");
-	run = fyai_turn_run_submit(ctx, ctx->last_message);
+	run = fyai_turn_run_submit(ctx, ctx->turn->last_message);
 	fyai_error_check(ctx, run, err_cleanup,
 			 "could not submit the initial turn");
 	run->accept_pending_user = true;
@@ -3804,7 +3805,7 @@ static int fyai_interactive_submit_event(struct fyai_ctx *ctx,
 	rc = fyai_setup_transient_builder(ctx);
 	fyai_error_check(ctx, !rc, err,
 			 "could not create transient event storage");
-	turn = fyai_turn_append_event(ctx, ctx->last_message, input);
+	turn = fyai_turn_append_event(ctx, ctx->turn->last_message, input);
 	fyai_error_check(ctx, fy_is_valid(turn), err_cleanup,
 			 "could not append the event turn");
 	run = fyai_turn_run_submit(ctx, turn);
@@ -4149,11 +4150,11 @@ int fyai_prompt_interactive(struct fyai_ctx *ctx)
 	}
 
 	if (cfg->prompt && *cfg->prompt) {
-		v = fyai_run_turn(ctx, ctx->last_message);
+		v = fyai_run_turn(ctx, ctx->turn->last_message);
 		v = fyai_report_diag(ctx, v);
 		if (fy_is_invalid(v))
 			goto err_out;
-		ctx->last_message = v;
+		ctx->turn->last_message = v;
 		rc = fyai_publish_state(ctx);
 		if (rc)
 			goto err_out;
@@ -4261,7 +4262,7 @@ int fyai_prompt_interactive(struct fyai_ctx *ctx)
 			continue;
 		}
 		/* Interrupted mid-turn: commit the steps that completed. */
-		ctx->last_message = v;
+		ctx->turn->last_message = v;
 		if (fyai_publish_state(ctx))
 			goto err_out;
 

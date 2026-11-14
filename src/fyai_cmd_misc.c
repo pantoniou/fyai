@@ -72,7 +72,7 @@ int fyai_cmd_reset(struct fyai_cmd_call *call, fy_generic *result)
 		fyai_ui_repaint(ctx);
 	}
 	branch = fyai_ctx_branch(ctx);
-	turns = fyai_branch_turn_count(ctx->last_message,
+	turns = fyai_branch_turn_count(ctx->turn->last_message,
 				       FYAI_BRANCH_WALK_MAX);
 	*result = fy_mapping(call->gb, "branch", branch, "ref", ref,
 			     "turns", turns,

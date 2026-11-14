@@ -282,14 +282,14 @@ int fyai_branch_join(struct fyai_ctx *ctx, const char *source,
 			 "branch '%s' has no turns to join", source);
 	fyai_branch_lookup(ctx->bstate->branches, fyai_ctx_branch(ctx), &ob);
 
-	base = fyai_merge_base(ctx, ctx->last_message, sb.head);
+	base = fyai_merge_base(ctx, ctx->turn->last_message, sb.head);
 	unrelated = fy_is_invalid(base);
 	fyai_error_check(ctx, !unrelated || allow_unrelated, out,
 			 "'%s' and '%s' share no turn; pass "
 			 "--allow-unrelated to join them anyway",
 			 fyai_ctx_branch(ctx), source);
 
-	rc = fyai_turn_stack_init(&ours, ctx->last_message, base);
+	rc = fyai_turn_stack_init(&ours, ctx->turn->last_message, base);
 	fyai_error_check(ctx, !rc, out, "out of memory reading our turns");
 	rc = fyai_turn_stack_init(&theirs, sb.head, base);
 	fyai_error_check(ctx, !rc, out, "out of memory reading their turns");
@@ -334,7 +334,7 @@ int fyai_branch_join(struct fyai_ctx *ctx, const char *source,
 	fyai_error_check(ctx, fy_is_valid(head), out,
 			 "could not store the joined conversation");
 
-	ctx->last_message = head;
+	ctx->turn->last_message = head;
 	fyai_branch_op_set(ctx, mode == FYAI_JOIN_REBASE ?
 			   FYAI_BRANCH_OP_REBASE : FYAI_BRANCH_OP_MERGE,
 			   source);
@@ -367,8 +367,8 @@ int fyai_join_onto_head(struct fyai_ctx *ctx, fy_generic theirs,
 	int ret;
 
 	*outp = fy_invalid;
-	base = fyai_merge_base(ctx, ctx->last_message, theirs);
-	ret = fyai_turn_stack_init(&ours, ctx->last_message, base);
+	base = fyai_merge_base(ctx, ctx->turn->last_message, theirs);
+	ret = fyai_turn_stack_init(&ours, ctx->turn->last_message, base);
 	fyai_error_check(ctx, !ret, err_out,
 			 "out of memory replaying this turn");
 

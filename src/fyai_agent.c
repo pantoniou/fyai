@@ -364,7 +364,7 @@ static int fyai_agent_spawn_adopt(struct fyai_ctx *ctx, fy_generic spawn)
 
 	fork = fy_get(spawn, "fork", fy_invalid);
 	if (!fy_is_mapping(fork)) {
-		ctx->last_message = fy_invalid;
+		ctx->turn->last_message = fy_invalid;
 		return 0;
 	}
 	fork_branch = fy_get(fork, "branch", fy_invalid);
@@ -383,7 +383,7 @@ static int fyai_agent_spawn_adopt(struct fyai_ctx *ctx, fy_generic spawn)
 	fyai_error_check(ctx, rc >= 0 &&
 			 fyai_branch_lookup(r.branches, branch, &b), err,
 			 "could not read the fork point on '%s'", branch);
-	ctx->last_message = b.head;
+	ctx->turn->last_message = b.head;
 	return 0;
 
 err:
@@ -576,7 +576,7 @@ static int agent_run_branch(struct fyai_ctx *ctx, struct agent_run *r)
 
 	/* The reopen sets the fork point: keep it when it already ran. */
 	if (!ctx->bstate->reopened)
-		ctx->last_message = fy_invalid;
+		ctx->turn->last_message = fy_invalid;
 
 	/* Re-open the arena before the forked child writes to it. */
 	if (ctx->bstate->agent_branch) {
@@ -611,7 +611,7 @@ static int agent_run_branch(struct fyai_ctx *ctx, struct agent_run *r)
 			if (fy_is_valid(stored.catalog))
 				ctx->bstate->catalog = stored.catalog;
 			ctx->bstate->skills = stored.skills;
-			ctx->last_message = stored.head;
+			ctx->turn->last_message = stored.head;
 			rc = fyai_agent_revive_config(ctx, stored.config);
 			fyai_error_check(ctx, !rc, err,
 				"could not adopt the sub-agent branch configuration");
@@ -680,7 +680,7 @@ static int agent_run_persona(struct fyai_ctx *ctx, struct agent_run *r)
 	if (r->revive)
 		r->fork_mode = false;
 	else if (!r->fork_mode)
-		ctx->last_message = fy_invalid;
+		ctx->turn->last_message = fy_invalid;
 	r->name = fy_get(r->args, "name", fy_invalid);
 	r->description = fy_get(r->args, "description", fy_invalid);
 	return 0;
@@ -727,17 +727,17 @@ static int agent_run_setup(struct fyai_ctx *ctx, struct agent_run *r)
 
 	/* Add a persona to a fork as a user instruction. */
 	if (r->fork_mode && !r->revive) {
-		ctx->last_message = fyai_turn_append(ctx, ctx->last_message,
+		ctx->turn->last_message = fyai_turn_append(ctx, ctx->turn->last_message,
 			fy_sequence(fyai_make_instruction_message(ctx,
 					cfg->system_prompt)));
-		ctx->last_message = fyai_output_record(ctx, ctx->last_message,
+		ctx->turn->last_message = fyai_output_record(ctx, ctx->turn->last_message,
 			FYAI_OUTPUT_USER, cfg->system_prompt);
 	}
 	if (!r->fork_mode && !r->revive) {
-		ctx->last_message = fyai_turn_append(ctx, ctx->last_message,
+		ctx->turn->last_message = fyai_turn_append(ctx, ctx->turn->last_message,
 			fy_sequence(fyai_make_system_message(ctx,
 					cfg->system_prompt)));
-		ctx->last_message = fyai_output_record(ctx, ctx->last_message,
+		ctx->turn->last_message = fyai_output_record(ctx, ctx->turn->last_message,
 			FYAI_OUTPUT_SYSTEM, cfg->system_prompt);
 	}
 	task_v = fy_get(r->args, "task", fy_invalid);
@@ -753,14 +753,14 @@ static int agent_run_setup(struct fyai_ctx *ctx, struct agent_run *r)
 				 fy_castp(&skill_name, ""));
 	}
 	task = fy_castp(&task_v, "");
-	ctx->last_message = fyai_turn_append(ctx, ctx->last_message,
+	ctx->turn->last_message = fyai_turn_append(ctx, ctx->turn->last_message,
 		fy_sequence(fyai_make_instruction_message(ctx, task)));
-	ctx->last_message = fyai_output_record(ctx, ctx->last_message,
+	ctx->turn->last_message = fyai_output_record(ctx, ctx->turn->last_message,
 		FYAI_OUTPUT_USER, task);
 	fyai_prof_stamp(&t_intern);
-	ctx->last_message = fy_gb_internalize(ctx->arena->gb, ctx->last_message);
+	ctx->turn->last_message = fy_gb_internalize(ctx->arena->gb, ctx->turn->last_message);
 	fyai_prof_since("agent_input_internalize", &t_intern);
-	fyai_error_check(ctx, fy_is_valid(ctx->last_message), err,
+	fyai_error_check(ctx, fy_is_valid(ctx->turn->last_message), err,
 			 "could not store the sub-agent input");
 	return 0;
 err:
@@ -776,20 +776,20 @@ static int agent_run_turn(struct fyai_ctx *ctx, struct agent_run *r)
 	/* Render only when the parent supplied a terminal. */
 	ctx->tty->stdout_tty = cfg->agent_pty;
 
-	if (ctx->tool_rpc && ctx->relay_gate) {
-		ctx->tool_gate = &agent_gate_ops;
-		ctx->tool_gate_data = NULL;
+	if (ctx->tool_rpc && ctx->turn->relay_gate) {
+		ctx->turn->gate = &agent_gate_ops;
+		ctx->turn->gate_data = NULL;
 	}
-	if (ctx->tool_rpc && ctx->relay_steps) {
-		ctx->turn_observe = agent_step_relay;
-		ctx->turn_observe_data = NULL;
+	if (ctx->tool_rpc && ctx->turn->relay_steps) {
+		ctx->turn->observe = agent_step_relay;
+		ctx->turn->observe_data = NULL;
 	}
 
 	/* Open a promptless display on the supplied terminal. */
 	if (cfg->agent_pty && !fyai_ui_open(ctx))
 		fyai_ui_prompt_enabled(ctx, false);
 
-	r->turn = fyai_run_turn(ctx, ctx->last_message);
+	r->turn = fyai_run_turn(ctx, ctx->turn->last_message);
 	while (fy_is_valid(r->turn) && !ctx->loop->terminate_pending &&
 	       fyai_event_queued(ctx)) {
 		/*
@@ -799,10 +799,10 @@ static int agent_run_turn(struct fyai_ctx *ctx, struct agent_run *r)
 		if (!fyai_event_take_live_input(ctx, &input))
 			break;
 
-		ctx->last_message = r->turn;
-		ctx->last_message = fyai_turn_append_event(ctx, r->turn, &input);
+		ctx->turn->last_message = r->turn;
+		ctx->turn->last_message = fyai_turn_append_event(ctx, r->turn, &input);
 		fyai_event_input_clear(&input);
-		r->turn = fyai_run_turn(ctx, ctx->last_message);
+		r->turn = fyai_run_turn(ctx, ctx->turn->last_message);
 	}
 	r->turn = fyai_report_diag(ctx, r->turn);
 	/* Identify the failed sub-agent after its own cause. */
@@ -811,7 +811,7 @@ static int agent_run_turn(struct fyai_ctx *ctx, struct agent_run *r)
 			 "%s)", fy_castp(&r->name, ""),
 			 cfg->model ? cfg->model : "unset",
 			 fyai_api_to_string(cfg->api_mode));
-	ctx->last_message = r->turn;
+	ctx->turn->last_message = r->turn;
 	r->report = fyai_agent_final_text(ctx, r->turn);
 	return 0;
 err:

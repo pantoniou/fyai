@@ -17,6 +17,7 @@
 #include "fyai_cred.h"
 #include "fyai_loop.h"
 #include "fyai_transient.h"
+#include "fyai_turnstate.h"
 #include "fyai_usage.h"
 #include "fyai_waitq.h"
 #include "fyai_transport_state.h"
@@ -47,6 +48,7 @@ struct fyai_app {
 	struct fyai_toolspec toolspec;	/* depends on skills */
 	struct fyai_branch_state bstate; /* depends on arena and diag */
 	struct fyai_usage usage;	/* depends on diag */
+	struct fyai_turnstate turn;	/* depends on diag */
 	struct fyai_link link;		/* depends on loop and cred */
 	struct fyai_cred cred;		/* depends on loop */
 	struct fyai_cfg cfg;		/* depends on diag */

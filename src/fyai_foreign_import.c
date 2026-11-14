@@ -1471,7 +1471,7 @@ static int foreign_import_build(struct fyai_ctx *ctx, const char *path,
 	if (!fy_is_valid(provenance))
 		return -1;
 	if (preview) {
-		ctx->last_message = head;
+		ctx->turn->last_message = head;
 		return fyai_display_recap(ctx, max_exchanges, max_rows);
 	}
 	if (ctx->cfg->branch_explicit)

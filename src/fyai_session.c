@@ -110,7 +110,7 @@ static void session_reset_usage(struct fyai_ctx *ctx)
 	ctx->usage->last_call_input = 0;
 	ctx->usage->last_call_output = 0;
 	ctx->usage->last_call_total = 0;
-	ctx->usage->head = ctx->last_message;
+	ctx->usage->head = ctx->turn->last_message;
 }
 
 static void usage_sum_add(struct fyai_usage_sum *s, fy_generic u)
@@ -159,7 +159,7 @@ void fyai_usage_agents(struct fyai_ctx *ctx, struct fyai_usage_sum *sum,
 	if (!branch || !*branch)
 		return;
 	blen = strlen(branch);
-	rc = fyai_turn_stack_init(&own, ctx->last_message, fy_invalid);
+	rc = fyai_turn_stack_init(&own, ctx->turn->last_message, fy_invalid);
 	fyai_error_check(ctx, !rc, out,
 			 "cannot total the usage of the sub-agents");
 	if (own.count) {
@@ -209,10 +209,10 @@ void fyai_usage_sync(struct fyai_ctx *ctx)
 
 	if (ctx->cfg->tool_child)
 		return;
-	moved = ctx->usage->head.v != ctx->last_message.v;
+	moved = ctx->usage->head.v != ctx->turn->last_message.v;
 	if (moved) {
 		memset(&own, 0, sizeof(own));
-		fyai_turn_foreach(cur, ctx->last_message) {
+		fyai_turn_foreach(cur, ctx->turn->last_message) {
 			u = fy_get(fyai_turn_meta(cur), "usage");
 			if (fy_is_valid(u))
 				usage_sum_add(&own, u);
@@ -226,7 +226,7 @@ void fyai_usage_sync(struct fyai_ctx *ctx)
 		ctx->usage->cost = own.cost;
 		ctx->usage->cost_est = own.cost_est;
 		ctx->usage->calls = own.calls;
-		ctx->usage->head = ctx->last_message;
+		ctx->usage->head = ctx->turn->last_message;
 	}
 	if (moved || ctx->usage->agents_root.v != ctx->bstate->branches.v) {
 		fyai_usage_agents(ctx, &ctx->usage->agents,
@@ -239,7 +239,7 @@ int fyai_session_clear(struct fyai_ctx *ctx)
 {
 	struct fyai_cfg *cfg = ctx->cfg;
 
-	ctx->last_message = fy_invalid;
+	ctx->turn->last_message = fy_invalid;
 	fyai_background_reset(ctx);
 	fyai_branch_op_set(ctx, FYAI_BRANCH_OP_CLEAR, NULL);
 	session_reset_usage(ctx);
@@ -250,11 +250,11 @@ int fyai_session_clear(struct fyai_ctx *ctx)
 	 * builder and leaves seeding to the next prompt run's setup.
 	 */
 	if (ctx->transient->gb && fyai_cfg_makes_requests(cfg)) {
-		ctx->last_message = fyai_turn_append(ctx, fy_invalid,
+		ctx->turn->last_message = fyai_turn_append(ctx, fy_invalid,
 			fy_sequence(fyai_make_system_message(ctx,
 							     cfg->system_prompt)));
-		ctx->last_message = fy_gb_internalize(ctx->arena->gb,
-						      ctx->last_message);
+		ctx->turn->last_message = fy_gb_internalize(ctx->arena->gb,
+						      ctx->turn->last_message);
 	}
 
 	if (fyai_publish_state(ctx))
@@ -277,7 +277,7 @@ static int session_compact_responses(struct fyai_ctx *ctx, const char *hint)
 	req = NULL;
 	rc = -1;
 	response = fy_invalid;
-	prev_head = ctx->last_message;
+	prev_head = ctx->turn->last_message;
 	messages = fyai_turn_messages_since(ctx, prev_head, fy_invalid);
 	input = fyai_grammar_input(ctx, messages);
 	fyai_error_check(ctx, fy_is_valid(input), out,
@@ -314,7 +314,7 @@ static int session_compact_responses(struct fyai_ctx *ctx, const char *hint)
 	fyai_xfer_set_endpoint(ctx, url, "compact");
 	fyai_xfer_set_body(ctx, body);
 	/* The compact request carries no chain: a refusal of it is an error. */
-	ctx->response_chain = FYAI_CHAIN_UNLINKED;
+	ctx->turn->response_chain = FYAI_CHAIN_UNLINKED;
 	req = fyai_buffered_request_submit(ctx, NULL, NULL);
 	fyai_error_check(ctx, req, err_restore,
 			 "compact: cannot submit the Responses request");
@@ -377,7 +377,7 @@ restore:
 	fyai_error_check(ctx, fy_is_valid(turn), out,
 			 "compact: cannot store the compacted turn");
 
-	ctx->last_message = turn;
+	ctx->turn->last_message = turn;
 	session_reset_usage(ctx);
 	rc = fyai_publish_state(ctx);
 	fyai_error_check(ctx, !rc, out,
@@ -412,7 +412,7 @@ static int session_compact_responses_v2(struct fyai_ctx *ctx,
 	const char *instructions;
 	int rc;
 
-	prev_head = ctx->last_message;
+	prev_head = ctx->turn->last_message;
 	messages = fyai_turn_messages_since(ctx, prev_head, fy_invalid);
 	fyai_error_check(ctx, fy_is_valid(messages), out,
 			 "compact: cannot collect the Responses input");
@@ -437,9 +437,9 @@ static int session_compact_responses_v2(struct fyai_ctx *ctx,
 	turn = fyai_turn_append(ctx, fy_invalid, compact_messages);
 	fyai_error_check(ctx, fy_is_valid(turn), out,
 			 "compact: cannot build the Responses compaction turn");
-	ctx->compacting = true;
+	ctx->turn->compacting = true;
 	result = fyai_run_turn(ctx, turn);
-	ctx->compacting = false;
+	ctx->turn->compacting = false;
 	result = fyai_report_diag(ctx, result);
 	fyai_error_check(ctx, fy_is_valid(result) &&
 			 !fy_is_null(result), out,
@@ -476,7 +476,7 @@ static int session_compact_responses_v2(struct fyai_ctx *ctx,
 	fyai_error_check(ctx, fy_is_valid(turn), out,
 			 "compact: cannot store the compacted turn");
 
-	ctx->last_message = turn;
+	ctx->turn->last_message = turn;
 	session_reset_usage(ctx);
 	rc = fyai_publish_state(ctx);
 	fyai_error_check(ctx, !rc, out,
@@ -503,8 +503,8 @@ int fyai_session_compact(struct fyai_ctx *ctx, const char *hint)
 		fyai_error(ctx, "compact: no API key or ChatGPT login is available");
 		return -1;
 	}
-	if (fy_is_invalid(ctx->last_message) ||
-	    fy_is_null(ctx->last_message)) {
+	if (fy_is_invalid(ctx->turn->last_message) ||
+	    fy_is_null(ctx->turn->last_message)) {
 		fyai_result(ctx, "compact: nothing to compact\n");
 		return 0;
 	}
@@ -520,7 +520,7 @@ int fyai_session_compact(struct fyai_ctx *ctx, const char *hint)
 	    cfg->response_compaction_supported)
 		return session_compact_responses(ctx, hint);
 
-	prev_head = ctx->last_message;
+	prev_head = ctx->turn->last_message;
 
 	/* Bound the history but retain the real head in compacted_from. */
 	base = prev_head;
@@ -552,9 +552,9 @@ int fyai_session_compact(struct fyai_ctx *ctx, const char *hint)
 	shell_save = cfg->enable_builtin_shell;
 	cfg->enable_tools = false;
 	cfg->enable_builtin_shell = false;
-	ctx->compacting = true;
+	ctx->turn->compacting = true;
 	v = fyai_run_turn(ctx, turn);
-	ctx->compacting = false;
+	ctx->turn->compacting = false;
 	cfg->enable_tools = tools_save;
 	cfg->enable_builtin_shell = shell_save;
 	/* The loop carries why it failed on the result; without this a ^C here
@@ -604,7 +604,7 @@ int fyai_session_compact(struct fyai_ctx *ctx, const char *hint)
 	turn = fy_gb_internalize(ctx->arena->gb, turn);
 	if (fy_is_invalid(turn))
 		return -1;
-	ctx->last_message = turn;
+	ctx->turn->last_message = turn;
 	ctx->usage->last_call_input = 0;
 	ctx->usage->last_call_output = 0;
 	ctx->usage->last_call_total = 0;
@@ -697,12 +697,12 @@ static void session_switch_estimate(struct fyai_ctx *ctx,
 	struct fyai_pricing from_price, to_price;
 
 	ctx->usage->switch_pending = false;
-	if (fy_is_invalid(ctx->last_message) || !cfg->model || !to->model ||
+	if (fy_is_invalid(ctx->turn->last_message) || !cfg->model || !to->model ||
 	    (!strcmp(cfg->model, to->model) &&
 	     !strcmp(cfg->provider ? cfg->provider : "",
 		     to->provider ? to->provider : "")))
 		return;
-	fyai_context_prompt_at(ctx, ctx->last_message, &prompt);
+	fyai_context_prompt_at(ctx, ctx->turn->last_message, &prompt);
 	if (prompt.prompt <= 0 ||
 	    !fyai_pricing_lookup(cfg, cfg->provider, cfg->model, &from_price) ||
 	    !fyai_pricing_lookup(to, to->provider, to->model, &to_price))
@@ -1021,7 +1021,7 @@ static long long session_last_usage(struct fyai_ctx *ctx,
 		input = ctx->usage->last_call_input;
 		goto out;
 	}
-	fyai_turn_foreach(cur, ctx->last_message) {
+	fyai_turn_foreach(cur, ctx->turn->last_message) {
 		usage = fy_get(fyai_turn_meta(cur), "usage");
 		input = fy_get(usage, "input", 0LL);
 		if (input) {
@@ -1133,7 +1133,7 @@ fy_generic fyai_session_status_data(struct fyai_ctx *ctx,
 
 	fyai_transport_status_text(ctx, iso, sizeof(iso));
 	window = fyai_context_window(ctx);
-	fyai_context_prompt_at(ctx, ctx->last_message, &p);
+	fyai_context_prompt_at(ctx, ctx->turn->last_message, &p);
 	shown = session_projected_tokens(ctx, &p);
 	out_tokens = fyai_context_output_tokens(ctx, p.prompt, window);
 	if (cfg->reasoning_effort && *cfg->reasoning_effort)
@@ -1173,7 +1173,7 @@ fy_generic fyai_session_context_data(struct fyai_ctx *ctx,
 	long long window, projected, out_tokens;
 
 	window = fyai_context_window(ctx);
-	fyai_context_prompt_at(ctx, ctx->last_message, &p);
+	fyai_context_prompt_at(ctx, ctx->turn->last_message, &p);
 	projected = session_projected_tokens(ctx, &p);
 	out_tokens = fyai_context_output_tokens(ctx, p.prompt, window);
 
@@ -1583,7 +1583,7 @@ fy_generic fyai_session_values(struct fyai_ctx *ctx,
 		v = session_drop(gb, v, "temperature");
 	window = fyai_context_window(ctx);
 	if (window > 0) {
-		fyai_context_prompt_at(ctx, ctx->last_message, &prompt);
+		fyai_context_prompt_at(ctx, ctx->turn->last_message, &prompt);
 		/* Streamed bytes are already in the estimate; do not add them twice. */
 		v = session_put(gb, v, "context", fy_mapping(gb,
 			"used", session_projected_tokens(ctx, &prompt),

@@ -1263,7 +1263,7 @@ int fyai_branch_create(struct fyai_ctx *ctx, const char *name,
 		fyai_error_check(ctx, found, err_out,
 				 "current branch '%s' is missing",
 				 fyai_ctx_branch(ctx));
-		head = ctx->last_message;
+		head = ctx->turn->last_message;
 		nb.config = ctx->bstate->config;
 		nb.catalog = ctx->bstate->catalog;
 		nb.skills = ctx->bstate->skills;
@@ -1533,7 +1533,7 @@ int fyai_branch_adopt(struct fyai_ctx *ctx, const char *name, bool keep_head)
 
 	/* A stored branch ends the session that no publish stored. */
 	ctx->bstate->session_unstored = NULL;
-	ctx->last_message = b.head;
+	ctx->turn->last_message = b.head;
 	ctx->bstate->config = b.config;
 	ctx->bstate->catalog = b.catalog;
 	ctx->bstate->skills = b.skills;
@@ -1596,7 +1596,7 @@ int fyai_branch_reset(struct fyai_ctx *ctx, const char *spec)
 		return -1;
 
 	/* The previous head remains available as "<branch>@{1}". */
-	ctx->last_message = head;
+	ctx->turn->last_message = head;
 	fyai_background_reset(ctx);
 	fyai_branch_op_set(ctx, FYAI_BRANCH_OP_RESET, NULL);
 	if (fyai_publish_state(ctx))

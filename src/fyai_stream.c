@@ -738,7 +738,7 @@ static void stream_store_token_extents(struct stream_response *stream,
 	if (fy_is_invalid(extents) || !fy_len(extents))
 		return;
 
-	ctx->last_token_extents = fy_gb_internalize(ctx->transient->gb, extents);
+	ctx->turn->last_token_extents = fy_gb_internalize(ctx->transient->gb, extents);
 }
 
 /* Read jitter from the operating system entropy source. */
@@ -1057,7 +1057,7 @@ static void stream_request_complete(struct fyai_xfer *transfer, void *userdata)
 			goto done;
 		}
 		if (fyai_grammar_chain_miss(ctx, status, stream->raw.data)) {
-			ctx->response_chain = FYAI_CHAIN_MISSED;
+			ctx->turn->response_chain = FYAI_CHAIN_MISSED;
 			stream_state_transition(stream, FYAISS_FAILED);
 			goto done;
 		}
@@ -1335,7 +1335,7 @@ static void buffered_request_complete(struct fyai_xfer *transfer, void *userdata
 			goto done;
 		if (fyai_grammar_chain_miss(ctx, status,
 					    request->response.data)) {
-			ctx->response_chain = FYAI_CHAIN_MISSED;
+			ctx->turn->response_chain = FYAI_CHAIN_MISSED;
 			goto done;
 		}
 		fyai_error(ctx, "request returned HTTP %ld%s%s", status,

@@ -298,8 +298,8 @@ static fy_generic fyai_tool_child_serve(struct jsonrpc_conn *conn,
 		}
 		tc->args = fy_get(params, "call", fy_invalid);
 		tc->branch = fy_get(params, "branch", fy_invalid);
-		tc->ctx->relay_gate = fy_get(params, "gate", false);
-		tc->ctx->relay_steps = fy_get(params, "steps", false);
+		tc->ctx->turn->relay_gate = fy_get(params, "gate", false);
+		tc->ctx->turn->relay_steps = fy_get(params, "steps", false);
 		tc->size_rows = (int)fy_get(fy_get(params, "size", fy_invalid),
 					   "rows", 0LL);
 		tc->size_cols = (int)fy_get(fy_get(params, "size", fy_invalid),
@@ -751,10 +751,10 @@ fy_generic fyai_agent_spawn_state(struct fyai_ctx *ctx,
 	fy_generic fork;
 
 	fork = fy_null;
-	if (fy_is_valid(ctx->last_message) && !ctx->bstate->session_unstored)
+	if (fy_is_valid(ctx->turn->last_message) && !ctx->bstate->session_unstored)
 		fork = fy_gb_mapping(gb,
 			"branch", fy_value(gb, fyai_ctx_branch(ctx)),
-			"head", (long long)ctx->last_message.v);
+			"head", (long long)ctx->turn->last_message.v);
 	return fy_gb_mapping(gb,
 		"config", fyai_generic_or_null(cfg->config_doc),
 		"theme_variant", cfg->theme_variant ?

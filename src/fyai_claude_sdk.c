@@ -1895,7 +1895,7 @@ static fy_generic sdk_model_sync(struct sdk_server *srv, fy_generic req)
 	size_t i, begin;
 	bool found, more;
 
-	if (fyai_turn_stack_init(&stack, ctx->last_message, fy_invalid))
+	if (fyai_turn_stack_init(&stack, ctx->turn->last_message, fy_invalid))
 		return fy_invalid;
 	if (depth < 1)
 		depth = 1;
@@ -3046,13 +3046,13 @@ static int sdk_add_user(struct sdk_server *srv, const char *text)
 	user = fyai_media_pending_any(ctx) ?
 		fyai_make_user_message(ctx, text) :
 		fyai_make_instruction_message(ctx, text);
-	turn = fyai_turn_append(ctx, ctx->last_message, fy_sequence(gb, user));
+	turn = fyai_turn_append(ctx, ctx->turn->last_message, fy_sequence(gb, user));
 	turn = fyai_output_record(ctx, turn, FYAI_OUTPUT_USER,
 				  shown ? shown : text);
 	fyai_error_check(ctx, fy_is_valid(turn), err,
 			 "claude-sdk: cannot add the user message");
-	ctx->last_message = fy_gb_internalize(ctx->arena->gb, turn);
-	fyai_error_check(ctx, fy_is_valid(ctx->last_message), err,
+	ctx->turn->last_message = fy_gb_internalize(ctx->arena->gb, turn);
+	fyai_error_check(ctx, fy_is_valid(ctx->turn->last_message), err,
 			 "claude-sdk: cannot keep the user message");
 	rc = fyai_publish_state(ctx);
 	fyai_error_check(ctx, !rc, err,
@@ -3074,16 +3074,16 @@ static char *sdk_run(struct sdk_server *srv, bool *okp)
 	int rc;
 
 	*okp = false;
-	ctx->turn_stop = FYAI_TURN_STOP_NONE;
-	ctx->tool_gate = sdk_gate_needed(srv) ? &sdk_gate_ops : NULL;
-	ctx->tool_gate_data = srv;
+	ctx->turn->stop = FYAI_TURN_STOP_NONE;
+	ctx->turn->gate = sdk_gate_needed(srv) ? &sdk_gate_ops : NULL;
+	ctx->turn->gate_data = srv;
 	srv->busy = true;
 	fyai_session_turn_set(ctx, true);
-	turn = fyai_run_turn(ctx, ctx->last_message);
+	turn = fyai_run_turn(ctx, ctx->turn->last_message);
 	fyai_session_turn_set(ctx, false);
 	srv->busy = false;
-	ctx->tool_gate = NULL;
-	ctx->tool_gate_data = NULL;
+	ctx->turn->gate = NULL;
+	ctx->turn->gate_data = NULL;
 	/* A response that streamed and failed still ends its message. */
 	sdk_stream_close(srv, false, 0);
 	diag = fy_generic_get_diag(turn);
@@ -3095,7 +3095,7 @@ static char *sdk_run(struct sdk_server *srv, bool *okp)
 		value = turn;
 	}
 	if (fy_is_valid(value)) {
-		ctx->last_message = value;
+		ctx->turn->last_message = value;
 		rc = fyai_publish_state(ctx);
 		fyai_error_check(ctx, !rc, out,
 				 "claude-sdk: cannot store the turn");
@@ -3137,7 +3137,7 @@ static void sdk_turn(struct sdk_server *srv, const struct sdk_input *in)
 	free(srv->result_text);
 	srv->result_text = NULL;
 	srv->denials = fy_seq_empty;
-	ctx->structured_output = fy_invalid;
+	ctx->turn->structured_output = fy_invalid;
 	memset(&w, 0, sizeof(w));
 
 	ok = false;
@@ -3189,8 +3189,8 @@ static void sdk_turn(struct sdk_server *srv, const struct sdk_input *in)
 		cause = sdk_run(srv, &ok);
 		if (!ok)
 			break;
-		if (fy_is_mapping(ctx->output_schema) &&
-		    !fy_is_valid(ctx->structured_output) &&
+		if (fy_is_mapping(ctx->turn->output_schema) &&
+		    !fy_is_valid(ctx->turn->structured_output) &&
 		    retries < SDK_OUTPUT_RETRIES) {
 			retries++;
 			rc = sdk_add_user(srv, "Give the answer now: call the "
@@ -3226,8 +3226,8 @@ static void sdk_turn(struct sdk_server *srv, const struct sdk_input *in)
 done:
 	sdk_wait_free(&w);
 	/* A turn that asked for structured output ends with it. */
-	if (ok && fy_is_mapping(ctx->output_schema) &&
-	    !fy_is_valid(ctx->structured_output)) {
+	if (ok && fy_is_mapping(ctx->turn->output_schema) &&
+	    !fy_is_valid(ctx->turn->structured_output)) {
 		ok = false;
 		cause = strdup("the model gave no structured output");
 		subtype = "error_max_structured_output_retries";
@@ -3237,7 +3237,7 @@ done:
 	 * result has subtype success, the reason in its text, and no errors.
 	 */
 	api_error = !ok && !subtype &&
-		    ctx->turn_stop == FYAI_TURN_STOP_REQUEST;
+		    ctx->turn->stop == FYAI_TURN_STOP_REQUEST;
 	if (api_error) {
 		free(cause);
 		cause = fyai_diag_string(fyai_cfg_diag(cfg));
@@ -3246,13 +3246,13 @@ done:
 	if (!ok && !cause)
 		cause = fyai_diag_string(fyai_cfg_diag(cfg));
 	if (!ok && !subtype)
-		subtype = ctx->turn_stop == FYAI_TURN_STOP_LIMIT ?
+		subtype = ctx->turn->stop == FYAI_TURN_STOP_LIMIT ?
 				"error_max_turns" :
-			  ctx->turn_stop == FYAI_TURN_STOP_COST ?
+			  ctx->turn->stop == FYAI_TURN_STOP_COST ?
 				"error_max_budget_usd" :
 				"error_during_execution";
 	reason = ok ? "completed" : api_error ? "api_error" :
-		 ctx->turn_stop == FYAI_TURN_STOP_LIMIT ? "max_turns" : NULL;
+		 ctx->turn->stop == FYAI_TURN_STOP_LIMIT ? "max_turns" : NULL;
 	ms = sdk_elapsed_ms(&start);
 	gb = fyai_ctx_transient_gb(ctx);
 	frame = fy_mapping(gb,
@@ -3284,9 +3284,9 @@ done:
 	else if (!ok)
 		frame = fy_assoc(gb, frame, "errors", fy_sequence(gb,
 			cause && *cause ? cause : "the turn did not complete"));
-	if (ok && fy_is_valid(ctx->structured_output))
+	if (ok && fy_is_valid(ctx->turn->structured_output))
 		frame = fy_assoc(gb, frame, "structured_output",
-				 ctx->structured_output);
+				 ctx->turn->structured_output);
 	/* The origin of the prompt marks the result that answers it. */
 	if (in->origin_json)
 		frame = fy_assoc(gb, frame, "origin",
@@ -3314,8 +3314,8 @@ static int sdk_system_seed(struct sdk_server *srv)
 	turn = fyai_turn_append(ctx, fy_invalid,
 		fy_sequence(gb, fyai_make_system_message(ctx, text)));
 	turn = fyai_output_record(ctx, turn, FYAI_OUTPUT_SYSTEM, text);
-	ctx->last_message = fy_gb_internalize(ctx->arena->gb, turn);
-	fyai_error_check(ctx, fy_is_valid(ctx->last_message), err,
+	ctx->turn->last_message = fy_gb_internalize(ctx->arena->gb, turn);
+	fyai_error_check(ctx, fy_is_valid(ctx->turn->last_message), err,
 			 "claude-sdk: cannot keep the system prompt");
 	return 0;
 err:
@@ -3535,10 +3535,10 @@ static int sdk_cmd_channel(struct sdk_server *srv)
 	rc = jsonrpc_conn_frames(srv->conn, sdk_frame, srv);
 	fyai_error_check(ctx, !rc, out,
 			 "claude-sdk: cannot read standard input");
-	ctx->turn_observe = sdk_observe;
-	ctx->turn_observe_data = srv;
-	ctx->agent_observe = sdk_agent_observe;
-	ctx->agent_observe_data = srv;
+	ctx->turn->observe = sdk_observe;
+	ctx->turn->observe_data = srv;
+	ctx->turn->agent_observe = sdk_agent_observe;
+	ctx->turn->agent_observe_data = srv;
 	return 0;
 out:
 	return -1;
@@ -3588,25 +3588,25 @@ static int sdk_cmd_tools(struct fyai_cmd_call *call, struct sdk_server *srv)
 	/* The structured_output tool takes the schema of the answer. */
 	text = fyai_cmd_arg_str(call, "json_schema");
 	if (text) {
-		ctx->output_schema = parse_json_string(ctx->cfg->gb, text);
+		ctx->turn->output_schema = parse_json_string(ctx->cfg->gb, text);
 		rc = fyai_setup_transient_builder(ctx);
 		if (!rc) {
 			ctx->toolspec->spec = fy_invalid;
 			rc = fyai_request_state_apply(ctx);
 		}
 		fyai_cleanup_transient_builder(ctx);
-		fyai_error_check(ctx, !rc && fy_is_mapping(ctx->output_schema),
+		fyai_error_check(ctx, !rc && fy_is_mapping(ctx->turn->output_schema),
 				 out, "claude-sdk: cannot ask for the structured "
 				 "output");
 	}
 	/* The budget is of the whole invocation, as of a query of the SDK. */
 	budget = fy_get(call->args, "max_budget_usd", 0.0);
 	if (budget > 0)
-		ctx->turn_cost_limit = ctx->usage->cost + budget;
+		ctx->turn->cost_limit = ctx->usage->cost + budget;
 	if (fyai_cmd_arg_bool(call, "include_partial_messages")) {
 		srv->partial = true;
-		ctx->text_observe = sdk_text;
-		ctx->text_observe_data = srv;
+		ctx->turn->text_observe = sdk_text;
+		ctx->turn->text_observe_data = srv;
 	}
 	return 0;
 out:
@@ -3688,15 +3688,15 @@ static void sdk_cmd_cleanup(struct fyai_ctx *ctx, struct sdk_server *srv)
 		fyai_config_edit_destroy(ctx->config_edit);
 		ctx->config_edit = NULL;
 	}
-	ctx->turn_observe = NULL;
-	ctx->turn_observe_data = NULL;
-	ctx->agent_observe = NULL;
-	ctx->agent_observe_data = NULL;
-	ctx->text_observe = NULL;
-	ctx->text_observe_data = NULL;
-	ctx->turn_cost_limit = 0;
-	ctx->tool_gate = NULL;
-	ctx->tool_gate_data = NULL;
+	ctx->turn->observe = NULL;
+	ctx->turn->observe_data = NULL;
+	ctx->turn->agent_observe = NULL;
+	ctx->turn->agent_observe_data = NULL;
+	ctx->turn->text_observe = NULL;
+	ctx->turn->text_observe_data = NULL;
+	ctx->turn->cost_limit = 0;
+	ctx->turn->gate = NULL;
+	ctx->turn->gate_data = NULL;
 	/* The servers of the SDK reach it through this frame: stop them first. */
 	if (srv->tunnels)
 		fyai_mcp_cleanup(ctx);

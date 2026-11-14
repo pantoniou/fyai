@@ -255,8 +255,8 @@ static fy_generic fyai_turn_attach_tokens(struct fyai_ctx *ctx,
 {
 	fy_generic extents;
 
-	extents = ctx->last_token_extents;
-	ctx->last_token_extents = fy_invalid;
+	extents = ctx->turn->last_token_extents;
+	ctx->turn->last_token_extents = fy_invalid;
 	if (fy_is_invalid(extents))
 		return turn;
 	return fyai_turn_meta_set(ctx, turn, "tokens", extents);

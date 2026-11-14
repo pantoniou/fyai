@@ -71,7 +71,7 @@ int fyai_cmd_image_add(struct fyai_cmd_call *call, fy_generic *result)
 
 	if (fyai_media_attach_path(ctx, path, type, name))
 		return -1;
-	*result = media_add_result(call, ctx->media_pending);
+	*result = media_add_result(call, ctx->turn->media_pending);
 	return 0;
 }
 
@@ -83,13 +83,13 @@ int fyai_cmd_image_paste(struct fyai_cmd_call *call, fy_generic *result)
 
 	if (fyai_media_attach_clipboard(ctx))
 		return -1;
-	pending = ctx->media_pending;
+	pending = ctx->turn->media_pending;
 	/* The helper publishes under "clipboard"; a stated name replaces it. */
 	if (name && *name && fy_is_sequence(pending) && !fy_empty(pending)) {
 		last = fy_get_at(pending, fy_len(pending) - 1);
 		last = fy_assoc(ctx->arena->gb, last, "name", name);
 		pending = fy_replace(ctx->arena->gb, pending, fy_len(pending) - 1, last);
-		ctx->media_pending = pending;
+		ctx->turn->media_pending = pending;
 	}
 	*result = media_add_result(call, pending);
 	return 0;
@@ -109,7 +109,7 @@ int fyai_cmd_attach(struct fyai_cmd_call *call, fy_generic *result)
 	if (fyai_media_attach_file(ctx, path, false, &part))
 		return -1;
 	if (!fyai_media_part_is_file(part)) {
-		*result = media_add_result(call, ctx->media_pending);
+		*result = media_add_result(call, ctx->turn->media_pending);
 		return 0;
 	}
 	fyai_media_file_size(size, sizeof(size), part);
@@ -127,7 +127,7 @@ int fyai_cmd_image_clear(struct fyai_cmd_call *call, fy_generic *result)
 	struct fyai_ctx *ctx = call->ctx;
 	size_t count;
 
-	count = fy_len(ctx->media_pending);
+	count = fy_len(ctx->turn->media_pending);
 	fyai_media_pending_clear(ctx);
 	*result = fy_mapping(call->gb, "count", (long long)count);
 	return 0;
@@ -140,7 +140,7 @@ int fyai_cmd_image_list(struct fyai_cmd_call *call, fy_generic *result)
 	long long width, height;
 
 	out = fy_seq_empty;
-	fy_foreach(part, ctx->media_pending) {
+	fy_foreach(part, ctx->turn->media_pending) {
 		/* a text file: its lines in place of a pixel size */
 		if (fyai_media_part_is_file(part)) {
 			out = fy_append(call->gb, out, fy_mapping(call->gb,

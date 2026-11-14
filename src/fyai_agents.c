@@ -611,7 +611,7 @@ static enum agents_served agents_serve_ask(struct fyai_ctx *ctx,
 	}
 	if (ctx->agent_execution && ctx->tool_rpc)
 		rc = agents_forward(ctx, conn, ctx->tool_rpc, "user/ask", params, id);
-	else if (fyai_ui_active(ctx) && ctx->answer_next >= ctx->cfg->answer_count)
+	else if (fyai_ui_active(ctx) && ctx->turn->answer_next >= ctx->cfg->answer_count)
 		rc = agents_question(ctx, conn, params, id);
 	else
 		return AGENTS_SERVED_NO;
@@ -1210,7 +1210,7 @@ static char *agents_history(struct fyai_ctx *ctx, const char *name)
 	view.ui = NULL;
 	fyai_uimodel_view_detach(&view, &own);
 	view.display_output = NULL;
-	view.last_message = branch.head;
+	view.turn->last_message = branch.head;
 	fyai_transient_init(&transient);
 	transient.gb = gb;
 	view.transient = &transient;

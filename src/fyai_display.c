@@ -1051,7 +1051,7 @@ fy_generic fyai_stats_data(struct fyai_ctx *ctx, struct fy_generic_builder *gb)
 	switches = 0;
 	newer = fy_invalid;
 
-	fyai_turn_foreach(cur, ctx->last_message) {
+	fyai_turn_foreach(cur, ctx->turn->last_message) {
 		u = fy_get(fyai_turn_meta(cur), "usage");
 		if (fy_is_invalid(u))
 			continue;
@@ -4061,7 +4061,7 @@ int fyai_display_foreach_turn(struct fyai_ctx *ctx,
 	int rc;
 
 	memset(&stack, 0, sizeof(stack));
-	rc = fyai_turn_stack_init(&stack, ctx->last_message, fy_invalid);
+	rc = fyai_turn_stack_init(&stack, ctx->turn->last_message, fy_invalid);
 	fyai_error_check(ctx, !rc, out, "could not read the conversation");
 	fyai_exchange_window(sel, &stack, &lo, &hi);
 	for (i = lo; !rc && i < hi; i++)
@@ -4095,7 +4095,7 @@ int fyai_display_view(struct fyai_ctx *ctx)
 	fyai_error_check(ctx, tgb, err_out,
 			 "could not create display storage");
 
-	rc = fyai_turn_stack_init(&stack, ctx->last_message, fy_invalid);
+	rc = fyai_turn_stack_init(&stack, ctx->turn->last_message, fy_invalid);
 	fyai_error_check(ctx, !rc, err_out,
 			 "could not read the conversation");
 
@@ -4465,7 +4465,7 @@ int fyai_display_recap(struct fyai_ctx *ctx, int max_exchanges, int max_rows)
 	tgb = fy_generic_builder_create(&gcfg);
 	fyai_error_check(ctx, tgb, out, "could not create recap storage");
 
-	rc = fyai_turn_stack_init(&stack, ctx->last_message, fy_invalid);
+	rc = fyai_turn_stack_init(&stack, ctx->turn->last_message, fy_invalid);
 	fyai_error_check(ctx, !rc, out, "could not read the conversation");
 	count = stack.count;
 	if (!count)
@@ -4560,13 +4560,13 @@ int fyai_dump_view(struct fyai_ctx *ctx)
 	/* The anchored view dumps the full turn graph, no selection. */
 	if (args->anchors) {
 		emit_generic_to_sink_anchored(ctx, "conversation",
-			fy_is_valid(ctx->last_message) ?
-			ctx->last_message : fy_null, true, true);
+			fy_is_valid(ctx->turn->last_message) ?
+			ctx->turn->last_message : fy_null, true, true);
 		rc = 0;
 		goto err_out;
 	}
 
-	if (fyai_turn_stack_init(&stack, ctx->last_message, fy_invalid))
+	if (fyai_turn_stack_init(&stack, ctx->turn->last_message, fy_invalid))
 		goto err_out;
 	count = stack.count;
 
@@ -4647,7 +4647,7 @@ fy_generic fyai_list_turns_data(struct fyai_ctx *ctx,
 	size_t i;
 
 	out = fy_seq_empty;
-	if (fyai_turn_stack_init(&stack, ctx->last_message, fy_invalid))
+	if (fyai_turn_stack_init(&stack, ctx->turn->last_message, fy_invalid))
 		return fy_invalid;
 	count = stack.count;
 
@@ -4792,7 +4792,7 @@ fy_generic fyai_list_exchanges_data(struct fyai_ctx *ctx,
 
 	out = fy_seq_empty;
 	starts = NULL;
-	if (fyai_turn_stack_init(&stack, ctx->last_message, fy_invalid))
+	if (fyai_turn_stack_init(&stack, ctx->turn->last_message, fy_invalid))
 		return fy_invalid;
 	count = stack.count;
 
@@ -4872,7 +4872,7 @@ void fyai_interactive_recap(struct fyai_ctx *ctx)
 	color = ansi_color_on(cfg->color, STDERR_FILENO);
 	d = color ? markdown_role_on(cfg, "chrome", FYAI_ANSI_DIM) : "";
 	r = color ? FYAI_ANSI_RESET : "";
-	last = ctx->last_message;
+	last = ctx->turn->last_message;
 	preview = fy_invalid;
 
 	if (fy_is_invalid(last) || fy_is_null(last))

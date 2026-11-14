@@ -581,7 +581,7 @@ static int fyai_import_compact(struct fyai_import *im,
 	rc = fyai_import_request_setup(im);
 	fyai_error_check(ctx, !rc, err,
 			 "import: cannot prepare the compaction request");
-	ctx->last_message = head;
+	ctx->turn->last_message = head;
 	fyai_branch_op_set(ctx, "import", NULL);
 	rc = fyai_import_publish(im, pu, head);
 	fyai_error_check(ctx, !rc, err,
@@ -591,7 +591,7 @@ static int fyai_import_compact(struct fyai_import *im,
 			fy_castp(&turn->instructions, "") : NULL;
 	rc = fyai_session_compact(ctx, hint);
 	fyai_error_check(ctx, !rc, err, "import: the compaction failed");
-	*headp = ctx->last_message;
+	*headp = ctx->turn->last_message;
 	return 0;
 err:
 	return -1;
@@ -664,8 +664,8 @@ int fyai_import_view(struct fyai_ctx *ctx, const char *path)
 	/* Do not append an import to an explicitly selected conversation. */
 	if (ctx->cfg->branch_explicit)
 		fyai_error_check(ctx,
-			fy_is_invalid(ctx->last_message) ||
-			fy_is_null(ctx->last_message), out,
+			fy_is_invalid(ctx->turn->last_message) ||
+			fy_is_null(ctx->turn->last_message), out,
 			"import: branch '%s' already holds a conversation",
 			fyai_ctx_branch(ctx));
 	if (path) {
@@ -744,7 +744,7 @@ static int fyai_replay_collect(struct fyai_ctx *ctx, struct fyai_replay *rp)
 	int rc;
 
 	memset(&stack, 0, sizeof(stack));
-	rc = fyai_turn_stack_init(&stack, ctx->last_message, fy_invalid);
+	rc = fyai_turn_stack_init(&stack, ctx->turn->last_message, fy_invalid);
 	fyai_error_check(ctx, !rc, err, "replay: cannot read the conversation");
 	for (i = 0; i < stack.count; i++) {
 		meta = fyai_turn_meta(stack.items[i]);
@@ -797,9 +797,9 @@ int fyai_replay_view(struct fyai_ctx *ctx, bool ignore_compact)
 
 	/* Start the chain again; the system prompt comes from the config in
 	 * force now, not from the conversation being replayed. */
-	ctx->last_message = fyai_turn_append(ctx, fy_invalid,
+	ctx->turn->last_message = fyai_turn_append(ctx, fy_invalid,
 		fy_sequence(fyai_make_system_message(ctx, cfg->system_prompt)));
-	fyai_error_check(ctx, fy_is_valid(ctx->last_message), out,
+	fyai_error_check(ctx, fy_is_valid(ctx->turn->last_message), out,
 			 "replay: cannot seed the conversation");
 
 	for (i = 0; i < rp.count; i++) {
@@ -812,17 +812,17 @@ int fyai_replay_view(struct fyai_ctx *ctx, bool ignore_compact)
 			fyai_error_check(ctx, !rc, out, "replay: the compaction failed");
 			continue;
 		}
-		turn = fyai_turn_append(ctx, ctx->last_message,
+		turn = fyai_turn_append(ctx, ctx->turn->last_message,
 			fy_sequence(fyai_make_instruction_message(ctx,
 				fy_castp(&rp.items[i].prompt, ""))));
 		fyai_error_check(ctx, fy_is_valid(turn), out,
 				 "replay: cannot build the user turn");
-		ctx->last_message = turn;
-		v = fyai_run_turn(ctx, ctx->last_message);
+		ctx->turn->last_message = turn;
+		v = fyai_run_turn(ctx, ctx->turn->last_message);
 		v = fyai_report_diag(ctx, v);
 		fyai_error_check(ctx, fy_is_valid(v), out,
 				 "replay: the model run failed");
-		ctx->last_message = v;
+		ctx->turn->last_message = v;
 		fyai_branch_op_set(ctx, "replay", NULL);
 		rc = fyai_publish_state(ctx);
 		fyai_error_check(ctx, !rc, out, "replay: cannot publish");

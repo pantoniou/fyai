@@ -78,6 +78,18 @@ void fyai_usage_init(struct fyai_usage *usage, struct fyai_diag *diag)
 	usage->head = fy_invalid;
 }
 
+void fyai_turnstate_init(struct fyai_turnstate *turn, struct fyai_diag *diag)
+{
+	memset(turn, 0, sizeof(*turn));
+	turn->diag = diag;
+	/* A zeroed fy_generic is an empty sequence, not fy_invalid. */
+	turn->last_message = fy_invalid;
+	turn->output_schema = fy_invalid;
+	turn->structured_output = fy_invalid;
+	turn->last_token_extents = fy_invalid;
+	turn->media_pending = fy_seq_empty;
+}
+
 int fyai_app_init(struct fyai_app *app)
 {
 	int rc;
@@ -99,6 +111,7 @@ int fyai_app_init(struct fyai_app *app)
 	fyai_toolspec_init(&app->toolspec, &app->skills);
 	fyai_branch_state_init(&app->bstate, &app->arena, &app->diag);
 	fyai_usage_init(&app->usage, &app->diag);
+	fyai_turnstate_init(&app->turn, &app->diag);
 	fyai_link_init(&app->link, &app->loop, &app->cred);
 	fyai_arena_init(&app->arena);
 	fyai_transient_init(&app->transient);

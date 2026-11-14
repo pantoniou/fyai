@@ -940,12 +940,12 @@ static int acp_worker_turn(struct acp_worker *worker)
 	user = fyai_make_instruction_message(ctx, worker->text);
 	user = fy_assoc(gb, user, "acp_message_id", worker->message_id);
 	user = fy_assoc(gb, user, "acp_content", worker->content);
-	turn = fyai_turn_append(ctx, ctx->last_message, fy_sequence(gb, user));
+	turn = fyai_turn_append(ctx, ctx->turn->last_message, fy_sequence(gb, user));
 	turn = fyai_output_record(ctx, turn, FYAI_OUTPUT_USER, worker->text);
 	if (fy_is_invalid(turn))
 		return -1;
-	ctx->last_message = fy_gb_internalize(ctx->arena->gb, turn);
-	if (fy_is_invalid(ctx->last_message) || fyai_publish_state(ctx))
+	ctx->turn->last_message = fy_gb_internalize(ctx->arena->gb, turn);
+	if (fy_is_invalid(ctx->turn->last_message) || fyai_publish_state(ctx))
 		return -1;
 	if (jsonrpc_notify(worker->conn, "acp/inserted",
 		fy_mapping(gb, "messageId", worker->message_id)))
@@ -964,12 +964,12 @@ static int acp_worker_turn(struct acp_worker *worker)
 		"content", fy_seq_empty)))
 		return -1;
 	ctx->acp_agent_message_id = worker->agent_id;
-	turn = fyai_run_turn(ctx, ctx->last_message);
+	turn = fyai_run_turn(ctx, ctx->turn->last_message);
 	ctx->acp_agent_message_id = NULL;
 	turn = fyai_report_diag(ctx, turn);
 	if (fy_is_invalid(turn))
 		return -1;
-	ctx->last_message = turn;
+	ctx->turn->last_message = turn;
 	return fyai_publish_state(ctx);
 }
 

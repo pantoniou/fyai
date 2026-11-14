@@ -200,6 +200,7 @@ int fyai_uimodel_intent(struct fyai_ctx *ctx, const char *subtype,
 struct fyai_view_own {
 	struct fyai_askq askq;
 	struct fyai_branch_state bstate;
+	struct fyai_turnstate turn;
 };
 
 /*

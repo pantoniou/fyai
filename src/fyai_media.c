@@ -762,13 +762,13 @@ char *fyai_media_rows_styled(const char *text)
 /* Whether the next user message carries an attachment. */
 bool fyai_media_pending_any(const struct fyai_ctx *ctx)
 {
-	return ctx && !fy_empty(ctx->media_pending);
+	return ctx && !fy_empty(ctx->turn->media_pending);
 }
 
 void fyai_media_pending_clear(struct fyai_ctx *ctx)
 {
 	if (ctx)
-		ctx->media_pending = fy_seq_empty;
+		ctx->turn->media_pending = fy_seq_empty;
 }
 
 /*
@@ -782,8 +782,8 @@ fy_generic fyai_media_take_pending(struct fyai_ctx *ctx)
 
 	if (!ctx)
 		return fy_seq_empty;
-	pending = ctx->media_pending;
-	ctx->media_pending = fy_seq_empty;
+	pending = ctx->turn->media_pending;
+	ctx->turn->media_pending = fy_seq_empty;
 	return fy_is_sequence(pending) ? pending : fy_seq_empty;
 }
 
@@ -799,7 +799,7 @@ const char *fyai_media_pending_display(struct fyai_ctx *ctx, const char *text)
 	content = fy_append(gb, content,
 			    fy_mapping(gb, "type", FYAI_MEDIA_PART_TEXT,
 				       "text", fy_value(gb, text ? text : "")));
-	fy_foreach(part, ctx->media_pending)
+	fy_foreach(part, ctx->turn->media_pending)
 		content = fy_append(gb, content, part);
 	shown = fyai_media_text_references(gb, content);
 	s = fy_castp(&shown, "");
@@ -815,7 +815,7 @@ static int media_attach_check(struct fyai_ctx *ctx)
 		return -1;
 	}
 	if (ctx->cfg->media_max_per_message > 0 &&
-	    (int)fy_len(ctx->media_pending) >= ctx->cfg->media_max_per_message) {
+	    (int)fy_len(ctx->turn->media_pending) >= ctx->cfg->media_max_per_message) {
 		fyai_error(ctx, "a message takes at most %d attachments",
 			   ctx->cfg->media_max_per_message);
 		return -1;
@@ -844,7 +844,7 @@ static int media_attach_image(struct fyai_ctx *ctx,
 		fyai_error(ctx, "could not record the attachment");
 		return -1;
 	}
-	ctx->media_pending = fy_append(ctx->arena->gb, ctx->media_pending, part);
+	ctx->turn->media_pending = fy_append(ctx->arena->gb, ctx->turn->media_pending, part);
 	return 0;
 }
 
@@ -1064,16 +1064,16 @@ static int media_attach_text(struct fyai_ctx *ctx, const char *path, int fd,
 		fyai_error(ctx, "could not record '%s'", path);
 		return -1;
 	}
-	ctx->media_pending = fy_append(ctx->arena->gb, ctx->media_pending, part);
+	ctx->turn->media_pending = fy_append(ctx->arena->gb, ctx->turn->media_pending, part);
 	return 0;
 }
 
 /* The part that the last attachment added, or fy_invalid. */
 static fy_generic media_last_part(const struct fyai_ctx *ctx)
 {
-	size_t n = fy_len(ctx->media_pending);
+	size_t n = fy_len(ctx->turn->media_pending);
 
-	return n ? fy_get_at(ctx->media_pending, n - 1) : fy_invalid;
+	return n ? fy_get_at(ctx->turn->media_pending, n - 1) : fy_invalid;
 }
 
 int fyai_media_attach_file(struct fyai_ctx *ctx, const char *path, bool quiet,
@@ -1189,7 +1189,7 @@ int fyai_media_take_mentions(struct fyai_ctx *ctx, char *line)
 		fyai_error(ctx, "out of memory");
 		return -1;
 	}
-	saved = ctx->media_pending;
+	saved = ctx->turn->media_pending;
 	/*
 	 * The line is rewritten in place. The write cursor @o never passes the
 	 * read cursor @i, so the lookahead of line[i + 1] stays valid.
@@ -1233,7 +1233,7 @@ int fyai_media_take_mentions(struct fyai_ctx *ctx, char *line)
 	rc = 0;
 out:
 	if (rc)
-		ctx->media_pending = saved;
+		ctx->turn->media_pending = saved;
 	free(path);
 	return rc;
 }

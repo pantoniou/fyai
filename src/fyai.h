@@ -18,6 +18,7 @@
 #include "fyai_askq.h"
 #include "fyai_branch_state.h"
 #include "fyai_link.h"
+#include "fyai_turnstate.h"
 #include "fyai_usage.h"
 #include "fyai_scope.h"
 #include "fyai_skills.h"
@@ -61,12 +62,6 @@ struct fyai_tool_gate_ops;
 struct fyai_gate_relay;
 
 /* What stopped a turn before the model ended it. */
-enum fyai_turn_stop {
-	FYAI_TURN_STOP_NONE,
-	FYAI_TURN_STOP_LIMIT,		/* max_tool_iterations */
-	FYAI_TURN_STOP_COST,		/* turn_cost_limit */
-	FYAI_TURN_STOP_REQUEST,		/* the provider request failed */
-};
 struct fyai_patch_display;	/* resolved patch presentation (fyai_tools.c) */
 
 #define OPENAI_RESPONSES_URL "https://api.openai.com/v1/responses"
@@ -247,11 +242,6 @@ enum fyai_scope_kind {
  * previous_response_id cannot be resolved becomes MISSED, and the model loop
  * retries that step from local history.
  */
-enum fyai_chain_state {
-	FYAI_CHAIN_UNLINKED,
-	FYAI_CHAIN_LINKED,
-	FYAI_CHAIN_MISSED,
-};
 
 struct fyai_cfg {
 	int exit_status; /* Exit status of a successfully executed CLI child. */
@@ -773,12 +763,9 @@ struct fyai_ctx {
 	struct fyai_config_edit_request *config_edit;
 	struct fyai_catalog_update_request *catalog_update;
 	struct fyai_cmd_call *cmd_call;	/* the active async command */
-	/* Do not apply the context guard to a compaction request. */
-	bool compacting;
-	/* Output allowance after the context check. Zero uses the configuration. */
-	long long context_max_tokens;
 	fy_generic tools;
-	fy_generic last_message;
+	/* The turn component, owned by struct fyai_app. */
+	struct fyai_turnstate *turn;
 	/* The branch cursor component, owned by struct fyai_app. */
 	struct fyai_branch_state *bstate;
 	/*
@@ -827,89 +814,16 @@ struct fyai_ctx {
 	/* ACP worker notifications share the active turn's event loop. */
 	struct jsonrpc_conn *acp_rpc;
 	const char *acp_agent_message_id;
-	/*
-	 * Called with each turn that a running turn appends: a model response
-	 * and each tool result. The turn is valid during the call. A protocol
-	 * front end streams the conversation from it.
-	 */
-	void (*turn_observe)(struct fyai_ctx *ctx, fy_generic turn, void *data);
-	void *turn_observe_data;
-	/*
-	 * Called with each step that a delegated sub-agent appends to its
-	 * turn: {messages, usage, model}. @call is the agent call of this
-	 * turn that started it. The step is valid during the call.
-	 */
-	void (*agent_observe)(struct fyai_ctx *ctx, fy_generic call,
-			      fy_generic step, void *data);
-	void *agent_observe_data;
-	/* Called with each chunk of answer text as it arrives. */
-	void (*text_observe)(struct fyai_ctx *ctx, const char *text, size_t len,
-			     void *data);
-	void *text_observe_data;
-	/*
-	 * Why the last turn stopped short. A turn sets it; a caller that reports
-	 * it clears it before the turn.
-	 */
-	enum fyai_turn_stop turn_stop;
-	/*
-	 * The JSON Schema of the answer that a front end asks for, or fy_invalid,
-	 * and the answer that the structured_output tool accepted.
-	 */
-	fy_generic output_schema;
-	fy_generic structured_output;
-	/* Stop before a model request once usage_cost reaches this; 0 for none. */
-	double turn_cost_limit;
-	/*
-	 * A tool asks the turn to end before its next model request. A request
-	 * that the turn consumes, not a phase: turn_stop records why a turn
-	 * stopped, and the two do not describe the same event.
-	 */
-	bool turn_end_requested;
-	/* The tool gate of the turns of this context, and its open round. */
-	const struct fyai_tool_gate_ops *tool_gate;
-	void *tool_gate_data;
-	struct fyai_turn_run *tool_gate_run;
-	uint64_t tool_gate_seq;
-	/* The rounds that delegated sub-agents asked the gate for. */
-	struct fyai_gate_relay *gate_relays;
-	/*
-	 * A delegated sub-agent: the parent asks for its tool calls to go
-	 * through the gate of the parent, and for each step of its turns.
-	 */
-	bool relay_gate;
-	bool relay_steps;
-	/* Set inside a forked tool sub-execution once the environment has been
-	 * sanitized and the sandbox applied, so inner steps (the shell tool's
-	 * own fork) do not re-derive and re-apply the confinement. */
-	/* Index of the next pre-supplied --answer to hand to ask_user. */
-	size_t answer_next;
-	/* Set when ask_user needs an answer but none can be obtained
-	 * (non-interactive stdin with no --answer left); aborts the run. */
-	bool ask_abort;
 	/* The usage accounting component, owned by struct fyai_app. */
 	struct fyai_usage *usage;
-	/* Token extents collected by the last streamed call (fy_invalid when
-	 * none); consumed when the assistant response is appended to a turn. */
-	fy_generic last_token_extents;
-	/* One-way latch, not a phase: set when a provider rejected the logprobs
-	 * params injected for token_extents, so the session stops asking. */
-	bool token_extents_off;
-	/* The chain state of the last request. A request that carries no
-	 * previous_response_id leaves it UNLINKED. */
-	enum fyai_chain_state response_chain;
-	/*
-	 * The attachments that the next user message takes, as canonical image
-	 * parts that hold their bytes, built in @gb.
-	 */
-	fy_generic media_pending;
 };
 
 /* Give a chunk of answer text to the observer of the context. */
 static inline void fyai_text_observe(struct fyai_ctx *ctx, const char *text,
 				     size_t len)
 {
-	if (ctx->text_observe && len)
-		ctx->text_observe(ctx, text, len, ctx->text_observe_data);
+	if (ctx->turn->text_observe && len)
+		ctx->turn->text_observe(ctx, text, len, ctx->turn->text_observe_data);
 }
 
 static inline bool fyai_interrupt_pending(const struct fyai_ctx *ctx)

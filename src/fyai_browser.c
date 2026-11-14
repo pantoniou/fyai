@@ -1700,7 +1700,7 @@ static char *browser_capture(struct fyai_browser *b, char *name,
 	view.bstate->name = name;
 	view.bstate->branches = b->branches;
 	view.bstate->prev = branch.entry;
-	view.last_message = branch.head;
+	view.turn->last_message = branch.head;
 	fyai_transient_init(&transient);
 	transient.gb = gb;
 	view.transient = &transient;
@@ -1780,7 +1780,7 @@ static char *browser_foreign_capture(struct fyai_browser *b,
 	fyai_transient_init(&transient);
 	transient.gb = gb;
 	view.transient = &transient;
-	view.last_message = fy_invalid;
+	view.turn->last_message = fy_invalid;
 	if (cols > 0)
 		cfg.render_width = cols;
 	if (action == 'p') {

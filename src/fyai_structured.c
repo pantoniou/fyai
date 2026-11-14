@@ -32,9 +32,9 @@ static fy_generic structured_run(struct fyai_ctx *ctx, fy_generic args,
 	const char *text;
 
 	*okp = false;
-	if (!fy_is_mapping(ctx->output_schema))
+	if (!fy_is_mapping(ctx->turn->output_schema))
 		return fy_value(gb, "no structured output is asked for");
-	report = fyai_schema_validate(gb, ctx->output_schema, args);
+	report = fyai_schema_validate(gb, ctx->turn->output_schema, args);
 	if (!fyai_schema_valid(report)) {
 		problems = fyai_schema_report_string(report);
 		text = fy_sprintfa("the output does not match the schema:\n%s",
@@ -42,10 +42,10 @@ static fy_generic structured_run(struct fyai_ctx *ctx, fy_generic args,
 		free(problems);
 		return fy_value(gb, text);
 	}
-	ctx->structured_output = fy_gb_internalize(ctx->arena->gb, args);
-	if (fy_is_invalid(ctx->structured_output))
+	ctx->turn->structured_output = fy_gb_internalize(ctx->arena->gb, args);
+	if (fy_is_invalid(ctx->turn->structured_output))
 		return fy_value(gb, "the structured output could not be kept");
-	ctx->turn_end_requested = true;
+	ctx->turn->end_requested = true;
 	*okp = true;
 	return fy_value(gb, "The structured output was accepted.");
 }
@@ -57,10 +57,10 @@ static fy_generic structured_describe(struct fyai_ctx *ctx,
 {
 	fy_generic fn;
 
-	if (!fy_is_mapping(ctx->output_schema))
+	if (!fy_is_mapping(ctx->turn->output_schema))
 		return fy_invalid;
 	fn = fy_get(tool, "function", fy_invalid);
-	fn = fy_assoc(gb, fn, "parameters", ctx->output_schema);
+	fn = fy_assoc(gb, fn, "parameters", ctx->turn->output_schema);
 	return fy_assoc(gb, tool, "function", fn);
 }
 

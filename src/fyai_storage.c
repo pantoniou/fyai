@@ -730,7 +730,7 @@ static int storage_bootstrap_seed(struct fyai_ctx *ctx)
 	if (!fy_is_valid(config))
 		return -1;
 	ctx->bstate->config = config;
-	ctx->last_message = fy_invalid;
+	ctx->turn->last_message = fy_invalid;
 	rc = fyai_root_publish_try(ctx);
 	if (rc) {
 		fyai_error(ctx, "init: cannot publish the arena root at %s",
@@ -935,10 +935,10 @@ int fyai_setup_storage(struct fyai_ctx *ctx)
 		 * branch and leaves every other branch alone.
 		 */
 		if (cfg->fresh_session)
-			ctx->last_message = cfg->fresh_session_from ?
+			ctx->turn->last_message = cfg->fresh_session_from ?
 				lb.head : fy_invalid;
 		else if (!cfg->new_conversation)
-			ctx->last_message = b.head;
+			ctx->turn->last_message = b.head;
 		else {
 			rc = fyai_publish_state(ctx);
 			fyai_error_check(ctx, !rc, err_out,
@@ -1061,7 +1061,7 @@ static bool storage_session_defer(struct fyai_ctx *ctx)
 	if (!ctx->bstate->session_unstored ||
 	    strcmp(ctx->bstate->session_unstored, fyai_ctx_branch(ctx)))
 		return false;
-	fyai_turn_foreach(cur, ctx->last_message) {
+	fyai_turn_foreach(cur, ctx->turn->last_message) {
 		if (!fyai_turn_is_system_only(cur))
 			return false;
 	}
@@ -1087,7 +1087,7 @@ static fy_generic fyai_branches_commit(struct fyai_ctx *ctx)
 		 * Structural sharing makes raw generic identity sufficient,
 		 * including when both heads are invalid.
 		 */
-		same = prev.head.v == ctx->last_message.v;
+		same = prev.head.v == ctx->turn->last_message.v;
 		op = same ? FYAI_BRANCH_OP_CONFIG : FYAI_BRANCH_OP_TURN;
 	}
 
@@ -1103,7 +1103,7 @@ static fy_generic fyai_branches_commit(struct fyai_ctx *ctx)
 	nb.config = ctx->bstate->config;
 	nb.catalog = ctx->bstate->catalog;
 	nb.skills = ctx->bstate->skills;
-	nb.head = ctx->last_message;
+	nb.head = ctx->turn->last_message;
 	nb.created = fy_is_valid(prev.created) ? prev.created : now;
 	nb.updated = now;
 	if (fy_is_invalid(nb.cwd))
@@ -1528,11 +1528,11 @@ static int publish_reconcile(struct fyai_ctx *ctx)
 	 */
 	fyai_branch_decode(ctx->bstate->prev, &base);
 	if (cur.head.v == base.head.v ||
-	    ctx->last_message.v == base.head.v) {
+	    ctx->turn->last_message.v == base.head.v) {
 		if (publish_store_merge(ctx, &cur))
 			return -1;
-		if (ctx->last_message.v == base.head.v)
-			ctx->last_message = cur.head;
+		if (ctx->turn->last_message.v == base.head.v)
+			ctx->turn->last_message = cur.head;
 		fyai_ctx_branch_prev_set(ctx, cur.entry);
 		return 0;
 	}
@@ -1549,7 +1549,7 @@ static int publish_reconcile(struct fyai_ctx *ctx)
 		return -1;
 	if (publish_store_merge(ctx, &cur))
 		return -1;
-	ctx->last_message = head;
+	ctx->turn->last_message = head;
 	fyai_ctx_branch_prev_set(ctx, cur.entry);
 	fyai_notice(ctx, "branch '%s' changed while this command was running; "
 		    "replayed on top of it", fyai_ctx_branch(ctx));
@@ -1573,7 +1573,7 @@ static void storage_project_state(struct fyai_ctx *ctx)
 	    storage_session_defer(ctx))
 		return;
 	fyai_branch_decode(ctx->bstate->prev, &prev);
-	if (prev.head.v == ctx->last_message.v)
+	if (prev.head.v == ctx->turn->last_message.v)
 		return;
 	if (fyai_project_state_capture(ctx, &ref) || !fy_is_mapping(ref))
 		return;
@@ -1594,7 +1594,7 @@ int fyai_publish_state(struct fyai_ctx *ctx)
 	if (!ctx->arena->durable_allocator || !ctx->arena->durable_gb)
 		return 0;
 	/* Skip a branch that has no state. */
-	if (fy_is_invalid(ctx->last_message) &&
+	if (fy_is_invalid(ctx->turn->last_message) &&
 	    fy_is_invalid(ctx->bstate->config) &&
 	    fy_is_invalid(ctx->bstate->catalog) &&
 	    fy_is_invalid(ctx->bstate->prev))
@@ -1657,7 +1657,7 @@ int fyai_publish_root(struct fyai_ctx *ctx, fy_generic config,
 	if (fy_is_valid(catalog))
 		ctx->bstate->catalog = catalog;
 	if (fy_is_valid(head))
-		ctx->last_message = head;
+		ctx->turn->last_message = head;
 	/* A lost race reconciles as every publish of the branch does. */
 	return fyai_publish_state(ctx);
 }
@@ -1858,7 +1858,7 @@ err_out:
 int fyai_close_storage(struct fyai_ctx *ctx)
 {
 	fyai_arena_release(ctx->arena);
-	ctx->last_message = fy_invalid;
+	ctx->turn->last_message = fy_invalid;
 	ctx->bstate->config = fy_invalid;
 	ctx->bstate->catalog = fy_invalid;
 	ctx->bstate->skills = fy_invalid;
@@ -2205,7 +2205,7 @@ int fyai_init_storage(struct fyai_ctx *ctx)
 
 	ctx->bstate->config = config;
 	ctx->bstate->catalog = catalog;
-	ctx->last_message = head;
+	ctx->turn->last_message = head;
 	rc = fyai_root_publish_try(ctx);
 	if (rc) {
 		fyai_error(ctx, "init: cannot publish arena root");

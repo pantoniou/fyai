@@ -1322,7 +1322,7 @@ struct fyai_ask_call *fyai_ask_call_start(struct fyai_ctx *ctx, fy_generic args,
 	char why[160];
 	int rc;
 
-	if (fyai_agent_delegated(ctx) || ctx->answer_next < cfg->answer_count ||
+	if (fyai_agent_delegated(ctx) || ctx->turn->answer_next < cfg->answer_count ||
 	    !fyai_ui_ask_available(ctx) || fyai_asks_background(args) ||
 	    !fyai_skill_tool_allowed(ctx, "ask_user"))
 		return NULL;
@@ -1420,8 +1420,8 @@ static fy_generic fyai_ask_user_lines(struct fyai_ctx *ctx, fy_generic questions
 		 * question, instead of prompting. Echo the consumed answer so
 		 * the transcript still reads sensibly.
 		 */
-		if (ctx->answer_next < cfg->answer_count) {
-			a = cfg->answers[ctx->answer_next++];
+		if (ctx->turn->answer_next < cfg->answer_count) {
+			a = cfg->answers[ctx->turn->answer_next++];
 			fyai_report(ctx, "> %s\n", a);
 			line = strdup(a ? a : "");
 		} else if (!terminal_is_tty(STDIN_FILENO)) {
@@ -1432,7 +1432,7 @@ static fy_generic fyai_ask_user_lines(struct fyai_ctx *ctx, fy_generic questions
 			 */
 			fyai_error(ctx, "ask_user: an answer is expected but none is "
 				   "available (non-interactive; supply --answer)");
-			ctx->ask_abort = true;
+			ctx->turn->ask_abort = true;
 			fyai_ask_replies_free(replies, n);
 			return fy_value(ctx->transient->gb, "tool error: no answer "
 					"available (non-interactive)");
@@ -1483,7 +1483,7 @@ fy_generic fyai_ask_user_from(struct fyai_ctx *ctx, fy_generic args,
 	 * A question that the page answers is an entry of the tool group
 	 * (fyai_ask_call_start()); only a background question starts here.
 	 */
-	if (!from && ctx->answer_next >= cfg->answer_count &&
+	if (!from && ctx->turn->answer_next >= cfg->answer_count &&
 	    fyai_ui_ask_available(ctx) && fyai_asks_background(args)) {
 		gname = fy_get(args, "name", fy_invalid);
 		name = fy_castp(&gname, "");
@@ -2377,20 +2377,20 @@ static void fyai_ctx_xfer_reset(struct fyai_ctx *ctx)
  */
 static void fyai_ctx_turn_reset(struct fyai_ctx *ctx)
 {
-	ctx->turn_end_requested = false;
-	ctx->turn_stop = FYAI_TURN_STOP_NONE;
-	ctx->turn_cost_limit = 0;
-	ctx->compacting = false;
+	ctx->turn->end_requested = false;
+	ctx->turn->stop = FYAI_TURN_STOP_NONE;
+	ctx->turn->cost_limit = 0;
+	ctx->turn->compacting = false;
 	fyai_loop_reset_interrupt(ctx->loop);
 	ctx->bstate->tool_diff_tracking = false;
-	ctx->tool_gate = NULL;
-	ctx->tool_gate_data = NULL;
-	ctx->tool_gate_run = NULL;
-	ctx->gate_relays = NULL;
-	ctx->relay_gate = false;
-	ctx->relay_steps = false;
-	ctx->output_schema = fy_invalid;
-	ctx->structured_output = fy_invalid;
+	ctx->turn->gate = NULL;
+	ctx->turn->gate_data = NULL;
+	ctx->turn->gate_run = NULL;
+	ctx->turn->gate_relays = NULL;
+	ctx->turn->relay_gate = false;
+	ctx->turn->relay_steps = false;
+	ctx->turn->output_schema = fy_invalid;
+	ctx->turn->structured_output = fy_invalid;
 }
 
 /*
@@ -2405,7 +2405,7 @@ static void fyai_ctx_usage_reset(struct fyai_ctx *ctx)
 	ctx->usage->calls = 0;
 	ctx->usage->switch_pending = false;
 	ctx->usage->last_call_input = ctx->usage->last_call_output = ctx->usage->last_call_total = 0;
-	ctx->last_token_extents = fy_invalid;
+	ctx->turn->last_token_extents = fy_invalid;
 }
 
 /*
@@ -2467,19 +2467,19 @@ void fyai_ctx_fork_disown(struct fyai_ctx *ctx)
 	ctx->config_edit = NULL;
 	ctx->mcp->conns = NULL;			/* its connections to the servers */
 	ctx->mcp->tools = fy_invalid;
-	ctx->turn_observe = NULL;		/* a stream to the parent's peer */
-	ctx->turn_observe_data = NULL;
-	ctx->text_observe = NULL;
-	ctx->text_observe_data = NULL;
-	ctx->agent_observe = NULL;
-	ctx->agent_observe_data = NULL;
+	ctx->turn->observe = NULL;		/* a stream to the parent's peer */
+	ctx->turn->observe_data = NULL;
+	ctx->turn->text_observe = NULL;
+	ctx->turn->text_observe_data = NULL;
+	ctx->turn->agent_observe = NULL;
+	ctx->turn->agent_observe_data = NULL;
 	fyai_ctx_turn_reset(ctx);
 	fyai_ctx_usage_reset(ctx);
 	fyai_ctx_xfer_reset(ctx);
-	ctx->response_chain = FYAI_CHAIN_UNLINKED;
+	ctx->turn->response_chain = FYAI_CHAIN_UNLINKED;
 	/* The attachments wait for the next line of the parent, not of this
 	 * child; the store stays open to read the bytes of the branch. */
-	ctx->media_pending = fy_seq_empty;
+	ctx->turn->media_pending = fy_seq_empty;
 }
 
 /*

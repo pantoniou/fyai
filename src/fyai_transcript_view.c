@@ -989,14 +989,14 @@ int fyai_transcript_view_refresh(struct fyai_ctx *ctx,
 
 	if (!ctx || !v || width < 1)
 		return 0;
-	head_changed = !v->rendered || v->head.v != ctx->last_message.v;
+	head_changed = !v->rendered || v->head.v != ctx->turn->last_message.v;
 	/* A region scrolled onto an exchange that is only measured renders
 	 * it. */
 	if (!head_changed && v->width == width &&
 	    !fyai_transcript_view_needs_render(v, height))
 		return 0;
 	memset(&stack, 0, sizeof(stack));
-	rc = fyai_turn_stack_init(&stack, ctx->last_message, fy_invalid);
+	rc = fyai_turn_stack_init(&stack, ctx->turn->last_message, fy_invalid);
 	fyai_error_check(ctx, !rc, out, "could not read the conversation");
 	rc = -1;
 	count = stack.count;
@@ -1048,7 +1048,7 @@ int fyai_transcript_view_refresh(struct fyai_ctx *ctx,
 		}
 	}
 	v->rendered = true;
-	v->head = ctx->last_message;
+	v->head = ctx->turn->last_message;
 out:
 	free(keys);
 	free(starts);

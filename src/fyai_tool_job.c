@@ -1374,7 +1374,7 @@ static fy_generic fyai_tool_job_gate(struct fyai_tool_job *job,
 	int rc;
 
 	after = fy_equal(fy_get(params, "phase", fy_invalid), "after");
-	if (!ctx->tool_gate)
+	if (!ctx->turn->gate)
 		return after ? fy_mapping(gb, "stop", false) :
 			       fy_mapping(gb, "allow", true);
 	/* The gate can answer during the relay. */
@@ -1410,9 +1410,9 @@ static fy_generic fyai_tool_job_serve(struct jsonrpc_conn *conn,
 	if (job->agent && fy_is_valid(id) && !strcmp(method, "tool/gate"))
 		return fyai_tool_job_gate(job, conn, id, params);
 	if (job->agent && !strcmp(method, "turn/step")) {
-		if (job->ctx->agent_observe)
-			job->ctx->agent_observe(job->ctx, job->call, params,
-						job->ctx->agent_observe_data);
+		if (job->ctx->turn->agent_observe)
+			job->ctx->turn->agent_observe(job->ctx, job->call, params,
+						job->ctx->turn->agent_observe_data);
 		return fy_invalid;
 	}
 	/* Handle the question request a delegated child sends to its parent. */
@@ -1566,9 +1566,9 @@ static int fyai_tool_job_attach(struct fyai_ctx *ctx,
 		params = fy_assoc(gb, params, fy_value(gb, "spawn"),
 				     fyai_agent_spawn_state(job->ctx, gb, job->transport_exec));
 	/* A sub-agent asks the gate of this process, and reports its steps. */
-	if (job->agent && ctx->tool_gate)
+	if (job->agent && ctx->turn->gate)
 		params = fy_assoc(gb, params, "gate", true);
-	if (job->agent && ctx->agent_observe)
+	if (job->agent && ctx->turn->agent_observe)
 		params = fy_assoc(gb, params, "steps", true);
 	if (job->start_cols > 0)
 		params = fy_assoc(gb, params, fy_value(gb, "size"),
