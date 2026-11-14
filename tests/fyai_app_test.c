@@ -38,6 +38,8 @@ FYAI_TEST_ENTRY(app, transient_stacks_on_slot, app_transient_stacks_on_slot)
 FYAI_TEST_ENTRY(app, transient_tells_its_release, app_transient_tells_its_release)
 FYAI_TEST_ENTRY(app, wires_transport, app_wires_transport)
 FYAI_TEST_ENTRY(app, wires_mcp, app_wires_mcp)
+FYAI_TEST_ENTRY(app, wires_waitq, app_wires_waitq)
+FYAI_TEST_ENTRY(app, wires_askq, app_wires_askq)
 FYAI_TEST_ENTRY(app, wires_link, app_wires_link)
 FYAI_TEST_ENTRY(app, wires_cred, app_wires_cred)
 FYAI_TEST_ENTRY(app, cred_holds_login_state, app_cred_holds_login_state)
@@ -146,6 +148,32 @@ int app_wires_mcp(void)
 	FYAI_TCHECK(fy_is_invalid(app.mcp.tools) && fy_is_invalid(app.mcp.active_tools));
 	fyai_app_cleanup(&app);
 	printf("ok - the MCP component starts with no connection\n");
+	return 0;
+}
+
+int app_wires_waitq(void)
+{
+	struct fyai_app app;
+
+	FYAI_TCHECK(!fyai_app_init(&app));
+	FYAI_TCHECK(app.waitq.loop == &app.loop && app.waitq.diag == &app.diag);
+	FYAI_TCHECK(!app.waitq.waits && !app.waitq.waiters && !app.waitq.events);
+	FYAI_TCHECK(app.waitq.events_tail == &app.waitq.events);
+	fyai_app_cleanup(&app);
+	printf("ok - the waits component starts with an empty queue\n");
+	return 0;
+}
+
+int app_wires_askq(void)
+{
+	struct fyai_app app;
+
+	FYAI_TCHECK(!fyai_app_init(&app));
+	FYAI_TCHECK(app.askq.diag == &app.diag);
+	FYAI_TCHECK(!app.askq.asks && !app.askq.entries);
+	FYAI_TCHECK(!app.askq.serial && !app.askq.seq);
+	fyai_app_cleanup(&app);
+	printf("ok - the questions component starts empty\n");
 	return 0;
 }
 

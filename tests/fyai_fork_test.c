@@ -25,7 +25,9 @@ int fork_disown_drops_parent_state(void)
 	struct fyai_loop loop;
 	struct fyai_transport_state tstate = {};
 	struct fyai_mcp mcpstate = {};
-	struct fyai_ctx ctx = { .cfg = &cfg, .loop = &loop, .link = &(struct fyai_link){ .loop = &loop }, .transport = &tstate, .mcp = &mcpstate };
+	struct fyai_waitq waitq = {};
+	struct fyai_askq askq = {};
+	struct fyai_ctx ctx = { .cfg = &cfg, .loop = &loop, .link = &(struct fyai_link){ .loop = &loop }, .transport = &tstate, .mcp = &mcpstate, .waitq = &waitq, .askq = &askq };
 	char parent;
 	size_t i;
 

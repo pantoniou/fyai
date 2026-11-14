@@ -7,6 +7,7 @@
 
 #include "fyai.h"
 #include "fyai_test.h"
+#include "fyai_test_diag.h"
 
 #include "fyai_test_registry.h"
 
@@ -21,7 +22,11 @@ static struct fyai_ctx wait_ctx;
 
 static void wait_ctx_setup(void)
 {
+	free(wait_ctx.waitq);
+	free(wait_ctx.askq);
 	memset(&wait_ctx, 0, sizeof(wait_ctx));
+	fyai_test_waitq_of(&wait_ctx);
+	fyai_test_askq_of(&wait_ctx);
 }
 
 static void wait_ctx_teardown(void)
@@ -137,7 +142,7 @@ int event_wait_peek_seen(void)
 	FYAI_TCHECK(!fyai_event_queued(&wait_ctx));
 	FYAI_TCHECK(!fyai_event_take_live(&wait_ctx));
 	fyai_events_purge_seen(&wait_ctx);
-	FYAI_TCHECK(!wait_ctx.events);
+	FYAI_TCHECK(!wait_ctx.waitq->events);
 	wait_ctx_teardown();
 	printf("ok - waiters read an event without taking it\n");
 	return 0;

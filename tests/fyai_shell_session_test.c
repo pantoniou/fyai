@@ -64,7 +64,8 @@ static fy_generic work_item(struct fyai_ctx *ctx)
 int shell_session_stop(void)
 {
 	struct fyai_cfg cfg = { 0 };
-	struct fyai_ctx ctx = { .cfg = &cfg };
+	struct fyai_waitq waitq = {};
+	struct fyai_ctx ctx = { .cfg = &cfg, .waitq = &waitq };
 	struct fyai_shell_session *sess;
 	fy_generic item, shown;
 	int i;

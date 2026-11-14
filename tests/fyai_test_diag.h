@@ -129,4 +129,34 @@ static inline struct fyai_mcp *fyai_test_mcp_of(struct fyai_ctx *ctx)
 	return ctx->mcp;
 }
 
+/*
+ * The waits component of a test context: the one that the test gave the
+ * context, else one that the context holds.
+ */
+static inline struct fyai_waitq *fyai_test_waitq_of(struct fyai_ctx *ctx)
+{
+	if (!ctx->waitq) {
+		ctx->waitq = calloc(1, sizeof(*ctx->waitq));
+		if (!ctx->waitq)
+			return NULL;
+		fyai_waitq_init(ctx->waitq, ctx->loop, fyai_cfg_diag(ctx->cfg));
+	}
+	return ctx->waitq;
+}
+
+/*
+ * The questions component of a test context: the one that the test gave the
+ * context, else one that the context holds.
+ */
+static inline struct fyai_askq *fyai_test_askq_of(struct fyai_ctx *ctx)
+{
+	if (!ctx->askq) {
+		ctx->askq = calloc(1, sizeof(*ctx->askq));
+		if (!ctx->askq)
+			return NULL;
+		fyai_askq_init(ctx->askq, fyai_cfg_diag(ctx->cfg));
+	}
+	return ctx->askq;
+}
+
 #endif

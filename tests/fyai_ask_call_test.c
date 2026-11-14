@@ -58,6 +58,7 @@ static void env_open(struct env *e)
 	};
 
 	memset(e, 0, sizeof(*e));
+	fyai_test_askq_of(&e->ctx);
 	e->ctx.cfg = &e->cfg;
 	e->gb = fy_generic_builder_create(&bcfg);
 	FYAI_TCHECK(e->gb);
