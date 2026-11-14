@@ -2620,59 +2620,63 @@ static void ui_elapsed_format(char *buf, size_t size, long long started)
 		snprintf(buf, size, " %lldm%02llds", secs / 60, secs % 60);
 }
 
-static void ui_page_update(struct fyai_ui *ui)
-{
-	struct fyai_ctx *ctx = ui->ctx;
-	struct fyai_page_tile tiles[FYAI_WORKPANE_TILES_MAX];
-	struct fyai_page_layout layout;
+/*
+ * What the stages of one frame of the page share. The state of the page
+ * points into the arrays, so the frame outlives every stage.
+ */
+struct ui_page_frame {
 	struct fyai_page_state st;
-	struct fytim_workpane *pane;
-	char elapsed[24], cap[512];
+	struct fyai_page_layout layout;
 	struct fyai_page_keys keys;
-	struct ui_question *q, *w;
+	struct fyai_page_tile tiles[FYAI_WORKPANE_TILES_MAX];
 	struct fyai_page_ask ask;
 	struct fyai_page_ask_option ask_options[FYAI_ASK_OPTIONS_MAX];
 	struct fyai_page_ask_review ask_lines[FYAI_ASK_QUESTIONS_MAX];
 	char ask_answers[FYAI_ASK_QUESTIONS_MAX][256];
-	char hint_fit[256];
-	struct fyai_transcript_view *blocks;
-	const char *rule_off, *typed, *tail;
-	char *activity = NULL, *legacy;
-	fy_generic turn;
-	int cols = 0, rows = 0, n, i, sep_cols, rc;
-	bool side, busy;
+	char elapsed[24], cap[512], hint_fit[256];
+	char *activity;
+	int cols, rows;
+	int sep_cols;
+	bool side;
+};
 
-	if (!ui->page)
-		return;
-	ui_inline_keys_hold(ui);
-	memset(&st, 0, sizeof(st));
-	st.ctx = ctx;
-	rc = fytim_size(ui->ft, &cols, &rows);
+/* The layout, the header and the status of the frame. */
+static int ui_page_frame_header(struct fyai_ui *ui, struct ui_page_frame *f)
+{
+	struct fyai_page_state *st = &f->st;
+	struct fyai_page_layout *layout = &f->layout;
+	struct fyai_ctx *ctx = ui->ctx;
+	struct fyai_transcript_view *blocks;
+	fy_generic turn;
+	int rc;
+	bool busy;
+
+	rc = fytim_size(ui->ft, &f->cols, &f->rows);
 	fyai_error_check(ctx, rc == FYTIM_OK, err_page,
 			 "cannot read the terminal size for the page");
-	st.screen_cols = cols;
-	st.screen_rows = rows;
+	st->screen_cols = f->cols;
+	st->screen_rows = f->rows;
 	/* The layout of the document is chosen before the fit: it says
-	 * whether the pane takes rows of the page or a column beside it. */
-	rc = fyai_page_layout(ui->page, cols, rows, ui->fullscreen, &layout);
+	 * whether the pane takes f->rows of the page or a column beside it. */
+	rc = fyai_page_layout(ui->page, f->cols, f->rows, ui->fullscreen, layout);
 	fyai_error_check(ctx, !rc, err_page,
 			 "the page document has a layout that is not valid");
 	/* The header names the layout. It is made again before this frame
-	 * reads it: the rows it replaces are the header of the frame. */
-	if (strcmp(ui->layout, layout.name)) {
-		snprintf(ui->layout, sizeof(ui->layout), "%s", layout.name);
+	 * reads it: the f->rows it replaces are the header of the frame. */
+	if (strcmp(ui->layout, layout->name)) {
+		snprintf(ui->layout, sizeof(ui->layout), "%s", layout->name);
 		fyai_session_banner_update(ctx);
 	}
 	/* A delegated sub-agent draws no header: the head of its tile in the
 	 * parent names it already. */
 	if (!fyai_agent_delegated(ctx)) {
-		st.header = ui->status_top_source;
-		st.header_row = ui->status_top;
+		st->header = ui->status_top_source;
+		st->header_row = ui->status_top;
 	}
-	st.header_right = ui->panel;
-	st.header_right_cols = ui->panel_cols;
-	st.header_acts = ui->panel ? ui->panel_acts : NULL;
-	st.header_nacts = ui->panel_nacts;
+	st->header_right = ui->panel;
+	st->header_right_cols = ui->panel_cols;
+	st->header_acts = ui->panel ? ui->panel_acts : NULL;
+	st->header_nacts = ui->panel_nacts;
 	/* The turn state comes from the session store; ui->busy is the
 	 * oracle of it while the legacy path still sets it. */
 	turn = fy_get(fyai_uimodel_get(ctx, FYAI_UI_SESSION), "turn",
@@ -2681,82 +2685,112 @@ static void ui_page_update(struct fyai_ui *ui)
 	fyai_uimodel_check(ctx, FYAI_UI_SESSION, "busy",
 			   busy ? "busy" : "idle", ui->busy ? "busy" : "idle");
 	if (busy) {
-		ui_elapsed_format(elapsed, sizeof(elapsed),
+		ui_elapsed_format(f->elapsed, sizeof(f->elapsed),
 				  fy_get(turn, "started", 0LL));
 		if (!fyai_agent_delegated(ctx))
-			st.elapsed = elapsed;
-		activity = ui_indicator(ui, FYMD_INDICATOR_PENDING,
+			st->elapsed = f->elapsed;
+		f->activity = ui_indicator(ui, FYMD_INDICATOR_PENDING,
 					(size_t)ui->activity_phase, NULL);
-		st.activity = activity;
+		st->activity = f->activity;
 	}
-	st.hint = ui_hint_fit(ui->status_hint,
-			      cols - markdown_gutter_cols(ctx->cfg), hint_fit,
-			      sizeof(hint_fit));
-	st.status = ui->status_bottom;
-	st.tail_rows = fytim_tail_rows(ui->ft);
+	st->hint = ui_hint_fit(ui->status_hint,
+			      f->cols - markdown_gutter_cols(ctx->cfg), f->hint_fit,
+			      sizeof(f->hint_fit));
+	st->status = ui->status_bottom;
+	st->tail_rows = fytim_tail_rows(ui->ft);
 	/* An inline page draws the live blocks under its tail. */
 	blocks = ui->fullscreen ? NULL : ui->blocks;
 	if (blocks && fyai_transcript_view_rows(blocks) > 0) {
-		st.block_lines = fyai_transcript_view_window(blocks,
+		st->block_lines = fyai_transcript_view_window(blocks,
 			(int)fyai_transcript_view_rows(blocks),
-			&st.block_nlines);
-		st.tail_rows += st.block_nlines;
+			&st->block_nlines);
+		st->tail_rows += st->block_nlines;
 	}
+	return 0;
+err_page:
+	return -1;
+}
+
+/* The question that takes the input area. */
+static int ui_page_frame_ask(struct fyai_ui *ui, struct ui_page_frame *f)
+{
+	struct fyai_page_state *st = &f->st;
+	struct fyai_page_ask *ask = &f->ask;
+	int cols = f->cols, rows = f->rows;
+	struct fyai_ctx *ctx = ui->ctx;
+	struct ui_question *q, *w;
+	const char *typed;
+
 	/* A question takes the input area; its options take the number keys
 	 * while nothing is typed. */
 	ui_questions_sync(ui);
 	q = ui->questions;
-	st.input_focus = ui->page_focus;
-	st.input_mode = "prompt";
+	st->input_focus = ui->page_focus;
+	st->input_mode = "prompt";
 	if (q) {
 		typed = fytim_input(ui->ft);
-		st.input_mode = typed && *typed ? "ask_text" : "ask";
-		ui_question_state(q, &ask, ask_options, ask_lines, ask_answers);
-		ask.bar = markdown_glyph(ctx->cfg, "select.bar",
+		st->input_mode = typed && *typed ? "ask_text" : "ask";
+		ui_question_state(q, ask, f->ask_options, f->ask_lines, f->ask_answers);
+		ask->bar = markdown_glyph(ctx->cfg, "select.bar",
 			markdown_glyph(ctx->cfg, "pane.edge", "\xe2\x96\x8c"));
-		ask.npreview = ui_preview_update(ui, q, cols, rows);
-		ask.preview = (const char *const *)ui->preview.rows;
-		ask.diff_text = ui_question_reviewing(q) ? NULL : q->text[q->cur].diff;
-		ask.proposal_text = ui_question_reviewing(q) ? NULL :
+		ask->npreview = ui_preview_update(ui, q, cols, rows);
+		ask->preview = (const char *const *)ui->preview.rows;
+		ask->diff_text = ui_question_reviewing(q) ? NULL : q->text[q->cur].diff;
+		ask->proposal_text = ui_question_reviewing(q) ? NULL :
 			q->text[q->cur].proposal;
-		ask.proposal = !ui_question_reviewing(q) &&
+		ask->proposal = !ui_question_reviewing(q) &&
 			       !fy_str_empty(q->text[q->cur].proposal);
-		if (ask.npreview && !ask.proposal) {
-			ask.preview_title = q->text[q->cur].opt[q->cursor[q->cur]].label;
+		if (ask->npreview && !ask->proposal) {
+			ask->preview_title = q->text[q->cur].opt[q->cursor[q->cur]].label;
 		}
 		for (w = q->next; w; w = w->next)
-			ask.waiting++;
+			ask->waiting++;
 		/* Agents put one question at a time: count those behind it. */
-		ask.waiting += (int)fyai_agents_questions_waiting(ctx);
-		st.ask = &ask;
+		ask->waiting += (int)fyai_agents_questions_waiting(ctx);
+		st->ask = ask;
 	}
-	st.actions = ui_page_actions;
-	st.nactions = ui_page_nactions;
-	st.keys = &keys;
-	keys.count = 0;
+	return 0;
+}
+
+/* The work pane, the prompt and the chrome styles. */
+static int ui_page_frame_pane(struct fyai_ui *ui, struct ui_page_frame *f)
+{
+	struct fyai_page_state *st = &f->st;
+	struct fyai_page_layout *layout = &f->layout;
+	struct fyai_page_keys *keys = &f->keys;
+	int cols = f->cols;
+	struct fyai_ctx *ctx = ui->ctx;
+	struct fytim_workpane *pane;
+	const char *rule_off;
+	int n, rc;
+
+	st->actions = ui_page_actions;
+	st->nactions = ui_page_nactions;
+	st->keys = keys;
+	keys->count = 0;
 	pane = fyai_workpane_pane(ctx->workpane);
-	/* The pane is an fy-grid of its tiles, sized first as they ask. */
+	/* The pane is an fy-grid of its tiles, sized first as they ask-> */
 	n = ctx->cfg->tile_sep ?
 	    fymd_str_width(ctx->cfg->tile_sep, strlen(ctx->cfg->tile_sep)) : 0;
 	fyai_error_check(ctx, n >= 0, err_page,
 			 "cannot measure the work pane separator");
-	sep_cols = n;
-	st.layout = layout.name;
-	side = layout.side && pane && !fyai_workpane_hidden(ctx->workpane);
-	st.pane_side = side;
+	f->sep_cols = n;
+	st->layout = layout->name;
+	f->side = layout->side && pane && !fyai_workpane_hidden(ctx->workpane);
+	st->pane_side = f->side;
 	/* Conversation content is made for the column it stands in, while
 	 * the column of tiles stands beside it. */
-	ui_side_width(ui, side ? cols - layout.pane_cols - sep_cols - 1 : 0);
-	if (!pane || fyai_workpane_hidden(ctx->workpane) || side) {
-		st.pane_rows = 0;
+	ui_side_width(ui, f->side ? cols - layout->pane_cols - f->sep_cols - 1 : 0);
+	if (!pane || fyai_workpane_hidden(ctx->workpane) || f->side) {
+		st->pane_rows = 0;
 	} else {
 		rc = fyai_workpane_page_grid(ctx->workpane, 0,
-					     ctx->cfg->tile_sep, sep_cols,
-					     NULL, NULL, NULL, &st.pane_rows);
+					     ctx->cfg->tile_sep, f->sep_cols,
+					     NULL, NULL, NULL, &st->pane_rows);
 		fyai_error_check(ctx, !rc, err_page,
 				 "cannot size the work pane for the page");
 	}
-	st.pane_below = fyai_workpane_position(ctx->workpane) ==
+	st->pane_below = fyai_workpane_position(ctx->workpane) ==
 			FYAI_WORKPANE_POS_BELOW;
 	{
 		char edge[256];
@@ -2769,50 +2803,66 @@ static void ui_page_update(struct fyai_ui *ui)
 		(void)fytim_set_prompt_edge(ui->ft, focused ?
 			ui_edge(ui, edge, sizeof(edge)) : " ");
 	}
-	st.prompt_rows = fytim_prompt_rows(ui->ft);
-	st.prompt_card = fytim_prompt_card(ui->ft);
-	st.review = ui->page_review;
-	st.completion = fytim_completion_active(ui->ft);
-	st.gutter_cols = markdown_gutter_cols(ctx->cfg);
+	st->prompt_rows = fytim_prompt_rows(ui->ft);
+	st->prompt_card = fytim_prompt_card(ui->ft);
+	st->review = ui->page_review;
+	st->completion = fytim_completion_active(ui->ft);
+	st->gutter_cols = markdown_gutter_cols(ctx->cfg);
 	/* The header and status styles of the band stack come from the theme. */
 	if (ui->chrome_renderer) {
 		if (fymd_renderer_get_style_pair(ui->chrome_renderer,
-				FYMD_STYLE_HEADING, &st.header_on, &st.header_off))
-			st.header_on = st.header_off = NULL;
+				FYMD_STYLE_HEADING, &st->header_on, &st->header_off))
+			st->header_on = st->header_off = NULL;
 		if (fymd_renderer_get_style_pair(ui->chrome_renderer,
-				FYMD_STYLE_BLOCKQUOTE, &st.status_on,
-				&st.status_off))
-			st.status_on = st.status_off = NULL;
+				FYMD_STYLE_BLOCKQUOTE, &st->status_on,
+				&st->status_off))
+			st->status_on = st->status_off = NULL;
 		/* The chrome of a tile: the rule style over dim. */
 		if (fymd_renderer_get_style_pair(ui->chrome_renderer,
-				FYMD_STYLE_RULE, &st.band_chrome, &rule_off))
-			st.band_chrome = NULL;
+				FYMD_STYLE_RULE, &st->band_chrome, &rule_off))
+			st->band_chrome = NULL;
 	}
-	st.control_chrome = ui_control_sgr(ui);
+	st->control_chrome = ui_control_sgr(ui);
 	/* The cap row of the pane: the slot draws no chrome of the pane. */
-	if (ctx->cfg->work_cap && st.pane_rows > 0) {
-		n = fyai_workpane_cap_source(ctx->workpane, cap, sizeof(cap));
-		if (n > 0 && (size_t)n < sizeof(cap)) {
-			while (n > 0 && (cap[n - 1] == '\n' || cap[n - 1] == '\r'))
-				cap[--n] = '\0';
-			st.cap = cap;
+	if (ctx->cfg->work_cap && st->pane_rows > 0) {
+		n = fyai_workpane_cap_source(ctx->workpane, f->cap, sizeof(f->cap));
+		if (n > 0 && (size_t)n < sizeof(f->cap)) {
+			while (n > 0 && (f->cap[n - 1] == '\n' || f->cap[n - 1] == '\r'))
+				f->cap[--n] = '\0';
+			st->cap = f->cap;
 		}
 	}
+	return 0;
+err_page:
+	return -1;
+}
+
+/* The tiles, the panels and the fit of the page. */
+static int ui_page_frame_fit(struct fyai_ui *ui, struct ui_page_frame *f)
+{
+	struct fyai_page_state *st = &f->st;
+	struct fyai_page_tile *tiles = f->tiles;
+	int cols = f->cols, rows = f->rows;
+	struct fyai_ctx *ctx = ui->ctx;
+	const char *typed;
+	char *legacy;
+	int rc;
+
 	/* The tiles that hold a surface, which the page draws itself. */
 	/* What the user types shows the live rows of a tile of text again. */
 	typed = fytim_input(ui->ft);
 	if (ui_typed_changed(ui, typed))
 		fyai_workpane_bands_follow(ctx->workpane);
-	st.ntiles = fyai_workpane_page_tiles(ctx->workpane, tiles,
+	st->ntiles = fyai_workpane_page_tiles(ctx->workpane, tiles,
 					     FYAI_WORKPANE_TILES_MAX);
-	st.tiles = tiles;
+	st->tiles = tiles;
 	/* A short result goes when the user types. */
 	typed = fytim_input(ui->ft);
 	if (ui->note_nlines &&
 	    strcmp(typed ? typed : "", ui->note_input ? ui->note_input : ""))
 		ui_note_clear(ui);
-	st.note_lines = (const char *const *)ui->note;
-	st.note_nlines = ui->note_nlines;
+	st->note_lines = (const char *const *)ui->note;
+	st->note_nlines = ui->note_nlines;
 	/*
 	 * The todo panel follows the panels store. The legacy reading of the
 	 * branch entry is the oracle of the store: each change of either
@@ -2843,41 +2893,56 @@ static void ui_page_update(struct fyai_ui *ui)
 		ui->pending_rows = ui_markup_rows(ui->pending_source, cols);
 		ui->pending_cols = cols;
 	}
-	st.pending_source = ui->pending_source;
-	st.pending_rows = ui->pending_source ? ui->pending_rows : 0;
-	st.todo_source = ui->todo_source;
-	st.todo_rows = ui->todo_rows;
-	st.todo_shown = ui->todo_shown &&
+	st->pending_source = ui->pending_source;
+	st->pending_rows = ui->pending_source ? ui->pending_rows : 0;
+	st->todo_source = ui->todo_source;
+	st->todo_rows = ui->todo_rows;
+	st->todo_shown = ui->todo_shown &&
 			!fyai_agent_delegated(ctx) &&
-			!(st.fullscreen && st.popup_title);
-	st.glyph_expand = markdown_glyph(ctx->cfg, "tile.maximize", NULL);
-	st.glyph_collapse = markdown_glyph(ctx->cfg, "tile.minimize", NULL);
-	st.glyph_close = markdown_glyph(ctx->cfg, "tile.close", NULL);
-	st.pane_full = ui->fullscreen && ui_tile_full(ui);
-	st.popup_title = ui_popup_open(ui) ? ui->popup_title : NULL;
+			!(st->fullscreen && st->popup_title);
+	st->glyph_expand = markdown_glyph(ctx->cfg, "tile.maximize", NULL);
+	st->glyph_collapse = markdown_glyph(ctx->cfg, "tile.minimize", NULL);
+	st->glyph_close = markdown_glyph(ctx->cfg, "tile.close", NULL);
+	st->pane_full = ui->fullscreen && ui_tile_full(ui);
+	st->popup_title = ui_popup_open(ui) ? ui->popup_title : NULL;
 	if (ui_popup_compact(ui)) {
-		st.log_title = ui->popup_title;
-		st.log_rows = fyai_transcript_view_rows(ui->popup);
-		if (st.log_rows > UI_LOG_ROWS)
-			st.log_rows = UI_LOG_ROWS;
-		if (st.log_rows < 1)
-			st.log_rows = 1;
+		st->log_title = ui->popup_title;
+		st->log_rows = fyai_transcript_view_rows(ui->popup);
+		if (st->log_rows > UI_LOG_ROWS)
+			st->log_rows = UI_LOG_ROWS;
+		if (st->log_rows < 1)
+			st->log_rows = 1;
 	}
-	st.fullscreen = ui->fullscreen;
-	ui_pending_fit(ui, &st, cols, rows);
-	fyai_page_fit(&st, rows);
-	rc = fyai_page_fit_document(ui->page, &st, cols, rows);
+	st->fullscreen = ui->fullscreen;
+	ui_pending_fit(ui, st, cols, rows);
+	fyai_page_fit(st, rows);
+	rc = fyai_page_fit_document(ui->page, st, cols, rows);
 	fyai_error_check(ctx, !rc, err_page, "cannot fit the page document");
 	if (ui_popup_compact(ui)) {
-		ui->popup_rows = st.log_rows;
-		st.log_lines = fyai_transcript_view_window(ui->popup,
-			st.log_rows, &st.log_nlines);
+		ui->popup_rows = st->log_rows;
+		st->log_lines = fyai_transcript_view_window(ui->popup,
+			st->log_rows, &st->log_nlines);
 	}
 	if (ui_popup_open(ui)) {
-		ui->popup_rows = st.popup_rows;
-		st.popup_lines = fyai_transcript_view_window(ui->popup,
-			st.popup_rows, &st.popup_nlines);
+		ui->popup_rows = st->popup_rows;
+		st->popup_lines = fyai_transcript_view_window(ui->popup,
+			st->popup_rows, &st->popup_nlines);
 	}
+	return 0;
+err_page:
+	return -1;
+}
+
+/* The transcript and the pane grids at the fitted rows. */
+static int ui_page_frame_content(struct fyai_ui *ui, struct ui_page_frame *f)
+{
+	struct fyai_page_state *st = &f->st;
+	struct fyai_page_layout *layout = &f->layout;
+	int cols = f->cols;
+	struct fyai_ctx *ctx = ui->ctx;
+	const char *tail;
+	int rc;
+
 	if (ui->fullscreen) {
 		tail = ui->stream_rows.data;
 
@@ -2891,37 +2956,58 @@ static void ui_page_update(struct fyai_ui *ui)
 		/* The view is made at the width presented rows are made at. */
 		rc = fyai_transcript_view_refresh(ctx, ui->view,
 			ctx->cfg->render_width > 0 ? ctx->cfg->render_width : cols,
-			st.transcript_rows);
+			st->transcript_rows);
 		fyai_error_check(ctx, !rc, err_page,
 				 "cannot refresh the fullscreen transcript");
-		ui->view_rows = st.transcript_rows;
-		st.transcript_lines = fyai_transcript_view_window(ui->view,
-			st.transcript_rows, &st.transcript_nlines);
+		ui->view_rows = st->transcript_rows;
+		st->transcript_lines = fyai_transcript_view_window(ui->view,
+			st->transcript_rows, &st->transcript_nlines);
 	}
 	/* Then written at the rows the chrome leaves it. */
 	ui->pane_grid.len = 0;
-	if (side && (ui->fullscreen ? st.transcript_rows : st.tail_rows) > 0) {
+	if (f->side && (ui->fullscreen ? st->transcript_rows : st->tail_rows) > 0) {
 		/* One grid: the transcript beside the column of tiles. */
 		rc = fyai_workpane_page_grid(ctx->workpane,
-					     ui->fullscreen ? st.transcript_rows :
-					     st.tail_rows, ctx->cfg->tile_sep,
-					     sep_cols, &layout,
+					     ui->fullscreen ? st->transcript_rows :
+					     st->tail_rows, ctx->cfg->tile_sep,
+					     f->sep_cols, layout,
 					     ui->fullscreen ? "transcript" : "tail",
 					     &ui->pane_grid, NULL);
 		fyai_error_check(ctx, !rc, err_page,
-				 "cannot build the side column of the page");
-		st.pane_source = ui->pane_grid.data;
-	} else if (st.pane_rows > 0) {
-		rc = fyai_workpane_page_grid(ctx->workpane, st.pane_rows,
-					     ctx->cfg->tile_sep, sep_cols,
+				 "cannot build the f->side column of the page");
+		st->pane_source = ui->pane_grid.data;
+	} else if (st->pane_rows > 0) {
+		rc = fyai_workpane_page_grid(ctx->workpane, st->pane_rows,
+					     ctx->cfg->tile_sep, f->sep_cols,
 					     NULL, NULL, &ui->pane_grid, NULL);
 		fyai_error_check(ctx, !rc, err_page,
 				 "cannot build the work pane page source");
-		st.pane_source = ui->pane_grid.data;
+		st->pane_source = ui->pane_grid.data;
 	}
-	rc = fyai_page_publish(ui->page, ui->ft, &st, cols, rows);
-	if (rc) {
+	return 0;
 err_page:
+	return -1;
+}
+
+static void ui_page_update(struct fyai_ui *ui)
+{
+	struct fyai_ctx *ctx = ui->ctx;
+	struct ui_page_frame f;
+	int rc, i;
+
+	if (!ui->page)
+		return;
+	ui_inline_keys_hold(ui);
+	memset(&f, 0, sizeof(f));
+	f.st.ctx = ctx;
+	rc = ui_page_frame_header(ui, &f) ||
+	     ui_page_frame_ask(ui, &f) ||
+	     ui_page_frame_pane(ui, &f) ||
+	     ui_page_frame_fit(ui, &f) ||
+	     ui_page_frame_content(ui, &f);
+	if (!rc)
+		rc = fyai_page_publish(ui->page, ui->ft, &f.st, f.cols, f.rows);
+	if (rc) {
 		/* A frame of the page that cannot be built stops the page. */
 		fyai_page_destroy(ui->page);
 		ui->page = NULL;
@@ -2930,21 +3016,23 @@ err_page:
 		ui_page_keys_clear(ui);
 		fyai_warning(ctx, "the page renderer stopped");
 	} else {
-		ui_page_keys_bind(ui, &keys);
+		ui_page_keys_bind(ui, &f.keys);
 		/* What the page gave a tile is the grant of the tile. A popup
 		 * hides the tiles, and gives them nothing to size to. */
-		for (i = 0; !ui_popup_open(ui) && i < st.ntiles; i++) {
-			if (tiles[i].surface)
+		for (i = 0; !ui_popup_open(ui) && i < f.st.ntiles; i++) {
+			if (f.tiles[i].surface)
 				fyai_workpane_tile_set_page_grant(ctx->workpane,
-					tiles[i].surface, tiles[i].granted_rows,
-					tiles[i].granted_cols);
+					f.tiles[i].surface,
+					f.tiles[i].granted_rows,
+					f.tiles[i].granted_cols);
 			else
 				fyai_workpane_band_set_page_grant(ctx->workpane,
-					tiles[i].band, tiles[i].granted_rows,
-					tiles[i].granted_cols);
+					f.tiles[i].band,
+					f.tiles[i].granted_rows,
+					f.tiles[i].granted_cols);
 		}
 	}
-	free(activity);
+	free(f.activity);
 }
 
 /*
