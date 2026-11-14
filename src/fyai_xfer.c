@@ -24,13 +24,28 @@
 #include "fyai_transport_client.h"
 #include "fyai_xfer.h"
 
+/*
+ * What a request waits on, in order. A send starts at NEW and moves to
+ * STARTED or HELD at its first body bytes. A refusal that a renewal can
+ * answer goes to PARKED while the refresh runs, and the second send is NEW
+ * again. FINISHED is final. `retried` is a latch that spans the phases: it
+ * says that the second send was made, which no phase can say.
+ */
+enum xfer_phase {
+	XFER_NEW,		/* no body byte of this send yet */
+	XFER_PARKED,		/* waits for the shared refresh of the login */
+	XFER_STARTED,		/* the body reached the caller */
+	XFER_HELD,		/* a 401 body is kept back */
+	XFER_FINISHED,		/* the request ended; the result is set */
+};
+
 struct fyai_xfer {
 	struct fyai_ctx *ctx;
 	fyai_xfer_write_fn write;
 	void *write_ud;
 	fyai_xfer_done_fn done;
 	void *done_ud;
-	bool finished;
+	enum xfer_phase phase;
 	CURLcode result;
 
 	struct fyai_curl_transfer *curl;	/* the curl backend */
@@ -38,17 +53,12 @@ struct fyai_xfer {
 	/*
 	 * The curl backend with the ChatGPT login: the credential is read for
 	 * each send, a request waits while the login refreshes, and one 401 is
-	 * answered with a renewal and a second send. States of the request:
-	 * NEW, PARKED (@waiter queued), SENT, HELD (a 401 whose body is kept
-	 * back) and RETRIED (the second send). doc/credential-sources-plan.md
-	 * section 4.3.
+	 * answered with a renewal and a second send. @waiter is queued while
+	 * the phase is PARKED. doc/credential-sources-plan.md section 4.3.
 	 */
 	bool login;
 	bool rekey;			/* a stored API key; see xfer_rekeyed() */
-	bool parked;
-	bool retried;
-	bool started;			/* the body reached the caller */
-	bool hold;			/* a 401 body is kept back */
+	bool retried;			/* the second send was requested */
 	bool cancelled;
 	bool deferred;			/* xfer_defer_cb() is queued on the loop */
 	uint64_t tag;			/* of the token that this send used */
@@ -106,7 +116,7 @@ static void xfer_finish(struct fyai_xfer *x, CURLcode result, long status,
 	struct fyai_ctx *ctx = x->ctx;
 
 	x->result = result;
-	x->finished = true;
+	x->phase = XFER_FINISHED;
 	xfer_headers_free(x);
 	fyai_buf_free(&x->held);
 	ctx->xfer_status = status;
@@ -188,18 +198,18 @@ static size_t xfer_write(char *ptr, size_t size, size_t nmemb, void *ud)
 	struct fyai_xfer *x = ud;
 	long status = 0;
 
-	if (!(x->login || x->rekey) || x->started)
+	if (!(x->login || x->rekey) || x->phase == XFER_STARTED)
 		return x->write(ptr, size, nmemb, x->write_ud);
-	if (!x->hold) {
+	if (x->phase != XFER_HELD) {
 		curl_easy_getinfo(x->ctx->curl, CURLINFO_RESPONSE_CODE, &status);
 		if (status == 401 && !x->retried &&
 		    (x->rekey ||
 		     fyai_cred_reject(x->ctx, "oauth:chatgpt", NULL, 0, true)))
-			x->hold = true;
+			x->phase = XFER_HELD;
 		else
-			x->started = true;
+			x->phase = XFER_STARTED;
 	}
-	if (!x->hold)
+	if (x->phase != XFER_HELD)
 		return x->write(ptr, size, nmemb, x->write_ud);
 	/* Keep the start of it: it is the answer if the login cannot renew. */
 	if (fyai_buf_pending(&x->held) < XFER_HELD_MAX &&
@@ -218,8 +228,7 @@ static int xfer_curl_send(struct fyai_xfer *x)
 	int rc = 0;
 
 	xfer_headers_free(x);
-	x->started = false;
-	x->hold = false;
+	x->phase = XFER_NEW;
 	fyai_buf_free(&x->held);
 	if (x->login || x->rekey) {
 		for (src = ctx->headers; !rc && src; src = src->next)
@@ -252,7 +261,7 @@ static int xfer_login_send(struct fyai_xfer *x)
 		return -1;
 	}
 	if (rc > 0) {
-		x->parked = true;
+		x->phase = XFER_PARKED;
 		return 0;
 	}
 	return xfer_curl_send(x);
@@ -263,7 +272,7 @@ static void xfer_waiter_run(struct fyai_cred_waiter *w, int result)
 {
 	struct fyai_xfer *x = w->userdata;
 
-	x->parked = false;
+	x->phase = XFER_NEW;
 	if (x->cancelled) {
 		xfer_finish(x, CURLE_ABORTED_BY_CALLBACK, 0, 0, NULL);
 		return;
@@ -291,7 +300,7 @@ static bool xfer_rejected(struct fyai_xfer *x, long status)
 		return false;
 	x->retried = true;
 	if (rc > 0)
-		x->parked = true;
+		x->phase = XFER_PARKED;
 	else
 		xfer_defer(x);
 	(void)status;
@@ -365,13 +374,13 @@ static void xfer_curl_complete(struct fyai_curl_transfer *transfer, void *ud)
 	fyai_curl_transfer_destroy(transfer);
 	x->curl = NULL;
 	if (x->login && res == CURLE_OK && status == 401 && !x->retried &&
-	    !x->started && xfer_rejected(x, status))
+	    x->phase != XFER_STARTED && xfer_rejected(x, status))
 		return;
 	if (x->rekey && res == CURLE_OK && status == 401 && !x->retried &&
-	    !x->started && xfer_rekeyed(x))
+	    x->phase != XFER_STARTED && xfer_rekeyed(x))
 		return;
 	/* A refusal that was held and cannot be renewed goes to the caller. */
-	if (x->hold && fyai_buf_pending(&x->held))
+	if (x->phase == XFER_HELD && fyai_buf_pending(&x->held))
 		(void)x->write(x->held.data, 1, fyai_buf_pending(&x->held),
 			       x->write_ud);
 	xfer_finish(x, res, status, retry > 0 ? (long)retry : 0, NULL);
@@ -514,10 +523,10 @@ void fyai_xfer_cancel(struct fyai_xfer *x)
 	x->cancelled = true;
 	if (x->curl) {
 		fyai_curl_cancel(x->curl);
-	} else if (x->parked) {
+	} else if (x->phase == XFER_PARKED) {
 		/* No transfer runs: the request ends from the loop. */
 		fyai_cred_waiter_cancel(x->ctx, &x->waiter);
-		x->parked = false;
+		x->phase = XFER_NEW;
 		xfer_defer(x);
 	}
 	if (x->call)
@@ -526,14 +535,14 @@ void fyai_xfer_cancel(struct fyai_xfer *x)
 
 CURLcode fyai_xfer_result(const struct fyai_xfer *x)
 {
-	return x && x->finished ? x->result : CURLE_FAILED_INIT;
+	return x && x->phase == XFER_FINISHED ? x->result : CURLE_FAILED_INIT;
 }
 
 void fyai_xfer_destroy(struct fyai_xfer *x)
 {
 	if (!x)
 		return;
-	if (x->parked || x->waiter.queued)
+	if (x->phase == XFER_PARKED || x->waiter.queued)
 		fyai_cred_waiter_cancel(x->ctx, &x->waiter);
 	if (x->deferred)
 		fyai_event_defer_cancel(fyai_ctx_loop(x->ctx), xfer_defer_cb, x);
