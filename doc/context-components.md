@@ -2,7 +2,7 @@
 
 Status: design, and the first three steps are done and the fourth has begun:
 `struct fyai_app` exists and holds `diag`, `loop`, `arena`, `transient`,
-`cred`, `link`, `transport`, `mcp` and `cfg`. The counts come from a script over
+`cred`, `link`, `transport`, `mcp`, `waitq`, `askq` and `cfg`. The counts come from a script over
 `src/*.c` that counts `ctx->FIELD` per file; check a row against the code
 before a change. The order of the work is near the end.
 
@@ -265,8 +265,12 @@ Each step builds, passes both suites, and lands as its own patch series
    become its own builder. Each of the four ends with a unit test that builds
    the component with a stub loop and diagnostics, which is the test that a
    struct of pointers makes possible and `ctx` did not.
-5. `waits` and `asks`: each has one file and one owner, so each is a short
-   change.
+5. `waits` and `asks`: done. `struct fyai_waitq` holds the named waits, the
+   waiters that hold a call, the deadline timer and the queue of events for
+   the model; its queue tail points into it, so it does not move.
+   `struct fyai_askq` holds the background questions and the sets of the
+   questions store. A view context that detaches from the UI keeps an
+   `askq` of its own (`fyai_uimodel_view_detach()`).
 6. `scope`, `terminal`, `skills`, `toolspec`.
 7. `branch`, `usage`.
 8. `jobs`, `agents`, `turn`: the wide components, with the callbacks of the
