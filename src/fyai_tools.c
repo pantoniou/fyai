@@ -54,6 +54,7 @@
 #include "fyai_ask.h"
 #include "fyai_skill.h"
 #include "fyai_settings.h"
+#include "fyai_cred.h"
 #include "fyai_todo.h"
 #include "fyai_home.h"
 #include "fyai_tools.h"
@@ -2309,6 +2310,7 @@ void fyai_ctx_fork_disown(struct fyai_ctx *ctx)
 	ctx->scope_open = false;
 	fyai_skill_dirs_abandon(ctx);		/* the skills it wrote out */
 	fyai_settings_abandon(ctx);		/* and the exports */
+	fyai_cred_abandon(ctx);			/* the refresh of the parent */
 	fyai_diag_trace_tap(NULL, NULL);	/* the recording of the parent */
 	ctx->ui = NULL;				/* its display */
 	ctx->workpane = NULL;			/* and the tiles that it drew */

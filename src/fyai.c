@@ -2567,6 +2567,8 @@ void fyai_cleanup(struct fyai_ctx *ctx)
 	fyai_mcp_cleanup(ctx);
 	fyai_ui_close(ctx);
 
+	fyai_auth_drain(ctx);
+
 	/* Before the easy handle: the multi still references it. */
 	fyai_transport_detach(ctx);
 	fyai_curl_cleanup(ctx);
@@ -2636,6 +2638,7 @@ int fyai_request_state_apply(struct fyai_ctx *ctx)
 	struct fyai_cfg *cfg = ctx->cfg;
 	const struct fyai_grammar *grammar = fyai_grammar(cfg);
 	const struct fyai_grammar_header *hdr;
+	struct curl_slist *login_check = NULL;
 	fy_generic native, mt, tool, fn, converted;
 	const char *name;
 	int rc;
@@ -2674,9 +2677,14 @@ int fyai_request_state_apply(struct fyai_ctx *ctx)
 	if (rc)
 		return -1;
 
-	if (cfg->chatgpt_auth)
-		rc = fyai_auth_apply_headers(ctx, &ctx->headers);
-	else if (ctx->auth_header)
+	if (cfg->chatgpt_auth) {
+		/*
+		 * The token is read for each send (fyai_xfer.c); check here that
+		 * the login can authenticate this endpoint at all.
+		 */
+		rc = fyai_auth_apply_headers(ctx, &login_check);
+		curl_slist_free_all(login_check);
+	} else if (ctx->auth_header)
 		rc = append_header(&ctx->headers, ctx->auth_header);
 	if (rc)
 		return -1;

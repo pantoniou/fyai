@@ -32,6 +32,8 @@
 #include "fyai_secret_store.h"
 #include "fyai_curl.h"
 #include "fyai_auth_util.h"
+#include "fyai_cred.h"
+#include "fyai_transport_server.h"
 #include "fyai_display.h"
 #include "fyai_markdown.h"
 #include "fyai_render.h"
@@ -52,6 +54,8 @@
 #define AUTH_PORT 1455
 #define AUTH_FALLBACK_PORT 1457
 #define AUTH_REFRESH_WINDOW 300
+/* The longest wait at exit for a token request that a cancel detached. */
+#define AUTH_DRAIN_S 30
 
 struct auth_http {
 	char *data;
@@ -69,6 +73,15 @@ static struct fy_generic_builder *auth_builder(struct fyai_ctx *ctx)
 	if (!ctx->auth_gb)
 		ctx->auth_gb = fy_generic_builder_create(&cfg);
 	return ctx->auth_gb;
+}
+
+/* The URL of a refresh endpoint: @path under the issuer. */
+static const char *auth_refresh_url(struct fyai_ctx *ctx, const char *path)
+{
+	const char *base = ctx->cfg->auth_refresh_base;
+
+	return fy_gb_intern_string(auth_builder(ctx),
+			fy_sprintfa("%s%s", base ? base : AUTH_ISSUER, path));
 }
 
 static int auth_save_file(struct fyai_ctx *ctx, struct fyai_credentials *c);
@@ -1166,7 +1179,18 @@ struct fyai_auth_refresh_request {
 	int result;
 	enum fyai_auth_refresh_state state;
 	bool force;
+	/* Nonzero: the tag of a token that the provider rejected. */
+	uint64_t reject_tag;
 	bool refreshing;
+	/*
+	 * The owner cancelled while the token request ran. The provider can
+	 * rotate the refresh token when it reads that request, so the request
+	 * goes on, and the new tokens reach the store. The owner is not told
+	 * again. @owner_gone: the owner destroyed the request meanwhile, so the
+	 * end of the transfer frees it.
+	 */
+	bool detached;
+	bool owner_gone;
 	fy_generic jwks;
 	struct fyai_credentials credentials;
 };
@@ -1263,7 +1287,8 @@ static void fyai_auth_refresh_complete(
 	fyai_curl_transfer_destroy(transfer);
 	request->transfer = NULL;
 	if (code == CURLE_ABORTED_BY_CALLBACK) {
-		fyai_auth_refresh_transition(request, FYAIARS_CANCELLED);
+		if (!request->detached)
+			fyai_auth_refresh_transition(request, FYAIARS_CANCELLED);
 		goto done;
 	}
 	fyai_error_check(ctx, code == CURLE_OK, done,
@@ -1280,7 +1305,8 @@ static void fyai_auth_refresh_complete(
 			done, "invalid OpenAI signing keys");
 		free(request->response.data);
 		memset(&request->response, 0, sizeof(request->response));
-		curl_easy_setopt(request->curl, CURLOPT_URL, AUTH_TOKEN_URL);
+		curl_easy_setopt(request->curl, CURLOPT_URL,
+				 auth_refresh_url(ctx, "/api/accounts/oauth/token"));
 		curl_easy_setopt(request->curl, CURLOPT_POSTFIELDS, request->body);
 		curl_easy_setopt(request->curl, CURLOPT_HTTPHEADER, request->headers);
 		request->refreshing = true;
@@ -1299,12 +1325,22 @@ static void fyai_auth_refresh_complete(
 	fyai_error_check(ctx, !rc, done, "failed to save refreshed tokens");
 	ctx->auth = request->credentials;
 	request->result = 0;
-	fyai_auth_refresh_transition(request, FYAIARS_COMPLETED);
+	if (!request->detached)
+		fyai_auth_refresh_transition(request, FYAIARS_COMPLETED);
 done:
 	if (!fyai_auth_refresh_state_final(request->state))
 		fyai_auth_refresh_transition(request, FYAIARS_FAILED);
 	auth_unlock(ctx, request->lockfd);
 	request->lockfd = -1;
+	if (request->detached) {
+		/* The owner has its answer already. */
+		if (ctx->auth_detached)
+			ctx->auth_detached--;
+		request->result = -1;
+		if (request->owner_gone)
+			fyai_auth_refresh_destroy(request);
+		return;
+	}
 	if (request->complete)
 		request->complete(request, request->userdata);
 }
@@ -1320,6 +1356,16 @@ fyai_auth_refresh_start_locked(struct fyai_auth_refresh_request *request)
 	rc = auth_load(ctx, &ctx->auth);
 	fyai_error_check(ctx, !rc, err_out,
 			 "could not load authentication state");
+	/* Another process replaced the rejected token while this one waited. */
+	if (request->reject_tag && !fy_str_empty(ctx->auth.access_token) &&
+	    fyai_transport_credential_tag(ctx->auth.access_token) !=
+	    request->reject_tag) {
+		request->result = 0;
+		fyai_auth_refresh_transition(request, FYAIARS_COMPLETED);
+		auth_unlock(ctx, request->lockfd);
+		request->lockfd = -1;
+		return 0;
+	}
 	if (!request->force &&
 	    ctx->auth.expires_at > time(NULL) + AUTH_REFRESH_WINDOW) {
 		request->result = 0;
@@ -1349,7 +1395,7 @@ fyai_auth_refresh_start_locked(struct fyai_auth_refresh_request *request)
 	fyai_error_check(ctx, request->headers, err_out,
 			 "could not create token refresh headers");
 	curl_easy_setopt(request->curl, CURLOPT_URL,
-			 AUTH_JWKS_URL);
+			 auth_refresh_url(ctx, "/.well-known/jwks.json"));
 	curl_easy_setopt(request->curl, CURLOPT_WRITEFUNCTION, auth_write);
 	curl_easy_setopt(request->curl, CURLOPT_WRITEDATA,
 			 &request->response);
@@ -1400,10 +1446,29 @@ fyai_auth_refresh_lock_timer(const struct fyai_event *ev)
 	return FYAIEA_CONTINUE;
 }
 
+static struct fyai_auth_refresh_request *
+auth_refresh_submit(struct fyai_ctx *ctx, bool force, uint64_t reject_tag,
+		    fyai_auth_refresh_complete_fn complete, void *userdata);
+
 struct fyai_auth_refresh_request *
 fyai_auth_refresh_submit(struct fyai_ctx *ctx, bool force,
 			 fyai_auth_refresh_complete_fn complete,
 			 void *userdata)
+{
+	return auth_refresh_submit(ctx, force, 0, complete, userdata);
+}
+
+struct fyai_auth_refresh_request *
+fyai_auth_refresh_submit_rejected(struct fyai_ctx *ctx, uint64_t tag,
+				  fyai_auth_refresh_complete_fn complete,
+				  void *userdata)
+{
+	return auth_refresh_submit(ctx, true, tag, complete, userdata);
+}
+
+static struct fyai_auth_refresh_request *
+auth_refresh_submit(struct fyai_ctx *ctx, bool force, uint64_t reject_tag,
+		    fyai_auth_refresh_complete_fn complete, void *userdata)
 {
 	struct fyai_auth_refresh_request *request;
 	struct fyai_event_loop *el;
@@ -1418,6 +1483,7 @@ fyai_auth_refresh_submit(struct fyai_ctx *ctx, bool force,
 	request->result = -1;
 	request->state = FYAIARS_NEW;
 	request->force = force;
+	request->reject_tag = reject_tag;
 	request->credentials.registrations = fy_invalid;
 	request->jwks = fy_invalid;
 	request->lockfd = auth_lock_try(ctx);
@@ -1450,6 +1516,15 @@ void fyai_auth_refresh_cancel(struct fyai_auth_refresh_request *request)
 {
 	if (!request || fyai_auth_refresh_state_final(request->state))
 		return;
+	if (request->transfer && request->refreshing) {
+		/* The refresh token is on the wire: read the answer. */
+		request->detached = true;
+		request->ctx->auth_detached++;
+		fyai_auth_refresh_transition(request, FYAIARS_CANCELLED);
+		if (request->complete)
+			request->complete(request, request->userdata);
+		return;
+	}
 	if (request->transfer) {
 		fyai_curl_cancel(request->transfer);
 		return;
@@ -1477,6 +1552,11 @@ void fyai_auth_refresh_destroy(struct fyai_auth_refresh_request *request)
 {
 	if (!request)
 		return;
+	if (request->detached && request->transfer) {
+		/* The end of the transfer saves the tokens and frees it. */
+		request->owner_gone = true;
+		return;
+	}
 	if (request->transfer)
 		fyai_curl_transfer_destroy(request->transfer);
 	fyai_event_source_remove(request->timer_src);
@@ -1669,45 +1749,6 @@ void fyai_auth_logout_destroy(struct fyai_auth_logout_request *request)
 	free(request);
 }
 
-int fyai_auth_refresh(struct fyai_ctx *ctx, bool force)
-{
-	struct fyai_auth_refresh_request *request;
-	struct fyai_event_loop *el;
-	int rc;
-
-	if (!ctx->cfg->chatgpt_auth || fyai_auth_uses_transport(ctx->cfg))
-		return 0;
-	request = fyai_auth_refresh_submit(ctx, force, NULL, NULL);
-	if (!request)
-		return -1;
-	el = fyai_ctx_loop(ctx);
-	if (!el) {
-		fyai_auth_refresh_destroy(request);
-		return -1;
-	}
-	while (!fyai_auth_refresh_done(request) &&
-	       !ctx->interrupt_pending) {
-		rc = fyai_event_loop_step(el, -1);
-		if (rc < 0) {
-			fyai_auth_refresh_cancel(request);
-			break;
-		}
-	}
-	if (ctx->interrupt_pending) {
-		fyai_event_interrupt_ack(ctx);
-		fyai_auth_refresh_cancel(request);
-	}
-	while (!fyai_auth_refresh_done(request)) {
-		rc = fyai_event_loop_step(el, -1);
-		if (rc < 0)
-			break;
-	}
-	rc = fyai_auth_refresh_done(request) ?
-		fyai_auth_refresh_collect(request) : -1;
-	fyai_auth_refresh_destroy(request);
-	return rc;
-}
-
 int fyai_auth_apply_headers(struct fyai_ctx *ctx, struct curl_slist **headers)
 {
 	const char *bearer;
@@ -1740,6 +1781,14 @@ bool fyai_auth_store_fresh(const struct fyai_ctx *ctx)
 {
 	return ctx->auth.access_token && *ctx->auth.access_token &&
 	       ctx->auth.expires_at > time(NULL) + AUTH_REFRESH_WINDOW;
+}
+
+time_t fyai_auth_store_due_at(const struct fyai_ctx *ctx)
+{
+	if (!ctx->auth.access_token || !*ctx->auth.access_token ||
+	    !ctx->auth.expires_at)
+		return 0;
+	return ctx->auth.expires_at - AUTH_REFRESH_WINDOW;
 }
 
 bool fyai_auth_store_valid(const struct fyai_ctx *ctx)
@@ -1781,12 +1830,10 @@ int fyai_auth_chatgpt_eligible(const struct fyai_cfg *cfg, const char **why)
 	return 0;
 }
 
-bool fyai_auth_should_retry(struct fyai_ctx *ctx, long status, bool refreshed)
-{
-	return status == 401 && ctx->cfg->chatgpt_auth &&
-	       !fyai_auth_uses_transport(ctx->cfg) && !refreshed;
-}
-
+/*
+ * Choose the credentials. A token that is due is not renewed here: the
+ * request that uses it waits for the refresh (fyai_cred_prepare()).
+ */
 int fyai_auth_resolve(struct fyai_ctx *ctx)
 {
 	struct fyai_cfg *cfg = ctx->cfg;
@@ -1853,9 +1900,6 @@ int fyai_auth_resolve(struct fyai_ctx *ctx)
 		return -1;
 	}
 	cfg->chatgpt_auth = true;
-	if (ctx->auth.expires_at <= time(NULL) + AUTH_REFRESH_WINDOW &&
-	    fyai_auth_refresh(ctx, false))
-		return -1;
 	cfg->api_url = OPENAI_RESPONSES_URL;
 	cfg->stream = true;
 	cfg->token_extents = false;
@@ -1875,6 +1919,7 @@ struct fyai_auth_models_request {
 	struct auth_fetch fetch;
 	fyai_auth_models_complete_fn complete;
 	void *userdata;
+	struct fyai_cred_waiter waiter;	/* queued while the login refreshes */
 	enum fyai_auth_models_state state;
 };
 
@@ -1900,12 +1945,47 @@ static void auth_models_fetched(void *owner)
 		request->complete(request, request->userdata);
 }
 
+/* Start the fetch of the model list; the credentials are current. */
+static int auth_models_start(struct fyai_auth_models_request *request)
+{
+	struct fyai_ctx *ctx = request->ctx;
+	struct curl_slist *headers = NULL;
+	int rc;
+
+	rc = fyai_auth_apply_headers(ctx, &headers);
+	fyai_error_check(ctx, !rc, err_out,
+			 "model discovery: no usable credentials");
+	request->fetch.ctx = ctx;
+	request->fetch.done = auth_models_fetched;
+	request->fetch.owner = request;
+	rc = auth_fetch_start(&request->fetch, AUTH_RESOURCE "/models", NULL,
+			      headers);
+	fyai_error_check(ctx, !rc, err_out,
+			 "could not start model discovery");
+	return 0;
+
+err_out:
+	return -1;
+}
+
+/* The refresh that the fetch waited for has ended. */
+static void auth_models_waiter_run(struct fyai_cred_waiter *w, int result)
+{
+	struct fyai_auth_models_request *request = w->userdata;
+
+	if (result < 0 || auth_models_start(request))
+		request->state = FYAIMS_FAILED;
+	else
+		return;
+	if (request->complete)
+		request->complete(request, request->userdata);
+}
+
 struct fyai_auth_models_request *
 fyai_auth_models_submit(struct fyai_ctx *ctx,
 			fyai_auth_models_complete_fn complete, void *userdata)
 {
 	struct fyai_auth_models_request *request;
-	struct curl_slist *headers = NULL;
 	int rc;
 
 	if (fyai_auth_uses_transport(ctx->cfg)) {
@@ -1916,29 +1996,30 @@ fyai_auth_models_submit(struct fyai_ctx *ctx,
 	rc = fyai_auth_resolve(ctx);
 	if (rc || !ctx->cfg->chatgpt_auth)
 		return NULL;
-	rc = fyai_auth_apply_headers(ctx, &headers);
-	fyai_error_check(ctx, !rc, err_headers,
-			 "model discovery: no usable credentials");
 	request = calloc(1, sizeof(*request));
-	fyai_error_check(ctx, request, err_headers, "out of memory");
+	fyai_error_check(ctx, request, err_out, "out of memory");
 	request->ctx = ctx;
 	request->complete = complete;
 	request->userdata = userdata;
 	request->state = FYAIMS_PENDING;
-	request->fetch.ctx = ctx;
-	request->fetch.done = auth_models_fetched;
-	request->fetch.owner = request;
-	rc = auth_fetch_start(&request->fetch, AUTH_RESOURCE "/models", NULL,
-			      headers);
-	fyai_error_check(ctx, !rc, err_destroy,
-			 "could not start model discovery");
+	request->waiter.run = auth_models_waiter_run;
+	request->waiter.userdata = request;
+	/* A token that is due makes the fetch wait for the refresh. */
+	rc = fyai_cred_prepare(ctx, "oauth:chatgpt", &request->waiter, false);
+	if (rc < 0) {
+		fyai_error(ctx, "model discovery: no usable login");
+		goto err_destroy;
+	}
+	if (rc > 0)
+		return request;
+	rc = auth_models_start(request);
+	if (rc)
+		goto err_destroy;
 	return request;
 
 err_destroy:
 	fyai_auth_models_destroy(request);
-	return NULL;
-err_headers:
-	curl_slist_free_all(headers);
+err_out:
 	return NULL;
 }
 
@@ -1946,7 +2027,15 @@ void fyai_auth_models_cancel(struct fyai_auth_models_request *request)
 {
 	if (!request || request->state != FYAIMS_PENDING)
 		return;
-	fyai_curl_cancel(request->fetch.transfer);
+	if (request->fetch.transfer) {
+		fyai_curl_cancel(request->fetch.transfer);
+	} else if (request->waiter.queued) {
+		/* The fetch has not started: it ends here, once. */
+		fyai_cred_waiter_cancel(request->ctx, &request->waiter);
+		request->state = FYAIMS_CANCELLED;
+		if (request->complete)
+			request->complete(request, request->userdata);
+	}
 }
 
 bool fyai_auth_models_done(const struct fyai_auth_models_request *request)
@@ -1999,6 +2088,8 @@ void fyai_auth_models_destroy(struct fyai_auth_models_request *request)
 {
 	if (!request)
 		return;
+	if (request->waiter.queued)
+		fyai_cred_waiter_cancel(request->ctx, &request->waiter);
 	auth_fetch_destroy(&request->fetch);
 	free(request);
 }
@@ -2203,8 +2294,28 @@ err_out:
 	return -1;
 }
 
+void fyai_auth_drain(struct fyai_ctx *ctx)
+{
+	struct timespec t0, t;
+
+	if (!ctx->auth_detached || !ctx->el)
+		return;
+	clock_gettime(CLOCK_MONOTONIC, &t0);
+	while (ctx->auth_detached) {
+		if (fyai_event_loop_step(ctx->el, 100) < 0)
+			break;
+		clock_gettime(CLOCK_MONOTONIC, &t);
+		if (t.tv_sec - t0.tv_sec >= AUTH_DRAIN_S)
+			break;
+	}
+	if (ctx->auth_detached)
+		fyai_error(ctx, "a token refresh was still out at exit; its answer is lost");
+	ctx->auth_detached = 0;
+}
+
 void fyai_auth_cleanup(struct fyai_ctx *ctx)
 {
+	fyai_cred_release(ctx);
 	credentials_clear(&ctx->auth);
 	ctx->cfg->auth_state_dir = NULL;
 	if (ctx->auth_gb) {

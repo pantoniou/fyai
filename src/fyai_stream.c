@@ -42,30 +42,26 @@ struct stream_spinner {
 };
 
 /*
- * What a request waits on between two transfers. The pointer that the phase
- * names is the only one that is set: timer in BACKOFF, auth_refresh in AUTH.
+ * What a request waits on between two transfers: the timer in BACKOFF. The
+ * login is not a phase of the request: the transfer renews it (fyai_xfer.c).
  */
 enum fyai_retry_phase {
 	FYAI_RETRY_IDLE,	/* a transfer runs, or the request settled */
 	FYAI_RETRY_BACKOFF,	/* the timer waits out the retry delay */
-	FYAI_RETRY_AUTH,	/* the credentials refresh runs */
 };
 
 /*
  * The retry state that the stream and the buffered request share. It
  * survives a resubmit of the request.
  *
- * band and refreshed are not phases: band is open from the first retry report
- * to the settle of the request, across the phases, and refreshed is a
- * one-way latch that allows one credentials refresh per request.
+ * band is not a phase: it is open from the first retry report to the settle of
+ * the request, across the phases.
  */
 struct fyai_retry {
 	enum fyai_retry_phase phase;
-	struct fyai_auth_refresh_request *auth_refresh;
 	struct fyai_event_source *timer;
 	int attempt;			/* attempts made */
 	bool band;			/* the shared band is ours */
-	bool refreshed;
 };
 
 struct stream_response {
@@ -836,15 +832,12 @@ static void stream_retry_report(struct fyai_ctx *ctx, long status,
 	fyai_sink_band_paint(band, NULL, NULL, body, strlen(body), NULL);
 }
 
-/* Drop the wait of a request that is destroyed while it backs off or refreshes. */
+/* Drop the wait of a request that is destroyed while it backs off. */
 static void retry_release(struct fyai_retry *retry)
 {
 	if (retry->phase == FYAI_RETRY_BACKOFF)
 		fyai_event_source_remove(retry->timer);
-	else if (retry->phase == FYAI_RETRY_AUTH)
-		fyai_auth_refresh_destroy(retry->auth_refresh);
 	retry->timer = NULL;
-	retry->auth_refresh = NULL;
 	retry->phase = FYAI_RETRY_IDLE;
 }
 
@@ -893,9 +886,6 @@ static void stream_request_notify(struct stream_response *stream)
 }
 
 static void stream_request_complete(struct fyai_xfer *transfer, void *userdata);
-static void stream_auth_complete(
-		struct fyai_auth_refresh_request *request, void *userdata);
-
 static int stream_request_resubmit(struct stream_response *stream)
 {
 	struct fyai_ctx *ctx;
@@ -923,39 +913,6 @@ static int stream_request_resubmit(struct stream_response *stream)
 	stream->transfer = fyai_xfer_submit(ctx, write_stream_response, stream,
 					    stream_request_complete, stream);
 	return stream->transfer ? 0 : -1;
-}
-
-static void stream_auth_complete(
-		struct fyai_auth_refresh_request *request, void *userdata)
-{
-	struct stream_response *stream;
-	struct fyai_ctx *ctx;
-	fy_generic result;
-	int rc;
-
-	stream = userdata;
-	ctx = stream->ctx;
-	rc = fyai_auth_refresh_collect(request);
-	fyai_auth_refresh_destroy(request);
-	stream->retry.auth_refresh = NULL;
-	stream->retry.phase = FYAI_RETRY_IDLE;
-	if (stream->cancel_requested) {
-		result = fyai_with_diag(ctx->transient_gb, fy_invalid,
-				       "interrupted");
-		stream_state_transition(stream, FYAISS_CANCELLED);
-		stream->result = result;
-		stream_request_notify(stream);
-		return;
-	}
-	if (!rc)
-		rc = fyai_request_state_apply(ctx);
-	if (!rc)
-		rc = stream_request_resubmit(stream);
-	if (!rc)
-		return;
-	stream_state_transition(stream, FYAISS_FAILED);
-	stream->result = fy_invalid;
-	stream_request_notify(stream);
 }
 
 /* Arm the timer that resubmits the request. */
@@ -1099,19 +1056,6 @@ static void stream_request_complete(struct fyai_xfer *transfer, void *userdata)
 			stream_state_transition(stream, FYAISS_FAILED);
 			goto done;
 		}
-		if (fyai_auth_should_retry(ctx, status, stream->retry.refreshed)) {
-			stream->retry.refreshed = true;
-			stream_state_transition(stream, FYAISS_RETRYING);
-			stream->retry.auth_refresh = fyai_auth_refresh_submit(
-					ctx, true, stream_auth_complete,
-					stream);
-			if (stream->retry.auth_refresh) {
-				stream->retry.phase = FYAI_RETRY_AUTH;
-				return;
-			}
-			stream_state_transition(stream, FYAISS_FAILED);
-			goto done;
-		}
 		if (fyai_grammar_chain_miss(ctx, status, stream->raw.data)) {
 			ctx->response_chain = FYAI_CHAIN_MISSED;
 			stream_state_transition(stream, FYAISS_FAILED);
@@ -1206,9 +1150,6 @@ void fyai_stream_request_cancel(fyai_stream_request *request)
 	if (request->transfer) {
 		stream_state_transition(request, FYAISS_CANCELLING);
 		fyai_xfer_cancel(request->transfer);
-	} else if (request->retry.phase == FYAI_RETRY_AUTH) {
-		stream_state_transition(request, FYAISS_CANCELLING);
-		fyai_auth_refresh_cancel(request->retry.auth_refresh);
 	} else if (request->retry.phase == FYAI_RETRY_BACKOFF) {
 		/*
 		 * A request that waits out a backoff has no transfer to stop.
@@ -1266,8 +1207,6 @@ struct fyai_buffered_request {
 };
 
 static void buffered_request_complete(struct fyai_xfer *transfer, void *userdata);
-static void buffered_auth_complete(
-		struct fyai_auth_refresh_request *request, void *userdata);
 
 static int
 buffered_request_start(struct fyai_buffered_request *request)
@@ -1352,36 +1291,6 @@ static void buffered_request_notify(struct fyai_buffered_request *request)
 		complete(request, userdata);
 }
 
-static void buffered_auth_complete(
-		struct fyai_auth_refresh_request *refresh, void *userdata)
-{
-	struct fyai_buffered_request *request;
-	struct fyai_ctx *ctx;
-	int rc;
-
-	request = userdata;
-	ctx = request->ctx;
-	rc = fyai_auth_refresh_collect(refresh);
-	fyai_auth_refresh_destroy(refresh);
-	request->retry.auth_refresh = NULL;
-	request->retry.phase = FYAI_RETRY_IDLE;
-	if (request->cancel_requested) {
-		request->result = fyai_with_diag(ctx->transient_gb,
-						 fy_invalid,
-						 "interrupted");
-		goto done;
-	}
-	if (!rc)
-		rc = fyai_request_state_apply(ctx);
-	if (!rc)
-		rc = buffered_request_start(request);
-	if (!rc)
-		return;
-done:
-	request->done = true;
-	buffered_request_notify(request);
-}
-
 static void buffered_request_complete(struct fyai_xfer *transfer, void *userdata)
 {
 	struct fyai_buffered_request *request;
@@ -1424,20 +1333,6 @@ static void buffered_request_complete(struct fyai_xfer *transfer, void *userdata
 			return;
 		if (retry_rc < 0)
 			goto done;
-		if (fyai_auth_should_retry(ctx, status, request->retry.refreshed)) {
-			free(request->response.data);
-			memset(&request->response, 0,
-			       sizeof(request->response));
-			request->retry.refreshed = true;
-			request->retry.auth_refresh = fyai_auth_refresh_submit(
-					ctx, true, buffered_auth_complete,
-					request);
-			if (request->retry.auth_refresh) {
-				request->retry.phase = FYAI_RETRY_AUTH;
-				return;
-			}
-			goto done;
-		}
 		if (fyai_grammar_chain_miss(ctx, status,
 					    request->response.data)) {
 			ctx->response_chain = FYAI_CHAIN_MISSED;
@@ -1498,8 +1393,6 @@ void fyai_buffered_request_cancel(struct fyai_buffered_request *request)
 	request->cancel_requested = true;
 	if (request->transfer)
 		fyai_xfer_cancel(request->transfer);
-	else if (request->retry.phase == FYAI_RETRY_AUTH)
-		fyai_auth_refresh_cancel(request->retry.auth_refresh);
 	else if (request->retry.phase == FYAI_RETRY_BACKOFF) {
 		/* Waiting out a backoff: retire the timer and settle here. */
 		fyai_event_source_remove(request->retry.timer);

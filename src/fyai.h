@@ -631,6 +631,13 @@ struct fyai_cfg {
 
 	/* auth state in cfg builder */
 	const char *auth_state_dir;
+	/*
+	 * Base URL of the token refresh endpoints. NULL, the only value that
+	 * the program sets, means the issuer of FYAI_AUTH_ISSUER. A unit test
+	 * sets it to reach a server of its own; no setting or environment
+	 * variable can, because the refresh token goes to this URL.
+	 */
+	const char *auth_refresh_base;
 
 	/*
 	 * Collected diagnostics. Lives here rather than on the context because
@@ -916,6 +923,8 @@ struct fyai_ctx {
 	uint64_t refs_head;
 	struct curl_slist *headers;
 	char *auth_header;
+	/* Refresh requests whose token request is out after a cancel. */
+	unsigned int auth_detached;
 	char *user_agent;
 	fy_generic mcp_tools;
 	/* Names activated from a large MCP catalogue for this invocation. */
@@ -926,6 +935,8 @@ struct fyai_ctx {
 	bool mcp_invocation;
 	struct fyai_credentials auth;
 	struct fy_generic_builder *auth_gb;
+	/* The shared refresh of the login and its waiters (fyai_cred.h). */
+	struct fyai_cred *cred;
 	bool stdout_tty;			/* stdout is a terminal (cached) */
 	/* The size of the real terminal, recorded by the parent and kept up to
 	 * date by SIGWINCH. A forked tool child inherits it, because it calls

@@ -654,6 +654,7 @@ set(FYAI_SOURCES
     src/fyai_transport_cfg.c
     src/fyai_transport_boot.c
     src/fyai_auth.c
+    src/fyai_cred.c
     src/fyai_oauth.c
     src/fyai_auth_util.c
     src/fyai_secret.c

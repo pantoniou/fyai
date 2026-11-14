@@ -24,7 +24,6 @@ FYAI_TEST_ENTRY(auth, malformed_base64, auth_malformed_base64)
 FYAI_TEST_ENTRY(auth, base64_decode, auth_base64_decode)
 FYAI_TEST_ENTRY(auth, billing_route, auth_billing_route)
 FYAI_TEST_ENTRY(auth, recorded_usage, auth_recorded_usage)
-FYAI_TEST_ENTRY(auth, retry_once_per_request, auth_retry_once_per_request)
 FYAI_TEST_ENTRY(auth, manual_input, auth_manual_input)
 
 struct token_fixture {
@@ -395,24 +394,6 @@ int auth_billing_route(void)
 	snprintf(path, sizeof(path), "%s/auth.json", created);
 	unlink(path);
 	rmdir(created);
-	return 0;
-}
-
-/* A request refreshes the credentials once, and no other request counts it. */
-int auth_retry_once_per_request(void)
-{
-	struct fyai_cfg cfg = { 0 };
-	struct fyai_ctx ctx = { .cfg = &cfg };
-
-	cfg.chatgpt_auth = true;
-	FYAI_TCHECK(fyai_auth_should_retry(&ctx, 401, false));
-	FYAI_TCHECK(!fyai_auth_should_retry(&ctx, 401, true));
-	FYAI_TCHECK(!fyai_auth_should_retry(&ctx, 500, false));
-	/* The same context, a new request: the first answer does not decide it. */
-	FYAI_TCHECK(fyai_auth_should_retry(&ctx, 401, false));
-	cfg.chatgpt_auth = false;
-	FYAI_TCHECK(!fyai_auth_should_retry(&ctx, 401, false));
-	printf("ok - a request refreshes the credentials once\n");
 	return 0;
 }
 
