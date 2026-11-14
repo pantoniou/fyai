@@ -46,6 +46,7 @@ FYAI_TEST_ENTRY(app, wires_skills, app_wires_skills)
 FYAI_TEST_ENTRY(app, wires_toolspec, app_wires_toolspec)
 FYAI_TEST_ENTRY(app, wires_bstate, app_wires_bstate)
 FYAI_TEST_ENTRY(app, wires_usage, app_wires_usage)
+FYAI_TEST_ENTRY(app, wires_turn, app_wires_turn)
 FYAI_TEST_ENTRY(app, wires_link, app_wires_link)
 FYAI_TEST_ENTRY(app, wires_cred, app_wires_cred)
 FYAI_TEST_ENTRY(app, cred_holds_login_state, app_cred_holds_login_state)
@@ -259,6 +260,21 @@ int app_wires_usage(void)
 	FYAI_TCHECK(fy_is_invalid(app.usage.head) && fy_is_invalid(app.usage.agents_root));
 	fyai_app_cleanup(&app);
 	printf("ok - the usage accounting starts at zero\n");
+	return 0;
+}
+
+int app_wires_turn(void)
+{
+	struct fyai_app app;
+
+	FYAI_TCHECK(!fyai_app_init(&app));
+	FYAI_TCHECK(app.turn.diag == &app.diag);
+	FYAI_TCHECK(app.turn.stop == FYAI_TURN_STOP_NONE && !app.turn.gate);
+	FYAI_TCHECK(app.turn.response_chain == FYAI_CHAIN_UNLINKED);
+	FYAI_TCHECK(fy_is_invalid(app.turn.last_message) && fy_is_invalid(app.turn.output_schema));
+	FYAI_TCHECK(!fy_len(app.turn.media_pending));
+	fyai_app_cleanup(&app);
+	printf("ok - the turn component starts with no message\n");
 	return 0;
 }
 

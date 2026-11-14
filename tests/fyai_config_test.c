@@ -37,7 +37,8 @@ int session_compact_chatgpt_auth(void)
 		.response_compaction_supported = true,
 		.chatgpt_auth = true,
 	};
-	struct fyai_ctx ctx = { .cfg = &cfg };
+	struct fyai_turnstate turn = {};
+	struct fyai_ctx ctx = { .cfg = &cfg, .turn = &turn };
 
 	if (!fyai_session_compact_v2(&cfg))
 		return 1;
@@ -45,7 +46,7 @@ int session_compact_chatgpt_auth(void)
 	if (fyai_session_compact_v2(&cfg))
 		return 1;
 	cfg.chatgpt_auth = true;
-	ctx.last_message = fy_invalid;
+	ctx.turn->last_message = fy_invalid;
 	return fyai_session_compact(&ctx, NULL);
 }
 

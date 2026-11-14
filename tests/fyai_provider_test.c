@@ -681,7 +681,7 @@ static int provider_run(void (*testfn)(void))
 	fyai_test_arena_of(&test_ctx)->durable_gb = fyai_test_transient_of(&test_ctx)->gb;
 	test_cfg.gb = fyai_test_transient_of(&test_ctx)->gb;
 	test_ctx.toolspec->spec = fy_invalid;
-	test_ctx.media_pending = fy_seq_empty;
+	test_ctx.turn->media_pending = fy_seq_empty;
 
 	testfn();
 

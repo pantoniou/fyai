@@ -172,7 +172,7 @@ int ask_call_not_for_the_page(void)
 	e.cfg.answers[0] = "yes";
 	e.cfg.answer_count = 1;
 	FYAI_TCHECK(!fyai_ask_call_start(&e.ctx, one_question(&e), NULL, NULL));
-	e.ctx.answer_next = 1;
+	e.ctx.turn->answer_next = 1;
 	FYAI_TCHECK(fyai_ask_call_start(&e.ctx, one_question(&e), NULL, NULL));
 	fyai_ask_settle_all(&e.ctx);
 	/* Questions that are not valid are left to the text path. */

@@ -342,6 +342,7 @@ int media_import_content(void)
 
 	memset(&cfg, 0, sizeof(cfg));
 	memset(&ctx, 0, sizeof(ctx));
+	fyai_test_attach(&ctx);
 	ctx.cfg = &cfg;
 	fyai_test_arena_of(&ctx)->gb = fyai_test_transient_of(&ctx)->gb = fyai_test_arena_of(&ctx)->durable_gb =
 		fy_generic_builder_create(&gb_cfg);
@@ -554,6 +555,7 @@ int media_pending_message(void)
 
 	memset(&cfg, 0, sizeof(cfg));
 	memset(&ctx, 0, sizeof(ctx));
+	fyai_test_attach(&ctx);
 	ctx.cfg = &cfg;
 	fyai_test_arena_of(&ctx)->gb = fyai_test_transient_of(&ctx)->gb = fyai_test_arena_of(&ctx)->durable_gb =
 		fy_generic_builder_create(&gb_cfg);
@@ -561,7 +563,7 @@ int media_pending_message(void)
 	cfg.gb = fyai_test_arena_of(&ctx)->gb;
 	cfg.media_max_bytes = 1024 * 1024;
 	cfg.media_max_per_message = 2;
-	ctx.media_pending = fy_seq_empty;
+	ctx.turn->media_pending = fy_seq_empty;
 
 	rc = fyai_media_attach_path(&ctx, path, NULL, "shot");
 	FYAI_TCHECK(!rc);
@@ -607,7 +609,7 @@ int media_pending_message(void)
 	FYAI_TCHECK(!rc);
 	rc = fyai_media_attach_path(&ctx, path, NULL, NULL);
 	FYAI_TCHECK(rc < 0);
-	FYAI_TCHECK(fy_len(ctx.media_pending) == 2);
+	FYAI_TCHECK(fy_len(ctx.turn->media_pending) == 2);
 	fyai_diag_reset(fyai_ctx_diag(&ctx));
 	fyai_media_pending_clear(&ctx);
 
@@ -637,6 +639,7 @@ int media_pinned_root(void)
 
 	memset(&cfg, 0, sizeof(cfg));
 	memset(&ctx, 0, sizeof(ctx));
+	fyai_test_attach(&ctx);
 	fyai_test_arena_of(&ctx)->gb = fyai_test_transient_of(&ctx)->gb = fyai_test_arena_of(&ctx)->durable_gb =
 		fy_generic_builder_create(&gb_cfg);
 	FYAI_TCHECK(fyai_test_arena_of(&ctx)->gb);
@@ -645,7 +648,7 @@ int media_pinned_root(void)
 	cfg.media_max_bytes = 1024 * 1024;
 	cfg.media_max_per_message = 4;
 	ctx.cfg = &cfg;
-	ctx.media_pending = fy_seq_empty;
+	ctx.turn->media_pending = fy_seq_empty;
 
 	rc = fyai_media_attach_path(&ctx, path, NULL, "shot");
 	FYAI_TCHECK(rc < 0);
@@ -715,6 +718,7 @@ int media_mentions(void)
 
 	memset(&cfg, 0, sizeof(cfg));
 	memset(&ctx, 0, sizeof(ctx));
+	fyai_test_attach(&ctx);
 	ctx.cfg = &cfg;
 	fyai_test_arena_of(&ctx)->gb = fyai_test_transient_of(&ctx)->gb = fyai_test_arena_of(&ctx)->durable_gb =
 		fy_generic_builder_create(&gb_cfg);
@@ -722,7 +726,7 @@ int media_mentions(void)
 	cfg.gb = fyai_test_arena_of(&ctx)->gb;
 	cfg.media_max_bytes = 1024 * 1024;
 	cfg.media_max_per_message = 8;
-	ctx.media_pending = fy_seq_empty;
+	ctx.turn->media_pending = fy_seq_empty;
 	FYAI_TCHECK(!fyai_test_diag_setup(&cfg));
 
 	/* a text file and a quoted image path with a blank */
@@ -730,11 +734,11 @@ int media_mentions(void)
 	snprintf(want, sizeof(want), "see %s and %s", notes, shot);
 	FYAI_TCHECK(!fyai_media_take_mentions(&ctx, line));
 	FYAI_TCHECK(!strcmp(line, want));
-	FYAI_TCHECK(fy_len(ctx.media_pending) == 2);
-	part = fy_get_at(ctx.media_pending, 0);
+	FYAI_TCHECK(fy_len(ctx.turn->media_pending) == 2);
+	part = fy_get_at(ctx.turn->media_pending, 0);
 	FYAI_TCHECK(fyai_media_part_is_file(part));
 	FYAI_TCHECK(fy_get(part, "lines", 0LL) == 2 && fy_get(part, "bytes", 0LL) == 4);
-	FYAI_TCHECK(fyai_media_part_is_image(fy_get_at(ctx.media_pending, 1)));
+	FYAI_TCHECK(fyai_media_part_is_image(fy_get_at(ctx.turn->media_pending, 1)));
 
 	/* the readers: the words, what the model reads, and the row */
 	content = fy_sequence(fyai_test_arena_of(&ctx)->gb,
@@ -771,14 +775,14 @@ int media_mentions(void)
 	snprintf(line, sizeof(line), "@~/notes.txt");
 	FYAI_TCHECK(!media_mentions_at_home(&ctx, dir, line));
 	FYAI_TCHECK(!strcmp(line, "~/notes.txt"));
-	part = fy_get_at(ctx.media_pending, 0);
+	part = fy_get_at(ctx.turn->media_pending, 0);
 	FYAI_TCHECK(fy_equal(fy_get(part, "file"), "~/notes.txt"));
 	fyai_media_pending_clear(&ctx);
 
 	/* a text that holds a fence is wrapped in a longer one */
 	snprintf(line, sizeof(line), "@%s", fenced);
 	FYAI_TCHECK(!fyai_media_take_mentions(&ctx, line));
-	part = fy_get_at(ctx.media_pending, 0);
+	part = fy_get_at(ctx.turn->media_pending, 0);
 	text = fy_get(part, "text", fy_invalid);
 	snprintf(want, sizeof(want), "File: %s\n````\nx\n```\ny\n````", fenced);
 	FYAI_TCHECK(!strcmp(fy_castp(&text, ""), want));
@@ -787,7 +791,7 @@ int media_mentions(void)
 	/* the same file twice is two parts, and each counts against the limit */
 	snprintf(line, sizeof(line), "@%s @%s", notes, notes);
 	FYAI_TCHECK(!fyai_media_take_mentions(&ctx, line));
-	FYAI_TCHECK(fy_len(ctx.media_pending) == 2);
+	FYAI_TCHECK(fy_len(ctx.turn->media_pending) == 2);
 	fyai_media_pending_clear(&ctx);
 	cfg.media_max_per_message = 1;
 	snprintf(line, sizeof(line), "@%s @%s", notes, notes);
@@ -799,7 +803,7 @@ int media_mentions(void)
 	/* an empty file is a part of no lines */
 	snprintf(line, sizeof(line), "@%s", empty);
 	FYAI_TCHECK(!fyai_media_take_mentions(&ctx, line));
-	part = fy_get_at(ctx.media_pending, 0);
+	part = fy_get_at(ctx.turn->media_pending, 0);
 	FYAI_TCHECK(fy_get(part, "lines", -1LL) == 0 && fy_get(part, "bytes", -1LL) == 0);
 	fyai_media_pending_clear(&ctx);
 

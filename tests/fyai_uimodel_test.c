@@ -326,7 +326,8 @@ int uimodel_view_detached(void)
 {
 	struct fyai_cfg cfg = { 0 };
 	struct fyai_branch_state bstate = {};
-	struct fyai_ctx ctx = { .cfg = &cfg, .bstate = &bstate };
+	struct fyai_turnstate turn = {};
+	struct fyai_ctx ctx = { .cfg = &cfg, .bstate = &bstate, .turn = &turn };
 	struct fyai_ctx view;
 	struct fyai_view_own own;
 	char one;

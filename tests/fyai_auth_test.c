@@ -410,7 +410,8 @@ int auth_recorded_usage(void)
 	struct fy_generic_builder_cfg gbcfg = { .flags = FYGBCF_SCOPE_LEADER };
 	struct fy_generic_builder *gb = fy_generic_builder_create(&gbcfg);
 	struct fyai_branch_state bstate = {};
-	struct fyai_ctx ctx = { .last_message = fy_invalid, .bstate = &bstate };
+	struct fyai_turnstate turn = { .last_message = fy_invalid };
+	struct fyai_ctx ctx = { .turn = &turn, .bstate = &bstate };
 	fy_generic result, usage, meta, prev;
 
 	FYAI_TCHECK(gb != NULL);
@@ -423,7 +424,7 @@ int auth_recorded_usage(void)
 	meta = fy_mapping(gb, "usage", usage);
 	usage = fy_mapping(gb, "input", 80, "cached", 40, "output", 20, "total", 100);
 	prev = fy_mapping(gb, "metadata", fy_mapping(gb, "usage", usage));
-	ctx.last_message = fy_mapping(gb, "metadata", meta, "previous", prev);
+	ctx.turn->last_message = fy_mapping(gb, "metadata", meta, "previous", prev);
 	FYAI_TCHECK(!fyai_auth_usage(&ctx, gb, true, &result));
 	FYAI_TCHECK(fy_get(result, "calls", -1LL) == 2);
 	FYAI_TCHECK(fy_get(result, "input_tokens", -1LL) == 200);

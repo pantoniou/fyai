@@ -218,7 +218,7 @@ int branch_adopt_ends_unstored(void)
 	FYAI_TCHECK(cfg.gb);
 	ctx.cfg = &cfg;
 	fyai_test_arena_of(&ctx)->gb = gb;
-	ctx.last_message = fy_invalid;
+	ctx.turn->last_message = fy_invalid;
 	ctx.bstate->config = fy_invalid;
 	ctx.bstate->catalog = fy_invalid;
 	ctx.bstate->skills = fy_invalid;

@@ -228,6 +228,17 @@ static inline struct fyai_usage *fyai_test_usage_of(struct fyai_ctx *ctx)
 	return ctx->usage;
 }
 
+static inline struct fyai_turnstate *fyai_test_turn_of(struct fyai_ctx *ctx)
+{
+	if (!ctx->turn) {
+		ctx->turn = calloc(1, sizeof(*ctx->turn));
+		if (!ctx->turn)
+			return NULL;
+		fyai_turnstate_init(ctx->turn, fyai_cfg_diag(ctx->cfg));
+	}
+	return ctx->turn;
+}
+
 /*
  * Give a test context every component that it lacks. The ones that the test
  * gave it stay.
@@ -244,6 +255,7 @@ static inline void fyai_test_attach(struct fyai_ctx *ctx)
 	fyai_test_toolspec_of(ctx);
 	fyai_test_bstate_of(ctx);
 	fyai_test_usage_of(ctx);
+	fyai_test_turn_of(ctx);
 }
 
 #endif

@@ -1152,7 +1152,7 @@ static int grammar_run(void (*testfn)(void))
 	test_cfg.gb = fyai_test_transient_of(&test_ctx)->gb;
 	test_cfg.catalog = fy_invalid;
 	test_ctx.toolspec->spec = fy_invalid;
-	test_ctx.media_pending = fy_seq_empty;
+	test_ctx.turn->media_pending = fy_seq_empty;
 
 	testfn();
 
@@ -1237,14 +1237,15 @@ int grammar_request_cache_bench(void)
 int grammar_chain_miss_needs_link(void)
 {
 	struct fyai_cfg cfg = { .api_mode = FYAI_API_RESPONSES };
-	struct fyai_ctx ctx = { .cfg = &cfg };
+	struct fyai_turnstate turn = {};
+	struct fyai_ctx ctx = { .cfg = &cfg, .turn = &turn };
 	const char *body = "{\"error\":{\"param\":\"previous_response_id\"}}";
 
-	ctx.response_chain = FYAI_CHAIN_LINKED;
+	ctx.turn->response_chain = FYAI_CHAIN_LINKED;
 	FYAI_TCHECK(fyai_grammar_chain_miss(&ctx, 400, body));
-	ctx.response_chain = FYAI_CHAIN_UNLINKED;
+	ctx.turn->response_chain = FYAI_CHAIN_UNLINKED;
 	FYAI_TCHECK(!fyai_grammar_chain_miss(&ctx, 400, body));
-	ctx.response_chain = FYAI_CHAIN_LINKED;
+	ctx.turn->response_chain = FYAI_CHAIN_LINKED;
 	FYAI_TCHECK(!fyai_grammar_chain_miss(&ctx, 500, body));
 	return 0;
 }

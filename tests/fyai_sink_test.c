@@ -68,9 +68,9 @@ static void fixture_open(struct sink_fixture *f)
 	f->cfg.color = "off";
 	f->ctx.cfg = &f->cfg;
 	f->ctx.transient = &f->transient;
-	f->ctx.last_message = fy_invalid;
-	f->ctx.tools = fy_invalid;
 	fyai_test_attach(&f->ctx);
+	f->ctx.turn->last_message = fy_invalid;
+	f->ctx.tools = fy_invalid;
 	f->ctx.toolspec->spec = fy_invalid;
 	f->ctx.bstate->config = fy_invalid;
 	f->ctx.bstate->catalog = fy_invalid;
@@ -78,7 +78,7 @@ static void fixture_open(struct sink_fixture *f)
 	f->ctx.bstate->prev = fy_invalid;
 	f->ctx.bstate->desc = fy_invalid;
 	f->ctx.bstate->agent = fy_invalid;
-	f->ctx.last_token_extents = fy_invalid;
+	f->ctx.turn->last_token_extents = fy_invalid;
 	/* The live document is drawn from the transcript store. */
 	if (fyai_uimodel_create(&f->ctx)) {
 		fprintf(stderr, "could not open the UI model fixture\n");
@@ -355,7 +355,7 @@ static void test_protocol_fd_stays_clean(void)
 	f.ctx.cfg = &f.cfg;
 	f.ctx.transient = &f.transient;
 	fyai_test_attach(&f.ctx);
-	f.ctx.last_message = fy_invalid;
+	f.ctx.turn->last_message = fy_invalid;
 	f.ctx.tools = fy_invalid;
 	f.ctx.toolspec->spec = fy_invalid;
 	f.ctx.bstate->config = fy_invalid;
@@ -364,7 +364,7 @@ static void test_protocol_fd_stays_clean(void)
 	f.ctx.bstate->prev = fy_invalid;
 	f.ctx.bstate->desc = fy_invalid;
 	f.ctx.bstate->agent = fy_invalid;
-	f.ctx.last_token_extents = fy_invalid;
+	f.ctx.turn->last_token_extents = fy_invalid;
 	/* The terminal backend: the one that reaches a descriptor. */
 	f.ctx.sink = fyai_sink_create(&f.ctx);
 	expect_true("the terminal sink opened", f.ctx.sink != NULL);
@@ -456,7 +456,7 @@ static void test_reflow_follows_width(void)
 	f.ctx.transient = &f.transient;
 	fyai_test_attach(&f.ctx);
 	f.ctx.tty->stdout_tty = true;	/* enable live terminal rendering */
-	f.ctx.last_message = fy_invalid;
+	f.ctx.turn->last_message = fy_invalid;
 	f.ctx.tools = fy_invalid;
 	f.ctx.toolspec->spec = fy_invalid;
 	f.ctx.bstate->config = fy_invalid;
@@ -465,7 +465,7 @@ static void test_reflow_follows_width(void)
 	f.ctx.bstate->prev = fy_invalid;
 	f.ctx.bstate->desc = fy_invalid;
 	f.ctx.bstate->agent = fy_invalid;
-	f.ctx.last_token_extents = fy_invalid;
+	f.ctx.turn->last_token_extents = fy_invalid;
 	expect_true("the UI model opened", !fyai_uimodel_create(&f.ctx));
 	f.ctx.sink = fyai_sink_create(&f.ctx);
 	expect_true("the terminal sink opened", f.ctx.sink != NULL);
