@@ -3,7 +3,7 @@
 Status: design, and the first two steps are done: `struct fyai_app` exists and
 holds `diag`, `loop` and `cfg`. The counts come from a script over
 `src/*.c` that counts `ctx->FIELD` per file; check a row against the code
-before a change. The first step is at the end.
+before a change. The order of the work is near the end.
 
 ## Problem
 
@@ -24,11 +24,14 @@ can use all of them. Three effects follow:
 1. A component is a struct that owns its state, a constructor, a destructor
    and an `abandon()` for a forked child. The component holds the resources
    that it makes: its sources on the loop, its builders, its descriptors.
-2. A component names its dependencies in a struct of pointers that the
-   constructor takes, `struct fyai_X_deps`. A dependency is a pointer to
-   another component, never a copy of its fields and never `ctx`. The pointers
-   stay valid for the life of the component, so the owner makes dependencies
-   first and destroys them last.
+2. A component names its dependencies as pointer fields, set by its
+   constructor or by the app (`cfg->diag`, `loop->diag`, `ctx->loop`). A
+   component with more than two dependencies groups them in a struct of
+   pointers, `struct fyai_X_deps`. A dependency is a pointer to another
+   component, never a copy of its fields and never `ctx`. The pointers stay
+   valid for the life of the component, so the owner makes dependencies first
+   and destroys them last. A callback (a function pointer and its data) is a
+   dependency that points up, as `loop->on_interrupt` is.
 3. A function of a component takes the component (`struct fyai_X *`). It does
    not take `ctx`, and it reaches another component only through `X->deps`.
 4. `struct fyai_app` (`src/fyai_app.h`) is the composition root. It holds each
@@ -36,13 +39,18 @@ can use all of them. Three effects follow:
    dependency order, wires the pointers, and destroys them in the reverse
    order. `main()` declares one and it outlives the context. `struct fyai_ctx`
    keeps the state of one run until a component takes it, and then points at
-   the app. It holds no state of its own besides what no component owns.
+   the app. It holds no state of its own besides what no component owns. The
+   run may release what stands on a component early, as `fyai_cleanup()` calls
+   `fyai_loop_release()` before the arena closes, but only the app destroys the
+   component (`fyai_loop_cleanup()`).
 5. The graph has no cycle. When two components need each other, one of them
    gets a callback (a function pointer and its data) instead of a pointer, as
    `turn_observe` is today.
 6. `fyai_ctx_fork_disown()` calls `abandon()` of each component in reverse
    dependency order. A new component adds one line there, and the component,
-   not the list, says what it forgets.
+   not the list, says what it forgets. There is one `abandon()` for a
+   component: `fyai_loop_abandon()` forgets the loop, the signal sources, the
+   dump output and the dump handler, and is safe to call twice.
 7. A component keeps the lifetime rules of the data model: a builder that it
    owns for its values, an interned `const char *` for a long-lived name
    (`CLAUDE.md`, "Copies of arena data").
@@ -53,25 +61,31 @@ Fields are the fields of `struct fyai_ctx` today. "Users" are the components
 whose files read them, from the count; a user that is not a dependency of the
 owner is a defect of today's layout.
 
-### Services without dependencies
+### Services
 
-| Component | Owns | Today |
-|---|---|---|
-| `diag` | the diagnostics: the collected list, its builder, the trace and the dump descriptor | `cfg->diag`, `dump_fd`, `dump_dir`, `dump_file` |
-| `scratch` | the transient builder and its allocator; releases itself on an idle iteration | `transient_allocator`, `transient_gb`, `transient_autorelease` |
-| `arena` | the durable allocator and builder, the overlay, the working builder `gb`, the refs head | `durable_allocator`, `durable_gb`, `overlay_allocator`, `gb`, `refs_head` |
+| Component | Owns | Depends on | Today |
+|---|---|---|---|
+| `diag` | the sink: the collected list, its builder and the trace | nothing | `cfg->diag` (now `app->diag`) |
+| `arena` | the durable allocator and builder, the overlay, the working builder `gb`, the refs head | `diag` | `durable_allocator`, `durable_gb`, `overlay_allocator`, `gb`, `refs_head` |
+| `scratch` | the transient builder and its allocator; releases itself on an idle iteration | `loop`, `diag` | `transient_allocator`, `transient_gb`, `transient_autorelease` |
 
 `scratch` needs the loop for its idle release: that edge is a callback source
 that the loop component accepts, so `scratch` depends on `loop`, and `loop`
-does not depend on `scratch`.
+does not depend on `scratch`. The dump output of the loop is not the sink: it
+belongs to the loop, which dumps itself.
 
 ### The loop
 
 | Component | Owns | Depends on |
 |---|---|---|
-| `loop` | the event loop and its pools, the signal sources and mask, the interrupt state (`interrupt_pending`, `interrupt_seq`, `interrupt_seen`), the terminate request, the curl multi state | `diag` |
+| `loop` | the event loop and its timers and sources, the pools, the signal sources and mask, the interrupt state (`interrupt_pending`, `interrupt_seq`, `interrupt_seen`), the terminate request, the dump output and the dump handler | `diag`; a hook up to the owner of the waits (`on_interrupt`) |
 
-The loop is the one component that every other service borrows. The field `el`
+The loop is the one component that every other service borrows. The signal
+handlers and the dump handler are process-wide, so there is one loop component
+in a process. The handlers name the component that installed them, and only
+that one removes them. The curl multi state stands on the loop but belongs to
+`xfer` and keeps a pointer to the context, so it stays on the context until the
+`xfer` step. The field `el`
 is named in 14 places only; the rest reach the loop through
 `fyai_ctx_loop(ctx)`, so the dependency is hidden in the call, not in a field.
 
@@ -199,15 +213,17 @@ Each step builds, passes both suites, and lands as its own patch series
    TUI plan.
 2. `loop` (done), with `diag` as its dependency. `struct fyai_loop` holds the
    application loop and its timers and sources, the pools, the signal state,
-   the interrupt state and the terminate request, the curl multi state, and
-   the output of the loop dump. The context holds a pointer to it
-   (`ctx->loop`), and the event functions take the component, not the
-   context. The one thing that the loop told the waits through the context, an
-   interrupt that is pending, is a hook of the component
-   (`on_interrupt`), which the context sets. `fyai_ctx_loop()` and
-   `fyai_ctx_loop_abandon()` stay as thin accessors until the last user is
-   gone. A test that builds a context of its own gives it a loop
-   (`fyai_test_loop_of()`). This is step 1 of the TUI plan.
+   the interrupt state and the terminate request, and the output of the loop
+   dump. The context holds a pointer to it (`ctx->loop`), and the event
+   functions take the component, not the context. The one thing that the loop
+   told the waits through the context, an interrupt that is pending, is a hook
+   of the component (`on_interrupt`), which the context sets and
+   `fyai_loop_release()` drops. The run calls `fyai_loop_release()`; the app
+   calls `fyai_loop_cleanup()`, which also closes the dump output, so a crash
+   report in the teardown of the arena still has a descriptor.
+   `fyai_ctx_loop()` and `fyai_ctx_loop_abandon()` stay as thin accessors
+   until the last user is gone. A test that builds a context of its own gives
+   it a loop (`fyai_test_loop_of()`). This is step 1 of the TUI plan.
 3. `scratch` and `arena`: the builders, with `loop` for the idle release.
 4. `cred`, then `transport`, `xfer`, `mcp`: the example of the first
    consumers. `cred` takes `loop` and `diag`; its 17 reads of `transient_gb`
@@ -241,3 +257,23 @@ of the clusters (`fyai_ctx_turn_reset()`, `fyai_ctx_usage_reset()`,
   fyai_cred`, `struct fyai_transport_state`, `struct fyai_agents` and
   `struct fyai_workpane_manager` exist and are the first of the components.
   They get a `deps` struct, not a new name.
+- A copy of the context (`view = *ctx`, as the transcript view, the agent
+  history and the branch preview make) now shares the loop component, so the
+  copy and the original see the same interrupt and terminate state. Nothing on
+  those paths reads them, but every component that becomes a pointer turns
+  such a copy into an alias. A copy must either be muted and given no state of
+  its own, or take what it needs by value.
+- A copy of the configuration that is adopted back keeps the pointer to the
+  sink (`fyai_agent_persona_apply()`); one that is dropped is made with
+  `fyai_cfg_copy_muted()`. A configuration that is a member of the app is
+  cleared and set up again by `fyai_config_setup()` and
+  `fyai_config_cleanup()`, which keep the sink pointer across the `memset()`.
+  A component that holds more pointers like it needs a reset that names what
+  it keeps, not a `memset()` that has to remember.
+- The loop is owned by one thread. `volatile sig_atomic_t` is a flag for a
+  signal handler, not a primitive between threads, so the TUI split must give
+  the interrupt state to the thread that reads it, and send an interrupt to the
+  other as a frame.
+- `fyai_event.c` still defines `fyai_ctx_loop()` and `fyai_ctx_loop_abandon()`
+  and includes `fyai.h`, so the component still knows the context. The two
+  shims move to `fyai.c` when the last caller takes the component.
