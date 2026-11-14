@@ -37,6 +37,7 @@ FYAI_TEST_ENTRY(app, transient_follows_arena, app_transient_follows_arena)
 FYAI_TEST_ENTRY(app, transient_stacks_on_slot, app_transient_stacks_on_slot)
 FYAI_TEST_ENTRY(app, transient_tells_its_release, app_transient_tells_its_release)
 FYAI_TEST_ENTRY(app, wires_cred, app_wires_cred)
+FYAI_TEST_ENTRY(app, cred_holds_login_state, app_cred_holds_login_state)
 FYAI_TEST_ENTRY(app, cred_keeps_secret_until_release, app_cred_keeps_secret_until_release)
 FYAI_TEST_ENTRY(app, other_loop_keeps_handlers, app_other_loop_keeps_handlers)
 
@@ -127,6 +128,19 @@ int app_wires_cred(void)
 	FYAI_TCHECK(!app.cred.ctx && !app.cred.refresh && !app.cred.timer);
 	fyai_app_cleanup(&app);
 	printf("ok - the credential component stands on the loop of the app\n");
+	return 0;
+}
+
+int app_cred_holds_login_state(void)
+{
+	struct fyai_app app;
+
+	FYAI_TCHECK(!fyai_app_init(&app));
+	FYAI_TCHECK(fy_is_invalid(app.cred.auth.registrations));
+	FYAI_TCHECK(!app.cred.auth.access_token && !app.cred.auth_gb);
+	FYAI_TCHECK(!app.cred.auth_detached);
+	fyai_app_cleanup(&app);
+	printf("ok - the login state starts empty in the credential component\n");
 	return 0;
 }
 

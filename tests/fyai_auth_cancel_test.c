@@ -346,11 +346,11 @@ int auth_cancel_drain(void)
 	FYAI_TCHECK(request);
 	STEP_UNTIL(el, m.nheld == 1);
 	fyai_auth_refresh_cancel(request);
-	FYAI_TCHECK(ctx.auth_detached == 1);
+	FYAI_TCHECK(ctx.cred->auth_detached == 1);
 
 	mock_release(&m);
 	fyai_auth_drain(&ctx);
-	FYAI_TCHECK(ctx.auth_detached == 0 && lock_free(dir));
+	FYAI_TCHECK(ctx.cred->auth_detached == 0 && lock_free(dir));
 	FYAI_TCHECK(!fyai_auth_store_load(&ctx));
 	FYAI_TCHECK(!strcmp(fyai_auth_store_token(&ctx), "new-access"));
 

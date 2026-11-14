@@ -8,6 +8,7 @@
 
 #include "fyai.h"
 #include "fyai_auth.h"
+#include "fyai_cred.h"
 #include "fyai_auth_util.h"
 #include "fyai_provider.h"
 #include "fyai_cmd.h"
@@ -207,7 +208,8 @@ int auth_plan_permission(void)
 {
 	struct fy_generic_builder_cfg config = { .flags = FYGBCF_SCOPE_LEADER };
 	struct fyai_cfg cfg = {};
-	struct fyai_ctx ctx = { .cfg = &cfg };
+	struct fyai_cred cred;
+	struct fyai_ctx ctx = { .cfg = &cfg, .cred = &cred };
 	struct fyai_credentials c = { .registrations = fy_invalid };
 	fy_generic tokens, invalid;
 	const char *old_access;
@@ -215,6 +217,8 @@ int auth_plan_permission(void)
 	bool ready;
 
 	cfg.gb = fy_generic_builder_create(&config);
+	fyai_cred_init(&cred, fyai_test_loop_of(&ctx));
+	fyai_cred_bind(&cred, &ctx);
 	fyai_test_transient_of(&ctx)->gb = cfg.gb;
 	tokens = fy_mapping(cfg.gb, "access_token", "oauth-access",
 		"refresh_token", "refresh-1", "id_token", "id-token",
@@ -353,7 +357,8 @@ int auth_billing_route(void)
 		.api_mode = FYAI_API_RESPONSES, .provider = "openai",
 		.response_compaction_supported = true, .token_extents = true,
 		.api_key = "unused-api-key", .api_url = OPENAI_RESPONSES_URL };
-	struct fyai_ctx ctx = { .cfg = &cfg };
+	struct fyai_cred cred;
+	struct fyai_ctx ctx = { .cfg = &cfg, .cred = &cred };
 	fy_generic record;
 	char dir[] = "/tmp/fyai-auth-test-XXXXXX";
 	char path[256];
@@ -364,6 +369,8 @@ int auth_billing_route(void)
 	FYAI_TCHECK(created);
 	cfg.auth_state_dir = created;
 	cfg.gb = fy_generic_builder_create(&config);
+	fyai_cred_init(&cred, fyai_test_loop_of(&ctx));
+	fyai_cred_bind(&cred, &ctx);
 	fyai_test_transient_of(&ctx)->gb = cfg.gb;
 	record = fy_mapping(cfg.gb, "type", "chatgpt", "client_id", "oaiapp_test",
 		"ext_agent_host_id", "urn:uuid:00000000-0000-4000-8000-000000000000",
@@ -377,7 +384,7 @@ int auth_billing_route(void)
 	FYAI_TCHECK(!rc && cfg.chatgpt_auth && cfg.stream);
 	FYAI_TCHECK(!strcmp(cfg.api_url, OPENAI_RESPONSES_URL));
 	FYAI_TCHECK(!cfg.response_compaction_supported && !cfg.token_extents);
-	FYAI_TCHECK(!strcmp(ctx.auth.access_token, "subscription-token"));
+	FYAI_TCHECK(!strcmp(ctx.cred->auth.access_token, "subscription-token"));
 	cfg.chatgpt_auth = false;
 	cfg.auth_mode = FYAI_AUTH_AUTO;
 	rc = fyai_auth_resolve(&ctx);
