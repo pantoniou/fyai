@@ -2357,6 +2357,65 @@ bool fyai_tool_call_parallel_eligible(struct fyai_ctx *ctx,
 	       !def->in_parent(fyai_tool_call_args(ctx, tool_call));
 }
 
+/*
+ * The model transfer of a forked child starts with no outcome. The endpoint
+ * and the profile stay: the child sends to the endpoint of its parent.
+ */
+static void fyai_ctx_xfer_reset(struct fyai_ctx *ctx)
+{
+	ctx->xfer_status = 0;
+	ctx->xfer_retry_after = 0;
+	ctx->xfer_error[0] = '\0';
+}
+
+/*
+ * Turn control belongs to one turn. A forked child starts with no request to
+ * end, stop, interrupt, compact or gate, and with no budget, schema or
+ * relay of its parent. The observers are pointers of the parent and are
+ * cleared apart.
+ */
+static void fyai_ctx_turn_reset(struct fyai_ctx *ctx)
+{
+	ctx->turn_end_requested = false;
+	ctx->turn_stop = FYAI_TURN_STOP_NONE;
+	ctx->turn_cost_limit = 0;
+	ctx->compacting = false;
+	ctx->interrupt_pending = 0;
+	ctx->interrupt_seq = 0;
+	ctx->interrupt_seen = 0;
+	ctx->terminate_pending = false;
+	ctx->tool_diff_tracking = false;
+	ctx->tool_gate = NULL;
+	ctx->tool_gate_data = NULL;
+	ctx->tool_gate_run = NULL;
+	ctx->gate_relays = NULL;
+	ctx->relay_gate = false;
+	ctx->relay_steps = false;
+	ctx->output_schema = fy_invalid;
+	ctx->structured_output = fy_invalid;
+}
+
+/*
+ * What the parent spent is the accounting of its run, and the extents of its
+ * last call point into storage that a forked child does not use.
+ */
+static void fyai_ctx_usage_reset(struct fyai_ctx *ctx)
+{
+	ctx->usage_input = ctx->usage_cached = ctx->usage_cache_write = 0;
+	ctx->usage_output = ctx->usage_reasoning = ctx->usage_total = 0;
+	ctx->usage_cost = ctx->usage_cost_est = 0;
+	ctx->usage_calls = 0;
+	ctx->switch_pending = false;
+	ctx->last_call_input = ctx->last_call_output = ctx->last_call_total = 0;
+	ctx->last_token_extents = fy_invalid;
+}
+
+/*
+ * The record of the next publish is not reset here: a sub-agent sets it
+ * from the branch table when it selects its branch (fyai_agent_run()), and
+ * the other children publish nothing.
+ */
+
 /* Clear live parent-owned state after fork. */
 void fyai_ctx_fork_disown(struct fyai_ctx *ctx)
 {
@@ -2416,28 +2475,11 @@ void fyai_ctx_fork_disown(struct fyai_ctx *ctx)
 	ctx->turn_observe_data = NULL;
 	ctx->text_observe = NULL;
 	ctx->text_observe_data = NULL;
-	ctx->tool_gate = NULL;			/* and the policy of its calls */
-	ctx->tool_gate_data = NULL;
-	ctx->tool_gate_run = NULL;
-	ctx->gate_relays = NULL;		/* the calls of its sub-agents */
 	ctx->agent_observe = NULL;
 	ctx->agent_observe_data = NULL;
-	ctx->relay_gate = false;		/* what its own parent asked */
-	ctx->relay_steps = false;
-	ctx->turn_cost_limit = 0;		/* the budget of the parent's run */
-	ctx->output_schema = fy_invalid;	/* and the answer it asks for */
-	ctx->structured_output = fy_invalid;
-	/*
-	 * What the parent spent is the accounting of its run, and the extents
-	 * of its last call point into storage this child does not use.
-	 */
-	ctx->usage_input = ctx->usage_cached = ctx->usage_cache_write = 0;
-	ctx->usage_output = ctx->usage_reasoning = ctx->usage_total = 0;
-	ctx->usage_cost = ctx->usage_cost_est = 0;
-	ctx->usage_calls = 0;
-	ctx->switch_pending = false;
-	ctx->last_call_input = ctx->last_call_output = ctx->last_call_total = 0;
-	ctx->last_token_extents = fy_invalid;
+	fyai_ctx_turn_reset(ctx);
+	fyai_ctx_usage_reset(ctx);
+	fyai_ctx_xfer_reset(ctx);
 	ctx->response_chain = FYAI_CHAIN_UNLINKED;
 	/* The attachments wait for the next line of the parent, not of this
 	 * child; the store stays open to read the bytes of the branch. */
