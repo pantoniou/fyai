@@ -36,6 +36,8 @@ FYAI_TEST_ENTRY(app, arena_release_order, app_arena_release_order)
 FYAI_TEST_ENTRY(app, transient_follows_arena, app_transient_follows_arena)
 FYAI_TEST_ENTRY(app, transient_stacks_on_slot, app_transient_stacks_on_slot)
 FYAI_TEST_ENTRY(app, transient_tells_its_release, app_transient_tells_its_release)
+FYAI_TEST_ENTRY(app, wires_cred, app_wires_cred)
+FYAI_TEST_ENTRY(app, cred_keeps_secret_until_release, app_cred_keeps_secret_until_release)
 FYAI_TEST_ENTRY(app, other_loop_keeps_handlers, app_other_loop_keeps_handlers)
 
 /* The configuration reports into the sink that the app owns. */
@@ -116,6 +118,41 @@ static enum fyai_event_action timer_cb(const struct fyai_event *ev)
 }
 
 /* The loop component reports into the diagnostics of the app and runs timers. */
+int app_wires_cred(void)
+{
+	struct fyai_app app;
+
+	FYAI_TCHECK(!fyai_app_init(&app));
+	FYAI_TCHECK(app.cred.loop == &app.loop);
+	FYAI_TCHECK(!app.cred.ctx && !app.cred.refresh && !app.cred.timer);
+	fyai_app_cleanup(&app);
+	printf("ok - the credential component stands on the loop of the app\n");
+	return 0;
+}
+
+int app_cred_keeps_secret_until_release(void)
+{
+	struct fyai_app app;
+	struct fyai_ctx ctx;
+	char *secret = NULL;
+
+	FYAI_TCHECK(!fyai_app_init(&app));
+	memset(&ctx, 0, sizeof(ctx));
+	ctx.cfg = &app.cfg;
+	ctx.cred = &app.cred;
+	fyai_cred_bind(ctx.cred, &ctx);
+	FYAI_TCHECK(!fyai_cred_mem_set(&ctx, "key", "value"));
+	FYAI_TCHECK(!fyai_cred_get(&ctx, "mem:key", &secret, NULL));
+	FYAI_TCHECK(secret && !strcmp(secret, "value"));
+	free(secret);
+	fyai_cred_release(&ctx);
+	FYAI_TCHECK(ctx.cred == &app.cred && !app.cred.nmem);
+	FYAI_TCHECK(fyai_cred_get(&ctx, "mem:key", &secret, NULL) == -ENOENT);
+	fyai_app_cleanup(&app);
+	printf("ok - release clears the secrets and keeps the component\n");
+	return 0;
+}
+
 int app_wires_loop(void)
 {
 	struct fyai_app app;

@@ -31,6 +31,7 @@
 #include "fyai.h"
 #include "fyai_auth.h"
 #include "fyai_auth_util.h"
+#include "fyai_cred.h"
 #include "fyai_event.h"
 #include "fyai_httpd.h"
 #include "fyai_test.h"
@@ -42,7 +43,9 @@
 
 static struct fyai_cfg cfg;
 static struct fyai_loop loop = { .dump_fd = -1 };
-static struct fyai_ctx ctx = { .cfg = &cfg, .loop = &loop };
+static struct fyai_ctx ctx;
+static struct fyai_cred cred_component = { .loop = &loop, .ctx = &ctx };
+static struct fyai_ctx ctx = { .cfg = &cfg, .loop = &loop, .cred = &cred_component };
 static bool diag_ready;
 
 /* Write the record of the login with @access as its access token. */
