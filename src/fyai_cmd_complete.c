@@ -78,9 +78,9 @@ static void kind_branch_filtered(struct complete_req *r, bool agents,
 	fy_generic entry;
 	const char *name;
 
-	if (!r->ctx || !fy_is_mapping(r->ctx->arena_branches))
+	if (!r->ctx || !fy_is_mapping(r->ctx->bstate->branches))
 		return;
-	fy_foreach_key_value(name, entry, r->ctx->arena_branches) {
+	fy_foreach_key_value(name, entry, r->ctx->bstate->branches) {
 		if (fy_str_empty(name) || !fyai_branch_decode(entry, &b))
 			continue;
 		if (fy_is_valid(b.agent) != agents)
@@ -102,7 +102,7 @@ static void kind_view(struct complete_req *r)
 	fy_generic view;
 	const char *name;
 
-	if (!r->ctx || !fyai_branch_decode(r->ctx->branch_prev, &branch))
+	if (!r->ctx || !fyai_branch_decode(r->ctx->bstate->prev, &branch))
 		return;
 	fy_foreach_key_value(name, view, fy_get(branch.store, "views", fy_invalid)) {
 		if (!fy_str_empty(name) && fy_is_mapping(view))
@@ -140,7 +140,7 @@ static void kind_ref(struct complete_req *r)
 	memcpy(base, r->partial, len);
 	base[len] = '\0';
 	if (strcmp(base, "HEAD") &&
-	    !fyai_branch_lookup(r->ctx->arena_branches, base, &b))
+	    !fyai_branch_lookup(r->ctx->bstate->branches, base, &b))
 		return;
 	for (i = 1; i <= 4; i++) {
 		cand(r, fy_sprintfa("%s~%d", base, i),

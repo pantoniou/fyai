@@ -199,23 +199,23 @@ static void fyai_accumulate_usage(struct fyai_ctx *ctx, fy_generic usage)
 	if (fy_is_invalid(usage))
 		return;
 
-	ctx->usage_input += fy_get(usage, "input", 0LL);
-	ctx->usage_cached += fy_get(usage, "cached", 0LL);
-	ctx->usage_cache_write += fy_get(usage, "cache_write", 0LL);
-	ctx->usage_output += fy_get(usage, "output", 0LL);
-	ctx->usage_reasoning += fy_get(usage, "reasoning", 0LL);
-	ctx->usage_total += fy_get(usage, "total", 0LL);
-	ctx->usage_cost += fy_get(usage, "cost", 0.0);
+	ctx->usage->input += fy_get(usage, "input", 0LL);
+	ctx->usage->cached += fy_get(usage, "cached", 0LL);
+	ctx->usage->cache_write += fy_get(usage, "cache_write", 0LL);
+	ctx->usage->output += fy_get(usage, "output", 0LL);
+	ctx->usage->reasoning += fy_get(usage, "reasoning", 0LL);
+	ctx->usage->total += fy_get(usage, "total", 0LL);
+	ctx->usage->cost += fy_get(usage, "cost", 0.0);
 	if (fy_get(usage, "est", (_Bool)false))
-		ctx->usage_cost_est += fy_get(usage, "cost", 0.0);
-	ctx->usage_calls++;
+		ctx->usage->cost_est += fy_get(usage, "cost", 0.0);
+	ctx->usage->calls++;
 	/* The request that paid for the change of model is over. */
-	ctx->switch_pending = false;
+	ctx->usage->switch_pending = false;
 
 	/* Last-call snapshot: ground truth for the /context fill report. */
-	ctx->last_call_input = fy_get(usage, "input", 0LL);
-	ctx->last_call_output = fy_get(usage, "output", 0LL);
-	ctx->last_call_total = fy_get(usage, "total", 0LL);
+	ctx->usage->last_call_input = fy_get(usage, "input", 0LL);
+	ctx->usage->last_call_output = fy_get(usage, "output", 0LL);
+	ctx->usage->last_call_total = fy_get(usage, "total", 0LL);
 
 	/* The input pane reports usage from every completed model call. */
 	fyai_session_banner_update(ctx);
@@ -227,24 +227,24 @@ void fyai_print_usage_stats(struct fyai_ctx *ctx)
 
 	ratio = 0.0;
 
-	if (ctx->usage_input)
-		ratio = (double)ctx->usage_cached * 100.0 /
-			(double)ctx->usage_input;
+	if (ctx->usage->input)
+		ratio = (double)ctx->usage->cached * 100.0 /
+			(double)ctx->usage->input;
 
 	(void)fyai_report(ctx, "stats: calls=%d input=%lld cached=%lld (%.1f%%)",
-			  ctx->usage_calls, ctx->usage_input,
-			  ctx->usage_cached, ratio);
-	if (ctx->usage_cache_write)
+			  ctx->usage->calls, ctx->usage->input,
+			  ctx->usage->cached, ratio);
+	if (ctx->usage->cache_write)
 		(void)fyai_report(ctx, " cache_write=%lld",
-				  ctx->usage_cache_write);
-	(void)fyai_report(ctx, " output=%lld", ctx->usage_output);
-	if (ctx->usage_reasoning)
-		(void)fyai_report(ctx, " reasoning=%lld", ctx->usage_reasoning);
-	(void)fyai_report(ctx, " total=%lld", ctx->usage_total);
-	if (ctx->usage_cost > 0.0)
+				  ctx->usage->cache_write);
+	(void)fyai_report(ctx, " output=%lld", ctx->usage->output);
+	if (ctx->usage->reasoning)
+		(void)fyai_report(ctx, " reasoning=%lld", ctx->usage->reasoning);
+	(void)fyai_report(ctx, " total=%lld", ctx->usage->total);
+	if (ctx->usage->cost > 0.0)
 		(void)fyai_report(ctx, " cost=%s$%.6f",
-				  ctx->usage_cost_est > 0.0 ? "~" : "",
-				  ctx->usage_cost);
+				  ctx->usage->cost_est > 0.0 ? "~" : "",
+				  ctx->usage->cost);
 	(void)fyai_report(ctx, "\n");
 }
 
@@ -1260,7 +1260,7 @@ static void fyai_turn_run_observe(struct fyai_turn_run *run)
 }
 
 /*
- * The turn owns ctx->tool_diff_tracking, which the display reads: it is set
+ * The turn owns ctx->bstate->tool_diff_tracking, which the display reads: it is set
  * only by diff_begin and cleared only by diff_end, which every end of the run
  * reaches.
  */
@@ -1269,12 +1269,12 @@ static void fyai_turn_run_diff_begin(struct fyai_turn_run *run)
 	int rc;
 
 	rc = fyai_project_state_capture(run->ctx, &run->diff_before);
-	run->ctx->tool_diff_tracking = !rc && fy_is_mapping(run->diff_before);
+	run->ctx->bstate->tool_diff_tracking = !rc && fy_is_mapping(run->diff_before);
 }
 
 static void fyai_turn_run_diff_end(struct fyai_turn_run *run)
 {
-	run->ctx->tool_diff_tracking = false;
+	run->ctx->bstate->tool_diff_tracking = false;
 }
 
 static int
@@ -1547,7 +1547,7 @@ static int fyai_turn_run_submit_model(struct fyai_turn_run *run)
 				    cfg->max_tool_iterations));
 		return -1;
 	}
-	if (ctx->turn_cost_limit > 0 && ctx->usage_cost >= ctx->turn_cost_limit) {
+	if (ctx->turn_cost_limit > 0 && ctx->usage->cost >= ctx->turn_cost_limit) {
 		ctx->turn_stop = FYAI_TURN_STOP_COST;
 		fyai_turn_run_stop(run,
 			fy_sprintfa("the cost reached its limit of $%.4f",
@@ -2066,7 +2066,7 @@ static int fyai_turn_run_collect_tools(struct fyai_turn_run *run)
 			continue;
 		if (!run->group_parallel && i != run->exclusive_index)
 			continue;
-		if (ctx->tool_diff_tracking &&
+		if (ctx->bstate->tool_diff_tracking &&
 		    fyai_tool_call_file_effect(ctx, tool_call) > effect)
 			effect = fyai_tool_call_file_effect(ctx, tool_call);
 		result = fy_invalid;
@@ -2531,10 +2531,10 @@ void fyai_cleanup(struct fyai_ctx *ctx)
 		free(ctx->link->user_agent);
 		ctx->link->user_agent = NULL;
 	}
-	ctx->branch = NULL;
-	ctx->head_branch = NULL;
-	ctx->session_unstored = NULL;
-	ctx->agent_branch = NULL;
+	ctx->bstate->name = NULL;
+	ctx->bstate->head_branch = NULL;
+	ctx->bstate->session_unstored = NULL;
+	ctx->bstate->agent_branch = NULL;
 	ctx->agent_spawn = fy_invalid;
 	free(ctx->tool_submit_error);
 	ctx->tool_submit_error = NULL;
@@ -2743,6 +2743,8 @@ int fyai_setup(struct fyai_ctx *ctx, struct fyai_app *app)
 	ctx->mcp = &app->mcp;
 	ctx->waitq = &app->waitq;
 	ctx->askq = &app->askq;
+	ctx->bstate = &app->bstate;
+	ctx->usage = &app->usage;
 	ctx->scope = &app->scope;
 	ctx->tty = &app->tty;
 	ctx->skills = &app->skills;
@@ -2771,23 +2773,23 @@ int fyai_setup(struct fyai_ctx *ctx, struct fyai_app *app)
 	ctx->mcp->active_tools = fy_invalid;
 	ctx->toolspec->spec = fy_invalid;
 	ctx->last_message = fy_invalid;
-	ctx->usage_head = fy_invalid;
-	ctx->usage_agents_root = fy_invalid;
-	ctx->arena_config = fy_invalid;
-	ctx->arena_catalog = fy_invalid;
-	ctx->arena_skills = fy_invalid;
+	ctx->usage->head = fy_invalid;
+	ctx->usage->agents_root = fy_invalid;
+	ctx->bstate->config = fy_invalid;
+	ctx->bstate->catalog = fy_invalid;
+	ctx->bstate->skills = fy_invalid;
 	ctx->toolspec->allow = fy_invalid;
 	ctx->output_schema = fy_invalid;
 	ctx->structured_output = fy_invalid;
 	/* A zeroed fy_generic is an empty sequence, not fy_invalid. */
-	ctx->arena_branches = fy_invalid;
-	ctx->branch_prev = fy_invalid;
-	ctx->branch_desc = fy_invalid;
-	ctx->branch_agent = fy_invalid;
+	ctx->bstate->branches = fy_invalid;
+	ctx->bstate->prev = fy_invalid;
+	ctx->bstate->desc = fy_invalid;
+	ctx->bstate->agent = fy_invalid;
 	ctx->agent_spawn = fy_invalid;
-	ctx->branch_store = fy_invalid;
-	ctx->project_state = fy_invalid;
-	ctx->tool_changes = fy_seq_empty;
+	ctx->bstate->store = fy_invalid;
+	ctx->bstate->project_state = fy_invalid;
+	ctx->bstate->tool_changes = fy_seq_empty;
 	ctx->last_token_extents = fy_invalid;
 	ctx->media_pending = fy_seq_empty;
 	if (fyai_signals_open(ctx))
@@ -3417,9 +3419,9 @@ static void fyai_interactive_record_command(struct fyai_ctx *ctx,
 
 	output = fyai_ui_pane_take(ctx);
 	/* A session that holds no exchange yet is not stored for a command. */
-	if (ctx->session_unstored ||
+	if (ctx->bstate->session_unstored ||
 	    ctx->last_message.v != head.v || fy_is_invalid(head) ||
-	    !ctx->branch || !branch || strcmp(ctx->branch, branch))
+	    !ctx->bstate->name || !branch || strcmp(ctx->bstate->name, branch))
 		goto out;
 	gb = fyai_ctx_transient_gb(ctx);
 	fyai_error_check(ctx, gb, out, "could not store the command %s", line);
@@ -3473,7 +3475,7 @@ static int fyai_interactive_handle_slash(struct fyai_ctx *ctx,
 	if (transcript)
 		fyai_echo_user_turn(ctx, line);
 	head = ctx->last_message;
-	branch = ctx->branch;
+	branch = ctx->bstate->name;
 	fyai_ui_pane_status(ctx, status);
 	rc = fyai_session_slash(ctx, line);
 	fyai_ui_pane_status(ctx, false);

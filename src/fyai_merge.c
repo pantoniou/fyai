@@ -276,11 +276,11 @@ int fyai_branch_join(struct fyai_ctx *ctx, const char *source,
 
 	fyai_error_check(ctx, strcmp(source, fyai_ctx_branch(ctx)), out,
 			 "cannot join '%s' with itself", source);
-	found = fyai_branch_lookup(ctx->arena_branches, source, &sb);
+	found = fyai_branch_lookup(ctx->bstate->branches, source, &sb);
 	fyai_error_check(ctx, found, out, "no such branch '%s'", source);
 	fyai_error_check(ctx, fy_is_valid(sb.head), out,
 			 "branch '%s' has no turns to join", source);
-	fyai_branch_lookup(ctx->arena_branches, fyai_ctx_branch(ctx), &ob);
+	fyai_branch_lookup(ctx->bstate->branches, fyai_ctx_branch(ctx), &ob);
 
 	base = fyai_merge_base(ctx, ctx->last_message, sb.head);
 	unrelated = fy_is_invalid(base);

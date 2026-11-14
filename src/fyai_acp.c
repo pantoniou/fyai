@@ -606,7 +606,7 @@ static fy_generic acp_session_list(struct acp_server *server,
 		return fy_invalid;
 	}
 	sessions = fy_seq_empty;
-	fy_foreach_key_value(name, entry, ctx->arena_branches) {
+	fy_foreach_key_value(name, entry, ctx->bstate->branches) {
 		nm = fy_castp(&name, "");
 		if (strncmp(nm, "acp/", 4) ||
 		    !fyai_branch_decode(entry, &b) || !fy_is_string(b.cwd))
@@ -762,7 +762,7 @@ static fy_generic acp_serve(struct jsonrpc_conn *conn, const char *method,
 	}
 	sid = fy_get(params, "sessionId", (const char *)NULL);
 	if (!sid || strncmp(sid, "acp/", 4) ||
-	    !fyai_branch_lookup(ctx->arena_branches, sid, &branch)) {
+	    !fyai_branch_lookup(ctx->bstate->branches, sid, &branch)) {
 		*errorp = acp_error(ctx, -32602, "unknown ACP session");
 		return fy_invalid;
 	}

@@ -16,7 +16,9 @@
 
 #include <curl/curl.h>
 #include "fyai_askq.h"
+#include "fyai_branch_state.h"
 #include "fyai_link.h"
+#include "fyai_usage.h"
 #include "fyai_scope.h"
 #include "fyai_skills.h"
 #include "fyai_tty.h"
@@ -731,18 +733,6 @@ struct fyai_event_source;
 struct fyai_orphan;
 struct fyai_home;
 
-/* Token and cost totals of the usage that some turns carry. */
-struct fyai_usage_sum {
-	long long input;
-	long long cached;
-	long long cache_write;
-	long long output;
-	long long reasoning;
-	long long total;
-	double cost;
-	double cost_est;	/* the part of @cost that is estimated */
-	int calls;
-};
 
 struct fyai_ask_pending;
 struct fyai_skill_dir;
@@ -789,61 +779,14 @@ struct fyai_ctx {
 	long long context_max_tokens;
 	fy_generic tools;
 	fy_generic last_message;
-	fy_generic arena_config;	/* the active branch's config, or fy_invalid */
-	fy_generic arena_catalog;	/* catalogue of the branch, or fy_invalid */
-	/* Skills of the branch, a mapping by name, or fy_invalid. */
-	fy_generic arena_skills;
-	/* Active branch state and its next ref-log predecessor. */
-	const char *branch;
-	/* Stored HEAD, which can differ from the active branch. */
-	const char *head_branch;
-	/*
-	 * The fresh session that no publish stored yet, or NULL. While its
-	 * conversation holds no exchange, a publish on it stores nothing and
-	 * its configuration stays in this context.
-	 */
-	const char *session_unstored;
-	/* Durable branch for a sub-agent conversation. */
-	const char *agent_branch;
-	/* The arena was reopened by fyai_agent_reopen_for_call(). */
-	bool arena_reopened;
+	/* The branch cursor component, owned by struct fyai_app. */
+	struct fyai_branch_state *bstate;
 	/*
 	 * The spawn state an executed sub-agent child received, held in the
 	 * configuration builder: the child serves one call and exits.
 	 */
 	fy_generic agent_spawn;
 	char *tool_submit_error;
-	fy_generic arena_branches;
-	fy_generic branch_prev;
-	fy_generic branch_desc;		/* free-text purpose of this branch */
-	/*
-	 * Label for the next publish on this branch, and the old name when
-	 * that label is a rename. Both are consumed and cleared by the
-	 * publish, so a label cannot leak into a later, unrelated entry.
-	 */
-	const char *branch_op;
-	const char *branch_op_from;
-	fy_generic branch_agent;	/* sub-agent provenance for this branch */
-	/*
-	 * Store that the next publish starts from in place of the store of
-	 * branch_prev, or fy_invalid. The publish consumes it.
-	 */
-	fy_generic branch_store;
-	/* The project state that the next entry records, or fy_invalid. */
-	fy_generic project_state;
-	/*
-	 * The groups of tool calls of this session that changed the project and showed it:
-	 * a sequence of {before, after} project states, the newest last. `undo` takes it back.
-	 */
-	fy_generic tool_changes;
-	/* The private storage of the project states of a run in a view exists. */
-	bool tool_diff_storage;
-	/*
-	 * The turn in flight shows what each group of tool calls changed, so a patch
-	 * does not display its own diff. Set from the start of the turn until it ends,
-	 * and cleared when the project states can no longer be taken.
-	 */
-	bool tool_diff_tracking;
 	/* The components below are owned by struct fyai_app. */
 	struct fyai_scope *scope;
 	struct fyai_tty *tty;
@@ -943,40 +886,8 @@ struct fyai_ctx {
 	/* Set when ask_user needs an answer but none can be obtained
 	 * (non-interactive stdin with no --answer left); aborts the run. */
 	bool ask_abort;
-	/* Accumulated token usage across all model calls in this run. */
-	long long usage_input;
-	long long usage_cached;
-	long long usage_cache_write;
-	long long usage_output;
-	long long usage_reasoning;
-	long long usage_total;
-	double usage_cost;
-	/* The part of usage_cost that is estimated from the catalogue prices. */
-	double usage_cost_est;
-	int usage_calls;
-	/*
-	 * What the sub-agents of the branch used, from their own branches.
-	 * Made again when the branch table or the head changes; @usage_agents_root
-	 * is the branch table that it was made from.
-	 */
-	struct fyai_usage_sum usage_agents;
-	int usage_agent_count;
-	fy_generic usage_agents_root;
-	/* The turn that the counters above total; see fyai_usage_sync(). */
-	fy_generic usage_head;
-	/*
-	 * The cost of a change of model: the next request has no cache on the
-	 * new model. @switch_prefix tokens cost @switch_fresh there, and
-	 * @switch_stay on the model that was left. Pending until a call ends.
-	 */
-	bool switch_pending;
-	long long switch_prefix;
-	double switch_fresh;
-	double switch_stay;
-	/* Last model call's usage (ground truth for context fill). */
-	long long last_call_input;
-	long long last_call_output;
-	long long last_call_total;
+	/* The usage accounting component, owned by struct fyai_app. */
+	struct fyai_usage *usage;
 	/* Token extents collected by the last streamed call (fy_invalid when
 	 * none); consumed when the assistant response is appended to a turn. */
 	fy_generic last_token_extents;

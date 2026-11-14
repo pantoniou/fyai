@@ -310,16 +310,16 @@ int fyai_catalog_commit(struct fyai_ctx *ctx, fy_generic doc,
 	 */
 	effective = fy_is_null(doc) ?
 		fyai_catalog_effective(fy_invalid, ctx->cfg->gb) : doc;
-	new_config = fy_is_valid(ctx->arena_config) ?
-		fyai_config_sync_catalog(ctx->arena->gb, effective, ctx->arena_config) :
+	new_config = fy_is_valid(ctx->bstate->config) ?
+		fyai_config_sync_catalog(ctx->arena->gb, effective, ctx->bstate->config) :
 		fy_invalid;
 	if (fy_is_valid(store))
-		ctx->branch_store = store;
+		ctx->bstate->store = store;
 	/* A null catalogue removes the member; the branch uses the embedded one. */
 	if (fyai_publish_root(ctx, new_config, doc, fy_invalid))
 		return -1;
-	if (fy_is_null(ctx->arena_catalog))
-		ctx->arena_catalog = fy_invalid;
+	if (fy_is_null(ctx->bstate->catalog))
+		ctx->bstate->catalog = fy_invalid;
 	return fyai_config_adopt_catalog(ctx);
 }
 
@@ -494,7 +494,7 @@ static fy_generic catalog_path_put(struct fy_generic_builder *gb,
 
 static fy_generic catalog_current(struct fyai_ctx *ctx)
 {
-	return fyai_catalog_effective(ctx->arena_catalog, ctx->cfg->gb);
+	return fyai_catalog_effective(ctx->bstate->catalog, ctx->cfg->gb);
 }
 
 fy_generic fyai_catalog_doc_at(fy_generic doc, const char *path)
@@ -646,7 +646,7 @@ int fyai_catalog_delete(struct fyai_ctx *ctx, const char *path)
 int fyai_catalog_validate(struct fyai_ctx *ctx)
 {
 	if (catalog_check(ctx, catalog_current(ctx),
-			  fy_is_valid(ctx->arena_catalog) ?
+			  fy_is_valid(ctx->bstate->catalog) ?
 			  "the catalogue of the branch" :
 			  "the embedded catalogue"))
 		return -1;
@@ -655,7 +655,7 @@ int fyai_catalog_validate(struct fyai_ctx *ctx)
 
 int fyai_catalog_reset(struct fyai_ctx *ctx)
 {
-	if (fy_is_invalid(ctx->arena_catalog))
+	if (fy_is_invalid(ctx->bstate->catalog))
 		return 0;
 	return fyai_catalog_commit(ctx, fy_null, "the embedded catalogue",
 			   fy_invalid);
@@ -1023,7 +1023,7 @@ int fyai_catalog_export(struct fyai_ctx *ctx, const char *path)
 	fy_generic cat, emitted;
 	const char *text;
 
-	cat = fyai_catalog_effective(ctx->arena_catalog, ctx->cfg->gb);
+	cat = fyai_catalog_effective(ctx->bstate->catalog, ctx->cfg->gb);
 	if (fy_is_invalid(cat)) {
 		fyai_error(ctx, "none available");
 		return -1;
@@ -1042,9 +1042,9 @@ int fyai_catalog_export(struct fyai_ctx *ctx, const char *path)
 
 int fyai_catalog_document(struct fyai_ctx *ctx, fy_generic *catp)
 {
-	*catp = fyai_catalog_effective(ctx->arena_catalog, ctx->cfg->gb);
+	*catp = fyai_catalog_effective(ctx->bstate->catalog, ctx->cfg->gb);
 	fyai_error_check(ctx, fy_is_valid(*catp), err, "none available");
-	if (fy_is_invalid(ctx->arena_catalog))
+	if (fy_is_invalid(ctx->bstate->catalog))
 		fyai_report(ctx, "# embedded snapshot (no catalog on this "
 			    "branch)\n");
 	return 0;
@@ -1219,7 +1219,7 @@ char *fyai_catalog_tools_markdown(struct fyai_ctx *ctx, const char *agent_name,
 	FILE *mf;
 	bool found;
 
-	cat = fyai_catalog_effective(ctx->arena_catalog, ctx->cfg->gb);
+	cat = fyai_catalog_effective(ctx->bstate->catalog, ctx->cfg->gb);
 	fyai_error_check(ctx, fy_is_valid(cat), err, "none available");
 	md = NULL;
 	mdlen = 0;
@@ -1315,7 +1315,7 @@ fy_generic fyai_catalog_list_data(struct fyai_ctx *ctx,
 	fy_generic cat, rows, m, p, e, protocols, keyed, v;
 	const char *name, *key;
 
-	cat = fyai_catalog_effective(ctx->arena_catalog, ctx->cfg->gb);
+	cat = fyai_catalog_effective(ctx->bstate->catalog, ctx->cfg->gb);
 	fyai_error_check(ctx, fy_is_valid(cat), err, "none available");
 	rows = fy_seq_empty;
 	if (!strcmp(what, "providers")) {

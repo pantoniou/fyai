@@ -101,7 +101,7 @@ int fyai_cmd_branch_switch(struct fyai_cmd_call *call, fy_generic *result)
 	bool found;
 	int rc;
 
-	found = fyai_branch_lookup(call->ctx->arena_branches, name, &b);
+	found = fyai_branch_lookup(call->ctx->bstate->branches, name, &b);
 	rc = fyai_session_branch_switch(call->ctx, name, true, false);
 	fyai_error_check(call->ctx, !rc, err, "branch: could not switch to "
 			 "'%s'", name);
@@ -169,7 +169,7 @@ static int checkout_session(struct fyai_cmd_call *call, const char *target,
 			*branchp = !strcmp(target, "HEAD") ?
 				   fyai_ctx_head_branch(ctx) : target;
 		} else {
-			rc = fyai_branch_session_name(ctx->arena_branches, name,
+			rc = fyai_branch_session_name(ctx->bstate->branches, name,
 						      sizeof(name));
 			fyai_error_check(ctx, !rc, err,
 					 "checkout: could not name a new "
@@ -205,7 +205,7 @@ int fyai_cmd_checkout(struct fyai_cmd_call *call, fy_generic *result)
 				     &created))
 			return -1;
 	} else {
-		if (create && !fyai_branch_lookup(call->ctx->arena_branches,
+		if (create && !fyai_branch_lookup(call->ctx->bstate->branches,
 						  target, &b))
 			created = target;
 		if (fyai_branch_checkout(call->ctx, target, create, start))
@@ -230,13 +230,13 @@ int fyai_cmd_model(struct fyai_cmd_call *call, fy_generic *result)
 	if (name && fyai_session_model(ctx, name,
 				       call->surface == FYAI_CMD_SESSION))
 		return -1;
-	if (name && ctx->switch_pending) {
-		delta = ctx->switch_fresh - ctx->switch_stay;
+	if (name && ctx->usage->switch_pending) {
+		delta = ctx->usage->switch_fresh - ctx->usage->switch_stay;
 		note = fy_stringf(call->gb, "%lld tokens go to %s with no cache: "
 				  "~$%.4f, against ~$%.4f read from the cache "
-				  "of %s (%s~$%.4f)", ctx->switch_prefix,
-				  cfg->model, ctx->switch_fresh,
-				  ctx->switch_stay, old, delta < 0.0 ? "-" : "+",
+				  "of %s (%s~$%.4f)", ctx->usage->switch_prefix,
+				  cfg->model, ctx->usage->switch_fresh,
+				  ctx->usage->switch_stay, old, delta < 0.0 ? "-" : "+",
 				  delta < 0.0 ? -delta : delta);
 	}
 	window = fyai_context_window(ctx);

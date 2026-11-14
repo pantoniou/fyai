@@ -1589,8 +1589,8 @@ int fyai_config_set(struct fyai_ctx *ctx, const char *key, const char *value)
 		fyai_error(ctx, "cannot parse value '%s'", value);
 		return -1;
 	}
-	root = fy_is_valid(ctx->arena_config) ?
-	       ctx->arena_config : fy_map_empty;
+	root = fy_is_valid(ctx->bstate->config) ?
+	       ctx->bstate->config : fy_map_empty;
 	root = fy_set_at_pathstr(gb, root, key, v);
 	if (fy_is_invalid(root)) {
 		fyai_error(ctx, "set failed");
@@ -1668,8 +1668,8 @@ int fyai_apply_config_ops(struct fyai_ctx *ctx)
 			fyai_error(ctx, "--set/--get/--delete need an arena; run fyai init");
 		return -1;
 	}
-	root = fy_is_valid(ctx->arena_config) ?
-	       ctx->arena_config : fy_map_empty;
+	root = fy_is_valid(ctx->bstate->config) ?
+	       ctx->bstate->config : fy_map_empty;
 	dirty = false;
 	for (i = 0; i < cfg->config_op_count; i++) {
 		co = &cfg->config_ops[i];
@@ -2234,11 +2234,11 @@ int fyai_config_delete(struct fyai_ctx *ctx, const char *key)
 		fyai_error(ctx, "no arena; run fyai init");
 		return -1;
 	}
-	if (fy_is_invalid(ctx->arena_config)) {
+	if (fy_is_invalid(ctx->bstate->config)) {
 		fyai_error(ctx, "no config in arena");
 		return -1;
 	}
-	root = fy_delete_at_pathstr(gb, ctx->arena_config, key);
+	root = fy_delete_at_pathstr(gb, ctx->bstate->config, key);
 	if (fy_is_invalid(root)) {
 		fyai_error(ctx, "delete failed");
 		return -1;
@@ -2312,7 +2312,7 @@ int fyai_config_undo(struct fyai_ctx *ctx, long long n, long long *foundp)
 		fyai_error(ctx, "config undo: the count must be 1 or more");
 		return -1;
 	}
-	if (!fyai_branch_lookup(ctx->arena_branches, name, &b)) {
+	if (!fyai_branch_lookup(ctx->bstate->branches, name, &b)) {
 		fyai_error(ctx, "config undo: no branch '%s'", name);
 		return -1;
 	}
@@ -2354,17 +2354,17 @@ int fyai_config_export(struct fyai_ctx *ctx, const char *path)
 	fy_generic emitted;
 	const char *text;
 
-	if (fy_is_invalid(ctx->arena_config)) {
+	if (fy_is_invalid(ctx->bstate->config)) {
 		fyai_error(ctx, "no config in arena");
 		return -1;
 	}
 	if (!path) {
-		emitted = fy_emit(ctx->arena_config,
+		emitted = fy_emit(ctx->bstate->config,
 			  FYAI_YAML_EMIT_FLAGS | FYOPEF_OUTPUT_TYPE_STDOUT,
 			  NULL);
 		return fy_is_invalid(emitted) ? -1 : 0;
 	}
-	emitted = config_emit_yaml(ctx->arena->gb, ctx->arena_config);
+	emitted = config_emit_yaml(ctx->arena->gb, ctx->bstate->config);
 	if (fy_is_invalid(emitted))
 		return -1;
 	text = fy_castp(&emitted, "");
@@ -2504,8 +2504,8 @@ config_edit_open(struct fyai_ctx *ctx, bool catalog)
 
 	text = catalog ? "# fyai catalogue\n" : "# fyai configuration\n";
 	emitted = fy_invalid;
-	doc = catalog ? fyai_catalog_effective(ctx->arena_catalog, ctx->cfg->gb) :
-			ctx->arena_config;
+	doc = catalog ? fyai_catalog_effective(ctx->bstate->catalog, ctx->cfg->gb) :
+			ctx->bstate->config;
 	if (fy_is_valid(doc)) {
 		emitted = config_emit_yaml(ctx->arena->gb, doc);
 		fyai_error_check(ctx, fy_is_valid(emitted), err_fd,
@@ -2774,8 +2774,8 @@ int fyai_config_rederive(struct fyai_ctx *ctx)
 		return -1;
 	/* Arena changes replace the document after an in-session mutation;
 	 * the session layer stays on top. */
-	doc = fy_is_valid(ctx->arena_config) ?
-		ctx->arena_config : cfg->config_doc;
+	doc = fy_is_valid(ctx->bstate->config) ?
+		ctx->bstate->config : cfg->config_doc;
 	doc = config_merge(cfg->gb, doc, cfg->config_session);
 	return config_rederive_doc(ctx, doc, true);
 }
@@ -3029,7 +3029,7 @@ static int config_session_layer_check(struct fyai_ctx *ctx, fy_generic layer,
 	struct fyai_cfg *cfg = ctx->cfg;
 	fy_generic base, doc, report;
 
-	base = fy_is_valid(ctx->arena_config) ? ctx->arena_config :
+	base = fy_is_valid(ctx->bstate->config) ? ctx->bstate->config :
 	       cfg->config_doc;
 	doc = config_merge(cfg->gb, base, layer);
 	report = fyai_config_validate_report(cfg, doc, origin);
@@ -3070,17 +3070,17 @@ int fyai_config_adopt_catalog(struct fyai_ctx *ctx)
 	struct fyai_cfg *cfg = ctx->cfg;
 	fy_generic catalog;
 
-	if (!cfg || !cfg->gb || ctx->arena_catalog.v == cfg->catalog_src)
+	if (!cfg || !cfg->gb || ctx->bstate->catalog.v == cfg->catalog_src)
 		return 0;
 	catalog = fy_invalid;
-	if (fy_is_valid(ctx->arena_catalog)) {
-		catalog = fy_gb_internalize(cfg->gb, ctx->arena_catalog);
+	if (fy_is_valid(ctx->bstate->catalog)) {
+		catalog = fy_gb_internalize(cfg->gb, ctx->bstate->catalog);
 		fyai_error_check(ctx, fy_is_valid(catalog), err_out,
 				 "could not copy the catalogue of branch '%s'",
 				 fyai_ctx_branch(ctx));
 	}
 	cfg->catalog = catalog;
-	cfg->catalog_src = ctx->arena_catalog.v;
+	cfg->catalog_src = ctx->bstate->catalog.v;
 	return 0;
 
 err_out:
@@ -3092,13 +3092,13 @@ int fyai_config_adopt_arena(struct fyai_ctx *ctx)
 	struct fyai_cfg *cfg = ctx->cfg;
 	fy_generic doc, key;
 
-	if (!cfg || !cfg->gb || !fy_is_valid(ctx->arena_config))
+	if (!cfg || !cfg->gb || !fy_is_valid(ctx->bstate->config))
 		return -1;
 	if (fyai_config_adopt_catalog(ctx))
 		return -1;
 	/* The prepared document contains --config and --set as higher layers,
 	 * and the session layer is above them. */
-	doc = config_merge(cfg->gb, ctx->arena_config, cfg->config_doc);
+	doc = config_merge(cfg->gb, ctx->bstate->config, cfg->config_doc);
 	doc = config_merge(cfg->gb, doc, cfg->config_session);
 	/* A run that does not read the model derives it when it changes the
 	 * configuration, at its commit. */

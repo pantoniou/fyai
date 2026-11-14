@@ -976,7 +976,7 @@ static bool foreign_codex_tool_known(struct foreign_build *build,
 {
 	fy_generic catalog, agents, agent, tools;
 
-	catalog = fyai_catalog_effective(build->ctx->arena_catalog,
+	catalog = fyai_catalog_effective(build->ctx->bstate->catalog,
 					 build->ctx->cfg->gb);
 	agents = fy_get(catalog, "agents", fy_invalid);
 	fy_foreach(agent, agents) {
@@ -1486,7 +1486,7 @@ static int foreign_import_build(struct fyai_ctx *ctx, const char *path,
 		}
 		destination = branch;
 	}
-	if (fyai_branch_lookup(ctx->arena_branches, destination, &existing)) {
+	if (fyai_branch_lookup(ctx->bstate->branches, destination, &existing)) {
 		existing_source = fy_get(existing.import, "source", fy_invalid);
 		existing_id = fy_get(existing.import, "session_id", fy_invalid);
 		if (fy_equal(existing_source, source_name) && fy_equal(existing_id, id)) {

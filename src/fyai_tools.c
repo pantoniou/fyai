@@ -2382,7 +2382,7 @@ static void fyai_ctx_turn_reset(struct fyai_ctx *ctx)
 	ctx->turn_cost_limit = 0;
 	ctx->compacting = false;
 	fyai_loop_reset_interrupt(ctx->loop);
-	ctx->tool_diff_tracking = false;
+	ctx->bstate->tool_diff_tracking = false;
 	ctx->tool_gate = NULL;
 	ctx->tool_gate_data = NULL;
 	ctx->tool_gate_run = NULL;
@@ -2399,12 +2399,12 @@ static void fyai_ctx_turn_reset(struct fyai_ctx *ctx)
  */
 static void fyai_ctx_usage_reset(struct fyai_ctx *ctx)
 {
-	ctx->usage_input = ctx->usage_cached = ctx->usage_cache_write = 0;
-	ctx->usage_output = ctx->usage_reasoning = ctx->usage_total = 0;
-	ctx->usage_cost = ctx->usage_cost_est = 0;
-	ctx->usage_calls = 0;
-	ctx->switch_pending = false;
-	ctx->last_call_input = ctx->last_call_output = ctx->last_call_total = 0;
+	ctx->usage->input = ctx->usage->cached = ctx->usage->cache_write = 0;
+	ctx->usage->output = ctx->usage->reasoning = ctx->usage->total = 0;
+	ctx->usage->cost = ctx->usage->cost_est = 0;
+	ctx->usage->calls = 0;
+	ctx->usage->switch_pending = false;
+	ctx->usage->last_call_input = ctx->usage->last_call_output = ctx->usage->last_call_total = 0;
 	ctx->last_token_extents = fy_invalid;
 }
 
@@ -2510,9 +2510,9 @@ static fy_generic fyai_list_agents(struct fyai_ctx *ctx, struct fy_generic_build
 						     fy_invalid))));
 	}
 	/* The branch table is what the ended ones left. */
-	if (fyai_branches_refresh(ctx) || !fy_is_mapping(ctx->arena_branches))
+	if (fyai_branches_refresh(ctx) || !fy_is_mapping(ctx->bstate->branches))
 		return rows;
-	fy_foreach_key_value(branch, entry, ctx->arena_branches) {
+	fy_foreach_key_value(branch, entry, ctx->bstate->branches) {
 		nm = fy_castp(&branch, "");
 		if (strncmp(nm, prefix, len) || !nm[len] || strchr(nm + len, '/') ||
 		    !strncmp(nm + len, "btw-", 4) || fyai_agent_job_named(ctx, nm))

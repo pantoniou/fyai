@@ -553,14 +553,14 @@ static int fyai_import_publish(struct fyai_import *im,
 				 "import: the branch store is not a mapping");
 		config = s.config;
 		if (fy_is_valid(s.catalog)) {
-			ctx->arena_catalog = s.catalog;
+			ctx->bstate->catalog = s.catalog;
 			im->catalog_seen = true;
 		} else if (im->catalog_seen) {
-			ctx->arena_catalog = fy_invalid;
+			ctx->bstate->catalog = fy_invalid;
 		}
-		ctx->arena_skills = s.skills;
-		ctx->branch_desc = s.description;
-		ctx->branch_store = pu->store;
+		ctx->bstate->skills = s.skills;
+		ctx->bstate->desc = s.description;
+		ctx->bstate->store = pu->store;
 	}
 	return fyai_publish_root(ctx, config, fy_invalid, head);
 err:

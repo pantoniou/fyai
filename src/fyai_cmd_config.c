@@ -46,7 +46,7 @@
 
 static int config_need_arena(struct fyai_cmd_call *call)
 {
-	fyai_error_check(call->ctx, fy_is_valid(call->ctx->arena_config), err,
+	fyai_error_check(call->ctx, fy_is_valid(call->ctx->bstate->config), err,
 			 "no config in arena; run fyai init or fyai config "
 			 "import");
 	return 0;
@@ -86,7 +86,7 @@ int fyai_cmd_config_show(struct fyai_cmd_call *call, fy_generic *result)
 {
 	if (config_need_arena(call))
 		return -1;
-	*result = call->ctx->arena_config;
+	*result = call->ctx->bstate->config;
 	return 0;
 }
 
@@ -110,7 +110,7 @@ int fyai_cmd_config_get(struct fyai_cmd_call *call, fy_generic *result)
 
 	if (config_need_arena(call))
 		return -1;
-	v = fy_get_at_pathstr(call->gb, call->ctx->arena_config, key);
+	v = fy_get_at_pathstr(call->gb, call->ctx->bstate->config, key);
 	fyai_error_check(call->ctx, fy_is_valid(v), err, "key '%s' not set",
 			 key);
 	*result = v;
@@ -369,7 +369,7 @@ int fyai_cmd_config_validate(struct fyai_cmd_call *call, fy_generic *result)
 {
 	struct fyai_ctx *ctx = call->ctx;
 
-	if (fyai_config_validate_schema(ctx->cfg, ctx->arena_config, "config"))
+	if (fyai_config_validate_schema(ctx->cfg, ctx->bstate->config, "config"))
 		return -1;
 	*result = fy_mapping(call->gb, "valid", true);
 	return 0;

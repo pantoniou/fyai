@@ -477,8 +477,8 @@ int fyai_view_gc(struct fyai_ctx *ctx, unsigned int grace, struct fyai_view_gc_s
 
 	memset(stats, 0, sizeof(*stats));
 	gc.cutoff = time(NULL) - (time_t)grace;
-	if (fy_is_mapping(ctx->arena_branches)) {
-		fy_foreach_key_value(key, entry, ctx->arena_branches) {
+	if (fy_is_mapping(ctx->bstate->branches)) {
+		fy_foreach_key_value(key, entry, ctx->bstate->branches) {
 			rc = gc_collect_branch(&gc, entry);
 			if (rc)
 				break;

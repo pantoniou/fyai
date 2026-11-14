@@ -22,15 +22,15 @@
 
 void fyai_ctx_branch_prev_set(struct fyai_ctx *ctx, fy_generic entry)
 {
-	ctx->branch_prev = entry;
+	ctx->bstate->prev = entry;
 	fyai_todo_model_update(ctx);
 	fyai_session_head_set(ctx, entry);
 }
 
 const char *fyai_ctx_branch(const struct fyai_ctx *ctx)
 {
-	if (ctx->branch && *ctx->branch)
-		return ctx->branch;
+	if (ctx->bstate->name && *ctx->bstate->name)
+		return ctx->bstate->name;
 	if (ctx->cfg && ctx->cfg->branch && *ctx->cfg->branch)
 		return ctx->cfg->branch;
 	return FYAI_BRANCH_DEFAULT;
@@ -38,8 +38,8 @@ const char *fyai_ctx_branch(const struct fyai_ctx *ctx)
 
 const char *fyai_ctx_head_branch(const struct fyai_ctx *ctx)
 {
-	if (ctx->head_branch && *ctx->head_branch)
-		return ctx->head_branch;
+	if (ctx->bstate->head_branch && *ctx->bstate->head_branch)
+		return ctx->bstate->head_branch;
 	return fyai_ctx_branch(ctx);
 }
 
@@ -47,8 +47,8 @@ int fyai_ctx_checkout(struct fyai_ctx *ctx, const char *name)
 {
 	if (fyai_ctx_set_branch(ctx, name))
 		return -1;
-	ctx->head_branch = fyai_ctx_keep_str(ctx, name);
-	return ctx->head_branch ? 0 : -1;
+	ctx->bstate->head_branch = fyai_ctx_keep_str(ctx, name);
+	return ctx->bstate->head_branch ? 0 : -1;
 }
 
 int fyai_cfg_set_branch(struct fyai_cfg *cfg, const char *name)
@@ -115,14 +115,14 @@ int fyai_ctx_set_branch(struct fyai_ctx *ctx, const char *name)
 	kept = fyai_ctx_keep_str(ctx, name);
 	if (!kept)
 		return -1;
-	ctx->branch = kept;
+	ctx->bstate->name = kept;
 	return 0;
 }
 
 void fyai_branch_op_set(struct fyai_ctx *ctx, const char *op, const char *from)
 {
-	ctx->branch_op = op;
-	ctx->branch_op_from = from;
+	ctx->bstate->op = op;
+	ctx->bstate->op_from = from;
 }
 
 uint64_t fyai_branch_timestamp(void)
@@ -307,7 +307,7 @@ int fyai_branch_alloc_child(struct fyai_ctx *ctx, const char *parent,
 	fyai_error_check(ctx, len >= 0 && len < (int)size, err_out,
 			 "sub-agent branch name too long below '%s'", parent);
 
-	taken = fyai_branch_lookup(ctx->arena_branches, buf, &b);
+	taken = fyai_branch_lookup(ctx->bstate->branches, buf, &b);
 	if (existsp) {
 		*existsp = taken;
 		return 0;
@@ -993,7 +993,7 @@ int fyai_resolve_ref_state(struct fyai_ctx *ctx, const char *spec,
 	fyai_error_check(ctx, fyai_branch_name_ref_valid(name), err_out,
 			 "invalid branch name '%s'", name);
 
-	found = fyai_branch_lookup(ctx->arena_branches, name, &b);
+	found = fyai_branch_lookup(ctx->bstate->branches, name, &b);
 	if (!found) {
 		/*
 		 * A bare hex string that names no branch is almost certainly
@@ -1070,7 +1070,7 @@ int fyai_resolve_ref_entry(struct fyai_ctx *ctx, const char *spec,
 	       fy_sprintfa("%s", fyai_ctx_branch(ctx)) : parsed;
 	fyai_error_check(ctx, fyai_branch_name_ref_valid(name), err_out,
 			 "invalid branch name '%s'", name);
-	found = fyai_branch_lookup(ctx->arena_branches, name, &b);
+	found = fyai_branch_lookup(ctx->bstate->branches, name, &b);
 	fyai_error_check(ctx, found, err_out, "no such branch '%s'", name);
 	for (i = 0; kind == '@' && i < n; i++) {
 		/* A stored link is data: check it before following it. */
@@ -1098,10 +1098,10 @@ fy_generic fyai_branch_list_data(struct fyai_ctx *ctx,
 
 	out = fy_seq_empty;
 	active = fyai_ctx_branch(ctx);
-	if (!fy_is_mapping(ctx->arena_branches))
+	if (!fy_is_mapping(ctx->bstate->branches))
 		return out;
 
-	fy_foreach_key_value(name, entry, ctx->arena_branches) {
+	fy_foreach_key_value(name, entry, ctx->bstate->branches) {
 		/* Short strings require the address of the stored generic. */
 		nm = fy_castp(&name, "");
 		if (fy_str_empty(nm))
@@ -1162,7 +1162,7 @@ int fyai_branch_show_data(struct fyai_ctx *ctx, struct fy_generic_builder *gb,
 
 	if (!name)
 		name = fyai_ctx_branch(ctx);
-	if (!fyai_branch_lookup(ctx->arena_branches, name, &b)) {
+	if (!fyai_branch_lookup(ctx->bstate->branches, name, &b)) {
 		fyai_error(ctx, "no such branch '%s'", name);
 		return -1;
 	}
@@ -1212,7 +1212,7 @@ static int branches_publish(struct fyai_ctx *ctx, fy_generic branches)
 		fyai_error(ctx, "cannot build the branch table");
 		return -1;
 	}
-	base = ctx->arena_branches;
+	base = ctx->bstate->branches;
 	return fyai_publish_branches(ctx, base, branches);
 }
 
@@ -1235,7 +1235,7 @@ int fyai_branch_create(struct fyai_ctx *ctx, const char *name,
 
 	fyai_error_check(ctx, fyai_branch_name_valid(name), err_out,
 			 "invalid branch name '%s'", name ? name : "");
-	found = fyai_branch_lookup(ctx->arena_branches, name, &b);
+	found = fyai_branch_lookup(ctx->bstate->branches, name, &b);
 	fyai_error_check(ctx, !found, err_out,
 			 "branch '%s' already exists", name);
 
@@ -1252,21 +1252,21 @@ int fyai_branch_create(struct fyai_ctx *ctx, const char *name,
 		fyai_error_check(ctx, !rc, err_out,
 				 "could not resolve start point '%s'", start);
 		fyai_branch_decode_store(store, &nb);
-	} else if (fyai_branch_lookup(ctx->arena_branches,
+	} else if (fyai_branch_lookup(ctx->bstate->branches,
 				      fyai_ctx_branch(ctx), &cur)) {
 		head = cur.head;
 		fyai_branch_decode_store(cur.store, &nb);
 	} else {
 		/* A session not stored yet starts the branch from its context. */
-		found = ctx->session_unstored &&
-			!strcmp(ctx->session_unstored, fyai_ctx_branch(ctx));
+		found = ctx->bstate->session_unstored &&
+			!strcmp(ctx->bstate->session_unstored, fyai_ctx_branch(ctx));
 		fyai_error_check(ctx, found, err_out,
 				 "current branch '%s' is missing",
 				 fyai_ctx_branch(ctx));
 		head = ctx->last_message;
-		nb.config = ctx->arena_config;
-		nb.catalog = ctx->arena_catalog;
-		nb.skills = ctx->arena_skills;
+		nb.config = ctx->bstate->config;
+		nb.catalog = ctx->bstate->catalog;
+		nb.skills = ctx->bstate->skills;
 	}
 
 	desc = description ? fy_value(ctx->arena->gb, description) : fy_invalid;
@@ -1283,7 +1283,7 @@ int fyai_branch_create(struct fyai_ctx *ctx, const char *name,
 	nb.from = fy_invalid;
 	nb.prev = fy_invalid;
 	entry = fyai_branch_build(ctx->arena->gb, &nb);
-	branches = fyai_branches_set(ctx->arena->gb, ctx->arena_branches, name, entry);
+	branches = fyai_branches_set(ctx->arena->gb, ctx->bstate->branches, name, entry);
 	rc = branches_publish(ctx, branches);
 	fyai_error_check(ctx, !rc, err_out,
 			 "could not publish branch '%s'", name);
@@ -1308,7 +1308,7 @@ int fyai_branch_import(struct fyai_ctx *ctx, const char *name, fy_generic head,
 	valid = fyai_branch_name_valid(name);
 	fyai_error_check(ctx, valid, err_out,
 			 "invalid import branch name '%s'", name ? name : "");
-	found = fyai_branch_lookup(ctx->arena_branches, name, &existing);
+	found = fyai_branch_lookup(ctx->bstate->branches, name, &existing);
 	fyai_error_check(ctx, !found,
 			 err_out, "import branch '%s' already exists", name);
 
@@ -1322,8 +1322,8 @@ int fyai_branch_import(struct fyai_ctx *ctx, const char *name, fy_generic head,
 
 	now = fy_value(ctx->arena->gb, (long long)fyai_branch_timestamp());
 	fyai_branch_decode(fy_invalid, &nb);
-	nb.config = ctx->arena_config;
-	nb.catalog = ctx->arena_catalog;
+	nb.config = ctx->bstate->config;
+	nb.catalog = ctx->bstate->catalog;
 	nb.head = head;
 	nb.created = now;
 	nb.updated = now;
@@ -1338,10 +1338,10 @@ int fyai_branch_import(struct fyai_ctx *ctx, const char *name, fy_generic head,
 	entry = fyai_branch_build(ctx->arena->gb, &nb);
 	fyai_error_check(ctx, fy_is_valid(entry), err_out,
 			 "cannot build imported branch '%s'", name);
-	branches = fyai_branches_set(ctx->arena->gb, ctx->arena_branches, name, entry);
+	branches = fyai_branches_set(ctx->arena->gb, ctx->bstate->branches, name, entry);
 	fyai_error_check(ctx, fy_is_valid(branches), err_out,
 			 "cannot place imported branch '%s'", name);
-	rc = fyai_publish_branches(ctx, ctx->arena_branches, branches);
+	rc = fyai_publish_branches(ctx, ctx->bstate->branches, branches);
 	fyai_error_check(ctx, !rc, err_out,
 			 "cannot publish imported branch '%s'", name);
 	fyai_result(ctx, "imported foreign session as branch %s\n", name);
@@ -1362,7 +1362,7 @@ int fyai_branch_delete(struct fyai_ctx *ctx, const char *name, bool force)
 
 	fyai_error_check(ctx, strcmp(name, fyai_ctx_branch(ctx)), err_out,
 			 "cannot delete the current branch '%s'", name);
-	found = fyai_branch_lookup(ctx->arena_branches, name, &b);
+	found = fyai_branch_lookup(ctx->bstate->branches, name, &b);
 	fyai_error_check(ctx, found, err_out, "no such branch '%s'", name);
 	fyai_error_check(ctx, force || fy_is_invalid(b.head), err_out,
 			 "branch '%s' has turns; use --force to delete it",
@@ -1370,7 +1370,7 @@ int fyai_branch_delete(struct fyai_ctx *ctx, const char *name, bool force)
 
 	/* Children move to the deleted branch's parent, or to the empty root. */
 	plen = branch_parent_len(name);
-	fy_foreach(nm, ctx->arena_branches) {
+	fy_foreach(nm, ctx->bstate->branches) {
 		if (fy_str_empty(nm) || !strcmp(nm, name) ||
 		    !fyai_branch_is_below(nm, name))
 			continue;
@@ -1378,14 +1378,14 @@ int fyai_branch_delete(struct fyai_ctx *ctx, const char *name, bool force)
 			  fy_sprintfa("%.*s%s", (int)plen, name,
 				      nm + strlen(name)) :
 			  fy_sprintfa("%s", nm + strlen(name) + 1);
-		found = fyai_branch_lookup(ctx->arena_branches, newname, &b);
+		found = fyai_branch_lookup(ctx->bstate->branches, newname, &b);
 		fyai_error_check(ctx, !found, err_out,
 				 "cannot reparent '%s': branch '%s' exists",
 				 nm, newname);
 	}
 
-	branches = ctx->arena_branches;
-	fy_foreach_key_value(nm, entry, ctx->arena_branches) {
+	branches = ctx->bstate->branches;
+	fy_foreach_key_value(nm, entry, ctx->bstate->branches) {
 		if (fy_str_empty(nm) || !fyai_branch_is_below(nm, name))
 			continue;
 		branches = fyai_branches_set(ctx->arena->gb, branches, nm, fy_invalid);
@@ -1412,9 +1412,9 @@ int fyai_branch_delete(struct fyai_ctx *ctx, const char *name, bool force)
 			fyai_error_check(ctx, !rc, err_out,
 					 "could not reparent current branch");
 		}
-		if (ctx->head_branch && !strcmp(nm, ctx->head_branch)) {
-			ctx->head_branch = fyai_ctx_keep_str(ctx, newname);
-			fyai_error_check(ctx, ctx->head_branch, err_out,
+		if (ctx->bstate->head_branch && !strcmp(nm, ctx->bstate->head_branch)) {
+			ctx->bstate->head_branch = fyai_ctx_keep_str(ctx, newname);
+			fyai_error_check(ctx, ctx->bstate->head_branch, err_out,
 					 "could not reparent HEAD");
 		}
 	}
@@ -1438,16 +1438,16 @@ int fyai_branch_rename(struct fyai_ctx *ctx, const char *from, const char *to)
 	bool found, renamed_current;
 	int rc;
 
-	found = fyai_branch_lookup(ctx->arena_branches, from, &b);
+	found = fyai_branch_lookup(ctx->bstate->branches, from, &b);
 	fyai_error_check(ctx, found, err_out, "no such branch '%s'", from);
 	fyai_error_check(ctx, fyai_branch_name_valid(to), err_out,
 			 "invalid branch name '%s'", to);
-	found = fyai_branch_lookup(ctx->arena_branches, to, &b);
+	found = fyai_branch_lookup(ctx->bstate->branches, to, &b);
 	fyai_error_check(ctx, !found, err_out,
 			 "branch '%s' already exists", to);
 
 	/* Check every renamed child before changing the mapping. */
-	fy_foreach(nm, ctx->arena_branches) {
+	fy_foreach(nm, ctx->bstate->branches) {
 		if (fy_str_empty(nm) || !fyai_branch_is_below(nm, from))
 			continue;
 		if (snprintf(newname, sizeof(newname), "%s%s", to,
@@ -1455,14 +1455,14 @@ int fyai_branch_rename(struct fyai_ctx *ctx, const char *from, const char *to)
 			fyai_error_check(ctx, false, err_out,
 					 "renamed branch name too long");
 		}
-		found = fyai_branch_lookup(ctx->arena_branches, newname, &b);
+		found = fyai_branch_lookup(ctx->bstate->branches, newname, &b);
 		fyai_error_check(ctx, !found, err_out,
 				 "branch '%s' already exists", newname);
 	}
 
-	branches = ctx->arena_branches;
+	branches = ctx->bstate->branches;
 	renamed_current = false;
-	fy_foreach_key_value(nm, entry, ctx->arena_branches) {
+	fy_foreach_key_value(nm, entry, ctx->bstate->branches) {
 		if (fy_str_empty(nm) || !fyai_branch_is_below(nm, from))
 			continue;
 		snprintf(newname, sizeof(newname), "%s%s", to,
@@ -1490,9 +1490,9 @@ int fyai_branch_rename(struct fyai_ctx *ctx, const char *from, const char *to)
 			fyai_error_check(ctx, !rc, err_out,
 					 "could not rename current branch");
 		}
-		if (ctx->head_branch && !strcmp(nm, ctx->head_branch)) {
-			ctx->head_branch = fyai_ctx_keep_str(ctx, newname);
-			fyai_error_check(ctx, ctx->head_branch, err_out,
+		if (ctx->bstate->head_branch && !strcmp(nm, ctx->bstate->head_branch)) {
+			ctx->bstate->head_branch = fyai_ctx_keep_str(ctx, newname);
+			fyai_error_check(ctx, ctx->bstate->head_branch, err_out,
 					 "could not rename HEAD");
 		}
 	}
@@ -1522,7 +1522,7 @@ int fyai_branch_adopt(struct fyai_ctx *ctx, const char *name, bool keep_head)
 
 	fyai_error_check(ctx, fyai_branch_name_ref_valid(name), err_out,
 			 "invalid branch name '%s'", name ? name : "");
-	rc = fyai_branch_lookup(ctx->arena_branches, name, &b);
+	rc = fyai_branch_lookup(ctx->bstate->branches, name, &b);
 	fyai_error_check(ctx, rc, err_out, "no such branch '%s'", name);
 	/* Resuming a session selects it for this invocation, as --branch does.
 	 * Only a checkout moves the branch the next invocation starts on. */
@@ -1532,13 +1532,13 @@ int fyai_branch_adopt(struct fyai_ctx *ctx, const char *name, bool keep_head)
 			 "could not adopt branch '%s'", name);
 
 	/* A stored branch ends the session that no publish stored. */
-	ctx->session_unstored = NULL;
+	ctx->bstate->session_unstored = NULL;
 	ctx->last_message = b.head;
-	ctx->arena_config = b.config;
-	ctx->arena_catalog = b.catalog;
-	ctx->arena_skills = b.skills;
-	ctx->branch_desc = b.description;
-	ctx->branch_agent = b.agent;
+	ctx->bstate->config = b.config;
+	ctx->bstate->catalog = b.catalog;
+	ctx->bstate->skills = b.skills;
+	ctx->bstate->desc = b.description;
+	ctx->bstate->agent = b.agent;
 	fyai_ctx_branch_prev_set(ctx, b.entry);
 	fyai_background_reset(ctx);
 	return 0;
@@ -1558,14 +1558,14 @@ int fyai_branch_checkout(struct fyai_ctx *ctx, const char *name, bool create,
 	fyai_error_check(ctx, create ? fyai_branch_name_valid(name) :
 			      fyai_branch_name_ref_valid(name), err_out,
 			 "invalid branch name '%s'", name ? name : "");
-	exists = fyai_branch_lookup(ctx->arena_branches, name, &b);
+	exists = fyai_branch_lookup(ctx->bstate->branches, name, &b);
 	fyai_error_check(ctx, exists || create, err_out,
 			 "no such branch '%s'; use -b to create it", name);
 	if (!exists && create) {
 		rc = fyai_branch_create(ctx, name, start, NULL, false);
 		fyai_error_check(ctx, !rc, err_out,
 				 "could not create branch '%s'", name);
-		exists = fyai_branch_lookup(ctx->arena_branches, name, &b);
+		exists = fyai_branch_lookup(ctx->bstate->branches, name, &b);
 		fyai_error_check(ctx, exists, err_out,
 				 "created branch '%s' is missing", name);
 	} else if (start) {
@@ -1613,7 +1613,7 @@ int fyai_branch_describe(struct fyai_ctx *ctx, const char *name,
 
 	if (!name)
 		name = fyai_ctx_branch(ctx);
-	if (!fyai_branch_lookup(ctx->arena_branches, name, &b)) {
+	if (!fyai_branch_lookup(ctx->bstate->branches, name, &b)) {
 		fyai_error(ctx, "no such branch '%s'", name);
 		return -1;
 	}
@@ -1622,7 +1622,7 @@ int fyai_branch_describe(struct fyai_ctx *ctx, const char *name,
 	       fy_value(ctx->arena->gb, description) : fy_invalid;
 
 	if (!strcmp(name, fyai_ctx_branch(ctx))) {
-		ctx->branch_desc = desc;
+		ctx->bstate->desc = desc;
 		fyai_branch_op_set(ctx, FYAI_BRANCH_OP_DESCRIBE, NULL);
 		return fyai_publish_state(ctx);
 	}
@@ -1633,7 +1633,7 @@ int fyai_branch_describe(struct fyai_ctx *ctx, const char *name,
 	b.from = fy_invalid;
 	b.prev = b.entry;
 	entry = fyai_branch_build(ctx->arena->gb, &b);
-	branches = fyai_branches_set(ctx->arena->gb, ctx->arena_branches, name, entry);
+	branches = fyai_branches_set(ctx->arena->gb, ctx->bstate->branches, name, entry);
 	return branches_publish(ctx, branches);
 }
 

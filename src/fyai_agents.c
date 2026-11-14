@@ -499,7 +499,7 @@ static int agents_publish(struct fyai_ctx *ctx, const char *state)
 	if (!a || !gb || !ctx->agent_execution || !ctx->tool_rpc)
 		return 0;
 	params = fy_mapping(gb, "execution", ctx->agent_execution,
-		"parent", ctx->agent_parent, "branch", ctx->agent_branch,
+		"parent", ctx->agent_parent, "branch", ctx->bstate->agent_branch,
 		"model", ctx->cfg->model ? ctx->cfg->model : "",
 		"sequence", ++a->sequence, "state", state);
 	if (a->subscribed) {
@@ -909,10 +909,10 @@ int fyai_agents_enter(struct fyai_ctx *ctx)
 
 	a = agents_get(ctx);
 	gb = fyai_ctx_transient_gb(ctx);
-	if (!a || !gb || !ctx->tool_rpc || !ctx->agent_branch)
+	if (!a || !gb || !ctx->tool_rpc || !ctx->bstate->agent_branch)
 		return -1;
 	request = jsonrpc_request_submit(ctx->tool_rpc, "agent/admit",
-		fy_mapping(gb, "branch", ctx->agent_branch,
+		fy_mapping(gb, "branch", ctx->bstate->agent_branch,
 			"parent", ctx->agent_parent, "model", ctx->cfg->model),
 		jsonrpc_conn_next_id(ctx->tool_rpc), false, NULL, NULL);
 	fyai_error_check(ctx, request, err_out, "cannot ask the parent for admission");
@@ -1190,7 +1190,7 @@ static char *agents_history(struct fyai_ctx *ctx, const char *name)
 	struct fyai_ctx view = *ctx;
 	struct fyai_cfg cfg;
 	struct fyai_transient transient;
-	struct fyai_askq askq;
+	struct fyai_view_own own;
 	struct fyai_branch branch;
 	struct fy_generic_builder_cfg gbcfg = {
 		.flags = FYGBCF_SCOPE_LEADER | FYGBCF_DEDUP_ENABLED,
@@ -1208,7 +1208,7 @@ static char *agents_history(struct fyai_ctx *ctx, const char *name)
 		return NULL;
 	view.cfg = &cfg;
 	view.ui = NULL;
-	fyai_uimodel_view_detach(&view, &askq);
+	fyai_uimodel_view_detach(&view, &own);
 	view.display_output = NULL;
 	view.last_message = branch.head;
 	fyai_transient_init(&transient);
@@ -1527,7 +1527,7 @@ static int agents_message_new(struct fyai_ctx *ctx, const char *name,
 	struct agent_message_ack *ack;
 	const char *branch = NULL;
 	const unsigned char *p;
-	const char *from = ctx->agent_branch ? ctx->agent_branch :
+	const char *from = ctx->bstate->agent_branch ? ctx->bstate->agent_branch :
 		fyai_ctx_branch(ctx);
 
 	if (parent) {
@@ -1595,7 +1595,7 @@ int fyai_agents_ask_parent(struct fyai_ctx *ctx, const char *name,
 {
 	struct fyai_agents *a = agents_get(ctx);
 	struct agent_parent_ask *ask;
-	const char *from = ctx->agent_branch ? ctx->agent_branch :
+	const char *from = ctx->bstate->agent_branch ? ctx->bstate->agent_branch :
 		fyai_ctx_branch(ctx);
 
 	if (!a || !ctx->agent_execution || !ctx->tool_rpc ||

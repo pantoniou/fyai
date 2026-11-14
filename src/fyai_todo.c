@@ -131,9 +131,9 @@ static fy_generic todo_stored_generic(struct fyai_ctx *ctx)
 {
 	struct fyai_branch b;
 
-	if (!ctx || fy_is_invalid(ctx->branch_prev))
+	if (!ctx || fy_is_invalid(ctx->bstate->prev))
 		return fy_invalid;
-	if (!fyai_branch_decode(ctx->branch_prev, &b))
+	if (!fyai_branch_decode(ctx->bstate->prev, &b))
 		return fy_invalid;
 	if (!fy_is_sequence(b.todos) || fy_empty(b.todos))
 		return fy_invalid;
@@ -179,7 +179,7 @@ static int todo_publish(struct fyai_ctx *ctx, fy_generic todos)
 	todos = fy_gb_internalize(ctx->arena->gb, rebuilt);
 	fyai_error_check(ctx, fy_is_valid(todos), err_out,
 			 "todo_write: cannot keep the todo list");
-	fyai_branch_decode(ctx->branch_prev, &prev);
+	fyai_branch_decode(ctx->bstate->prev, &prev);
 	/* The commit path below carries only known members: stage the list
 	 * there so the publish does not drop it. */
 	prev.todos = todos;
@@ -188,7 +188,7 @@ static int todo_publish(struct fyai_ctx *ctx, fy_generic todos)
 		store = fy_disassoc(ctx->arena->gb, store, "todos");
 	fyai_error_check(ctx, fy_is_valid(store), err_out,
 			 "todo_write: cannot build the branch store");
-	ctx->branch_store = store;
+	ctx->bstate->store = store;
 	fyai_branch_op_set(ctx, FYAI_BRANCH_OP_TODO, NULL);
 	if (fyai_publish_state(ctx))
 		return -1;

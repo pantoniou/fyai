@@ -104,7 +104,7 @@ int fyai_cmd_catalog_import(struct fyai_cmd_call *call, fy_generic *result)
 
 	if (catalog_changed(call, fyai_catalog_import(call->ctx, file)))
 		return -1;
-	cat = call->ctx->arena_catalog;
+	cat = call->ctx->bstate->catalog;
 	*result = fy_mapping(call->gb, "file", file,
 			     "models", (long long)fy_len(fy_get(cat, "models",
 								fy_seq_empty)),
@@ -119,7 +119,7 @@ int fyai_cmd_catalog_export(struct fyai_cmd_call *call, fy_generic *result)
 
 	/* Standard output takes the catalogue as a document. */
 	if (!file) {
-		*result = fyai_catalog_effective(call->ctx->arena_catalog,
+		*result = fyai_catalog_effective(call->ctx->bstate->catalog,
 						 call->ctx->cfg->gb);
 		return fy_is_valid(*result) ? 0 : -1;
 	}

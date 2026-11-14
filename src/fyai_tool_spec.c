@@ -101,7 +101,7 @@ static bool fyai_tool_spec_needs_update(struct fyai_ctx *ctx)
 {
 	return fy_is_invalid(ctx->toolspec->spec) ||
 	       ctx->toolspec->generation != ctx->cfg->config_generation ||
-	       ctx->toolspec->spec_skills != ctx->arena_skills.v ||
+	       ctx->toolspec->spec_skills != ctx->bstate->skills.v ||
 	       ctx->toolspec->spec_allow != ctx->toolspec->allow.v ||
 	       ctx->toolspec->agent_child != fyai_agent_delegated(ctx) ||
 	       ctx->toolspec->agent_restricted !=
@@ -175,7 +175,7 @@ fy_generic make_tools_filtered(struct fyai_ctx *ctx)
 
 	ctx->toolspec->spec = out;
 	ctx->toolspec->generation = ctx->cfg->config_generation;
-	ctx->toolspec->spec_skills = ctx->arena_skills.v;
+	ctx->toolspec->spec_skills = ctx->bstate->skills.v;
 	ctx->toolspec->spec_allow = ctx->toolspec->allow.v;
 	ctx->toolspec->agent_child = delegated;
 	ctx->toolspec->agent_restricted =

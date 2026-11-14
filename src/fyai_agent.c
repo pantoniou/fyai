@@ -256,7 +256,7 @@ static int fyai_agent_revive_config(struct fyai_ctx *ctx, fy_generic stored)
 
 	if (!fy_is_valid(stored))
 		return 0;
-	ctx->arena_config = stored;
+	ctx->bstate->config = stored;
 	stored_model = fy_get(stored, "model", fy_invalid);
 	model_text = fy_castp(&stored_model, "");
 	slash = strrchr(model_text, '/');
@@ -268,11 +268,11 @@ static int fyai_agent_revive_config(struct fyai_ctx *ctx, fy_generic stored)
 	 * that the document does not set, so clear the derived ones.
 	 */
 	if (*model_text && (!cfg->model || strcmp(bare, cfg->model))) {
-		ctx->arena_config = config_drop_keys(ctx->arena->gb, ctx->arena_config,
+		ctx->bstate->config = config_drop_keys(ctx->arena->gb, ctx->bstate->config,
 				endpoint_keys, ARRAY_SIZE(endpoint_keys));
 		cfg->config_doc = config_drop_keys(cfg->gb, cfg->config_doc,
 				parent_keys, ARRAY_SIZE(parent_keys));
-		fyai_error_check(ctx, fy_is_valid(ctx->arena_config) &&
+		fyai_error_check(ctx, fy_is_valid(ctx->bstate->config) &&
 				 fy_is_valid(cfg->config_doc), err,
 			"could not drop the parent endpoint for the revived sub-agent");
 		cfg->api_url = NULL;
@@ -309,7 +309,7 @@ int fyai_agent_spawn_config(struct fyai_ctx *ctx, fy_generic spawn)
 	cfg->config_doc = fy_gb_internalize(cfg->gb, config);
 	fyai_error_check(ctx, fy_is_valid(cfg->config_doc), err,
 			 "could not store the parent configuration");
-	rc = fy_is_valid(ctx->arena_config) ? fyai_config_adopt_arena(ctx) :
+	rc = fy_is_valid(ctx->bstate->config) ? fyai_config_adopt_arena(ctx) :
 					      fyai_config_rederive(ctx);
 	fyai_error_check(ctx, !rc, err,
 			 "could not adopt the parent configuration");
@@ -334,8 +334,8 @@ static int fyai_agent_spawn_adopt(struct fyai_ctx *ctx, fy_generic spawn)
 
 	branch_config = fy_get(spawn, "branch_config", fy_invalid);
 	if (fy_is_mapping(branch_config)) {
-		ctx->arena_config = fy_gb_internalize(ctx->arena->gb, branch_config);
-		fyai_error_check(ctx, fy_is_valid(ctx->arena_config), err,
+		ctx->bstate->config = fy_gb_internalize(ctx->arena->gb, branch_config);
+		fyai_error_check(ctx, fy_is_valid(ctx->bstate->config), err,
 				 "could not store the parent branch configuration");
 	}
 	catalog_v = fy_get(spawn, "branch_catalog", fy_invalid_value);
@@ -344,7 +344,7 @@ static int fyai_agent_spawn_adopt(struct fyai_ctx *ctx, fy_generic spawn)
 		fyai_error_check(ctx, fyai_arena_mapping_contained(
 					ctx->arena->durable_allocator, catalog), err,
 				 "the parent catalogue is not in the arena");
-		ctx->arena_catalog = catalog;
+		ctx->bstate->catalog = catalog;
 	}
 	skills_v = fy_get(spawn, "branch_skills", fy_invalid_value);
 	if (skills_v != fy_invalid_value && skills_v != fy_null_value) {
@@ -352,9 +352,9 @@ static int fyai_agent_spawn_adopt(struct fyai_ctx *ctx, fy_generic spawn)
 		fyai_error_check(ctx, fyai_arena_mapping_contained(
 					ctx->arena->durable_allocator, skills), err,
 				 "the parent skills are not in the arena");
-		ctx->arena_skills = skills;
+		ctx->bstate->skills = skills;
 	}
-	rc = fy_is_valid(ctx->arena_config) ? fyai_config_adopt_arena(ctx) :
+	rc = fy_is_valid(ctx->bstate->config) ? fyai_config_adopt_arena(ctx) :
 					      fyai_config_rederive(ctx);
 	fyai_error_check(ctx, !rc, err,
 			 "could not adopt the parent configuration");
@@ -548,7 +548,7 @@ int fyai_agent_reopen_for_call(struct fyai_ctx *ctx, fy_generic *call)
 
 	rc = agent_reopen_keeping(ctx, call);
 	if (!rc)
-		ctx->arena_reopened = true;
+		ctx->bstate->reopened = true;
 	return rc;
 }
 
@@ -575,12 +575,12 @@ static int agent_run_branch(struct fyai_ctx *ctx, struct agent_run *r)
 	}
 
 	/* The reopen sets the fork point: keep it when it already ran. */
-	if (!ctx->arena_reopened)
+	if (!ctx->bstate->reopened)
 		ctx->last_message = fy_invalid;
 
 	/* Re-open the arena before the forked child writes to it. */
-	if (ctx->agent_branch) {
-		if (!ctx->arena_reopened) {
+	if (ctx->bstate->agent_branch) {
+		if (!ctx->bstate->reopened) {
 			rc = agent_reopen_keeping(ctx, &r->args);
 			if (rc)
 				return -1;
@@ -591,26 +591,26 @@ static int agent_run_branch(struct fyai_ctx *ctx, struct agent_run *r)
 			fyai_error_check(ctx, !rc, err,
 					 "could not adopt the parent state");
 		}
-		rc = fyai_ctx_set_branch(ctx, ctx->agent_branch);
+		rc = fyai_ctx_set_branch(ctx, ctx->bstate->agent_branch);
 		fyai_error_check(ctx, !rc, err,
 				 "could not select the sub-agent branch");
 		/* Add the sub-agent branch to subsequent trace records. */
-		fyai_diag_trace_tag(ctx->agent_branch);
+		fyai_diag_trace_tag(ctx->bstate->agent_branch);
 		/* Keep last_message as the fork point unless the call is fresh. */
 		fyai_ctx_branch_prev_set(ctx, fy_invalid);
-		ctx->branch_desc = fy_invalid;
-		ctx->branch_agent = fy_invalid;
+		ctx->bstate->desc = fy_invalid;
+		ctx->bstate->agent = fy_invalid;
 		/* Continue the stored conversation identified by this name. */
-		r->revive = fyai_branch_lookup(ctx->arena_branches,
-					    ctx->agent_branch, &stored) &&
+		r->revive = fyai_branch_lookup(ctx->bstate->branches,
+					    ctx->bstate->agent_branch, &stored) &&
 			 fy_is_valid(stored.head);
 		if (r->revive) {
 			fyai_ctx_branch_prev_set(ctx, stored.entry);
-			ctx->branch_desc = stored.description;
-			ctx->branch_agent = stored.agent;
+			ctx->bstate->desc = stored.description;
+			ctx->bstate->agent = stored.agent;
 			if (fy_is_valid(stored.catalog))
-				ctx->arena_catalog = stored.catalog;
-			ctx->arena_skills = stored.skills;
+				ctx->bstate->catalog = stored.catalog;
+			ctx->bstate->skills = stored.skills;
 			ctx->last_message = stored.head;
 			rc = fyai_agent_revive_config(ctx, stored.config);
 			fyai_error_check(ctx, !rc, err,
@@ -674,7 +674,7 @@ static int agent_run_persona(struct fyai_ctx *ctx, struct agent_run *r)
 	context_v = fy_get(r->args, "context", fy_invalid);
 	if (!fy_is_string(context_v))
 		context_v = fy_get(r->persona, "context", fy_invalid);
-	if (ctx->agent_branch)
+	if (ctx->bstate->agent_branch)
 		r->fork_mode = !fy_equal(context_v, "fresh");
 	/* A revived agent keeps its existing conversation. */
 	if (r->revive)
@@ -827,10 +827,10 @@ static int agent_run_publish(struct fyai_ctx *ctx, struct agent_run *r)
 	int rc;
 
 	/* Publish the durable sub-agent conversation. */
-	if (ctx->agent_branch) {
+	if (ctx->bstate->agent_branch) {
 		/* Preserve the original agent metadata when reviving it. */
 		if (!r->revive)
-			ctx->branch_agent = fy_gb_mapping(ctx->arena->gb,
+			ctx->bstate->agent = fy_gb_mapping(ctx->arena->gb,
 				"name", fyai_generic_or_null(r->name),
 				"description", fyai_generic_or_null(r->description),
 				"context", r->fork_mode ? "fork" : "fresh",
@@ -851,11 +851,11 @@ static int agent_run_publish(struct fyai_ctx *ctx, struct agent_run *r)
 			    cfg->provider))) {
 			model_bare = strchr(cfg->model, '/');
 			model_bare = model_bare ? model_bare + 1 : cfg->model;
-			ctx->arena_config = fy_set_at_pathstr(ctx->arena->gb,
-				ctx->arena_config, "model",
+			ctx->bstate->config = fy_set_at_pathstr(ctx->arena->gb,
+				ctx->bstate->config, "model",
 				fy_stringf(ctx->arena->gb, "%s/%s", cfg->provider,
 					   model_bare));
-			fyai_error_check(ctx, fy_is_valid(ctx->arena_config), err,
+			fyai_error_check(ctx, fy_is_valid(ctx->bstate->config), err,
 					 "could not persist the sub-agent model");
 		}
 		fyai_branch_op_set(ctx, r->revive ? FYAI_BRANCH_OP_TURN :
@@ -863,7 +863,7 @@ static int agent_run_publish(struct fyai_ctx *ctx, struct agent_run *r)
 		rc = fyai_publish_state(ctx);
 		fyai_error_check(ctx, !rc, err,
 			"could not publish the sub-agent conversation on '%s'",
-			ctx->agent_branch);
+			ctx->bstate->agent_branch);
 	}
 	/*
 	 * The turn and its final report say whether the sub-agent completed.

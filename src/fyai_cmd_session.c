@@ -124,7 +124,7 @@ int fyai_cmd_session_new(struct fyai_cmd_call *call, fy_generic *result)
 
 	rc = fyai_branches_refresh(ctx);
 	fyai_error_check(ctx, !rc, err, "session: could not refresh the branches");
-	rc = fyai_branch_session_name(ctx->arena_branches, name, sizeof(name));
+	rc = fyai_branch_session_name(ctx->bstate->branches, name, sizeof(name));
 	fyai_error_check(ctx, !rc, err, "session: could not name a new session");
 	rc = fyai_session_branch_switch(ctx, name, true, true);
 	if (rc)

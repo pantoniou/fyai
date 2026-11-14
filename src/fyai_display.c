@@ -747,7 +747,7 @@ int fyai_export_view(struct fyai_ctx *ctx, const char *path,
 	int rc;
 
 	/* A reference names the ref-log entry that the export ends at. */
-	start = ctx->branch_prev;
+	start = ctx->bstate->prev;
 	if (ref && fyai_resolve_ref_entry(ctx, ref, &start))
 		return -1;
 	/* No path is stdout, so an export composes with a pipe by default. */
@@ -2088,7 +2088,7 @@ void fyai_tool_head_apply_patch(struct fyai_ctx *ctx, FILE *mf,
 	gc = fy_get(args, "patch");
 	c = fy_castp(&gc, "");
 	/* The diff of the group of calls shows the change: name the files only. */
-	if (*c && preview_lines && ctx && ctx->tool_diff_tracking)
+	if (*c && preview_lines && ctx && ctx->bstate->tool_diff_tracking)
 		fyai_emit_patch(ctx, mf, c, blocks, true);
 	else if (*c && preview_lines < 0)
 		fyai_emit_patch(ctx, mf, c, blocks, false);
@@ -4727,7 +4727,7 @@ fy_generic fyai_list_reflog_data(struct fyai_ctx *ctx,
 
 	out = fy_seq_empty;
 	name = fyai_ctx_branch(ctx);
-	entry = ctx->branch_prev;
+	entry = ctx->bstate->prev;
 
 	for (idx = 0; idx < FYAI_REFLOG_MAX && fy_is_valid(entry);
 	     idx++) {

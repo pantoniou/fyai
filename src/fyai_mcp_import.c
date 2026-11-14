@@ -162,7 +162,7 @@ int fyai_mcp_import_client(struct fyai_ctx *ctx)
 	fyai_error_check(ctx, *client_id && *client_secret && redirect, err_out,
 			 "MCP OAuth client file is incomplete or has no "
 			 "loopback redirect");
-	existing = fy_get_at_pathstr(gb, ctx->arena_config,
+	existing = fy_get_at_pathstr(gb, ctx->bstate->config,
 		fy_sprintfa("/mcp/servers/%s", args->name));
 	fyai_error_check(ctx, args->force ||
 			 fy_is_invalid(existing), err_out,

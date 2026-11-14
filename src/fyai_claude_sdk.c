@@ -2205,7 +2205,7 @@ static fy_generic sdk_context_usage(struct sdk_server *srv,
 	struct fyai_ctx *ctx = srv->ctx;
 	long long used, window;
 
-	used = ctx->last_call_input + ctx->last_call_output;
+	used = ctx->usage->last_call_input + ctx->usage->last_call_output;
 	window = fyai_context_window(ctx);
 	return fy_mapping(gb,
 		"categories", fy_sequence(gb, fy_mapping(gb,
@@ -3128,11 +3128,11 @@ static void sdk_turn(struct sdk_server *srv, const struct sdk_input *in)
 	int rc, retries;
 
 	clock_gettime(CLOCK_MONOTONIC, &start);
-	in0 = ctx->usage_input;
-	out0 = ctx->usage_output;
-	cached0 = ctx->usage_cached;
-	write0 = ctx->usage_cache_write;
-	cost0 = ctx->usage_cost;
+	in0 = ctx->usage->input;
+	out0 = ctx->usage->output;
+	cached0 = ctx->usage->cached;
+	write0 = ctx->usage->cache_write;
+	cost0 = ctx->usage->cost;
 	srv->num_turns = 0;
 	free(srv->result_text);
 	srv->result_text = NULL;
@@ -3266,11 +3266,11 @@ done:
 			(cause && *cause ? cause : "the turn did not complete"),
 		"stop_reason", ok ? fy_value(gb, "end_turn") : fy_null,
 		"session_id", srv->session_id,
-		"total_cost_usd", ctx->usage_cost - cost0,
+		"total_cost_usd", ctx->usage->cost - cost0,
 		"usage", sdk_usage(gb,
-			ctx->usage_input - in0, ctx->usage_output - out0,
-			ctx->usage_cached - cached0,
-			ctx->usage_cache_write - write0),
+			ctx->usage->input - in0, ctx->usage->output - out0,
+			ctx->usage->cached - cached0,
+			ctx->usage->cache_write - write0),
 		"permission_denials", fy_is_valid(srv->denials) ?
 			srv->denials : fy_seq_empty,
 		"uuid", sdk_new_uuid(srv));
@@ -3334,7 +3334,7 @@ static int sdk_system_append(struct sdk_server *srv)
 
 	if (!srv->append || !*srv->append)
 		return 0;
-	if (!ctx->session_unstored) {
+	if (!ctx->bstate->session_unstored) {
 		fyai_warning(ctx, "claude-sdk: a resumed session keeps its "
 			     "system prompt");
 		return 0;
@@ -3369,11 +3369,11 @@ static void sdk_clear(struct sdk_server *srv)
 	fyai_error_check(ctx, !rc, err,
 			 "claude-sdk: cannot select the new session");
 	/* The configuration goes with it; the conversation does not. */
-	ctx->session_unstored = fyai_ctx_keep_str(ctx, name);
-	fyai_error_check(ctx, ctx->session_unstored, err,
+	ctx->bstate->session_unstored = fyai_ctx_keep_str(ctx, name);
+	fyai_error_check(ctx, ctx->bstate->session_unstored, err,
 			 "claude-sdk: cannot keep the new session name");
-	ctx->branch_desc = fy_invalid;
-	ctx->branch_agent = fy_invalid;
+	ctx->bstate->desc = fy_invalid;
+	ctx->bstate->agent = fy_invalid;
 	fyai_ctx_branch_prev_set(ctx, fy_invalid);
 	old = srv->session_id;
 	srv->session_id = sid;
@@ -3602,7 +3602,7 @@ static int sdk_cmd_tools(struct fyai_cmd_call *call, struct sdk_server *srv)
 	/* The budget is of the whole invocation, as of a query of the SDK. */
 	budget = fy_get(call->args, "max_budget_usd", 0.0);
 	if (budget > 0)
-		ctx->turn_cost_limit = ctx->usage_cost + budget;
+		ctx->turn_cost_limit = ctx->usage->cost + budget;
 	if (fyai_cmd_arg_bool(call, "include_partial_messages")) {
 		srv->partial = true;
 		ctx->text_observe = sdk_text;

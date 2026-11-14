@@ -460,7 +460,7 @@ static int remote_ui_state(struct fyai_remote_ui *view, fy_generic root)
 		fyai_error_check(ctx, fy_is_valid(doc), err,
 				 "cannot keep the display configuration of "
 				 "the worker");
-		ctx->arena_config = doc;
+		ctx->bstate->config = doc;
 		rc = fyai_config_rederive(ctx);
 		fyai_error_check(ctx, !rc, err,
 				 "cannot take the display configuration of the "

@@ -191,9 +191,9 @@ static fy_generic settings_value(struct settings_walk *w, const char *path,
 		*layerp = "session";
 		return v;
 	}
-	stored = !*path ? w->ctx->arena_config :
-		 fy_is_mapping(w->ctx->arena_config) ?
-		 fy_get_at_pathstr(w->gb, w->ctx->arena_config, path) :
+	stored = !*path ? w->ctx->bstate->config :
+		 fy_is_mapping(w->ctx->bstate->config) ?
+		 fy_get_at_pathstr(w->gb, w->ctx->bstate->config, path) :
 		 fy_invalid;
 	*layerp = fy_is_valid(stored) && !fy_compare(stored, v) ? "branch" :
 		  "invocation";
@@ -737,7 +737,7 @@ static int settings_change_diff(struct settings_walk *w,
 		if (!*part) {
 			free(part);
 			old_layer = settings_changed_values(w,
-				w->ctx->arena_config, c->changes);
+				w->ctx->bstate->config, c->changes);
 			new_layer = settings_changed_values(w, c->stored,
 				c->changes);
 			if (!fy_is_valid(old_layer) || !fy_is_valid(new_layer))
@@ -825,7 +825,7 @@ static int settings_change_build(struct settings_walk *w,
 	const char *path;
 	size_t len;
 
-	stored0 = fy_is_mapping(ctx->arena_config) ? ctx->arena_config :
+	stored0 = fy_is_mapping(ctx->bstate->config) ? ctx->bstate->config :
 		  fy_map_empty;
 	session0 = fy_is_mapping(cfg->config_session) ? cfg->config_session :
 		   fy_map_empty;
@@ -941,7 +941,7 @@ static fy_generic settings_store_build(struct fyai_ctx *ctx,
 	struct fyai_branch prev;
 	fy_generic store;
 
-	fyai_branch_decode(ctx->branch_prev, &prev);
+	fyai_branch_decode(ctx->bstate->prev, &prev);
 	store = fyai_branch_store_build(ctx->arena->gb, &prev);
 	store = fy_assoc(ctx->arena->gb, store, member,
 			 fy_gb_internalize(ctx->arena->gb, log));
@@ -961,7 +961,7 @@ static int settings_publish(struct fyai_ctx *ctx, const char *member,
 	fyai_error_check(ctx, fy_is_valid(store), err_out,
 			 "settings: cannot build the store of branch '%s'",
 			 fyai_ctx_branch(ctx));
-	ctx->branch_store = store;
+	ctx->bstate->store = store;
 	fyai_branch_op_set(ctx, FYAI_BRANCH_OP_SETTINGS, NULL);
 	return fyai_publish_state(ctx);
 err_out:
@@ -972,7 +972,7 @@ fy_generic fyai_settings_log(struct fyai_ctx *ctx, const char *member)
 {
 	struct fyai_branch prev;
 
-	if (!fyai_branch_decode(ctx->branch_prev, &prev))
+	if (!fyai_branch_decode(ctx->bstate->prev, &prev))
 		return fy_seq_empty;
 	return fy_get(prev.store, member, fy_seq_empty);
 }
@@ -1073,7 +1073,7 @@ static int settings_apply(struct fyai_ctx *ctx, struct fy_generic_builder *gb,
 	    fyai_config_session_layer_adopt(ctx, c->session))
 		return -1;
 	if (fy_is_valid(c->stored))
-		ctx->arena_config = c->stored;
+		ctx->bstate->config = c->stored;
 	if (settings_publish(ctx, "config_changes", log, member2, log2))
 		return -1;
 	if (fy_is_valid(c->stored) && fyai_config_rederive(ctx))
@@ -1452,7 +1452,7 @@ static int settings_revert_build(struct settings_walk *w, fy_generic entry,
 		in_session = c->trial;
 		cur = settings_doc_get(w->gb, in_session ?
 				       ctx->cfg->config_session :
-				       ctx->arena_config, path);
+				       ctx->bstate->config, path);
 		if (fy_compare(cur, fy_get(after, path, fy_null))) {
 			conflicts = fy_append(w->gb, conflicts, path);
 			continue;
@@ -2059,7 +2059,7 @@ static fy_generic settings_catalog_run(struct settings_walk *w,
 {
 	fy_generic cat, v;
 
-	cat = fyai_catalog_effective(w->ctx->arena_catalog, NULL);
+	cat = fyai_catalog_effective(w->ctx->bstate->catalog, NULL);
 	if (!fy_is_mapping(cat))
 		return fy_value(w->gb, "settings: the catalogue cannot be "
 				"read");
@@ -2578,7 +2578,7 @@ static fy_generic settings_export(struct settings_walk *w, bool catalog,
 		return fy_value(w->gb, "settings: the catalogue is a tree; "
 				"select gives rows of it");
 	if (catalog)
-		doc = fyai_catalog_effective(w->ctx->arena_catalog, NULL);
+		doc = fyai_catalog_effective(w->ctx->bstate->catalog, NULL);
 	else if (!strcmp(shape, "rows"))
 		doc = settings_config_rows(w, "", fyai_config_schema(NULL));
 	else

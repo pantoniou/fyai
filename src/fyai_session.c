@@ -98,19 +98,19 @@ long long fyai_context_window(struct fyai_ctx *ctx)
 
 static void session_reset_usage(struct fyai_ctx *ctx)
 {
-	ctx->usage_input = 0;
-	ctx->usage_cached = 0;
-	ctx->usage_cache_write = 0;
-	ctx->usage_output = 0;
-	ctx->usage_reasoning = 0;
-	ctx->usage_total = 0;
-	ctx->usage_cost = 0.0;
-	ctx->usage_cost_est = 0.0;
-	ctx->usage_calls = 0;
-	ctx->last_call_input = 0;
-	ctx->last_call_output = 0;
-	ctx->last_call_total = 0;
-	ctx->usage_head = ctx->last_message;
+	ctx->usage->input = 0;
+	ctx->usage->cached = 0;
+	ctx->usage->cache_write = 0;
+	ctx->usage->output = 0;
+	ctx->usage->reasoning = 0;
+	ctx->usage->total = 0;
+	ctx->usage->cost = 0.0;
+	ctx->usage->cost_est = 0.0;
+	ctx->usage->calls = 0;
+	ctx->usage->last_call_input = 0;
+	ctx->usage->last_call_output = 0;
+	ctx->usage->last_call_total = 0;
+	ctx->usage->head = ctx->last_message;
 }
 
 static void usage_sum_add(struct fyai_usage_sum *s, fy_generic u)
@@ -170,7 +170,7 @@ void fyai_usage_agents(struct fyai_ctx *ctx, struct fyai_usage_sum *sum,
 			seen[i] = own.items[i].v;
 		qsort(seen, own.count, sizeof(*seen), usage_value_cmp);
 	}
-	fy_foreach_key_value(nm, entry, ctx->arena_branches) {
+	fy_foreach_key_value(nm, entry, ctx->bstate->branches) {
 		if (fy_str_empty(nm) || !fyai_branch_is_below(nm, branch) ||
 		    strncmp(nm + blen, "/agent:", 7) ||
 		    !fyai_branch_decode(entry, &b))
@@ -209,7 +209,7 @@ void fyai_usage_sync(struct fyai_ctx *ctx)
 
 	if (ctx->cfg->tool_child)
 		return;
-	moved = ctx->usage_head.v != ctx->last_message.v;
+	moved = ctx->usage->head.v != ctx->last_message.v;
 	if (moved) {
 		memset(&own, 0, sizeof(own));
 		fyai_turn_foreach(cur, ctx->last_message) {
@@ -217,21 +217,21 @@ void fyai_usage_sync(struct fyai_ctx *ctx)
 			if (fy_is_valid(u))
 				usage_sum_add(&own, u);
 		}
-		ctx->usage_input = own.input;
-		ctx->usage_cached = own.cached;
-		ctx->usage_cache_write = own.cache_write;
-		ctx->usage_output = own.output;
-		ctx->usage_reasoning = own.reasoning;
-		ctx->usage_total = own.total;
-		ctx->usage_cost = own.cost;
-		ctx->usage_cost_est = own.cost_est;
-		ctx->usage_calls = own.calls;
-		ctx->usage_head = ctx->last_message;
+		ctx->usage->input = own.input;
+		ctx->usage->cached = own.cached;
+		ctx->usage->cache_write = own.cache_write;
+		ctx->usage->output = own.output;
+		ctx->usage->reasoning = own.reasoning;
+		ctx->usage->total = own.total;
+		ctx->usage->cost = own.cost;
+		ctx->usage->cost_est = own.cost_est;
+		ctx->usage->calls = own.calls;
+		ctx->usage->head = ctx->last_message;
 	}
-	if (moved || ctx->usage_agents_root.v != ctx->arena_branches.v) {
-		fyai_usage_agents(ctx, &ctx->usage_agents,
-				  &ctx->usage_agent_count);
-		ctx->usage_agents_root = ctx->arena_branches;
+	if (moved || ctx->usage->agents_root.v != ctx->bstate->branches.v) {
+		fyai_usage_agents(ctx, &ctx->usage->agents,
+				  &ctx->usage->agent_count);
+		ctx->usage->agents_root = ctx->bstate->branches;
 	}
 }
 
@@ -605,9 +605,9 @@ int fyai_session_compact(struct fyai_ctx *ctx, const char *hint)
 	if (fy_is_invalid(turn))
 		return -1;
 	ctx->last_message = turn;
-	ctx->last_call_input = 0;
-	ctx->last_call_output = 0;
-	ctx->last_call_total = 0;
+	ctx->usage->last_call_input = 0;
+	ctx->usage->last_call_output = 0;
+	ctx->usage->last_call_total = 0;
 
 	if (fyai_publish_state(ctx))
 		return -1;
@@ -696,7 +696,7 @@ static void session_switch_estimate(struct fyai_ctx *ctx,
 	struct fyai_switch_cost cost;
 	struct fyai_pricing from_price, to_price;
 
-	ctx->switch_pending = false;
+	ctx->usage->switch_pending = false;
 	if (fy_is_invalid(ctx->last_message) || !cfg->model || !to->model ||
 	    (!strcmp(cfg->model, to->model) &&
 	     !strcmp(cfg->provider ? cfg->provider : "",
@@ -708,10 +708,10 @@ static void session_switch_estimate(struct fyai_ctx *ctx,
 	    !fyai_pricing_lookup(to, to->provider, to->model, &to_price))
 		return;
 	fyai_pricing_switch(&from_price, &to_price, prompt.prompt, &cost);
-	ctx->switch_prefix = prompt.prompt;
-	ctx->switch_fresh = cost.fresh;
-	ctx->switch_stay = cost.stay;
-	ctx->switch_pending = true;
+	ctx->usage->switch_prefix = prompt.prompt;
+	ctx->usage->switch_fresh = cost.fresh;
+	ctx->usage->switch_stay = cost.stay;
+	ctx->usage->switch_pending = true;
 }
 
 int fyai_session_model(struct fyai_ctx *ctx, const char *name, bool live)
@@ -1016,9 +1016,9 @@ static long long session_last_usage(struct fyai_ctx *ctx,
 
 	source = FYAICS_NONE;
 	input = 0;
-	if (ctx->last_call_input) {
+	if (ctx->usage->last_call_input) {
 		source = FYAICS_LAST_CALL;
-		input = ctx->last_call_input;
+		input = ctx->usage->last_call_input;
 		goto out;
 	}
 	fyai_turn_foreach(cur, ctx->last_message) {
@@ -1593,22 +1593,22 @@ fy_generic fyai_session_values(struct fyai_ctx *ctx,
 	}
 	fyai_usage_sync(ctx);
 	/* What the sub-agents used is a part of the cost of the session. */
-	cost = ctx->usage_cost + ctx->usage_agents.cost;
+	cost = ctx->usage->cost + ctx->usage->agents.cost;
 	if (cost > 0.0)
 		v = session_put(gb, v, "cost", fy_mapping(gb, "amount", cost,
-			"estimated", (_Bool)(ctx->usage_cost_est +
-					     ctx->usage_agents.cost_est > 0.0)));
+			"estimated", (_Bool)(ctx->usage->cost_est +
+					     ctx->usage->agents.cost_est > 0.0)));
 	else
 		v = session_drop(gb, v, "cost");
 	/* The next request has no cache on the model just chosen. */
-	if (ctx->switch_pending)
+	if (ctx->usage->switch_pending)
 		v = session_put(gb, v, "switch_delta", fy_value(gb,
-				ctx->switch_fresh - ctx->switch_stay));
+				ctx->usage->switch_fresh - ctx->usage->switch_stay));
 	else
 		v = session_drop(gb, v, "switch_delta");
-	if (ctx->usage_input > 0)
+	if (ctx->usage->input > 0)
 		v = session_put(gb, v, "cache", fy_mapping(gb,
-			"input", ctx->usage_input, "cached", ctx->usage_cached));
+			"input", ctx->usage->input, "cached", ctx->usage->cached));
 	else
 		v = session_drop(gb, v, "cache");
 	v = session_put_str(gb, v, "attached", attached);
@@ -1836,7 +1836,7 @@ int fyai_session_branch_switch(struct fyai_ctx *ctx, const char *name,
 	old_len = strlen(fyai_ctx_branch(ctx));
 	old = alloca(old_len + 1);
 	memcpy(old, fyai_ctx_branch(ctx), old_len + 1);
-	found = fyai_branch_lookup(ctx->arena_branches, name, &b);
+	found = fyai_branch_lookup(ctx->bstate->branches, name, &b);
 	fyai_error_check(ctx, found || create, err_out,
 			 "branch: no such branch '%s'", name);
 	if (!found) {

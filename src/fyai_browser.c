@@ -467,7 +467,7 @@ static void browser_refresh(struct fyai_browser *b)
 	b->generation = fyai_agents_generation(b->ctx);
 	b->root = root;
 	b->branches = fy_is_valid(root) && !b->ctx->cfg->transient ?
-		fy_get(root, "branches", fy_invalid) : b->ctx->arena_branches;
+		fy_get(root, "branches", fy_invalid) : b->ctx->bstate->branches;
 	/* The picker opens on the newest session: the branch HEAD names is not
 	 * what a user resuming a session is choosing between. */
 	selected = old_selected < old_count ? old[old_selected].name :
@@ -1673,7 +1673,7 @@ static char *browser_capture(struct fyai_browser *b, char *name,
 	struct fyai_ctx view = *b->ctx;
 	struct fyai_cfg cfg;
 	struct fyai_transient transient;
-	struct fyai_askq askq;
+	struct fyai_view_own own;
 	struct fyai_branch branch;
 	struct fy_generic_builder_cfg gbcfg = {
 		.flags = FYGBCF_SCOPE_LEADER | FYGBCF_DEDUP_ENABLED,
@@ -1694,12 +1694,12 @@ static char *browser_capture(struct fyai_browser *b, char *name,
 	browser_warn_check(b, gb, none, "cannot build the branch preview of %s", name);
 	view.cfg = &cfg;
 	view.ui = NULL;
-	fyai_uimodel_view_detach(&view, &askq);
+	fyai_uimodel_view_detach(&view, &own);
 	view.display_output = NULL;
 	view.browser = NULL;
-	view.branch = name;
-	view.arena_branches = b->branches;
-	view.branch_prev = branch.entry;
+	view.bstate->name = name;
+	view.bstate->branches = b->branches;
+	view.bstate->prev = branch.entry;
 	view.last_message = branch.head;
 	fyai_transient_init(&transient);
 	transient.gb = gb;
@@ -1761,7 +1761,7 @@ static char *browser_foreign_capture(struct fyai_browser *b,
 	struct fyai_ctx view = *b->ctx;
 	struct fyai_cfg cfg;
 	struct fyai_transient transient;
-	struct fyai_askq askq;
+	struct fyai_view_own own;
 	struct fy_generic_builder *gb;
 	FILE *fp = NULL;
 	const char *captured;
@@ -1774,7 +1774,7 @@ static char *browser_foreign_capture(struct fyai_browser *b,
 		return NULL;
 	view.cfg = &cfg;
 	view.ui = NULL;
-	fyai_uimodel_view_detach(&view, &askq);
+	fyai_uimodel_view_detach(&view, &own);
 	view.display_output = NULL;
 	view.browser = NULL;
 	fyai_transient_init(&transient);
@@ -1982,7 +1982,7 @@ void fyai_browser_step(struct fyai_ctx *ctx)
 		 * which is the comparison this wants. */
 		(void)fyai_branch_lookup(fy_get(root, "branches", fy_invalid),
 			fyai_ctx_branch(ctx), &current);
-		if (current.entry.v != ctx->branch_prev.v) {
+		if (current.entry.v != ctx->bstate->prev.v) {
 			browser_message(b, "The current branch changed in another invocation. Switch to it again before editing.");
 			goto out;
 		}

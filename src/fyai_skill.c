@@ -65,9 +65,9 @@ bool fyai_skill_name_valid(const char *name)
 
 fy_generic fyai_skills(struct fyai_ctx *ctx)
 {
-	if (!ctx || !fy_is_mapping(ctx->arena_skills))
+	if (!ctx || !fy_is_mapping(ctx->bstate->skills))
 		return fy_invalid;
-	return ctx->arena_skills;
+	return ctx->bstate->skills;
 }
 
 fy_generic fyai_skill_get(struct fyai_ctx *ctx, const char *name)
@@ -587,7 +587,7 @@ static int skill_publish(struct fyai_ctx *ctx, fy_generic skills)
 		fy_gb_internalize(ctx->arena->gb, skills);
 	fyai_error_check(ctx, fy_empty(skills) || fy_is_valid(durable), err,
 			 "cannot keep the skills in the arena");
-	ctx->arena_skills = durable;
+	ctx->bstate->skills = durable;
 	fyai_branch_op_set(ctx, FYAI_BRANCH_OP_SKILL, NULL);
 	if (fyai_publish_state(ctx)) {
 		fyai_error(ctx, "could not publish the skills of branch "
@@ -621,8 +621,8 @@ int fyai_skill_import(struct fyai_ctx *ctx, struct fy_generic_builder *gb,
 	int rc;
 
 	*namesp = fy_seq_empty;
-	im.skills = fy_is_mapping(ctx->arena_skills) ?
-		ctx->arena_skills : fy_map_empty;
+	im.skills = fy_is_mapping(ctx->bstate->skills) ?
+		ctx->bstate->skills : fy_map_empty;
 	im.names = fy_seq_empty;
 	rc = stat(path, &st);
 	fyai_error_check(ctx, !rc, err, "cannot read %s: %s", path,
@@ -880,8 +880,8 @@ int fyai_skill_import_claude(struct fyai_ctx *ctx,
 	int rc;
 
 	*namesp = fy_seq_empty;
-	im.skills = fy_is_mapping(ctx->arena_skills) ?
-		ctx->arena_skills : fy_map_empty;
+	im.skills = fy_is_mapping(ctx->bstate->skills) ?
+		ctx->bstate->skills : fy_map_empty;
 	im.names = fy_seq_empty;
 	all = !strcmp(scope, "all");
 	rc = 0;

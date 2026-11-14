@@ -64,7 +64,7 @@ static fy_generic view_store(struct fyai_ctx *ctx)
 {
 	struct fyai_branch branch;
 
-	fyai_branch_decode(ctx->branch_prev, &branch);
+	fyai_branch_decode(ctx->bstate->prev, &branch);
 	return fy_is_mapping(branch.store) ? branch.store : fy_map_empty;
 }
 
@@ -86,19 +86,19 @@ static int view_save(struct fyai_ctx *ctx, const char *name, fy_generic view)
 	views = fy_get(store, "views", fy_map_empty);
 	views = fy_is_valid(view) ? fy_assoc(ctx->arena->gb, views, fy_value(ctx->arena->gb, name), view) :
 				    fy_disassoc(ctx->arena->gb, views, fy_value(ctx->arena->gb, name));
-	ctx->branch_store = fy_assoc(ctx->arena->gb, store, "views", views);
-	if (!fy_is_valid(ctx->branch_store)) {
+	ctx->bstate->store = fy_assoc(ctx->arena->gb, store, "views", views);
+	if (!fy_is_valid(ctx->bstate->store)) {
 		errno = ENOMEM;
 		return -1;
 	}
 	fyai_branch_op_set(ctx, FYAI_BRANCH_OP_COMMAND, NULL);
 	/* View references must be published before a terminal child opens the
 	 * branch. */
-	unstored = ctx->session_unstored;
-	ctx->session_unstored = NULL;
+	unstored = ctx->bstate->session_unstored;
+	ctx->bstate->session_unstored = NULL;
 	rc = fyai_publish_root(ctx, fy_invalid, fy_invalid, fy_invalid);
 	if (rc)
-		ctx->session_unstored = unstored;
+		ctx->bstate->session_unstored = unstored;
 	return rc;
 }
 
@@ -972,7 +972,7 @@ static int view_state_find(struct fyai_ctx *ctx, const char *spec, struct view_s
 	}
 	name = !strcmp(parsed, "HEAD") ? fyai_ctx_branch(ctx) : parsed;
 	if (!fyai_branch_name_ref_valid(name) ||
-	    !fyai_branch_lookup(ctx->arena_branches, name, &b)) {
+	    !fyai_branch_lookup(ctx->bstate->branches, name, &b)) {
 		view_state_error(quiet, ctx, "'%s' is not a view, and there is no branch '%s'", spec, name);
 		return -1;
 	}
@@ -1331,7 +1331,7 @@ static void view_applied_record(struct fyai_ctx *ctx, const char *name,
 		return;
 	if (fyai_project_state_enabled(ctx) && !fyai_project_state_capture(ctx, &captured) &&
 	    fy_is_mapping(captured))
-		ctx->project_state = captured;
+		ctx->bstate->project_state = captured;
 	view = target->is_view ? view_find(ctx, name) : fy_invalid;
 	if (fy_is_mapping(view)) {
 		applied = fy_mapping(ctx->arena->gb, "root", fy_get(target->reference, "root", ""), "at",
@@ -1339,11 +1339,11 @@ static void view_applied_record(struct fyai_ctx *ctx, const char *name,
 				     (long long)summary->applied, "conflicts",
 				     (long long)summary->conflicts);
 		view_save(ctx, name, fy_assoc(ctx->arena->gb, view, "applied", applied));
-	} else if (fy_is_mapping(ctx->project_state)) {
+	} else if (fy_is_mapping(ctx->bstate->project_state)) {
 		fyai_branch_op_set(ctx, FYAI_BRANCH_OP_COMMAND, NULL);
 		fyai_publish_state(ctx);
 	}
-	ctx->project_state = fy_invalid;
+	ctx->bstate->project_state = fy_invalid;
 }
 
 int fyai_view_pull(struct fyai_ctx *ctx, struct fy_generic_builder *gb, const char *name,
@@ -3904,14 +3904,14 @@ void fyai_tool_change_record(struct fyai_ctx *ctx, fy_generic before, fy_generic
 	fy_generic section = fy_get(ctx->cfg->config_doc, "view", fy_invalid);
 	long long depth = fy_get(section, "undo_depth", 16LL);
 	fy_generic kept = fy_sequence(ctx->arena->gb), item;
-	size_t count = fy_len(ctx->tool_changes), skip, i = 0;
+	size_t count = fy_len(ctx->bstate->tool_changes), skip, i = 0;
 
 	/* The new group is kept, so the older ones fill the rest of the depth. */
 	skip = count >= (size_t)depth ? count - (size_t)depth + 1 : 0;
-	fy_foreach(item, ctx->tool_changes)
+	fy_foreach(item, ctx->bstate->tool_changes)
 		if (i++ >= skip)
 			kept = fy_append(ctx->arena->gb, kept, item);
-	ctx->tool_changes = fy_append(ctx->arena->gb, kept, fy_mapping(ctx->arena->gb, "before", before, "after", after));
+	ctx->bstate->tool_changes = fy_append(ctx->arena->gb, kept, fy_mapping(ctx->arena->gb, "before", before, "after", after));
 }
 
 int fyai_tool_change_undo(struct fyai_ctx *ctx, struct fy_generic_builder *gb, long long back,
@@ -3920,7 +3920,7 @@ int fyai_tool_change_undo(struct fyai_ctx *ctx, struct fy_generic_builder *gb, l
 	struct fyai_apply_summary summary;
 	struct fyai_manifest manifests[2] = { { 0 }, { 0 } };
 	fy_generic item, before, after, rows, kept;
-	size_t count = fy_len(ctx->tool_changes), index, i = 0;
+	size_t count = fy_len(ctx->bstate->tool_changes), index, i = 0;
 	char *root = NULL;
 	int project = -1, cas = -1, rc = -1, saved;
 
@@ -3933,7 +3933,7 @@ int fyai_tool_change_undo(struct fyai_ctx *ctx, struct fy_generic_builder *gb, l
 		return -1;
 	}
 	index = count - (size_t)back;
-	item = fy_get_at(ctx->tool_changes, index);
+	item = fy_get_at(ctx->bstate->tool_changes, index);
 	before = fy_get(item, "before", fy_invalid);
 	after = fy_get(item, "after", fy_invalid);
 	root = project_state_root(ctx);
@@ -3961,10 +3961,10 @@ int fyai_tool_change_undo(struct fyai_ctx *ctx, struct fy_generic_builder *gb, l
 		ctx->cfg->exit_status = 1;
 	} else {
 		kept = fy_sequence(ctx->arena->gb);
-		fy_foreach(item, ctx->tool_changes)
+		fy_foreach(item, ctx->bstate->tool_changes)
 			if (i++ != index)
 				kept = fy_append(ctx->arena->gb, kept, item);
-		ctx->tool_changes = kept;
+		ctx->bstate->tool_changes = kept;
 	}
 out:
 	saved = errno;
@@ -4014,7 +4014,7 @@ static int tool_diff_storage(struct fyai_ctx *ctx, const char *root, char **stor
 	arena = open(ctx->cfg->arena_dir, O_RDONLY | O_DIRECTORY | O_CLOEXEC);
 	if (arena < 0)
 		return -1;
-	if (!ctx->tool_diff_storage)
+	if (!ctx->bstate->tool_diff_storage)
 		fyai_view_fs_remove(arena, names, 1, true, error, sizeof(error));
 	close(arena);
 	if (asprintf(storage, "%s/" TOOL_DIFF_DIRECTORY, ctx->cfg->arena_dir) < 0)
@@ -4022,7 +4022,7 @@ static int tool_diff_storage(struct fyai_ctx *ctx, const char *root, char **stor
 	rc = mkdir_private(*storage);
 	if (rc)
 		return -1;
-	ctx->tool_diff_storage = true;
+	ctx->bstate->tool_diff_storage = true;
 	if (asprintf(objects, "%s/objects", *storage) < 0 || mkdir_private(*objects))
 		return -1;
 	free(*objects);
@@ -4039,9 +4039,9 @@ void fyai_tool_diff_cleanup(struct fyai_ctx *ctx)
 	char error[PATH_MAX];
 	int arena;
 
-	if (!ctx || !ctx->tool_diff_storage || fy_str_empty(ctx->cfg->arena_dir))
+	if (!ctx || !ctx->bstate->tool_diff_storage || fy_str_empty(ctx->cfg->arena_dir))
 		return;
-	ctx->tool_diff_storage = false;
+	ctx->bstate->tool_diff_storage = false;
 	arena = open(ctx->cfg->arena_dir, O_RDONLY | O_DIRECTORY | O_CLOEXEC);
 	if (arena < 0)
 		return;
@@ -4273,7 +4273,7 @@ int fyai_project_state_restore(struct fyai_ctx *ctx, const char *spec, bool forc
 	}
 	if (fy_is_mapping(forced)) {
 		/* An entry for the state that is about to go, so that the reset can be undone. */
-		ctx->project_state = forced;
+		ctx->bstate->project_state = forced;
 		fyai_branch_op_set(ctx, FYAI_BRANCH_OP_COMMAND, NULL);
 		rc = fyai_publish_state(ctx);
 		if (rc)
@@ -4284,7 +4284,7 @@ int fyai_project_state_restore(struct fyai_ctx *ctx, const char *spec, bool forc
 	if (rc)
 		goto out;
 	/* The project holds the state now, so the entry of the reset records it. */
-	ctx->project_state = target.reference;
+	ctx->bstate->project_state = target.reference;
 	*report = fy_stringf(gb, "%zu paths restored", summary.applied);
 out:
 	saved = errno;

@@ -729,7 +729,7 @@ static int storage_bootstrap_seed(struct fyai_ctx *ctx)
 	config = fyai_seed_config(ctx, "init");
 	if (!fy_is_valid(config))
 		return -1;
-	ctx->arena_config = config;
+	ctx->bstate->config = config;
 	ctx->last_message = fy_invalid;
 	rc = fyai_root_publish_try(ctx);
 	if (rc) {
@@ -815,7 +815,7 @@ int fyai_setup_storage(struct fyai_ctx *ctx)
 				   cfg->arena_dir);
 			goto err_out;
 		}
-		ctx->arena_branches = r.branches;
+		ctx->bstate->branches = r.branches;
 		/* Use an explicit branch, the stored HEAD, or the default. */
 		name = fyai_root_head_name(&r);
 		if (name) {
@@ -824,8 +824,8 @@ int fyai_setup_storage(struct fyai_ctx *ctx)
 			 * An explicit --branch selects where this invocation
 			 * works without moving HEAD.
 			 */
-			ctx->head_branch = fyai_ctx_keep_str(ctx, name);
-			fyai_error_check(ctx, ctx->head_branch, err_out,
+			ctx->bstate->head_branch = fyai_ctx_keep_str(ctx, name);
+			fyai_error_check(ctx, ctx->bstate->head_branch, err_out,
 					 "could not keep HEAD");
 			if (!cfg->branch_explicit) {
 				rc = fyai_ctx_set_branch(ctx, name);
@@ -851,15 +851,15 @@ int fyai_setup_storage(struct fyai_ctx *ctx)
 				 "branch '%s' is in the namespace of sub-agent branches; "
 				 "only a sub-agent creates one", fyai_ctx_branch(ctx));
 		if (!exists && name && fyai_branch_lookup(r.branches, name, &lb)) {
-			ctx->arena_catalog = lb.catalog;
-			ctx->arena_skills = lb.skills;
+			ctx->bstate->catalog = lb.catalog;
+			ctx->bstate->skills = lb.skills;
 		} else {
-			ctx->arena_catalog = b.catalog;
-			ctx->arena_skills = b.skills;
+			ctx->bstate->catalog = b.catalog;
+			ctx->bstate->skills = b.skills;
 		}
-		ctx->arena_config = b.config;
-		ctx->branch_desc = b.description;
-		ctx->branch_agent = b.agent;
+		ctx->bstate->config = b.config;
+		ctx->bstate->desc = b.description;
+		ctx->bstate->agent = b.agent;
 		fyai_ctx_branch_prev_set(ctx, b.entry);
 		/*
 		 * A fresh session takes the configuration of the branch last
@@ -888,12 +888,12 @@ int fyai_setup_storage(struct fyai_ctx *ctx)
 			if (last) {
 				fyai_branch_lookup(r.branches, last, &lb);
 				if (fy_is_valid(lb.config))
-					ctx->arena_config = lb.config;
+					ctx->bstate->config = lb.config;
 				if (fy_is_valid(lb.catalog))
-					ctx->arena_catalog = lb.catalog;
+					ctx->bstate->catalog = lb.catalog;
 				/* Skills follow the configuration. */
 				if (fy_is_valid(lb.config))
-					ctx->arena_skills = lb.skills;
+					ctx->bstate->skills = lb.skills;
 			}
 			if (cfg->fresh_session_name) {
 				rc = snprintf(session, sizeof(session), "%s",
@@ -918,11 +918,11 @@ int fyai_setup_storage(struct fyai_ctx *ctx)
 			rc = fyai_ctx_set_branch(ctx, session);
 			fyai_error_check(ctx, !rc, err_out,
 					 "could not select the new session");
-			ctx->session_unstored = fyai_ctx_keep_str(ctx, session);
-			fyai_error_check(ctx, ctx->session_unstored, err_out,
+			ctx->bstate->session_unstored = fyai_ctx_keep_str(ctx, session);
+			fyai_error_check(ctx, ctx->bstate->session_unstored, err_out,
 					 "could not keep the new session name");
-			ctx->branch_desc = fy_invalid;
-			ctx->branch_agent = fy_invalid;
+			ctx->bstate->desc = fy_invalid;
+			ctx->bstate->agent = fy_invalid;
 			fyai_ctx_branch_prev_set(ctx, fy_invalid);
 			if (cfg->fresh_session_from)
 				fyai_branch_op_set(ctx, FYAI_BRANCH_OP_CREATE,
@@ -951,7 +951,7 @@ int fyai_setup_storage(struct fyai_ctx *ctx)
 	}
 
 	/* Adopt newly seeded or opened branch configuration into ctx->cfg. */
-	if (fy_is_valid(ctx->arena_config)) {
+	if (fy_is_valid(ctx->bstate->config)) {
 		rc = fyai_config_adopt_arena(ctx);
 		fyai_error_check(ctx, !rc, err_out,
 				 "could not adopt arena configuration");
@@ -1000,7 +1000,7 @@ int fyai_branches_refresh(struct fyai_ctx *ctx)
 	    fyai_root_decode(root, &r) < 0)
 		return -1;
 	ctx->arena->refs_head = head;
-	ctx->arena_branches = r.branches;
+	ctx->bstate->branches = r.branches;
 	/* Keep the branch predecessor in the root that was adopted. */
 	fyai_branch_lookup(r.branches, fyai_ctx_branch(ctx), &cur);
 	fyai_ctx_branch_prev_set(ctx, cur.entry);
@@ -1017,7 +1017,7 @@ int fyai_arena_reopen(struct fyai_ctx *ctx)
 	/* The turns that the cache names may move with the arena. */
 	fyai_request_cache_release(ctx);
 
-	ctx->head_branch = NULL;
+	ctx->bstate->head_branch = NULL;
 
 	/* Do not apply the parent's --new operation twice. */
 	new_conversation = cfg->new_conversation;
@@ -1058,8 +1058,8 @@ static bool storage_session_defer(struct fyai_ctx *ctx)
 	/* An explicit reload publishes even a session with no exchange. */
 	if (ctx->cfg->reload_branch)
 		return false;
-	if (!ctx->session_unstored ||
-	    strcmp(ctx->session_unstored, fyai_ctx_branch(ctx)))
+	if (!ctx->bstate->session_unstored ||
+	    strcmp(ctx->bstate->session_unstored, fyai_ctx_branch(ctx)))
 		return false;
 	fyai_turn_foreach(cur, ctx->last_message) {
 		if (!fyai_turn_is_system_only(cur))
@@ -1078,10 +1078,10 @@ static fy_generic fyai_branches_commit(struct fyai_ctx *ctx)
 
 	name = fyai_ctx_branch(ctx);
 	now = fy_value(ctx->arena->gb, (long long)fyai_branch_timestamp());
-	fyai_branch_decode(ctx->branch_prev, &prev);
+	fyai_branch_decode(ctx->bstate->prev, &prev);
 
 	/* Infer an unlabeled publish from whether the head changed. */
-	op = ctx->branch_op;
+	op = ctx->bstate->op;
 	if (!op) {
 		/*
 		 * Structural sharing makes raw generic identity sufficient,
@@ -1098,18 +1098,18 @@ static fy_generic fyai_branches_commit(struct fyai_ctx *ctx)
 	 */
 	nb = prev;
 	nb.entry = fy_invalid;
-	if (fy_is_mapping(ctx->branch_store))
-		nb.store = ctx->branch_store;
-	nb.config = ctx->arena_config;
-	nb.catalog = ctx->arena_catalog;
-	nb.skills = ctx->arena_skills;
+	if (fy_is_mapping(ctx->bstate->store))
+		nb.store = ctx->bstate->store;
+	nb.config = ctx->bstate->config;
+	nb.catalog = ctx->bstate->catalog;
+	nb.skills = ctx->bstate->skills;
 	nb.head = ctx->last_message;
 	nb.created = fy_is_valid(prev.created) ? prev.created : now;
 	nb.updated = now;
 	if (fy_is_invalid(nb.cwd))
 		nb.cwd = fyai_branch_cwd_generic(ctx->arena->gb);
-	nb.description = ctx->branch_desc;
-	nb.agent = ctx->branch_agent;
+	nb.description = ctx->bstate->desc;
+	nb.agent = ctx->bstate->agent;
 	/*
 	 * The todo list lives only in the store: take it from the store the
 	 * entry is built from, or a rebuild drops the new list. A null reads
@@ -1119,12 +1119,12 @@ static fy_generic fyai_branches_commit(struct fyai_ctx *ctx)
 	if (!fy_is_sequence(nb.todos))
 		nb.todos = fy_invalid;
 	nb.op = fy_value(ctx->arena->gb, op);
-	nb.from = ctx->branch_op_from ?
-		fy_value(ctx->arena->gb, ctx->branch_op_from) : fy_invalid;
-	nb.prev = ctx->branch_prev;
+	nb.from = ctx->bstate->op_from ?
+		fy_value(ctx->arena->gb, ctx->bstate->op_from) : fy_invalid;
+	nb.prev = ctx->bstate->prev;
 	/* An entry with no capture of its own keeps the state of its predecessor. */
-	if (fy_is_mapping(ctx->project_state))
-		nb.project = ctx->project_state;
+	if (fy_is_mapping(ctx->bstate->project_state))
+		nb.project = ctx->bstate->project_state;
 	fyai_branch_op_set(ctx, NULL, NULL);
 
 	entry = fyai_branch_build(ctx->arena->gb, &nb);
@@ -1133,7 +1133,7 @@ static fy_generic fyai_branches_commit(struct fyai_ctx *ctx)
 			   name);
 		return fy_invalid;
 	}
-	entry = fyai_branches_set(ctx->arena->gb, ctx->arena_branches, name, entry);
+	entry = fyai_branches_set(ctx->arena->gb, ctx->bstate->branches, name, entry);
 	if (!fy_is_valid(entry))
 		fyai_error(ctx, "could not place branch '%s' in the branch "
 			   "table", name);
@@ -1209,10 +1209,10 @@ static int fyai_root_publish_try(struct fyai_ctx *ctx)
 	if (rc)
 		return rc;
 	ctx->arena->refs_head = desired;
-	ctx->arena_branches = branchesv;
-	if (ctx->session_unstored &&
-	    !strcmp(ctx->session_unstored, fyai_ctx_branch(ctx))) {
-		ctx->session_unstored = NULL;
+	ctx->bstate->branches = branchesv;
+	if (ctx->bstate->session_unstored &&
+	    !strcmp(ctx->bstate->session_unstored, fyai_ctx_branch(ctx))) {
+		ctx->bstate->session_unstored = NULL;
 	}
 	/* Chain the next publish to the entry that was written. */
 	fyai_ctx_branch_prev_set(ctx, fy_get(branchesv, fyai_ctx_branch(ctx)));
@@ -1423,15 +1423,15 @@ static int publish_store_merge(struct fyai_ctx *ctx, const struct fyai_branch *c
 	fy_generic store, base_store, conflicts, p;
 	bool decoded;
 
-	fyai_branch_decode(ctx->branch_prev, &base);
+	fyai_branch_decode(ctx->bstate->prev, &base);
 	ours = base;
-	if (fy_is_mapping(ctx->branch_store))
-		ours.store = ctx->branch_store;
-	ours.config = ctx->arena_config;
-	ours.catalog = ctx->arena_catalog;
-	ours.skills = ctx->arena_skills;
-	ours.description = ctx->branch_desc;
-	ours.agent = ctx->branch_agent;
+	if (fy_is_mapping(ctx->bstate->store))
+		ours.store = ctx->bstate->store;
+	ours.config = ctx->bstate->config;
+	ours.catalog = ctx->bstate->catalog;
+	ours.skills = ctx->bstate->skills;
+	ours.description = ctx->bstate->desc;
+	ours.agent = ctx->bstate->agent;
 	conflicts = fy_seq_empty;
 	store = fyai_branch_store_build(ctx->arena->gb, &ours);
 	/*
@@ -1478,13 +1478,13 @@ static int publish_store_merge(struct fyai_ctx *ctx, const struct fyai_branch *c
 		free(paths.data);
 	}
 
-	ctx->arena_config = merged.config;
-	ctx->arena_catalog = merged.catalog;
-	ctx->arena_skills = merged.skills;
-	ctx->branch_desc = merged.description;
-	ctx->branch_agent = merged.agent;
+	ctx->bstate->config = merged.config;
+	ctx->bstate->catalog = merged.catalog;
+	ctx->bstate->skills = merged.skills;
+	ctx->bstate->desc = merged.description;
+	ctx->bstate->agent = merged.agent;
 	/* The next publish builds on the merged store, unknown members too. */
-	ctx->branch_store = store;
+	ctx->bstate->store = store;
 	/* A catalogue that they changed is the catalogue of this run too. */
 	return fyai_config_adopt_catalog(ctx);
 
@@ -1512,11 +1512,11 @@ static int publish_reconcile(struct fyai_ctx *ctx)
 			 "could not decode the concurrent root");
 
 	ctx->arena->refs_head = refs;
-	ctx->arena_branches = r.branches;
+	ctx->bstate->branches = r.branches;
 	fyai_branch_lookup(r.branches, fyai_ctx_branch(ctx), &cur);
 
 	/* Our branch is where we left it: nothing of ours is at stake. */
-	if (cur.entry.v == ctx->branch_prev.v) {
+	if (cur.entry.v == ctx->bstate->prev.v) {
 		fyai_ctx_branch_prev_set(ctx, cur.entry);
 		return 0;
 	}
@@ -1526,7 +1526,7 @@ static int publish_reconcile(struct fyai_ctx *ctx)
 	 * that head. The store merges three ways and reports its own
 	 * conflicts.
 	 */
-	fyai_branch_decode(ctx->branch_prev, &base);
+	fyai_branch_decode(ctx->bstate->prev, &base);
 	if (cur.head.v == base.head.v ||
 	    ctx->last_message.v == base.head.v) {
 		if (publish_store_merge(ctx, &cur))
@@ -1569,10 +1569,10 @@ static void storage_project_state(struct fyai_ctx *ctx)
 	struct fyai_branch prev;
 	fy_generic ref, section;
 
-	if (fy_is_mapping(ctx->project_state) || !fyai_project_state_enabled(ctx) ||
+	if (fy_is_mapping(ctx->bstate->project_state) || !fyai_project_state_enabled(ctx) ||
 	    storage_session_defer(ctx))
 		return;
-	fyai_branch_decode(ctx->branch_prev, &prev);
+	fyai_branch_decode(ctx->bstate->prev, &prev);
 	if (prev.head.v == ctx->last_message.v)
 		return;
 	if (fyai_project_state_capture(ctx, &ref) || !fy_is_mapping(ref))
@@ -1582,7 +1582,7 @@ static void storage_project_state(struct fyai_ctx *ctx)
 	if (fy_is_mapping(section) && fy_equal(fy_get(section, "root", ""),
 					       fy_get(ref, "root", "")))
 		return;
-	ctx->project_state = ref;
+	ctx->bstate->project_state = ref;
 }
 
 int fyai_publish_state(struct fyai_ctx *ctx)
@@ -1595,17 +1595,17 @@ int fyai_publish_state(struct fyai_ctx *ctx)
 		return 0;
 	/* Skip a branch that has no state. */
 	if (fy_is_invalid(ctx->last_message) &&
-	    fy_is_invalid(ctx->arena_config) &&
-	    fy_is_invalid(ctx->arena_catalog) &&
-	    fy_is_invalid(ctx->branch_prev))
+	    fy_is_invalid(ctx->bstate->config) &&
+	    fy_is_invalid(ctx->bstate->catalog) &&
+	    fy_is_invalid(ctx->bstate->prev))
 		return 0;
 
 	/*
 	 * The publish consumes the operation label, so keep a copy: a retry
 	 * after a lost CAS must still record what it was doing.
 	 */
-	op = ctx->branch_op;
-	from = ctx->branch_op_from;
+	op = ctx->bstate->op;
+	from = ctx->bstate->op_from;
 	fyai_prof_stamp(&t_publish);
 	storage_project_state(ctx);
 
@@ -1617,8 +1617,8 @@ int fyai_publish_state(struct fyai_ctx *ctx)
 			if (tries)
 				fyai_prof_count("publish_cas_lost", tries);
 			fyai_prof_since("publish_total", &t_publish);
-			ctx->branch_store = fy_invalid;
-			ctx->project_state = fy_invalid;
+			ctx->bstate->store = fy_invalid;
+			ctx->bstate->project_state = fy_invalid;
 			return 0;
 		}
 		if (rc < 0)
@@ -1626,15 +1626,15 @@ int fyai_publish_state(struct fyai_ctx *ctx)
 		/* Lost the CAS: re-read and decide whether it matters. */
 		fyai_prof_stamp(&t_reconcile);
 		if (publish_reconcile(ctx)) {
-			ctx->branch_store = fy_invalid;
-			ctx->project_state = fy_invalid;
+			ctx->bstate->store = fy_invalid;
+			ctx->bstate->project_state = fy_invalid;
 			return -1;
 		}
 		fyai_prof_since("publish_reconcile", &t_reconcile);
 	}
 	fyai_prof_count("publish_cas_lost", tries);
-	ctx->branch_store = fy_invalid;
-	ctx->project_state = fy_invalid;
+	ctx->bstate->store = fy_invalid;
+	ctx->bstate->project_state = fy_invalid;
 	/* Report the branch and the exhausted retry count. */
 	if (rc > 0)
 		fyai_error(ctx, "branch '%s' lost the state race %d times; "
@@ -1653,9 +1653,9 @@ int fyai_publish_root(struct fyai_ctx *ctx, fy_generic config,
 		return -1;
 	}
 	if (fy_is_valid(config))
-		ctx->arena_config = config;
+		ctx->bstate->config = config;
 	if (fy_is_valid(catalog))
-		ctx->arena_catalog = catalog;
+		ctx->bstate->catalog = catalog;
 	if (fy_is_valid(head))
 		ctx->last_message = head;
 	/* A lost race reconciles as every publish of the branch does. */
@@ -1782,7 +1782,7 @@ int fyai_publish_branches(struct fyai_ctx *ctx, fy_generic base,
 		return -1;
 	}
 	if (ctx->cfg && ctx->cfg->transient) {
-		ctx->arena_branches = branches;
+		ctx->bstate->branches = branches;
 		return 0;
 	}
 
@@ -1816,7 +1816,7 @@ int fyai_publish_branches(struct fyai_ctx *ctx, fy_generic base,
 					       FY_ALLOC_REFS_CHECKPOINT);
 		if (!rc) {
 			ctx->arena->refs_head = desired;
-			ctx->arena_branches = merged;
+			ctx->bstate->branches = merged;
 			if (reconciled)
 				fyai_notice(ctx, "state changed concurrently; "
 					    "reapplied branch-table changes");
@@ -1839,11 +1839,11 @@ int fyai_publish_branches(struct fyai_ctx *ctx, fy_generic base,
 		fyai_error_check(ctx, fy_is_valid(merged), err_out,
 				 "could not reconcile branch-table changes");
 		if (!head_changed) {
-			ctx->head_branch = NULL;
+			ctx->bstate->head_branch = NULL;
 			head_name = fyai_root_head_name(&current);
 			if (head_name) {
-				ctx->head_branch = fyai_ctx_keep_str(ctx, head_name);
-				fyai_error_check(ctx, ctx->head_branch, err_out,
+				ctx->bstate->head_branch = fyai_ctx_keep_str(ctx, head_name);
+				fyai_error_check(ctx, ctx->bstate->head_branch, err_out,
 						 "could not keep the concurrent HEAD");
 			}
 		}
@@ -1859,14 +1859,14 @@ int fyai_close_storage(struct fyai_ctx *ctx)
 {
 	fyai_arena_release(ctx->arena);
 	ctx->last_message = fy_invalid;
-	ctx->arena_config = fy_invalid;
-	ctx->arena_catalog = fy_invalid;
-	ctx->arena_skills = fy_invalid;
-	ctx->arena_branches = fy_invalid;
+	ctx->bstate->config = fy_invalid;
+	ctx->bstate->catalog = fy_invalid;
+	ctx->bstate->skills = fy_invalid;
+	ctx->bstate->branches = fy_invalid;
 	fyai_ctx_branch_prev_set(ctx, fy_invalid);
-	ctx->branch_desc = fy_invalid;
-	ctx->branch_agent = fy_invalid;
-	ctx->branch_store = fy_invalid;
+	ctx->bstate->desc = fy_invalid;
+	ctx->bstate->agent = fy_invalid;
+	ctx->bstate->store = fy_invalid;
 	return 0;
 }
 
@@ -2033,7 +2033,7 @@ int fyai_gc_storage(struct fyai_ctx *ctx)
 		/* The roots are those of the cut ref log. */
 		root = (fy_generic){ .v = ctx->arena->refs_head };
 		if (fyai_root_decode(root, &r) >= 0)
-			ctx->arena_branches = r.branches;
+			ctx->bstate->branches = r.branches;
 	}
 	/*
 	 * The files of the project storage that the arena no longer reaches go
@@ -2161,14 +2161,14 @@ int fyai_init_storage(struct fyai_ctx *ctx)
 		}
 		if (rc >= 0) {
 			/* Inherit the default branch's existing state. */
-			ctx->arena_branches = r.branches;
+			ctx->bstate->branches = r.branches;
 			fyai_branch_lookup(r.branches, fyai_ctx_branch(ctx), &b);
 			head = b.head;
 			config = b.config;
 			catalog = b.catalog;
 			fyai_ctx_branch_prev_set(ctx, b.entry);
-			ctx->branch_desc = b.description;
-			ctx->branch_agent = b.agent;
+			ctx->bstate->desc = b.description;
+			ctx->bstate->agent = b.agent;
 		}
 		if (args->config && fy_is_valid(config) &&
 		    !args->force) {
@@ -2203,8 +2203,8 @@ int fyai_init_storage(struct fyai_ctx *ctx)
 			goto out;
 	}
 
-	ctx->arena_config = config;
-	ctx->arena_catalog = catalog;
+	ctx->bstate->config = config;
+	ctx->bstate->catalog = catalog;
 	ctx->last_message = head;
 	rc = fyai_root_publish_try(ctx);
 	if (rc) {

@@ -508,7 +508,7 @@ static void fyai_tool_child_dispatch(struct fyai_ctx *ctx, struct fyai_tool_chil
 
 #ifdef FILC_HAS_ZCALL_ON_FRESH_STACK
 	/* On the fresh stack, before a callee holds the call. */
-	if (ctx->agent_branch && fy_equal(fyai_tool_call_name(ctx, tc->args), "agent"))
+	if (ctx->bstate->agent_branch && fy_equal(fyai_tool_call_name(ctx, tc->args), "agent"))
 		reopen_failed = fyai_agent_reopen_for_call(ctx, &tc->args) != 0;
 #endif
 
@@ -628,14 +628,14 @@ void fyai_tool_child_serve_loop(struct fyai_ctx *ctx)
 			}
 			/* Keep the durable branch on the child context. */
 			if (fy_is_string(tc.branch))
-				ctx->agent_branch = fyai_ctx_keep_str(ctx,
+				ctx->bstate->agent_branch = fyai_ctx_keep_str(ctx,
 					fy_castp(&tc.branch, ""));
 #ifdef FILC_HAS_ZCALL_ON_FRESH_STACK
 			/*
 			 * Run a sub-agent call on a fresh stack: no frame of this
 			 * function or its callers may point into the old arena.
 			 */
-			if (ctx->agent_branch) {
+			if (ctx->bstate->agent_branch) {
 				da.ctx = ctx;
 				da.tc = &tc;
 				da.conn = conn;
@@ -751,7 +751,7 @@ fy_generic fyai_agent_spawn_state(struct fyai_ctx *ctx,
 	fy_generic fork;
 
 	fork = fy_null;
-	if (fy_is_valid(ctx->last_message) && !ctx->session_unstored)
+	if (fy_is_valid(ctx->last_message) && !ctx->bstate->session_unstored)
 		fork = fy_gb_mapping(gb,
 			"branch", fy_value(gb, fyai_ctx_branch(ctx)),
 			"head", (long long)ctx->last_message.v);
@@ -759,11 +759,11 @@ fy_generic fyai_agent_spawn_state(struct fyai_ctx *ctx,
 		"config", fyai_generic_or_null(cfg->config_doc),
 		"theme_variant", cfg->theme_variant ?
 			fy_value(gb, cfg->theme_variant) : fy_null,
-		"branch_config", fyai_generic_or_null(ctx->arena_config),
-		"branch_catalog", fy_is_mapping(ctx->arena_catalog) ?
-			fy_value(gb, (long long)ctx->arena_catalog.v) : fy_null,
-		"branch_skills", fy_is_mapping(ctx->arena_skills) ?
-			fy_value(gb, (long long)ctx->arena_skills.v) : fy_null,
+		"branch_config", fyai_generic_or_null(ctx->bstate->config),
+		"branch_catalog", fy_is_mapping(ctx->bstate->catalog) ?
+			fy_value(gb, (long long)ctx->bstate->catalog.v) : fy_null,
+		"branch_skills", fy_is_mapping(ctx->bstate->skills) ?
+			fy_value(gb, (long long)ctx->bstate->skills.v) : fy_null,
 		"fork", fork,
 		"parent", ctx->agent_execution,
 		"transport", transport_exec ?

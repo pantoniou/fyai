@@ -401,7 +401,7 @@ void fyai_uimodel_state_update(struct fyai_ctx *ctx)
 		return;
 	/* The stored configuration: the layers of this invocation, such as
 	 * the Markdown that a worker forces, are not the client's. */
-	display = fy_get(ctx->arena_config, "display", fy_map_empty);
+	display = fy_get(ctx->bstate->config, "display", fy_map_empty);
 	if (fyai_uimodel_set_member(ctx, FYAI_UI_STATE, "display",
 				    fy_is_mapping(display) ? display :
 				    fy_map_empty) < 0)
@@ -519,15 +519,17 @@ int fyai_uimodel_intent(struct fyai_ctx *ctx, const char *subtype,
 }
 
 void fyai_uimodel_view_detach(struct fyai_ctx *view,
-			      struct fyai_askq *own_askq)
+			      struct fyai_view_own *own)
 {
 	view->uimodel = NULL;
 	view->uilog = NULL;
 	view->uiwork = NULL;
 	view->uitranscript = NULL;
 	view->uidraw = NULL;
-	view->askq = own_askq;
-	fyai_askq_init(own_askq, fyai_cfg_diag(view->cfg));
+	view->askq = &own->askq;
+	fyai_askq_init(&own->askq, fyai_cfg_diag(view->cfg));
+	own->bstate = *view->bstate;
+	view->bstate = &own->bstate;
 	view->uimodel_detached = true;
 }
 

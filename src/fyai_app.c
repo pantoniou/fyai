@@ -50,6 +50,34 @@ void fyai_toolspec_init(struct fyai_toolspec *ts, struct fyai_skills *skills)
 	ts->allow = fy_invalid;
 }
 
+void fyai_branch_state_init(struct fyai_branch_state *bs,
+			    struct fyai_arena *arena, struct fyai_diag *diag)
+{
+	memset(bs, 0, sizeof(*bs));
+	bs->arena = arena;
+	bs->diag = diag;
+	/* A zeroed fy_generic is an empty sequence, not fy_invalid. */
+	bs->config = fy_invalid;
+	bs->catalog = fy_invalid;
+	bs->skills = fy_invalid;
+	bs->branches = fy_invalid;
+	bs->prev = fy_invalid;
+	bs->desc = fy_invalid;
+	bs->agent = fy_invalid;
+	bs->store = fy_invalid;
+	bs->project_state = fy_invalid;
+	bs->tool_changes = fy_seq_empty;
+}
+
+void fyai_usage_init(struct fyai_usage *usage, struct fyai_diag *diag)
+{
+	memset(usage, 0, sizeof(*usage));
+	usage->diag = diag;
+	/* A zeroed fy_generic is an empty sequence, not fy_invalid. */
+	usage->agents_root = fy_invalid;
+	usage->head = fy_invalid;
+}
+
 int fyai_app_init(struct fyai_app *app)
 {
 	int rc;
@@ -69,6 +97,8 @@ int fyai_app_init(struct fyai_app *app)
 	fyai_tty_init(&app->tty, &app->loop, &app->diag);
 	fyai_skills_init(&app->skills, &app->arena, &app->transient);
 	fyai_toolspec_init(&app->toolspec, &app->skills);
+	fyai_branch_state_init(&app->bstate, &app->arena, &app->diag);
+	fyai_usage_init(&app->usage, &app->diag);
 	fyai_link_init(&app->link, &app->loop, &app->cred);
 	fyai_arena_init(&app->arena);
 	fyai_transient_init(&app->transient);
