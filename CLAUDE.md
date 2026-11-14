@@ -171,12 +171,15 @@ initialize each generic field explicitly.
   the whole program shares, in dependency order (`doc/context-components.md`).
   `main()` declares it and everything else borrows from it. Today it holds the
   diagnostics, the event loop, the arena, the transient builder, the
-  credential refresh and the configuration; the other components move in one by one.
+  credential refresh, the model connection and the configuration; the other components move in one by one.
 - `src/fyai_arena.c`: `struct fyai_arena`, the durable and working builders of
   the canonical state. `ctx->arena` points at the one in the app; read
   `ctx->arena->gb` where you need the working builder.
 - `src/fyai_transient.c`: `struct fyai_transient`, the builder for the values of
   one operation. `ctx->transient` points at the one in the app.
+- `src/fyai_link.h`: `struct fyai_link`, the model connection: the curl handle,
+  its headers, the outcome of the last transfer, the curl multi state and the
+  request cache. `ctx->link` points at the one in the app.
 - `src/fyai_cred.c`: `struct fyai_cred`, the shared refresh of the login and
   the secrets in memory. `ctx->cred` points at the one in the app; it stands
   on the loop of the app for its timer.
