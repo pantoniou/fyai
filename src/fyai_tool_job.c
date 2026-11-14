@@ -2117,6 +2117,18 @@ static void fyai_tool_job_group_dispatch(struct fyai_tool_job_group *group)
 			group->parked++;
 			continue;
 		}
+		if (!entry->parallel && name && !strcmp(name, "ask_user")) {
+			/* The page answers it from a callback; nothing waits. */
+			entry->ask = fyai_ask_call_start(group->ctx,
+				fyai_tool_call_args(group->ctx, call),
+				fyai_tool_job_group_waiter_done, group);
+			if (entry->ask) {
+				entry->result_ok = true;
+				entry->state = FYAITGS_RUNNING;
+				group->active++;
+				continue;
+			}
+		}
 		if (!entry->parallel) {
 			result = fyai_execute_tool_call(group->ctx, call,
 							&entry->result_ok);
@@ -2179,6 +2191,14 @@ void fyai_tool_job_group_service(struct fyai_tool_job_group *group)
 		}
 		if (entry->waiter) {
 			if (!fyai_waiter_done(entry->waiter))
+				continue;
+			entry->state = FYAITGS_PARKED;
+			group->active--;
+			group->parked++;
+			continue;
+		}
+		if (entry->ask) {
+			if (!fyai_ask_call_done(entry->ask))
 				continue;
 			entry->state = FYAITGS_PARKED;
 			group->active--;
@@ -2248,6 +2268,12 @@ void fyai_tool_job_group_cancel(struct fyai_tool_job_group *group)
 			entry->state = FYAITGS_PARKED;
 			group->active--;
 			group->parked++;
+		} else if (entry->state == FYAITGS_RUNNING && entry->ask) {
+			/* The model gets the declined result; it ends here. */
+			fyai_ask_call_cancel(entry->ask);
+			entry->state = FYAITGS_PARKED;
+			group->active--;
+			group->parked++;
 		} else if (entry->state == FYAITGS_RUNNING) {
 			if (entry->mcp_request)
 				fyai_mcp_call_cancel(entry->mcp_request);
@@ -2303,6 +2329,12 @@ int fyai_tool_job_group_collect(struct fyai_tool_job_group *group,
 		*result = fy_gb_internalize(group->ctx->transient_gb,
 					    fy_value(text ? text : ""));
 		free(text);
+	} else if (entry->ask) {
+		*result = fy_gb_internalize(group->ctx->transient_gb,
+					    fyai_ask_call_result(entry->ask));
+		*okp = entry->result_ok;
+		fyai_ask_call_destroy(entry->ask);
+		entry->ask = NULL;
 	} else if (entry->mcp_request) {
 		*result = fyai_mcp_call_collect(entry->mcp_request, okp);
 		fyai_mcp_call_destroy(entry->mcp_request);
@@ -2337,6 +2369,7 @@ void fyai_tool_job_group_destroy(struct fyai_tool_job_group *group)
 			fyai_tool_job_discard(entry->job);
 		fyai_mcp_call_destroy(entry->mcp_request);
 		fyai_waiter_destroy(entry->waiter);
+		fyai_ask_call_destroy(entry->ask);
 	}
 	free(group->entries);
 	fy_generic_builder_destroy(group->gb);

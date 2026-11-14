@@ -230,6 +230,8 @@ enum fyai_tool_group_state {
 	FYAITGS_SUBMIT_FAILED,
 };
 
+struct fyai_ask_call;
+
 struct fyai_tool_group_entry {
 	fy_generic call;		/* held in the builder of the group */
 	fy_generic result;
@@ -237,6 +239,7 @@ struct fyai_tool_group_entry {
 	struct fyai_tool_job *job;
 	struct fyai_mcp_call_request *mcp_request;
 	struct fyai_waiter *waiter;	/* a wait for an event of this group */
+	struct fyai_ask_call *ask;	/* an ask_user that the page answers */
 	enum fyai_tool_group_state state;
 	bool parallel;
 	bool result_ok;
@@ -299,6 +302,21 @@ const char *fyai_shell_shell_requested(struct fyai_ctx *ctx,
 bool fyai_shell_login_requested(struct fyai_ctx *ctx, fy_generic call);
 char *fyai_shell_bound_alloc(const char *text, size_t max_bytes);
 fy_generic fyai_ask_declined(struct fyai_ctx *ctx);
+
+/*
+ * An `ask_user` call put through the input area of the page. start returns
+ * NULL when the call is not one for the page: the call then runs as text.
+ * @notify runs when the user has answered or the call was cancelled.
+ */
+struct fyai_ask_call;
+struct fyai_ask_call *fyai_ask_call_start(struct fyai_ctx *ctx, fy_generic args,
+					  void (*notify)(void *userdata),
+					  void *userdata);
+bool fyai_ask_call_done(const struct fyai_ask_call *call);
+/* The result, valid until the call is destroyed; fy_invalid before it is done. */
+fy_generic fyai_ask_call_result(const struct fyai_ask_call *call);
+void fyai_ask_call_cancel(struct fyai_ask_call *call);
+void fyai_ask_call_destroy(struct fyai_ask_call *call);
 fy_generic fyai_ask_user_from(struct fyai_ctx *ctx, fy_generic args,
 			      const char *from);
 int fyai_tool_apply_sandbox(struct fyai_ctx *ctx);

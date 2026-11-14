@@ -1236,66 +1236,142 @@ static fy_generic fyai_ask_user_upward(struct fyai_ctx *ctx,
 	return result;
 }
 
-/* The questions put through the input area of the page, and their replies. */
-struct fyai_ask_wait {
-	bool done;
-	bool failed;
-	bool given;
+/*
+ * An `ask_user` call that the input area of the page answers. The call is
+ * settled from the callback of fyai_ask_open(): nothing steps the loop to wait
+ * for the user. The result lives in the builder of the call, because the
+ * transient builder can go before the user answers.
+ */
+struct fyai_ask_call {
+	struct fyai_ctx *ctx;
+	struct fy_generic_builder *gb;
+	fy_generic questions;
+	fy_generic result;
+	void (*notify)(void *userdata);
+	void *userdata;
 	struct fyai_ask_reply replies[FYAI_ASK_QUESTIONS_MAX];
 	size_t n;
+	bool done;
+	bool given;
+	bool failed;
 };
 
-static void fyai_ask_user_done(void *user, const struct fyai_ask_reply *replies,
-			       size_t n)
+/* Build the result of the call from the replies, or from none. */
+static void fyai_ask_call_settle(struct fyai_ask_call *c)
 {
-	struct fyai_ask_wait *w = user;
-	size_t i;
-
-	w->done = true;
-	if (!replies)
-		return;
-	w->given = true;
-	for (i = 0; i < n; i++) {
-		w->replies[i].selected = replies[i].selected;
-		if (!replies[i].other)
-			continue;
-		w->replies[i].other = strdup(replies[i].other);
-		w->failed |= !w->replies[i].other;
-	}
-	w->n = n;
-}
-
-/* Ask through the input area of the page and wait for the answers. */
-static fy_generic fyai_ask_user_page(struct fyai_ctx *ctx, fy_generic questions,
-				     const char *from)
-{
-	struct fyai_ask_wait w = { 0 };
-	fy_generic result;
+	struct fyai_ctx *ctx = c->ctx;
+	const char *text;
 	char *echo;
 
-	if (fyai_ask_open(ctx, questions, from, fyai_ask_user_done, &w))
-		return fy_value(ctx->transient_gb,
-				"tool error: the questions could not be asked");
-	while (!w.done) {
-		if (fyai_event_loop_step(fyai_ctx_loop(ctx), -1) < 0)
-			break;
-	}
-	if (!w.done) {
-		fyai_ask_close(ctx, &w);
-		fyai_error(ctx, "ask_user: the event loop stopped while waiting "
-			   "for an answer");
-		return fyai_ask_declined(ctx);
-	}
-	if (w.failed)
+	if (c->failed)
 		fyai_error(ctx, "ask_user: could not keep the answer");
-	echo = fyai_ask_echo(questions, w.given ? w.replies : NULL, w.n);
+	echo = fyai_ask_echo(c->questions, c->given ? c->replies : NULL, c->n);
 	if (echo)
 		fyai_report(ctx, "\n%s", echo);
 	free(echo);
-	result = fyai_ask_result(ctx->transient_gb, questions,
-				 w.given ? w.replies : NULL, w.n);
-	fyai_ask_replies_free(w.replies, w.n);
-	return result;
+	c->result = fyai_ask_result(c->gb, c->questions,
+				    c->given ? c->replies : NULL, c->n);
+	/* A function tool gives the model text, as fyai_tool_result_text() does. */
+	if (fy_is_mapping(c->result) || fy_is_sequence(c->result)) {
+		text = emit_json_string(c->gb, c->result);
+		c->result = fy_value(c->gb, text ? text :
+				     "tool error: could not format the result");
+	}
+	fyai_ask_replies_free(c->replies, c->n);
+	c->n = 0;
+	c->done = true;
+}
+
+static void fyai_ask_call_replied(void *user,
+				  const struct fyai_ask_reply *replies,
+				  size_t n)
+{
+	struct fyai_ask_call *c = user;
+	size_t i;
+
+	if (replies) {
+		c->given = true;
+		for (i = 0; i < n; i++) {
+			c->replies[i].selected = replies[i].selected;
+			if (!replies[i].other)
+				continue;
+			c->replies[i].other = strdup(replies[i].other);
+			c->failed |= !c->replies[i].other;
+		}
+		c->n = n;
+	}
+	fyai_ask_call_settle(c);
+	if (c->notify)
+		c->notify(c->userdata);
+}
+
+struct fyai_ask_call *fyai_ask_call_start(struct fyai_ctx *ctx, fy_generic args,
+					  void (*notify)(void *userdata),
+					  void *userdata)
+{
+	struct fy_generic_builder_cfg bcfg = { .flags = FYGBCF_SCOPE_LEADER };
+	struct fyai_cfg *cfg = ctx->cfg;
+	struct fyai_ask_call *c;
+	char why[160];
+	int rc;
+
+	if (fyai_agent_delegated(ctx) || ctx->answer_next < cfg->answer_count ||
+	    !fyai_ui_ask_available(ctx) || fyai_asks_background(args) ||
+	    !fyai_skill_tool_allowed(ctx, "ask_user"))
+		return NULL;
+	c = calloc(1, sizeof(*c));
+	fyai_error_check(ctx, c, err_out, "ask_user: cannot keep the call");
+	c->ctx = ctx;
+	c->notify = notify;
+	c->userdata = userdata;
+	c->gb = fy_generic_builder_create(&bcfg);
+	fyai_error_check(ctx, c->gb, err_free,
+			 "ask_user: cannot make the builder of the call");
+	args = fyai_tool_args_normalize(ctx->transient_gb, "ask_user", args);
+	c->questions = fyai_ask_normalize(c->gb, args, why, sizeof(why));
+	/* The text path reports a question that is not valid. */
+	if (fy_is_invalid(c->questions))
+		goto err_free;
+	rc = fyai_ask_open(ctx, c->questions, NULL, fyai_ask_call_replied, c);
+	if (rc)
+		goto err_free;
+	return c;
+err_free:
+	fyai_ask_call_destroy(c);
+err_out:
+	return NULL;
+}
+
+bool fyai_ask_call_done(const struct fyai_ask_call *c)
+{
+	return c && c->done;
+}
+
+fy_generic fyai_ask_call_result(const struct fyai_ask_call *c)
+{
+	return c && c->done ? c->result : fy_invalid;
+}
+
+/* Take the questions back and give the model the declined result. */
+void fyai_ask_call_cancel(struct fyai_ask_call *c)
+{
+	if (!c || c->done)
+		return;
+	fyai_ask_close(c->ctx, c);
+	c->notify = NULL;
+	fyai_ask_call_settle(c);
+}
+
+void fyai_ask_call_destroy(struct fyai_ask_call *c)
+{
+	if (!c)
+		return;
+	if (!c->done)
+		fyai_ask_close(c->ctx, c);
+	fyai_ask_replies_free(c->replies, c->n);
+	if (c->gb)
+		fy_generic_builder_destroy(c->gb);
+	free(c);
 }
 
 /*
@@ -1396,20 +1472,20 @@ fy_generic fyai_ask_user_from(struct fyai_ctx *ctx, fy_generic args,
 	if (!from && fyai_agent_delegated(ctx) && ctx->tool_rpc)
 		return fyai_ask_user_upward(ctx, questions);
 
-	/* The page renderer puts the questions in its input area. */
-	if (ctx->answer_next >= cfg->answer_count && fyai_ui_ask_available(ctx)) {
+	/*
+	 * A question that the page answers is an entry of the tool group
+	 * (fyai_ask_call_start()); only a background question starts here.
+	 */
+	if (!from && ctx->answer_next >= cfg->answer_count &&
+	    fyai_ui_ask_available(ctx) && fyai_asks_background(args)) {
 		gname = fy_get(args, "name", fy_invalid);
 		name = fy_castp(&gname, "");
-		/* A background question does not hold the turn. */
-		if (!from && fyai_asks_background(args)) {
-			result = fyai_asks_start(ctx, ctx->transient_gb, name,
-						 questions);
-			if (fy_is_invalid(result))
-				return fy_value(ctx->transient_gb, "tool error: "
-						"the questions could not be asked");
-			return result;
-		}
-		return fyai_ask_user_page(ctx, questions, from);
+		result = fyai_asks_start(ctx, ctx->transient_gb, name,
+					 questions);
+		if (fy_is_invalid(result))
+			return fy_value(ctx->transient_gb, "tool error: "
+					"the questions could not be asked");
+		return result;
 	}
 	return fyai_ask_user_lines(ctx, questions, from);
 }
