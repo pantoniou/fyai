@@ -325,9 +325,10 @@ int uimodel_bands(void)
 int uimodel_view_detached(void)
 {
 	struct fyai_cfg cfg = { 0 };
-	struct fyai_ctx ctx = { .cfg = &cfg };
+	struct fyai_branch_state bstate = {};
+	struct fyai_ctx ctx = { .cfg = &cfg, .bstate = &bstate };
 	struct fyai_ctx view;
-	struct fyai_askq askq;
+	struct fyai_view_own own;
 	char one;
 	int rc;
 
@@ -335,7 +336,7 @@ int uimodel_view_detached(void)
 	rc = uimodel_put(&ctx, "live");
 	FYAI_TCHECK(rc == 1 && ctx.uimodel);
 	view = ctx;
-	fyai_uimodel_view_detach(&view, &askq);
+	fyai_uimodel_view_detach(&view, &own);
 	rc = uimodel_put(&view, "view");
 	fyai_uiwork_band_open(&view, (struct fyai_sink_band *)&one, true,
 			      "view", NULL);

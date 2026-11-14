@@ -44,6 +44,8 @@ FYAI_TEST_ENTRY(app, wires_scope, app_wires_scope)
 FYAI_TEST_ENTRY(app, wires_tty, app_wires_tty)
 FYAI_TEST_ENTRY(app, wires_skills, app_wires_skills)
 FYAI_TEST_ENTRY(app, wires_toolspec, app_wires_toolspec)
+FYAI_TEST_ENTRY(app, wires_bstate, app_wires_bstate)
+FYAI_TEST_ENTRY(app, wires_usage, app_wires_usage)
 FYAI_TEST_ENTRY(app, wires_link, app_wires_link)
 FYAI_TEST_ENTRY(app, wires_cred, app_wires_cred)
 FYAI_TEST_ENTRY(app, cred_holds_login_state, app_cred_holds_login_state)
@@ -230,6 +232,33 @@ int app_wires_toolspec(void)
 	FYAI_TCHECK(!app.toolspec.generation && !app.toolspec.agent_child);
 	fyai_app_cleanup(&app);
 	printf("ok - the tool specification starts unbuilt\n");
+	return 0;
+}
+
+int app_wires_bstate(void)
+{
+	struct fyai_app app;
+
+	FYAI_TCHECK(!fyai_app_init(&app));
+	FYAI_TCHECK(app.bstate.arena == &app.arena && app.bstate.diag == &app.diag);
+	FYAI_TCHECK(!app.bstate.name && !app.bstate.head_branch && !app.bstate.reopened);
+	FYAI_TCHECK(fy_is_invalid(app.bstate.config) && fy_is_invalid(app.bstate.branches));
+	FYAI_TCHECK(fy_is_invalid(app.bstate.prev) && fy_is_invalid(app.bstate.store));
+	fyai_app_cleanup(&app);
+	printf("ok - the branch cursor starts at no branch\n");
+	return 0;
+}
+
+int app_wires_usage(void)
+{
+	struct fyai_app app;
+
+	FYAI_TCHECK(!fyai_app_init(&app));
+	FYAI_TCHECK(app.usage.diag == &app.diag);
+	FYAI_TCHECK(!app.usage.input && !app.usage.calls && !app.usage.switch_pending);
+	FYAI_TCHECK(fy_is_invalid(app.usage.head) && fy_is_invalid(app.usage.agents_root));
+	fyai_app_cleanup(&app);
+	printf("ok - the usage accounting starts at zero\n");
 	return 0;
 }
 

@@ -461,7 +461,8 @@ int cmd_sorted(void)
 int cmd_complete_view(void)
 {
 	struct cmd_test t;
-	struct fyai_ctx ctx = { 0 };
+	struct fyai_branch_state bstate = {};
+	struct fyai_ctx ctx = { .bstate = &bstate };
 	struct cands c;
 	fy_generic views, team, tviews, store;
 	const char *commands[] = { "show", "update", "diff", "remove",
@@ -475,7 +476,7 @@ int cmd_complete_view(void)
 			   fy_mapping(t.gb, "project", "/project"),
 			   "other-view", fy_mapping(t.gb, "project", "/other"),
 			   "test-invalid", 42LL);
-	ctx.branch_prev =
+	ctx.bstate->prev =
 		fy_mapping(t.gb, "store", fy_mapping(t.gb, "views", views));
 	for (i = 0; i < ARRAY_SIZE(commands); i++) {
 		words[1] = commands[i];
@@ -494,7 +495,7 @@ int cmd_complete_view(void)
 	team = fy_mapping(t.gb, "project", "/team");
 	tviews = fy_mapping(t.gb, "team-view", team);
 	store = fy_mapping(t.gb, "views", tviews);
-	ctx.branch_prev = fy_mapping(t.gb, "store", store);
+	ctx.bstate->prev = fy_mapping(t.gb, "store", store);
 	memset(&c, 0, sizeof(c));
 	fyai_cmd_complete(&ctx, FYAI_CMD_CLI, 3, words, cands_add, &c);
 	FYAI_TCHECK(!strcmp(c.buf, "team-view\n"));

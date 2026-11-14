@@ -409,7 +409,8 @@ int auth_recorded_usage(void)
 {
 	struct fy_generic_builder_cfg gbcfg = { .flags = FYGBCF_SCOPE_LEADER };
 	struct fy_generic_builder *gb = fy_generic_builder_create(&gbcfg);
-	struct fyai_ctx ctx = { .last_message = fy_invalid };
+	struct fyai_branch_state bstate = {};
+	struct fyai_ctx ctx = { .last_message = fy_invalid, .bstate = &bstate };
 	fy_generic result, usage, meta, prev;
 
 	FYAI_TCHECK(gb != NULL);

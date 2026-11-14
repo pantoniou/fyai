@@ -72,12 +72,12 @@ static void fixture_open(struct sink_fixture *f)
 	f->ctx.tools = fy_invalid;
 	fyai_test_attach(&f->ctx);
 	f->ctx.toolspec->spec = fy_invalid;
-	f->ctx.arena_config = fy_invalid;
-	f->ctx.arena_catalog = fy_invalid;
-	f->ctx.arena_branches = fy_invalid;
-	f->ctx.branch_prev = fy_invalid;
-	f->ctx.branch_desc = fy_invalid;
-	f->ctx.branch_agent = fy_invalid;
+	f->ctx.bstate->config = fy_invalid;
+	f->ctx.bstate->catalog = fy_invalid;
+	f->ctx.bstate->branches = fy_invalid;
+	f->ctx.bstate->prev = fy_invalid;
+	f->ctx.bstate->desc = fy_invalid;
+	f->ctx.bstate->agent = fy_invalid;
 	f->ctx.last_token_extents = fy_invalid;
 	/* The live document is drawn from the transcript store. */
 	if (fyai_uimodel_create(&f->ctx)) {
@@ -358,12 +358,12 @@ static void test_protocol_fd_stays_clean(void)
 	f.ctx.last_message = fy_invalid;
 	f.ctx.tools = fy_invalid;
 	f.ctx.toolspec->spec = fy_invalid;
-	f.ctx.arena_config = fy_invalid;
-	f.ctx.arena_catalog = fy_invalid;
-	f.ctx.arena_branches = fy_invalid;
-	f.ctx.branch_prev = fy_invalid;
-	f.ctx.branch_desc = fy_invalid;
-	f.ctx.branch_agent = fy_invalid;
+	f.ctx.bstate->config = fy_invalid;
+	f.ctx.bstate->catalog = fy_invalid;
+	f.ctx.bstate->branches = fy_invalid;
+	f.ctx.bstate->prev = fy_invalid;
+	f.ctx.bstate->desc = fy_invalid;
+	f.ctx.bstate->agent = fy_invalid;
 	f.ctx.last_token_extents = fy_invalid;
 	/* The terminal backend: the one that reaches a descriptor. */
 	f.ctx.sink = fyai_sink_create(&f.ctx);
@@ -459,12 +459,12 @@ static void test_reflow_follows_width(void)
 	f.ctx.last_message = fy_invalid;
 	f.ctx.tools = fy_invalid;
 	f.ctx.toolspec->spec = fy_invalid;
-	f.ctx.arena_config = fy_invalid;
-	f.ctx.arena_catalog = fy_invalid;
-	f.ctx.arena_branches = fy_invalid;
-	f.ctx.branch_prev = fy_invalid;
-	f.ctx.branch_desc = fy_invalid;
-	f.ctx.branch_agent = fy_invalid;
+	f.ctx.bstate->config = fy_invalid;
+	f.ctx.bstate->catalog = fy_invalid;
+	f.ctx.bstate->branches = fy_invalid;
+	f.ctx.bstate->prev = fy_invalid;
+	f.ctx.bstate->desc = fy_invalid;
+	f.ctx.bstate->agent = fy_invalid;
 	f.ctx.last_token_extents = fy_invalid;
 	expect_true("the UI model opened", !fyai_uimodel_create(&f.ctx));
 	f.ctx.sink = fyai_sink_create(&f.ctx);

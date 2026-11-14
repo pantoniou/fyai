@@ -206,6 +206,28 @@ static inline struct fyai_toolspec *fyai_test_toolspec_of(struct fyai_ctx *ctx)
 	return ctx->toolspec;
 }
 
+static inline struct fyai_branch_state *fyai_test_bstate_of(struct fyai_ctx *ctx)
+{
+	if (!ctx->bstate) {
+		ctx->bstate = calloc(1, sizeof(*ctx->bstate));
+		if (!ctx->bstate)
+			return NULL;
+		fyai_branch_state_init(ctx->bstate, ctx->arena, fyai_cfg_diag(ctx->cfg));
+	}
+	return ctx->bstate;
+}
+
+static inline struct fyai_usage *fyai_test_usage_of(struct fyai_ctx *ctx)
+{
+	if (!ctx->usage) {
+		ctx->usage = calloc(1, sizeof(*ctx->usage));
+		if (!ctx->usage)
+			return NULL;
+		fyai_usage_init(ctx->usage, fyai_cfg_diag(ctx->cfg));
+	}
+	return ctx->usage;
+}
+
 /*
  * Give a test context every component that it lacks. The ones that the test
  * gave it stay.
@@ -220,6 +242,8 @@ static inline void fyai_test_attach(struct fyai_ctx *ctx)
 	fyai_test_scope_of(ctx);
 	fyai_test_tty_of(ctx);
 	fyai_test_toolspec_of(ctx);
+	fyai_test_bstate_of(ctx);
+	fyai_test_usage_of(ctx);
 }
 
 #endif

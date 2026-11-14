@@ -68,9 +68,9 @@ static int settings_setup(void)
 	test_cfg.gb = fyai_test_transient_of(&test_ctx)->gb;
 	test_ctx.toolspec->spec = fy_invalid;
 	/* No catalogue in the branch: the embedded snapshot is read. */
-	test_ctx.arena_catalog = fy_invalid;
+	test_ctx.bstate->catalog = fy_invalid;
 	test_cfg.model_access = FYAI_MODEL_REVIEW;
-	test_ctx.arena_config = doc(
+	test_ctx.bstate->config = doc(
 		"{temperature: 0.5, "
 		"mcp: {enabled: false, auth_token: {type: env, value: TOK}}}");
 	test_cfg.config_session = doc("{display: {theme: ember}}");
@@ -293,8 +293,8 @@ int settings_format(void)
 	FYAI_TCHECK(fyai_config_session_scoped("display/theme_ground"));
 	FYAI_TCHECK(fyai_config_session_scoped("display/table_border"));
 	/* A default is the displayed old value even when the branch is empty. */
-	saved_config = test_ctx.arena_config;
-	test_ctx.arena_config = doc("{}");
+	saved_config = test_ctx.bstate->config;
+	test_ctx.bstate->config = doc("{}");
 	r = run("{action: change, changes: [{path: display/table_border, "
 		"value: grid}]}", &ok);
 	FYAI_TCHECK(ok);
@@ -309,7 +309,7 @@ int settings_format(void)
 	FYAI_TCHECK(ok && strstr(fy_get(r, "diff", ""),
 				"--- a/config.yaml\n+++ b/config.yaml\n") &&
 		    !fy_is_valid(fy_get(r, "scope", fy_invalid)));
-	test_ctx.arena_config = saved_config;
+	test_ctx.bstate->config = saved_config;
 	FYAI_TCHECK(def && def->format_result);
 	FYAI_TCHECK(fyai_tool_has("settings", FYAI_TOOL_WHOLE_RESULT));
 	FYAI_TCHECK(fyai_tool_has("settings", FYAI_TOOL_ROOT_ONLY));

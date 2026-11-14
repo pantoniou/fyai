@@ -219,25 +219,25 @@ int branch_adopt_ends_unstored(void)
 	ctx.cfg = &cfg;
 	fyai_test_arena_of(&ctx)->gb = gb;
 	ctx.last_message = fy_invalid;
-	ctx.arena_config = fy_invalid;
-	ctx.arena_catalog = fy_invalid;
-	ctx.arena_skills = fy_invalid;
-	ctx.branch_prev = fy_invalid;
-	ctx.branch_desc = fy_invalid;
-	ctx.branch_agent = fy_invalid;
-	ctx.arena_branches = fy_mapping(gb,
+	ctx.bstate->config = fy_invalid;
+	ctx.bstate->catalog = fy_invalid;
+	ctx.bstate->skills = fy_invalid;
+	ctx.bstate->prev = fy_invalid;
+	ctx.bstate->desc = fy_invalid;
+	ctx.bstate->agent = fy_invalid;
+	ctx.bstate->branches = fy_mapping(gb,
 		"stored", entry_new(gb, 10, 20, "/w"));
 	FYAI_TCHECK(!fyai_ctx_set_branch(&ctx, "session/fresh"));
-	ctx.session_unstored = fyai_ctx_keep_str(&ctx, "session/fresh");
-	FYAI_TCHECK(ctx.session_unstored);
+	ctx.bstate->session_unstored = fyai_ctx_keep_str(&ctx, "session/fresh");
+	FYAI_TCHECK(ctx.bstate->session_unstored);
 
 	/* A branch that is not stored is not adopted, and the session stays. */
 	FYAI_TCHECK(fyai_branch_adopt(&ctx, "missing", true));
-	FYAI_TCHECK(ctx.session_unstored);
+	FYAI_TCHECK(ctx.bstate->session_unstored);
 
 	FYAI_TCHECK(!fyai_branch_adopt(&ctx, "stored", true));
 	FYAI_TCHECK(!strcmp(fyai_ctx_branch(&ctx), "stored"));
-	FYAI_TCHECK(!ctx.session_unstored);
+	FYAI_TCHECK(!ctx.bstate->session_unstored);
 
 	fy_generic_builder_destroy(cfg.gb);
 	fy_generic_builder_destroy(gb);
