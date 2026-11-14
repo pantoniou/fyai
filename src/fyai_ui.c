@@ -3234,10 +3234,9 @@ static void ui_select(struct fyai_ui *ui, const struct fytim_event *ev)
 	free(text);
 }
 
-static enum fyai_event_action ui_service(struct fyai_ui *ui)
+/* The frame of the service: the size, the page, the pump and the owners. */
+static enum fyai_event_action ui_service_frame(struct fyai_ui *ui)
 {
-	struct fytim_surface *sf;
-	struct fytim_event ev;
 	bool painted_frame;
 
 	/* Recover a resize the signal path missed. A lost or coalesced
@@ -3279,182 +3278,206 @@ static enum fyai_event_action ui_service(struct fyai_ui *ui)
 			fyai_event_now_ms() +
 			ui->ctx->cfg->tool_update_interval_ms;
 	}
-	while (fytim_next_event(ui->ft, &ev)) {
-			switch (ev.type) {
-		case FYTIM_EVENT_LINE:
-			ui_message_clear(ui);
-			/* A line of a mirror is for the process that owns the
-			 * model: it is queued for the client. */
-			if (fyai_uimodel_mirrored(ui->ctx))
-				goto queue;
-			if (fyai_cmd_session_input(ui->ctx, ev.text))
-				break;
-			if (fyai_browser_input(ui->ctx, ev.text))
-				break;
-			if (fyai_agents_input(ui->ctx, ev.text))
-				break;
-			if (ui->busy && !strcmp(ev.text, "/branches")) {
-				(void)fyai_browser_open(ui->ctx);
-				break;
-			}
-			if (ui->busy && !strncmp(ev.text, "/branch attach ", 15)) {
-				if (!fyai_agents_zoom(ui->ctx, ev.text + 15, true))
-					fyai_report(ui->ctx, "no reachable live agent named %s", ev.text + 15);
-				break;
-			}
-queue:
-			if (!ui_line_blank(ev.text)) {
-				ui_queue(ui, ev.text);
-				(void)fytim_history_add(ui->ft, ev.text);
-			}
-			break;
-		case FYTIM_EVENT_INTERRUPT:
-			if (fyai_tools_btw_dismiss_focused(ui->ctx))
-				break;
-			/* Escape only now; ^C arrives as SIGINT. Both mean
-			 * the same thing to the session, except that Escape
-			 * first clears a short result of an idle session. */
-			if (ui->note_nlines && !ui->busy)
-				ui_note_clear(ui);
-			else
-				(void)ui_interrupt(ui->ctx, false);
-			break;
-		case FYTIM_EVENT_QUIT:
-			ui->quit = true;
-			ui->ready = true;
-			ui->ctx->interrupt_pending = true;
-			break;
-		case FYTIM_EVENT_EDIT:
-			ui_message_clear(ui);
-			if (!ui->editor_request)
-				(void)ui_edit_begin(ui);
-			break;
-		case FYTIM_EVENT_FOCUS_NEXT:
-			/* Ctrl-Tab or Ctrl-T cycles terminal keyboard focus. */
-			(void)fyai_tools_focus_next(ui->ctx);
-			/* What was typed after the key waits for the next
-			 * frame, which reads it for the new owner. */
-			fyai_ui_wake(ui->ctx);
-			break;
-		case FYTIM_EVENT_KEYS_LOST:
-			fyai_warning(ui->ctx, "keys typed after a focus key "
-				     "were lost: too many in one frame");
-			break;
-		case FYTIM_EVENT_ZOOM_ROWS_NEXT:
-			fyai_workpane_cycle_disposition(ui->ctx->workpane);
-			break;
-		case FYTIM_EVENT_RESIZE: {
-			int rows = ev.height;
-			int width = ev.width;
+	return FYAIEA_CONTINUE;
+}
 
-			/* Use one terminal snapshot for both dimensions. */
-			(void)terminal_window_size(ui->tty_fd, &rows, &width);
-			ui_apply_resize(ui, rows, width);
-			fyai_cast_resize(ui->cast, width, rows);
-			break;
-		}
-		case FYTIM_EVENT_REDRAW:
-			/* Ctrl-L requests a clean repaint. */
-			ui->repaint_pending = true;
-			break;
-		case FYTIM_EVENT_GLYPH_WIDTH:
-			/* A glyph is narrower than the rows made with it: make
-			 * them again, as a change of width does. */
-			fyai_transcript_view_invalidate(ui->view);
-			ui->reflow_pending = true;
-			ui->repaint_pending = true;
-			ui->frame_pending = true;
-			break;
-		case FYTIM_EVENT_SURFACE_KEYS:
-			/* The keys belong to a program, not to the prompt. */
-			if (ui->inline_focus && ui->inline_keys_fn)
-				ui->inline_keys_fn(ui->inline_keys_data,
-						   ev.text, ev.text_len);
-			else if (ui->keys_fn)
-				ui->keys_fn(ui->keys_data, ev.text,
-					    ev.text_len);
-			else
-				(void)fyai_ui_keys_return(ui->ctx, ev.text,
-							  ev.text_len);
-			break;
-		case FYTIM_EVENT_SCROLLBACK:
-			/* Fullscreen status updates do not change terminal scrollback. */
-			if (!ui->fullscreen)
-				ui->activity_paused = true;
-			/* An open popup covers the page: every scroll is its.
-			 * Else a key, or the wheel over the transcript, scrolls
-			 * the view of a fullscreen page. */
-			if (ui_popup_open(ui)) {
-				fyai_transcript_view_scroll(ui->popup, ev.delta,
-							    ui->popup_rows);
-				ui->frame_pending = true;
-			} else if (ev.text && ev.text_len > 6 &&
-				   !memcmp(ev.text, "panel:", 6)) {
-				int step, n = ev.delta < 0 ? -ev.delta : ev.delta;
-				const char *arg = fy_sprintfa("%.*s/%s",
-					(int)ev.text_len - 6, ev.text + 6,
-					ev.delta > 0 ? "up" : "down");
-
-				for (step = 0; step < n; step++)
-					ui_panel_scroll_act(ui->ctx, arg);
-			} else if (ui_tile_scrolls(ui) &&
-				   ui_band_wheel(ui, ev.text, ev.text_len,
-						 ev.delta)) {
-				ui->frame_pending = true;
-			} else if (ui_tile_scrolls(ui) &&
-				   (sf = ui_slot_surface(ui, ev.text,
-							 ev.text_len))) {
-				/* The wheel over a tile the page draws is
-				 * that tile's, as the library gives it the
-				 * wheel over a tile it draws. */
-				fyai_tools_surface_request(ui->ctx, sf,
-							   ev.delta);
-			} else if (ui->fullscreen &&
-				   (!ev.text || (ev.text_len == 10 &&
-						 !memcmp(ev.text, "transcript",
-							 10)))) {
-				fyai_transcript_view_scroll(ui->view, ev.delta,
-							    ui->view_rows);
-				ui->frame_pending = true;
-			}
-			break;
-		case FYTIM_EVENT_SURFACE_ZOOM:
-			/* Toggle zoom for the selected tile. */
-			(void)fyai_ui_surface_zoom(ui->ctx,
-				fyai_workpane_zoomed(ui->ctx->workpane) ==
-					ev.surface ? NULL : ev.surface);
-			break;
-		case FYTIM_EVENT_SURFACE_CLICK:
-			ui_head_click(ui, ev.surface, ev.row, ev.col);
-			break;
-		case FYTIM_EVENT_SURFACE_FOCUS:
-			/* Clicking a tile gives it keyboard focus. */
-			(void)fyai_tools_focus_tile(ui->ctx, ev.surface);
-			break;
-		case FYTIM_EVENT_FOCUS_PROMPT:
-			ui_click_off_tiles(ui, &ev);
-			break;
-		case FYTIM_EVENT_ACT:
-			ui_act(ui, &ev);
-			break;
-		case FYTIM_EVENT_KEY:
-			ui_page_key(ui, &ev);
-			break;
-		case FYTIM_EVENT_SELECT:
-			ui_select(ui, &ev);
-			break;
-		case FYTIM_EVENT_SURFACE_CLOSE:
-		case FYTIM_EVENT_SURFACE_SCROLL:
-			/* Route tile controls to the component that owns the work. */
-			fyai_tools_surface_request(ui->ctx, ev.surface,
-						   ev.type ==
-						   FYTIM_EVENT_SURFACE_CLOSE
-							? 0 : ev.delta);
-			break;
-		default:
-			break;
-		}
+/* A line the user typed: a command, a reply to a picker, or a queued turn. */
+static void ui_event_line(struct fyai_ui *ui, const struct fytim_event *ev)
+{
+	ui_message_clear(ui);
+	/* A line of a mirror is for the process that owns the
+	 * model: it is queued for the client. */
+	if (fyai_uimodel_mirrored(ui->ctx))
+		goto queue;
+	if (fyai_cmd_session_input(ui->ctx, ev->text))
+		return;
+	if (fyai_browser_input(ui->ctx, ev->text))
+		return;
+	if (fyai_agents_input(ui->ctx, ev->text))
+		return;
+	if (ui->busy && !strcmp(ev->text, "/branches")) {
+		(void)fyai_browser_open(ui->ctx);
+		return;
 	}
+	if (ui->busy && !strncmp(ev->text, "/branch attach ", 15)) {
+		if (!fyai_agents_zoom(ui->ctx, ev->text + 15, true))
+			fyai_report(ui->ctx, "no reachable live agent named %s", ev->text + 15);
+		return;
+	}
+queue:
+	if (!ui_line_blank(ev->text)) {
+		ui_queue(ui, ev->text);
+		(void)fytim_history_add(ui->ft, ev->text);
+	}
+}
+
+/* Scroll the popup, a panel, a tile or the view that the wheel is over. */
+static void ui_event_scrollback(struct fyai_ui *ui,
+				const struct fytim_event *ev)
+{
+	struct fytim_surface *sf;
+
+	/* Fullscreen status updates do not change terminal scrollback. */
+	if (!ui->fullscreen)
+		ui->activity_paused = true;
+	/* An open popup covers the page: every scroll is its.
+	 * Else a key, or the wheel over the transcript, scrolls
+	 * the view of a fullscreen page. */
+	if (ui_popup_open(ui)) {
+		fyai_transcript_view_scroll(ui->popup, ev->delta,
+					    ui->popup_rows);
+		ui->frame_pending = true;
+	} else if (ev->text && ev->text_len > 6 &&
+		   !memcmp(ev->text, "panel:", 6)) {
+		int step, n = ev->delta < 0 ? -ev->delta : ev->delta;
+		const char *arg = fy_sprintfa("%.*s/%s",
+			(int)ev->text_len - 6, ev->text + 6,
+			ev->delta > 0 ? "up" : "down");
+
+		for (step = 0; step < n; step++)
+			ui_panel_scroll_act(ui->ctx, arg);
+	} else if (ui_tile_scrolls(ui) &&
+		   ui_band_wheel(ui, ev->text, ev->text_len,
+				 ev->delta)) {
+		ui->frame_pending = true;
+	} else if (ui_tile_scrolls(ui) &&
+		   (sf = ui_slot_surface(ui, ev->text,
+					 ev->text_len))) {
+		/* The wheel over a tile the page draws is
+		 * that tile's, as the library gives it the
+		 * wheel over a tile it draws. */
+		fyai_tools_surface_request(ui->ctx, sf,
+					   ev->delta);
+	} else if (ui->fullscreen &&
+		   (!ev->text || (ev->text_len == 10 &&
+				 !memcmp(ev->text, "transcript",
+					 10)))) {
+		fyai_transcript_view_scroll(ui->view, ev->delta,
+					    ui->view_rows);
+		ui->frame_pending = true;
+	}
+}
+
+/* Act on one event of the terminal library. */
+static void ui_event(struct fyai_ui *ui, struct fytim_event *ev)
+{
+	switch (ev->type) {
+	case FYTIM_EVENT_LINE:
+		ui_event_line(ui, ev);
+		break;
+	case FYTIM_EVENT_SCROLLBACK:
+		ui_event_scrollback(ui, ev);
+		break;
+	case FYTIM_EVENT_INTERRUPT:
+		if (fyai_tools_btw_dismiss_focused(ui->ctx))
+			break;
+		/* Escape only now; ^C arrives as SIGINT. Both mean
+		 * the same thing to the session, except that Escape
+		 * first clears a short result of an idle session. */
+		if (ui->note_nlines && !ui->busy)
+			ui_note_clear(ui);
+		else
+			(void)ui_interrupt(ui->ctx, false);
+		break;
+	case FYTIM_EVENT_QUIT:
+		ui->quit = true;
+		ui->ready = true;
+		ui->ctx->interrupt_pending = true;
+		break;
+	case FYTIM_EVENT_EDIT:
+		ui_message_clear(ui);
+		if (!ui->editor_request)
+			(void)ui_edit_begin(ui);
+		break;
+	case FYTIM_EVENT_FOCUS_NEXT:
+		/* Ctrl-Tab or Ctrl-T cycles terminal keyboard focus. */
+		(void)fyai_tools_focus_next(ui->ctx);
+		/* What was typed after the key waits for the next
+		 * frame, which reads it for the new owner. */
+		fyai_ui_wake(ui->ctx);
+		break;
+	case FYTIM_EVENT_KEYS_LOST:
+		fyai_warning(ui->ctx, "keys typed after a focus key "
+			     "were lost: too many in one frame");
+		break;
+	case FYTIM_EVENT_ZOOM_ROWS_NEXT:
+		fyai_workpane_cycle_disposition(ui->ctx->workpane);
+		break;
+	case FYTIM_EVENT_RESIZE: {
+		int rows = ev->height;
+		int width = ev->width;
+
+		/* Use one terminal snapshot for both dimensions. */
+		(void)terminal_window_size(ui->tty_fd, &rows, &width);
+		ui_apply_resize(ui, rows, width);
+		fyai_cast_resize(ui->cast, width, rows);
+		break;
+	}
+	case FYTIM_EVENT_REDRAW:
+		/* Ctrl-L requests a clean repaint. */
+		ui->repaint_pending = true;
+		break;
+	case FYTIM_EVENT_GLYPH_WIDTH:
+		/* A glyph is narrower than the rows made with it: make
+		 * them again, as a change of width does. */
+		fyai_transcript_view_invalidate(ui->view);
+		ui->reflow_pending = true;
+		ui->repaint_pending = true;
+		ui->frame_pending = true;
+		break;
+	case FYTIM_EVENT_SURFACE_KEYS:
+		/* The keys belong to a program, not to the prompt. */
+		if (ui->inline_focus && ui->inline_keys_fn)
+			ui->inline_keys_fn(ui->inline_keys_data,
+					   ev->text, ev->text_len);
+		else if (ui->keys_fn)
+			ui->keys_fn(ui->keys_data, ev->text,
+				    ev->text_len);
+		else
+			(void)fyai_ui_keys_return(ui->ctx, ev->text,
+						  ev->text_len);
+		break;
+	case FYTIM_EVENT_SURFACE_ZOOM:
+		/* Toggle zoom for the selected tile. */
+		(void)fyai_ui_surface_zoom(ui->ctx,
+			fyai_workpane_zoomed(ui->ctx->workpane) ==
+				ev->surface ? NULL : ev->surface);
+		break;
+	case FYTIM_EVENT_SURFACE_CLICK:
+		ui_head_click(ui, ev->surface, ev->row, ev->col);
+		break;
+	case FYTIM_EVENT_SURFACE_FOCUS:
+		/* Clicking a tile gives it keyboard focus. */
+		(void)fyai_tools_focus_tile(ui->ctx, ev->surface);
+		break;
+	case FYTIM_EVENT_FOCUS_PROMPT:
+		ui_click_off_tiles(ui, ev);
+		break;
+	case FYTIM_EVENT_ACT:
+		ui_act(ui, ev);
+		break;
+	case FYTIM_EVENT_KEY:
+		ui_page_key(ui, ev);
+		break;
+	case FYTIM_EVENT_SELECT:
+		ui_select(ui, ev);
+		break;
+	case FYTIM_EVENT_SURFACE_CLOSE:
+	case FYTIM_EVENT_SURFACE_SCROLL:
+		/* Route tile controls to the component that owns the work. */
+		fyai_tools_surface_request(ui->ctx, ev->surface,
+					   ev->type ==
+					   FYTIM_EVENT_SURFACE_CLOSE
+						? 0 : ev->delta);
+		break;
+	default:
+		break;
+	}
+}
+
+/* Repaint or reflow what a resize, a redraw or a glyph change asked for. */
+static void ui_service_settle(struct fyai_ui *ui)
+{
 	/* Delegated agents repaint only their live result. */
 	if (ui->repaint_pending && fyai_agent_delegated(ui->ctx))
 		ui->repaint_pending = false;
@@ -3483,6 +3506,19 @@ queue:
 		(void)fyai_display_repaint(ui->ctx, 0);
 		ui->frame_pending = true;
 	}
+}
+
+static enum fyai_event_action ui_service(struct fyai_ui *ui)
+{
+	struct fytim_event ev;
+	enum fyai_event_action act;
+
+	act = ui_service_frame(ui);
+	if (act != FYAIEA_CONTINUE)
+		return act;
+	while (fytim_next_event(ui->ft, &ev))
+		ui_event(ui, &ev);
+	ui_service_settle(ui);
 	ui_rearm(ui);
 	return FYAIEA_CONTINUE;
 }
