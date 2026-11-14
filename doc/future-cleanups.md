@@ -14,8 +14,8 @@ Status: the document has four parts.
   that poll (item 19). The wait of a delegated child for an answer to its
   question stays by design (item 1).
 - "Copies of arena data" lists copies that a generic or an interned string
-  replaces. Open: the ten tools that are still `run_text`, and the rows of
-  class a and class b that the status paragraph does not name.
+  replaces. Open: the rows of class a and class b that the status paragraph
+  does not name.
 
 Nothing keeps compatibility with old arenas or old interfaces.
 
@@ -598,17 +598,12 @@ stays: a mapping copies at each add. `peer->dir` takes a `realpath` string.
 
 ### Recurring shapes
 
-1. A `run_text` tool returns `strdup(fy_sprintfa(...))` (M). `agent_input`,
-   `agent_message`, `ask_parent`, `ask_user` and `todo_write` return generics
-   now, as do `fyai_asks_start()` and the helpers behind them. Ten tools are
-   still `.run_text`: `read_file`, `write_file`, `apply_patch`, `shell`,
-   `shell_input`, `shell_output`, `shell_close`, `cancel`, `time` and `wait`.
-   `fyai_tool_run_one()` copies each result into the transient builder and
-   frees the string. Register such a tool as `.run` and return
-   `fy_value(ctx->transient_gb, ...)`; a failure becomes `fy_invalid` and not
-   NULL. `fyai_claude_sdk.c` calls `run_text` for the read tool and needs an
-   adapter.
-2. The event queue holds `char *`: dropped (see the status paragraph). The
+All model tools are `.run` and return generics. `read_file`, `apply_patch` and
+`shell` build their output in a malloc'd buffer and move it with
+`fyai_tool_take_text()`, `wait` does the same for its waiter result: the buffer
+is not a copy of a generic, so it stays.
+
+1. The event queue holds `char *`: dropped (see the status paragraph). The
    text of an event is new for each event and must not go into `cfg->gb`.
    The monitor formats an event once, through `fyai_event_vinjectf()`.
 
@@ -681,10 +676,8 @@ or zeroable copy. Do not change them:
 
 ### Suggested order
 
-1. Shape 1: the ten tools that are still `.run_text`. Small and mechanical,
-   with no lifetime question.
-2. Class a: the rows that remain, file by file.
-3. Class b with `fyai_ctx_keep_str()`, file by file. A field that is new for
+1. Class a: the rows that remain, file by file.
+2. Class b with `fyai_ctx_keep_str()`, file by file. A field that is new for
    each turn or call stays a copy.
 
 Each change is one patch with its test. An ASAN run shows a borrowed pointer

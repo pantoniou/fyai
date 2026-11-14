@@ -136,7 +136,7 @@ validate the full document shape, exact tool order, every `required` list, or
 implements a tool defines its entry, and `src/fyai_tool_registry.c` joins the
 tables. An entry holds:
 
-- `run` or `run_text`: the function that runs the call;
+- `run`: the function that runs the call;
 - `head`: the title row of the call, unless the tool is `FYAI_TOOL_SILENT`;
 - `format_result`: writes the result of a call that succeeded as Markdown for
   the user, when the result is a structure that reads badly as the text the
