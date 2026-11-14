@@ -15,6 +15,7 @@
 #include <limits.h>
 
 #include <curl/curl.h>
+#include "fyai_link.h"
 #include <libfyaml.h>
 #include <libfyaml/libfyaml-allocator.h>
 #include <libfyaml/libfyaml-generic.h>
@@ -739,6 +740,7 @@ struct fyai_ask_pending;
 struct fyai_skill_dir;
 
 struct fyai_request_cache;
+struct fyai_link;
 
 /* The part this process has in the credential transport. */
 enum fyai_transport_role {
@@ -781,22 +783,12 @@ struct fyai_ctx {
 	struct fyai_arena *arena;
 	/* The transient builder component, owned by struct fyai_app. */
 	struct fyai_transient *transient;
-	/* The body of the last request, kept for the next (fyai_reqcache.c). */
-	struct fyai_request_cache *request_cache;
-	CURL *curl;
+	/* The model connection component, owned by struct fyai_app. */
+	struct fyai_link *link;
 	struct fyai_transport_state transport;
-	/* The model transfer in progress. */
-	const char *xfer_body;
-	const char *xfer_url;		/* NULL: the endpoint of the configuration */
-	const char *xfer_profile;	/* NULL: "model" */
-	long xfer_status;		/* of the last transfer that finished */
-	long xfer_retry_after;
-	char xfer_error[256];
 
 	/* The event loop component, owned by struct fyai_app (src/fyai_loop.h). */
 	struct fyai_loop *loop;
-	/* The curl multi state of this run; it stands on the loop. */
-	struct fyai_curl_state *curl_state;
 	struct fyai_ui *ui;
 	/* The state that renderers read (src/fyai_uimodel.h). */
 	struct fyai_uimodel *uimodel;
@@ -900,9 +892,6 @@ struct fyai_ctx {
 	 * and cleared when the project states can no longer be taken.
 	 */
 	bool tool_diff_tracking;
-	struct curl_slist *headers;
-	char *auth_header;
-	char *user_agent;
 	fy_generic mcp_tools;
 	/* Names activated from a large MCP catalogue for this invocation. */
 	fy_generic mcp_active_tools;

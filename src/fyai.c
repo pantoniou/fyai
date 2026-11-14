@@ -697,11 +697,11 @@ static int fyai_model_step_submit_request(struct fyai_model_step *step,
 	step->spinner.enabled = !fyai_ui_active(ctx) &&
 				!fyai_agent_delegated(ctx) &&
 				terminal_is_tty(STDERR_FILENO);
-	curl_easy_setopt(ctx->curl, CURLOPT_XFERINFOFUNCTION,
+	curl_easy_setopt(ctx->link->curl, CURLOPT_XFERINFOFUNCTION,
 			 fyai_spinner_xferinfo);
-	curl_easy_setopt(ctx->curl, CURLOPT_XFERINFODATA, &step->spinner);
+	curl_easy_setopt(ctx->link->curl, CURLOPT_XFERINFODATA, &step->spinner);
 	/* Always on: the callback also polls the ^C abort flag. */
-	curl_easy_setopt(ctx->curl, CURLOPT_NOPROGRESS, 0L);
+	curl_easy_setopt(ctx->link->curl, CURLOPT_NOPROGRESS, 0L);
 
 	/* Everything before the wire transfer, relative to process start. */
 	fyai_prof_once_from_base("start_to_first_send");
@@ -964,7 +964,7 @@ static void fyai_model_step_request_complete(struct fyai_model_step *step,
 
 	/* Failed/empty responses can end the transfer with it still shown. */
 	fyai_spinner_erase(&step->spinner);
-	curl_easy_setopt(ctx->curl, CURLOPT_NOPROGRESS, 1L);
+	curl_easy_setopt(ctx->link->curl, CURLOPT_NOPROGRESS, 1L);
 
 	if (fy_is_valid(response_doc))
 		fyai_accumulate_usage(ctx,
@@ -1124,8 +1124,8 @@ void fyai_model_step_destroy(struct fyai_model_step *step)
 	if (step->buffered_request)
 		fyai_buffered_request_destroy(step->buffered_request);
 	fyai_spinner_erase(&step->spinner);
-	curl_easy_setopt(step->ctx->curl, CURLOPT_NOPROGRESS, 1L);
-	curl_easy_setopt(step->ctx->curl, CURLOPT_XFERINFODATA, NULL);
+	curl_easy_setopt(step->ctx->link->curl, CURLOPT_NOPROGRESS, 1L);
+	curl_easy_setopt(step->ctx->link->curl, CURLOPT_XFERINFODATA, NULL);
 	free(step);
 }
 
@@ -2519,17 +2519,17 @@ void fyai_cleanup(struct fyai_ctx *ctx)
 	/* After the renderers, which settle what they showed. */
 	fyai_ask_abandon(ctx);
 
-	if (ctx->headers) {
-		curl_slist_free_all(ctx->headers);
-		ctx->headers = NULL;
+	if (ctx->link->headers) {
+		curl_slist_free_all(ctx->link->headers);
+		ctx->link->headers = NULL;
 	}
-	if (ctx->auth_header) {
-		free(ctx->auth_header);
-		ctx->auth_header = NULL;
+	if (ctx->link->auth_header) {
+		free(ctx->link->auth_header);
+		ctx->link->auth_header = NULL;
 	}
-	if (ctx->user_agent) {
-		free(ctx->user_agent);
-		ctx->user_agent = NULL;
+	if (ctx->link->user_agent) {
+		free(ctx->link->user_agent);
+		ctx->link->user_agent = NULL;
 	}
 	ctx->branch = NULL;
 	ctx->head_branch = NULL;
@@ -2555,9 +2555,9 @@ void fyai_cleanup(struct fyai_ctx *ctx)
 	/* Before the easy handle: the multi still references it. */
 	fyai_transport_detach(ctx);
 	fyai_curl_cleanup(ctx);
-	if (ctx->curl) {
-		curl_easy_cleanup(ctx->curl);
-		ctx->curl = NULL;
+	if (ctx->link->curl) {
+		curl_easy_cleanup(ctx->link->curl);
+		ctx->link->curl = NULL;
 	}
 	fyai_auth_cleanup(ctx);
 
@@ -2588,19 +2588,19 @@ static int fyai_mcp_bringup(struct fyai_ctx *ctx)
 /* Rebuild the curl handle and request state from the current configuration. */
 int fyai_curl_easy_reinit(struct fyai_ctx *ctx)
 {
-	ctx->curl = curl_easy_init();
-	if (!ctx->curl)
+	ctx->link->curl = curl_easy_init();
+	if (!ctx->link->curl)
 		return -1;
 
 	/* Reserve SIGALRM for the watchdog. */
-	curl_easy_setopt(ctx->curl, CURLOPT_NOSIGNAL, 1L);
+	curl_easy_setopt(ctx->link->curl, CURLOPT_NOSIGNAL, 1L);
 
-	curl_easy_setopt(ctx->curl, CURLOPT_WRITEFUNCTION, write_response);
-	curl_easy_setopt(ctx->curl, CURLOPT_TIMEOUT, 600L);	/* 10 minutes */
-	curl_easy_setopt(ctx->curl, CURLOPT_USERAGENT, ctx->user_agent);
-	curl_easy_setopt(ctx->curl, CURLOPT_VERBOSE, 1L);
-	curl_easy_setopt(ctx->curl, CURLOPT_DEBUGFUNCTION, fyai_curl_debug);
-	curl_easy_setopt(ctx->curl, CURLOPT_DEBUGDATA, ctx);
+	curl_easy_setopt(ctx->link->curl, CURLOPT_WRITEFUNCTION, write_response);
+	curl_easy_setopt(ctx->link->curl, CURLOPT_TIMEOUT, 600L);	/* 10 minutes */
+	curl_easy_setopt(ctx->link->curl, CURLOPT_USERAGENT, ctx->link->user_agent);
+	curl_easy_setopt(ctx->link->curl, CURLOPT_VERBOSE, 1L);
+	curl_easy_setopt(ctx->link->curl, CURLOPT_DEBUGFUNCTION, fyai_curl_debug);
+	curl_easy_setopt(ctx->link->curl, CURLOPT_DEBUGDATA, ctx);
 	return 0;
 }
 
@@ -2615,28 +2615,28 @@ int fyai_request_state_apply(struct fyai_ctx *ctx)
 	const char *name;
 	int rc;
 
-	if (!ctx->curl)
+	if (!ctx->link->curl)
 		return 0;
 	assert(ctx->transient->gb);
 
-	if (ctx->headers) {
-		curl_slist_free_all(ctx->headers);
-		ctx->headers = NULL;
+	if (ctx->link->headers) {
+		curl_slist_free_all(ctx->link->headers);
+		ctx->link->headers = NULL;
 	}
-	if (ctx->auth_header) {
-		free(ctx->auth_header);
-		ctx->auth_header = NULL;
+	if (ctx->link->auth_header) {
+		free(ctx->link->auth_header);
+		ctx->link->auth_header = NULL;
 	}
 	ctx->tools = fy_invalid;
 
 	/* A local server without authentication gets no API-key header. */
 	if (!cfg->chatgpt_auth && !cfg->no_auth && !ctx->transport.client &&
 	    (!cfg->interactive || (cfg->api_key && *cfg->api_key))) {
-		ctx->auth_header = grammar->key_header ?
+		ctx->link->auth_header = grammar->key_header ?
 			make_header(fy_sprintfa("%s: ", grammar->key_header),
 				    cfg->api_key) :
 			make_header("Authorization: Bearer ", cfg->api_key);
-		if (!ctx->auth_header) {
+		if (!ctx->link->auth_header) {
 			if (!cfg->api_key || !*cfg->api_key)
 				fyai_error(ctx, "no API key (set one via --api-key, the "
 					   "provider's <PROVIDER>_API_KEY env var, or "
@@ -2645,7 +2645,7 @@ int fyai_request_state_apply(struct fyai_ctx *ctx)
 		}
 	}
 
-	rc = append_header(&ctx->headers, "Content-Type: application/json");
+	rc = append_header(&ctx->link->headers, "Content-Type: application/json");
 	if (rc)
 		return -1;
 
@@ -2656,20 +2656,20 @@ int fyai_request_state_apply(struct fyai_ctx *ctx)
 		 */
 		rc = fyai_auth_apply_headers(ctx, &login_check);
 		curl_slist_free_all(login_check);
-	} else if (ctx->auth_header)
-		rc = append_header(&ctx->headers, ctx->auth_header);
+	} else if (ctx->link->auth_header)
+		rc = append_header(&ctx->link->headers, ctx->link->auth_header);
 	if (rc)
 		return -1;
 
 	for (hdr = grammar->headers; hdr->name; hdr++) {
-		rc = append_header(&ctx->headers,
+		rc = append_header(&ctx->link->headers,
 				   fy_sprintfa("%s: %s", hdr->name, hdr->value));
 		if (rc)
 			return -1;
 	}
 
 	fyai_xfer_set_endpoint(ctx, NULL, NULL);
-	curl_easy_setopt(ctx->curl, CURLOPT_HTTPHEADER, ctx->headers);
+	curl_easy_setopt(ctx->link->curl, CURLOPT_HTTPHEADER, ctx->link->headers);
 
 	if (cfg->enable_tools || cfg->enable_builtin_shell ||
 	    fyai_mcp_enabled(ctx) || cfg->web_search) {
@@ -2738,6 +2738,7 @@ int fyai_setup(struct fyai_ctx *ctx, struct fyai_app *app)
 	ctx->arena = &app->arena;
 	ctx->transient = &app->transient;
 	ctx->cred = &app->cred;
+	ctx->link = &app->link;
 	fyai_cred_bind(ctx->cred, ctx);
 	ctx->transient->on_release = fyai_transient_released;
 	ctx->transient->on_release_data = ctx;
@@ -2807,7 +2808,7 @@ int fyai_setup(struct fyai_ctx *ctx, struct fyai_app *app)
 	if (fyai_cfg_no_requests(cfg))
 		return 0;
 
-	rc = asprintf(&ctx->user_agent, "%s/%s", "fyai", VERSION);
+	rc = asprintf(&ctx->link->user_agent, "%s/%s", "fyai", VERSION);
 	if (rc == -1)
 		goto err;
 

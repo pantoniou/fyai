@@ -80,34 +80,34 @@ static void xfer_curl_complete(struct fyai_curl_transfer *transfer, void *ud);
 
 void fyai_xfer_set_body(struct fyai_ctx *ctx, const char *body)
 {
-	ctx->xfer_body = body;
-	if (ctx->curl)
-		curl_easy_setopt(ctx->curl, CURLOPT_POSTFIELDS, body);
+	ctx->link->body = body;
+	if (ctx->link->curl)
+		curl_easy_setopt(ctx->link->curl, CURLOPT_POSTFIELDS, body);
 }
 
 void fyai_xfer_set_endpoint(struct fyai_ctx *ctx, const char *url,
 			    const char *kind)
 {
-	ctx->xfer_url = url;
-	ctx->xfer_profile = kind;
-	if (ctx->curl)
-		curl_easy_setopt(ctx->curl, CURLOPT_URL,
+	ctx->link->url = url;
+	ctx->link->profile = kind;
+	if (ctx->link->curl)
+		curl_easy_setopt(ctx->link->curl, CURLOPT_URL,
 				 url ? url : ctx->cfg->api_url);
 }
 
 long fyai_xfer_last_status(const struct fyai_ctx *ctx)
 {
-	return ctx->xfer_status;
+	return ctx->link->status;
 }
 
 long fyai_xfer_last_retry_after(const struct fyai_ctx *ctx)
 {
-	return ctx->xfer_retry_after;
+	return ctx->link->retry_after;
 }
 
 const char *fyai_xfer_last_error(const struct fyai_ctx *ctx)
 {
-	return ctx->xfer_error;
+	return ctx->link->error;
 }
 
 static void xfer_finish(struct fyai_xfer *x, CURLcode result, long status,
@@ -119,9 +119,9 @@ static void xfer_finish(struct fyai_xfer *x, CURLcode result, long status,
 	x->phase = XFER_FINISHED;
 	xfer_headers_free(x);
 	fyai_buf_free(&x->held);
-	ctx->xfer_status = status;
-	ctx->xfer_retry_after = retry_after;
-	snprintf(ctx->xfer_error, sizeof(ctx->xfer_error), "%s",
+	ctx->link->status = status;
+	ctx->link->retry_after = retry_after;
+	snprintf(ctx->link->error, sizeof(ctx->link->error), "%s",
 		 error ? error : "");
 	if (x->done)
 		x->done(x, x->done_ud);
@@ -201,7 +201,7 @@ static size_t xfer_write(char *ptr, size_t size, size_t nmemb, void *ud)
 	if (!(x->login || x->rekey) || x->phase == XFER_STARTED)
 		return x->write(ptr, size, nmemb, x->write_ud);
 	if (x->phase != XFER_HELD) {
-		curl_easy_getinfo(x->ctx->curl, CURLINFO_RESPONSE_CODE, &status);
+		curl_easy_getinfo(x->ctx->link->curl, CURLINFO_RESPONSE_CODE, &status);
 		if (status == 401 && !x->retried &&
 		    (x->rekey ||
 		     fyai_cred_reject(x->ctx, "oauth:chatgpt", NULL, 0, true)))
@@ -231,7 +231,7 @@ static int xfer_curl_send(struct fyai_xfer *x)
 	x->phase = XFER_NEW;
 	fyai_buf_free(&x->held);
 	if (x->login || x->rekey) {
-		for (src = ctx->headers; !rc && src; src = src->next)
+		for (src = ctx->link->headers; !rc && src; src = src->next)
 			rc = append_header(&x->headers, src->data);
 		if (!rc && x->login)
 			rc = fyai_auth_apply_headers(ctx, &x->headers);
@@ -239,11 +239,11 @@ static int xfer_curl_send(struct fyai_xfer *x)
 				 "the credential cannot authenticate this request");
 		if (x->login)
 			x->tag = fyai_cred_tag(ctx->cred->auth.access_token);
-		curl_easy_setopt(ctx->curl, CURLOPT_HTTPHEADER, x->headers);
+		curl_easy_setopt(ctx->link->curl, CURLOPT_HTTPHEADER, x->headers);
 	}
-	curl_easy_setopt(ctx->curl, CURLOPT_WRITEFUNCTION, xfer_write);
-	curl_easy_setopt(ctx->curl, CURLOPT_WRITEDATA, x);
-	x->curl = fyai_curl_submit(ctx, ctx->curl, xfer_curl_complete, x);
+	curl_easy_setopt(ctx->link->curl, CURLOPT_WRITEFUNCTION, xfer_write);
+	curl_easy_setopt(ctx->link->curl, CURLOPT_WRITEDATA, x);
+	x->curl = fyai_curl_submit(ctx, ctx->link->curl, xfer_curl_complete, x);
 	fyai_error_check(ctx, x->curl, err_out, "could not submit the request");
 	return 0;
 err_out:
@@ -333,18 +333,18 @@ static bool xfer_rekeyed(struct fyai_xfer *x)
 		make_header("Authorization: Bearer ", key);
 	if (!key || !header)
 		goto err_same;
-	for (src = ctx->headers; src; src = src->next) {
-		if (ctx->auth_header && !strcmp(src->data, ctx->auth_header))
+	for (src = ctx->link->headers; src; src = src->next) {
+		if (ctx->link->auth_header && !strcmp(src->data, ctx->link->auth_header))
 			continue;
 		if (append_header(&list, src->data))
 			goto err_same;
 	}
 	if (append_header(&list, header))
 		goto err_same;
-	curl_slist_free_all(ctx->headers);
-	ctx->headers = list;
-	free(ctx->auth_header);
-	ctx->auth_header = header;
+	curl_slist_free_all(ctx->link->headers);
+	ctx->link->headers = list;
+	free(ctx->link->auth_header);
+	ctx->link->auth_header = header;
 	cfg->api_key = key;
 	slen = strlen(secret);
 	fyai_secret_clear_and_free(&secret, &slen);
@@ -368,8 +368,8 @@ static void xfer_curl_complete(struct fyai_curl_transfer *transfer, void *ud)
 	curl_off_t retry = 0;
 	long status = 0;
 
-	curl_easy_getinfo(x->ctx->curl, CURLINFO_RESPONSE_CODE, &status);
-	if (curl_easy_getinfo(x->ctx->curl, CURLINFO_RETRY_AFTER, &retry) != CURLE_OK)
+	curl_easy_getinfo(x->ctx->link->curl, CURLINFO_RESPONSE_CODE, &status);
+	if (curl_easy_getinfo(x->ctx->link->curl, CURLINFO_RETRY_AFTER, &retry) != CURLE_OK)
 		retry = 0;
 	fyai_curl_transfer_destroy(transfer);
 	x->curl = NULL;
@@ -446,8 +446,8 @@ static struct fyai_xfer *xfer_tp_submit(struct fyai_ctx *ctx, struct fyai_xfer *
 		.profile = name,
 		.method = "POST",
 		.content_type = "application/json",
-		.body = (const uint8_t *)(ctx->xfer_body ? ctx->xfer_body : ""),
-		.body_len = ctx->xfer_body ? strlen(ctx->xfer_body) : 0,
+		.body = (const uint8_t *)(ctx->link->body ? ctx->link->body : ""),
+		.body_len = ctx->link->body ? strlen(ctx->link->body) : 0,
 	};
 	struct fyai_tcall_callbacks cb = {
 		.start = xfer_tp_start, .body = xfer_tp_body,
@@ -460,12 +460,12 @@ static struct fyai_xfer *xfer_tp_submit(struct fyai_ctx *ctx, struct fyai_xfer *
 		return NULL;
 	}
 	/* The kind names the profile of this configuration; see fyai_transport_cfg.h. */
-	if (!fyai_transport_profile_name(ctx->cfg, ctx->xfer_profile ?
-					 ctx->xfer_profile : FYAI_TPC_MODEL,
+	if (!fyai_transport_profile_name(ctx->cfg, ctx->link->profile ?
+					 ctx->link->profile : FYAI_TPC_MODEL,
 					 name, sizeof(name))) {
 		fyai_error(ctx, "this configuration has no transport profile "
-			   "for a %s request", ctx->xfer_profile ?
-			   ctx->xfer_profile : FYAI_TPC_MODEL);
+			   "for a %s request", ctx->link->profile ?
+			   ctx->link->profile : FYAI_TPC_MODEL);
 		free(x);
 		return NULL;
 	}

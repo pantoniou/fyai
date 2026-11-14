@@ -713,9 +713,9 @@ static int agent_run_setup(struct fyai_ctx *ctx, struct agent_run *r)
 	if (fy_get(r->args, "_fyai_btw", false))
 		cfg->screen = "inline";
 
-	if (!ctx->tool_rpc && ctx->curl) {
-		curl_easy_cleanup(ctx->curl);
-		ctx->curl = NULL;
+	if (!ctx->tool_rpc && ctx->link->curl) {
+		curl_easy_cleanup(ctx->link->curl);
+		ctx->link->curl = NULL;
 	}
 	rc = fyai_curl_easy_reinit(ctx);
 	fyai_error_check(ctx, !rc, err,

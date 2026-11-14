@@ -482,7 +482,8 @@ void fyai_ctx_loop_abandon(struct fyai_ctx *ctx)
 	if (!ctx)
 		return;
 	/* Do not close the parent curl sockets from the child. */
-	ctx->curl_state = NULL;
+	if (ctx->link)
+		ctx->link->curl_state = NULL;
 	fyai_loop_abandon(ctx->loop);
 }
 

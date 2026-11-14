@@ -516,7 +516,7 @@ static int fyai_import_request_setup(struct fyai_import *im)
 	gb = fyai_ctx_transient_gb(ctx);
 	fyai_error_check(ctx, gb, err,
 			 "import: cannot create the request builder");
-	rc = asprintf(&ctx->user_agent, "%s/%s", "fyai", VERSION);
+	rc = asprintf(&ctx->link->user_agent, "%s/%s", "fyai", VERSION);
 	fyai_error_check(ctx, rc != -1, err,
 			 "import: cannot build the user agent");
 	rc = fyai_curl_easy_reinit(ctx);

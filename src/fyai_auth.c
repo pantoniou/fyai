@@ -862,8 +862,8 @@ static char *auth_form(struct fyai_ctx *ctx, fy_generic values)
 	if (!out)
 		return NULL;
 	fy_foreach_key_value(key, value, values) {
-		encoded_key = curl_easy_escape(ctx->curl, fy_castp(&key, ""), 0);
-		encoded_value = curl_easy_escape(ctx->curl, fy_castp(&value, ""), 0);
+		encoded_key = curl_easy_escape(ctx->link->curl, fy_castp(&key, ""), 0);
+		encoded_value = curl_easy_escape(ctx->link->curl, fy_castp(&value, ""), 0);
 		if (!encoded_key || !encoded_value) {
 			curl_free(encoded_key);
 			curl_free(encoded_value);

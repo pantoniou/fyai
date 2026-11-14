@@ -385,9 +385,12 @@ err_out:
 /* Build the per-invocation plumbing on first use. */
 static struct fyai_curl_state *fyai_curl_state_get(struct fyai_ctx *ctx)
 {
-	struct fyai_curl_state *state = ctx->curl_state;
+	struct fyai_curl_state *state;
 	int rc;
 
+	fyai_error_check(ctx, ctx->link, err_out,
+			 "the connection component is not set up");
+	state = ctx->link->curl_state;
 	if (state)
 		return state;
 
@@ -417,7 +420,7 @@ static struct fyai_curl_state *fyai_curl_state_get(struct fyai_ctx *ctx)
 			  fyai_curl_timer_cb);
 	curl_multi_setopt(state->multi, CURLMOPT_TIMERDATA, state);
 
-	ctx->curl_state = state;
+	ctx->link->curl_state = state;
 	return state;
 
 err_multi:
@@ -434,10 +437,10 @@ void fyai_curl_cleanup(struct fyai_ctx *ctx)
 	struct fyai_curl_state *state;
 	struct fyai_curl_transfer *transfer;
 
-	if (!ctx || !ctx->curl_state)
+	if (!ctx || !ctx->link || !ctx->link->curl_state)
 		return;
-	state = ctx->curl_state;
-	ctx->curl_state = NULL;
+	state = ctx->link->curl_state;
+	ctx->link->curl_state = NULL;
 
 	while (state->transfers) {
 		transfer = state->transfers;
@@ -551,4 +554,12 @@ bool fyai_http_transient(CURLcode rc, long status)
 		rc == CURLE_OPERATION_TIMEDOUT ||
 		status == 408 || status == 429 || status == 500 ||
 		status == 502 || status == 503 || status == 504;
+}
+
+void fyai_link_init(struct fyai_link *link, struct fyai_loop *loop,
+		    struct fyai_cred *cred)
+{
+	memset(link, 0, sizeof(*link));
+	link->loop = loop;
+	link->cred = cred;
 }

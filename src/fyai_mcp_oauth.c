@@ -240,8 +240,8 @@ static int token_submit(struct fyai_mcp_oauth_refresh *r)
 	curl_easy_setopt(r->curl, CURLOPT_WRITEFUNCTION, write_response);
 	curl_easy_setopt(r->curl, CURLOPT_WRITEDATA, &r->response);
 	curl_easy_setopt(r->curl, CURLOPT_TIMEOUT, r->timeout);
-	if (r->ctx->user_agent)
-		curl_easy_setopt(r->curl, CURLOPT_USERAGENT, r->ctx->user_agent);
+	if (r->ctx->link->user_agent)
+		curl_easy_setopt(r->curl, CURLOPT_USERAGENT, r->ctx->link->user_agent);
 	if (r->auth == FYAI_MCP_CLIENT_BASIC) {
 		curl_easy_setopt(r->curl, CURLOPT_HTTPAUTH, CURLAUTH_BASIC);
 		curl_easy_setopt(r->curl, CURLOPT_USERNAME, r->client_id);

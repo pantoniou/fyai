@@ -1800,7 +1800,7 @@ static int mcp_oauth_discovery_submit(struct mcp_oauth_discovery *od)
 	curl_easy_setopt(od->curl, CURLOPT_WRITEFUNCTION, write_response);
 	curl_easy_setopt(od->curl, CURLOPT_WRITEDATA, &od->response);
 	curl_easy_setopt(od->curl, CURLOPT_TIMEOUT, (long)od->mcp->timeout);
-	curl_easy_setopt(od->curl, CURLOPT_USERAGENT, ctx->user_agent);
+	curl_easy_setopt(od->curl, CURLOPT_USERAGENT, ctx->link->user_agent);
 	if (od->state == MCP_OD_TOKEN &&
 	    od->mcp->oauth_token_auth_method == MCP_TOKEN_AUTH_BASIC) {
 		curl_easy_setopt(od->curl, CURLOPT_HTTPAUTH, CURLAUTH_BASIC);

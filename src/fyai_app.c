@@ -28,6 +28,7 @@ int fyai_app_init(struct fyai_app *app)
 	app->cfg.diag = &app->diag;
 	fyai_loop_init(&app->loop, &app->diag);
 	fyai_cred_init(&app->cred, &app->loop);
+	fyai_link_init(&app->link, &app->loop, &app->cred);
 	fyai_arena_init(&app->arena);
 	fyai_transient_init(&app->transient);
 	app->transient.parent_gb = &app->arena.gb;

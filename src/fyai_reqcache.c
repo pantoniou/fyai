@@ -160,7 +160,7 @@ static void rc_forget_all(struct fyai_request_cache *rc)
 
 void fyai_request_cache_release(struct fyai_ctx *ctx)
 {
-	struct fyai_request_cache *rc = ctx->request_cache;
+	struct fyai_request_cache *rc = ctx->link->request_cache;
 
 	if (!rc)
 		return;
@@ -168,7 +168,7 @@ void fyai_request_cache_release(struct fyai_ctx *ctx)
 	if (rc->probe_gb)
 		fy_generic_builder_destroy(rc->probe_gb);
 	free(rc);
-	ctx->request_cache = NULL;
+	ctx->link->request_cache = NULL;
 }
 
 static fy_generic rc_turn_messages(fy_generic turn)
@@ -241,7 +241,7 @@ static bool rc_check(struct fyai_ctx *ctx, const struct fyai_request_cache *rc,
  */
 void fyai_request_cache_forget(struct fyai_ctx *ctx)
 {
-	struct fyai_request_cache *rc = ctx->request_cache;
+	struct fyai_request_cache *rc = ctx->link->request_cache;
 	struct fyai_turn_stack stack = { 0 };
 	fy_generic cur, anchor = fy_invalid, turn;
 	char *check = NULL;
@@ -305,7 +305,7 @@ drop:
 void fyai_request_cache_stats(const struct fyai_ctx *ctx,
 			      unsigned long *hits, unsigned long *misses)
 {
-	const struct fyai_request_cache *rc = ctx->request_cache;
+	const struct fyai_request_cache *rc = ctx->link->request_cache;
 
 	*hits = rc ? rc->hits : 0;
 	*misses = rc ? rc->misses : 0;
@@ -320,8 +320,8 @@ bool fyai_request_cache_usable(struct fyai_ctx *ctx, fy_generic previous)
 		return false;
 	if (fy_is_valid(previous) && !fy_is_null(previous))
 		return false;
-	if (ctx->request_cache && ctx->request_cache->owner &&
-	    ctx->request_cache->owner != ctx->transient->gb)
+	if (ctx->link->request_cache && ctx->link->request_cache->owner &&
+	    ctx->link->request_cache->owner != ctx->transient->gb)
 		return false;
 	return fyai_grammar_input_splits(ctx);
 }
@@ -535,7 +535,7 @@ int fyai_request_cache_body(struct fyai_ctx *ctx, fy_generic turn,
 			    struct fyai_grammar_request *req,
 			    const char **bodyp)
 {
-	struct fyai_request_cache *rc = ctx->request_cache;
+	struct fyai_request_cache *rc = ctx->link->request_cache;
 	struct fyai_turn_stack stack = { 0 };
 	struct fyai_buf added = { 0 }, tail = { 0 };
 	const char *head, *tail_text, *instructions;
@@ -553,7 +553,7 @@ int fyai_request_cache_body(struct fyai_ctx *ctx, fy_generic turn,
 	if (!rc) {
 		rc = calloc(1, sizeof(*rc));
 		fyai_error_check(ctx, rc, err, "could not keep the request cache");
-		ctx->request_cache = rc;
+		ctx->link->request_cache = rc;
 	}
 	if (!rc_key_same(ctx, &rc->key)) {
 		if (rc->key.set)

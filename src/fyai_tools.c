@@ -2364,9 +2364,9 @@ bool fyai_tool_call_parallel_eligible(struct fyai_ctx *ctx,
  */
 static void fyai_ctx_xfer_reset(struct fyai_ctx *ctx)
 {
-	ctx->xfer_status = 0;
-	ctx->xfer_retry_after = 0;
-	ctx->xfer_error[0] = '\0';
+	ctx->link->status = 0;
+	ctx->link->retry_after = 0;
+	ctx->link->error[0] = '\0';
 }
 
 /*
