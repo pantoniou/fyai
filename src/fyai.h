@@ -17,6 +17,8 @@
 #include <curl/curl.h>
 #include "fyai_askq.h"
 #include "fyai_branch_state.h"
+#include "fyai_agent_state.h"
+#include "fyai_jobs.h"
 #include "fyai_link.h"
 #include "fyai_turnstate.h"
 #include "fyai_usage.h"
@@ -758,8 +760,8 @@ struct fyai_ctx {
 	struct fyai_uilog *uilog;	/* the span of a command (src/fyai_uilog.h) */
 	struct fyai_uidraw *uidraw;	/* the renderer of the model (src/fyai_uidraw.h) */
 	struct fyai_browser *browser;
-	struct fyai_agents *agents;
-	long long agent_execution, agent_parent;
+	/* The sub-agent identity component, owned by struct fyai_app. */
+	struct fyai_agent_state *astate;
 	struct fyai_config_edit_request *config_edit;
 	struct fyai_catalog_update_request *catalog_update;
 	struct fyai_cmd_call *cmd_call;	/* the active async command */
@@ -768,12 +770,6 @@ struct fyai_ctx {
 	struct fyai_turnstate *turn;
 	/* The branch cursor component, owned by struct fyai_app. */
 	struct fyai_branch_state *bstate;
-	/*
-	 * The spawn state an executed sub-agent child received, held in the
-	 * configuration builder: the child serves one call and exits.
-	 */
-	fy_generic agent_spawn;
-	char *tool_submit_error;
 	/* The components below are owned by struct fyai_app. */
 	struct fyai_scope *scope;
 	struct fyai_tty *tty;
@@ -783,34 +779,19 @@ struct fyai_ctx {
 	struct fyai_mcp *mcp;
 	/* The shared refresh of the login and its waiters (fyai_cred.h). */
 	struct fyai_cred *cred;
-	struct fyai_tool_job *tool_jobs;	/* live jobs, for a resize */
-	struct fyai_btw_run *btw_runs;	/* side questions in this session */
-	struct fyai_agent_bg_run *agent_bg_runs; /* background sub-agents */
-	struct fyai_monitor_run *monitors;	/* running monitors */
-	/* Named terminal sessions, each one a process of its own. The view of
-	 * a session lives here and so outlives the process that drove it. */
-	struct fyai_shell_session *shell_sessions;
 	/* The one owner of work-pane geometry, focus, and zoom. */
 	struct fyai_workpane_manager *workpane;
+	/* The tool jobs component, owned by struct fyai_app. */
+	struct fyai_jobs *jobs;
 	/* The waits component, owned by struct fyai_app. */
 	struct fyai_waitq *waitq;
 	/* The questions component, owned by struct fyai_app. */
 	struct fyai_askq *askq;
-	bool tool_output_displayed;
-	/* Set once a tool row has been drawn live, so the next one gets a
-	 * blank line ahead of it */
 	/* The sole progressive transcript document for the active user or
 	 * assistant output. Owned by this context, never by a signal handler. */
 	struct fyai_display_output *display_output;
 	/* The one rendering component. Every byte the user sees goes here. */
 	struct fyai_sink *sink;
-	struct fyai_fenced_stream *shell_stream; /* live progressive shell output */
-	/* Resolved patch display data, indexed by tool-call ID. */
-	struct fyai_patch_display *patch_views;
-	/* Resolved display data for the active patch call. */
-	char *patch_display;
-	/* Forked tool control channel. */
-	struct jsonrpc_conn *tool_rpc;
 	/* ACP worker notifications share the active turn's event loop. */
 	struct jsonrpc_conn *acp_rpc;
 	const char *acp_agent_message_id;

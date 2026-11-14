@@ -105,7 +105,7 @@ static bool fyai_tool_spec_needs_update(struct fyai_ctx *ctx)
 	       ctx->toolspec->spec_allow != ctx->toolspec->allow.v ||
 	       ctx->toolspec->agent_child != fyai_agent_delegated(ctx) ||
 	       ctx->toolspec->agent_restricted !=
-		(ctx->cfg->agent_child && !ctx->agent_execution);
+		(ctx->cfg->agent_child && !ctx->astate->execution);
 }
 
 /* Select question and delegation tools for the current session owner. */
@@ -157,7 +157,7 @@ fy_generic make_tools_filtered(struct fyai_ctx *ctx)
 	tools = assert_valid_generic(fy_gb_internalize(gb, out),
 				     "Unable to describe personas");
 
-	if (ctx->cfg->agent_child && !ctx->agent_execution) {
+	if (ctx->cfg->agent_child && !ctx->astate->execution) {
 		out = fy_seq_empty;
 		fy_foreach(tool, tools) {
 			fn = fy_get(tool, "function");
@@ -179,6 +179,6 @@ fy_generic make_tools_filtered(struct fyai_ctx *ctx)
 	ctx->toolspec->spec_allow = ctx->toolspec->allow.v;
 	ctx->toolspec->agent_child = delegated;
 	ctx->toolspec->agent_restricted =
-		ctx->cfg->agent_child && !ctx->agent_execution;
+		ctx->cfg->agent_child && !ctx->astate->execution;
 	return out;
 }

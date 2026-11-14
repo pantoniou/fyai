@@ -1904,7 +1904,7 @@ struct fyai_btw_run {
 static void session_btw_finish(void *userdata)
 {
 	struct fyai_btw_run *run = userdata;
-	struct fyai_btw_run **link = &run->ctx->btw_runs;
+	struct fyai_btw_run **link = &run->ctx->jobs->btw;
 	struct fy_generic_builder *gb;
 	fy_generic result = fy_invalid;
 	bool ok = false;
@@ -1942,14 +1942,14 @@ void fyai_session_btw_close(struct fyai_ctx *ctx)
 {
 	struct fyai_btw_run *run, *next;
 
-	for (run = ctx->btw_runs; run; run = next) {
+	for (run = ctx->jobs->btw; run; run = next) {
 		next = run->next;
 		fyai_event_defer_cancel(fyai_ctx_loop(ctx), session_btw_finish,
 					 run);
 		fyai_tool_job_group_destroy(run->group);
 			free(run);
 	}
-	ctx->btw_runs = NULL;
+	ctx->jobs->btw = NULL;
 	fyai_tools_btw_panels_close(ctx);
 }
 
@@ -1962,11 +1962,11 @@ void fyai_session_btw_abandon(struct fyai_ctx *ctx)
 {
 	struct fyai_btw_run *run, *next;
 
-	for (run = ctx->btw_runs; run; run = next) {
+	for (run = ctx->jobs->btw; run; run = next) {
 		next = run->next;
 			free(run);
 	}
-	ctx->btw_runs = NULL;
+	ctx->jobs->btw = NULL;
 }
 
 /* Reserve a name absent from stored branches and running side questions. */
@@ -1989,7 +1989,7 @@ static int session_btw_branch_name(struct fyai_ctx *ctx, char *name,
 			branch, branch_size, &taken);
 		fyai_error_check(ctx, !rc, err,
 				 "btw: could not allocate a side branch");
-		for (live = ctx->btw_runs; live; live = live->next)
+		for (live = ctx->jobs->btw; live; live = live->next)
 			if (!strcmp(live->branch, branch))
 				break;
 		if (!taken && !live)
@@ -2045,8 +2045,8 @@ int fyai_session_btw(struct fyai_ctx *ctx, const char *arg)
 	rc = fyai_tool_job_group_submit(run->group);
 	fyai_error_check(ctx, !rc, err_group,
 			 "btw: could not start the side question");
-	run->next = ctx->btw_runs;
-	ctx->btw_runs = run;
+	run->next = ctx->jobs->btw;
+	ctx->jobs->btw = run;
 	fyai_result(ctx, "btw: %s", branch);
 	return 0;
 err_group:

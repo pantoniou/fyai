@@ -270,7 +270,7 @@ int fyai_tools_session_input(struct fyai_ctx *ctx, const char *name,
 
 	/* The terminal of a sub-agent is named by its branch. */
 	if (!sess) {
-		for (job = ctx->tool_jobs; job; job = job->next)
+		for (job = ctx->jobs->tools; job; job = job->next)
 			if (job->agent && job->phase != FYAI_JOB_DONE &&
 			    job->pty >= 0 &&
 			    job->branch && !strcmp(job->branch, name))
@@ -364,7 +364,7 @@ const char *fyai_tools_zoom(struct fyai_ctx *ctx, const char *name)
 		fyai_error(ctx, "zoom: agent name '%s' is ambiguous; use its full branch name", name);
 		return NULL;
 	}
-	for (sess = ctx->shell_sessions; sess && !sf; sess = sess->next) {
+	for (sess = ctx->jobs->sessions; sess && !sf; sess = sess->next) {
 		if (!sess->surface || sess->exited)
 			continue;
 		if (!name || !*name || (sess->name && !strcmp(sess->name, name))) {
@@ -373,7 +373,7 @@ const char *fyai_tools_zoom(struct fyai_ctx *ctx, const char *name)
 			zoom_sess = sess;
 		}
 	}
-	for (job = ctx->tool_jobs; job && !sf; job = job->next) {
+	for (job = ctx->jobs->tools; job && !sf; job = job->next) {
 		const char *agent;
 
 		if (!job->surface)
@@ -425,12 +425,12 @@ void fyai_tools_config_changed(struct fyai_ctx *ctx)
 		return;
 	/* Apply the new scrollback limit to each active terminal view. */
 	rows = ctx->cfg->work_history_rows;
-	for (sess = ctx->shell_sessions; sess; sess = sess->next)
+	for (sess = ctx->jobs->sessions; sess; sess = sess->next)
 		if (sess->view &&
 		    !fyai_terminal_view_set_history(sess->view, rows) &&
 		    sess->surface)
 			(void)fyai_ui_surface_publish(sess->surface, sess->view);
-	for (job = ctx->tool_jobs; job; job = job->next)
+	for (job = ctx->jobs->tools; job; job = job->next)
 		if (job->view &&
 		    !fyai_terminal_view_set_history(job->view, rows) &&
 		    job->surface)
@@ -496,14 +496,14 @@ static int fyai_focus_targets(struct fyai_ctx *ctx,
 	uintptr_t key;
 	int n = 0, ntiles, i, row, col, at;
 
-	for (sess = ctx->shell_sessions; sess; sess = sess->next) {
+	for (sess = ctx->jobs->sessions; sess; sess = sess->next) {
 		if (!sess->inline_block || sess->exited || n >= max)
 			continue;
 		out[n].key = (uintptr_t)sess;
 		out[n].sf = NULL;
 		n++;
 	}
-	for (job = ctx->tool_jobs; job; job = job->next) {
+	for (job = ctx->jobs->tools; job; job = job->next) {
 		if (!job->inline_block || job->phase == FYAI_JOB_DONE ||
 		    n >= max)
 			continue;
@@ -551,12 +551,12 @@ static void fyai_inline_owner(struct fyai_ctx *ctx, uintptr_t key,
 	*jobp = NULL;
 	if (!key)
 		return;
-	for (sess = ctx->shell_sessions; sess; sess = sess->next)
+	for (sess = ctx->jobs->sessions; sess; sess = sess->next)
 		if ((uintptr_t)sess == key && sess->inline_block) {
 			*sessp = sess;
 			return;
 		}
-	for (job = ctx->tool_jobs; job; job = job->next)
+	for (job = ctx->jobs->tools; job; job = job->next)
 		if ((uintptr_t)job == key && job->inline_block) {
 			*jobp = job;
 			return;

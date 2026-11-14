@@ -11,7 +11,9 @@
 
 #include "fyai.h"
 #include "fyai_diag.h"
+#include "fyai_agent_state.h"
 #include "fyai_arena.h"
+#include "fyai_jobs.h"
 #include "fyai_askq.h"
 #include "fyai_branch_state.h"
 #include "fyai_cred.h"
@@ -49,6 +51,8 @@ struct fyai_app {
 	struct fyai_branch_state bstate; /* depends on arena and diag */
 	struct fyai_usage usage;	/* depends on diag */
 	struct fyai_turnstate turn;	/* depends on diag */
+	struct fyai_jobs jobs;		/* depends on loop and diag */
+	struct fyai_agent_state astate;	/* depends on bstate and diag */
 	struct fyai_link link;		/* depends on loop and cred */
 	struct fyai_cred cred;		/* depends on loop */
 	struct fyai_cfg cfg;		/* depends on diag */

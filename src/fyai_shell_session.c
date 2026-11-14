@@ -91,7 +91,7 @@ void fyai_tools_work_update(struct fyai_ctx *ctx)
 	if (gb) {
 		/* A session that ended stays while it is kept: a client
 		 * ends its screen as the outcome says. */
-		for (sess = ctx->shell_sessions; sess; sess = sess->next) {
+		for (sess = ctx->jobs->sessions; sess; sess = sess->next) {
 			item = fy_mapping(gb, "kind", sess->user_owned ?
 						"user-shell" : "shell",
 					  "name", sess->name ? sess->name : "",
@@ -119,7 +119,7 @@ void fyai_tools_work_update(struct fyai_ctx *ctx)
 			}
 			items = fy_append(gb, items, item);
 		}
-		for (job = ctx->tool_jobs; job; job = job->next) {
+		for (job = ctx->jobs->tools; job; job = job->next) {
 			if (!job->agent || job->phase == FYAI_JOB_DONE)
 				continue;
 			item = fy_mapping(gb, "kind", "agent",
@@ -340,7 +340,7 @@ struct fyai_shell_session *fyai_shell_session_find(struct fyai_ctx *ctx,
 
 	if (!ctx || !name || !*name)
 		return NULL;
-	for (sess = ctx->shell_sessions; sess; sess = sess->next)
+	for (sess = ctx->jobs->sessions; sess; sess = sess->next)
 		if (!strcmp(sess->name, name))
 			return sess;
 	return NULL;
@@ -534,8 +534,8 @@ fyai_shell_session_create(struct fyai_ctx *ctx, const char *name,
 		if (fyai_ui_surface_publish(sess->surface, sess->view) > 0)
 			fyai_ui_wake(ctx);
 	}
-	sess->next = ctx->shell_sessions;
-	ctx->shell_sessions = sess;
+	sess->next = ctx->jobs->sessions;
+	ctx->jobs->sessions = sess;
 	fyai_tools_work_update(ctx);
 	/* The program of the session outlives the exchange that started it.
 	 * The program of a mirror is in the scope of its worker. */
@@ -1142,7 +1142,7 @@ void fyai_shell_sessions_abandon(struct fyai_ctx *ctx)
 
 	if (!ctx)
 		return;
-	for (sess = ctx->shell_sessions; sess; sess = next) {
+	for (sess = ctx->jobs->sessions; sess; sess = next) {
 		next = sess->next;
 		if (sess->job)
 			sess->job->session = NULL;
@@ -1158,7 +1158,7 @@ void fyai_shell_sessions_abandon(struct fyai_ctx *ctx)
 		sess->recorded = true;
 		fyai_shell_session_destroy(sess);
 	}
-	ctx->shell_sessions = NULL;
+	ctx->jobs->sessions = NULL;
 }
 
 static void fyai_shell_session_release_one(struct fyai_shell_session *sess,
@@ -1191,7 +1191,7 @@ void fyai_shell_session_dismiss(struct fyai_shell_session *sess)
 	/* The worker of a mirror drops its session too. */
 	if (sess->remote)
 		sess->remote->dismiss(sess->remote_data, sess->name);
-	for (link = &ctx->shell_sessions; *link && *link != sess;
+	for (link = &ctx->jobs->sessions; *link && *link != sess;
 	     link = &(*link)->next)
 		;
 	if (*link)
@@ -1208,14 +1208,14 @@ void fyai_tools_display_closed(struct fyai_ctx *ctx)
 
 	if (!ctx)
 		return;
-	for (sess = ctx->shell_sessions; sess; sess = sess->next) {
+	for (sess = ctx->jobs->sessions; sess; sess = sess->next) {
 		if (sess->animation) {
 			fyai_event_source_remove(sess->animation);
 			sess->animation = NULL;
 		}
 		sess->surface = NULL;
 	}
-	for (job = ctx->tool_jobs; job; job = job->next) {
+	for (job = ctx->jobs->tools; job; job = job->next) {
 		if (job->animation) {
 			fyai_event_source_remove(job->animation);
 			job->animation = NULL;
@@ -1233,8 +1233,8 @@ void fyai_shell_sessions_release(struct fyai_ctx *ctx, bool force)
 		return;
 	/* Each session leaves the list before it goes, so what its release
 	 * calls finds only sessions that live. */
-	while ((sess = ctx->shell_sessions) != NULL) {
-		ctx->shell_sessions = sess->next;
+	while ((sess = ctx->jobs->sessions) != NULL) {
+		ctx->jobs->sessions = sess->next;
 		fyai_shell_session_release_one(sess, force);
 	}
 	fyai_tools_work_update(ctx);
@@ -1251,7 +1251,7 @@ void fyai_shell_sessions_release_turn(struct fyai_ctx *ctx)
 
 	if (!ctx)
 		return;
-	link = &ctx->shell_sessions;
+	link = &ctx->jobs->sessions;
 	while ((sess = *link) != NULL) {
 		if (sess->user_owned) {
 			link = &sess->next;
@@ -1595,13 +1595,13 @@ fy_generic fyai_tools_sessions_data(struct fyai_ctx *ctx,
 	agents = fyai_agents_rows(ctx, gb);
 	fy_foreach(agent, agents) {
 		if (!fy_get(agent, "active", false) ||
-		    fy_get(agent, "parent", 0LL) == ctx->agent_execution)
+		    fy_get(agent, "parent", 0LL) == ctx->astate->execution)
 			continue;
 		rows = fy_append(gb, rows, fy_mapping(gb,
 			"name", fy_get(agent, "branch", ""), "kind", "agent",
 			"state", fy_get(agent, "state", "running")));
 	}
-	for (sess = ctx->shell_sessions; sess; sess = sess->next) {
+	for (sess = ctx->jobs->sessions; sess; sess = sess->next) {
 		if (sess->exited || !sess->surface)
 			continue;
 		rows = fy_append(gb, rows, fy_mapping(gb,
@@ -1613,7 +1613,7 @@ fy_generic fyai_tools_sessions_data(struct fyai_ctx *ctx,
 					sess->surface ? "focused" :
 				"running"));
 	}
-	for (job = ctx->tool_jobs; job; job = job->next) {
+	for (job = ctx->jobs->tools; job; job = job->next) {
 		if (!job->agent ||
 		    (job->phase == FYAI_JOB_DONE && !job->btw_panel))
 			continue;
@@ -1643,7 +1643,7 @@ int fyai_tools_kill(struct fyai_ctx *ctx, const char *name,
 		fyai_error(ctx, "kill: agent name '%s' is ambiguous; use its full branch name", name);
 		return -1;
 	}
-	for (candidate = ctx->shell_sessions; candidate;
+	for (candidate = ctx->jobs->sessions; candidate;
 	     candidate = candidate->next)
 		if ((!candidate->exited ||
 		     (candidate->keep_tile && candidate->surface)) &&
@@ -1653,7 +1653,7 @@ int fyai_tools_kill(struct fyai_ctx *ctx, const char *name,
 		}
 	agent = fyai_agent_job_named(ctx, name);
 	if (!agent)
-		for (agent = ctx->tool_jobs; agent; agent = agent->next)
+		for (agent = ctx->jobs->tools; agent; agent = agent->next)
 			if (agent->btw_panel &&
 			    (!strcmp(agent->branch, name) ||
 			     !strcmp(fyai_agent_job_name(agent), name)))
@@ -1965,7 +1965,7 @@ void fyai_tools_mirror_drop(struct fyai_shell_session *sess)
 	if (!sess)
 		return;
 	ctx = sess->ctx;
-	for (link = &ctx->shell_sessions; *link && *link != sess;
+	for (link = &ctx->jobs->sessions; *link && *link != sess;
 	     link = &(*link)->next)
 		;
 	if (*link)

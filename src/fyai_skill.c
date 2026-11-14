@@ -2207,7 +2207,7 @@ static bool tool_expand_skill(struct fyai_ctx *ctx, fy_generic args,
 		return false;
 	/* The sub-agent tools must be offered to this run. */
 	if (fyai_tool_has("agent", FYAI_TOOL_NOT_FOR_CHILD) &&
-	    ctx->cfg->agent_child && !ctx->agent_execution)
+	    ctx->cfg->agent_child && !ctx->astate->execution)
 		return false;
 	if (!fyai_skill_tool_allowed(ctx, "agent"))
 		return false;

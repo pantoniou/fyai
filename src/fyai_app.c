@@ -90,6 +90,25 @@ void fyai_turnstate_init(struct fyai_turnstate *turn, struct fyai_diag *diag)
 	turn->media_pending = fy_seq_empty;
 }
 
+void fyai_jobs_init(struct fyai_jobs *jobs, struct fyai_loop *loop,
+		    struct fyai_diag *diag)
+{
+	memset(jobs, 0, sizeof(*jobs));
+	jobs->loop = loop;
+	jobs->diag = diag;
+}
+
+void fyai_agent_state_init(struct fyai_agent_state *as,
+			   struct fyai_branch_state *bstate,
+			   struct fyai_diag *diag)
+{
+	memset(as, 0, sizeof(*as));
+	as->bstate = bstate;
+	as->diag = diag;
+	/* A zeroed fy_generic is an empty sequence, not fy_invalid. */
+	as->spawn = fy_invalid;
+}
+
 int fyai_app_init(struct fyai_app *app)
 {
 	int rc;
@@ -112,6 +131,8 @@ int fyai_app_init(struct fyai_app *app)
 	fyai_branch_state_init(&app->bstate, &app->arena, &app->diag);
 	fyai_usage_init(&app->usage, &app->diag);
 	fyai_turnstate_init(&app->turn, &app->diag);
+	fyai_jobs_init(&app->jobs, &app->loop, &app->diag);
+	fyai_agent_state_init(&app->astate, &app->bstate, &app->diag);
 	fyai_link_init(&app->link, &app->loop, &app->cred);
 	fyai_arena_init(&app->arena);
 	fyai_transient_init(&app->transient);

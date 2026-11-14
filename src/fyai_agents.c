@@ -69,14 +69,14 @@ static struct fyai_agents *agents_get(struct fyai_ctx *ctx)
 {
 	struct fyai_agents *a;
 
-	if (ctx->agents)
-		return ctx->agents;
+	if (ctx->astate->registry)
+		return ctx->astate->registry;
 	a = calloc(1, sizeof(*a));
 	fyai_error_check(ctx, a, err_out, "cannot allocate the agent registry");
 	a->ctx = ctx;
 	a->question_tail = &a->questions;
 	snprintf(a->activity, sizeof(a->activity), "running");
-	ctx->agents = a;
+	ctx->astate->registry = a;
 	return a;
 
 err_out:
@@ -256,10 +256,10 @@ static struct agent_record *agents_named(struct fyai_ctx *ctx, const char *name)
 	const char *leaf;
 	char slug[FYAI_BRANCH_COMPONENT_MAX + 1];
 
-	if (!ctx->agents || fy_str_empty(name))
+	if (!ctx->astate->registry || fy_str_empty(name))
 		return NULL;
 	fyai_branch_sanitize(name, "agent", slug, sizeof(slug));
-	for (r = ctx->agents->records; r; r = r->next) {
+	for (r = ctx->astate->registry->records; r; r = r->next) {
 		if (!agent_active(r))
 			continue;
 		if (!strcmp(r->branch, name))
@@ -280,9 +280,9 @@ bool fyai_agents_ambiguous(struct fyai_ctx *ctx, const char *name)
 	const char *leaf;
 	unsigned int matches = 0;
 
-	if (!ctx->agents || fy_str_empty(name))
+	if (!ctx->astate->registry || fy_str_empty(name))
 		return false;
-	for (r = ctx->agents->records; r; r = r->next) {
+	for (r = ctx->astate->registry->records; r; r = r->next) {
 		if (!agent_active(r))
 			continue;
 		if (!strcmp(r->branch, name))
@@ -303,7 +303,7 @@ static void agents_forward_free(struct agent_forward *f)
 {
 	struct agent_forward **p;
 
-	p = &f->ctx->agents->forwards;
+	p = &f->ctx->astate->registry->forwards;
 	while (*p && *p != f)
 		p = &(*p)->next;
 	if (*p)
@@ -435,7 +435,7 @@ static void agents_event(struct fyai_ctx *ctx, struct jsonrpc_conn *from,
 	execution = fy_get(params, "execution", 0LL);
 	sequence = fy_get(params, "sequence", 0LL);
 	r = agents_record(a, execution);
-	if (!r && ctx->agent_execution)
+	if (!r && ctx->astate->execution)
 		r = agents_add(a, from, params, execution);
 	if (!r || r->route != from || sequence <= r->sequence || !agent_active(r))
 		return;
@@ -470,8 +470,8 @@ static void agents_event(struct fyai_ctx *ctx, struct jsonrpc_conn *from,
 		r->source = copy;
 	}
 	a->generation++;
-	if (ctx->agent_execution && ctx->tool_rpc) {
-		rc = jsonrpc_notify(ctx->tool_rpc, "agent/event", params);
+	if (ctx->astate->execution && ctx->jobs->rpc) {
+		rc = jsonrpc_notify(ctx->jobs->rpc, "agent/event", params);
 		fyai_error_check(ctx, !rc, err_out,
 				 "cannot pass on the event of agent %s", r->branch);
 	}
@@ -496,10 +496,10 @@ static int agents_publish(struct fyai_ctx *ctx, const char *state)
 
 	a = agents_get(ctx);
 	gb = fyai_ctx_transient_gb(ctx);
-	if (!a || !gb || !ctx->agent_execution || !ctx->tool_rpc)
+	if (!a || !gb || !ctx->astate->execution || !ctx->jobs->rpc)
 		return 0;
-	params = fy_mapping(gb, "execution", ctx->agent_execution,
-		"parent", ctx->agent_parent, "branch", ctx->bstate->agent_branch,
+	params = fy_mapping(gb, "execution", ctx->astate->execution,
+		"parent", ctx->astate->parent, "branch", ctx->bstate->agent_branch,
 		"model", ctx->cfg->model ? ctx->cfg->model : "",
 		"sequence", ++a->sequence, "state", state);
 	if (a->subscribed) {
@@ -512,7 +512,7 @@ static int agents_publish(struct fyai_ctx *ctx, const char *state)
 		if (source)
 			params = fy_assoc(gb, params, "source", source);
 	}
-	rc = jsonrpc_notify(ctx->tool_rpc, "agent/event", params);
+	rc = jsonrpc_notify(ctx->jobs->rpc, "agent/event", params);
 	fyai_error_check(ctx, !rc, err_out, "cannot report the agent state to the parent");
 	return 0;
 
@@ -524,28 +524,28 @@ static enum fyai_event_action agents_tick(const struct fyai_event *event)
 {
 	struct fyai_ctx *ctx = event->userdata;
 
-	if (jsonrpc_conn_closed(ctx->tool_rpc)) {
+	if (jsonrpc_conn_closed(ctx->jobs->rpc)) {
 		ctx->loop->interrupt_pending = ctx->loop->terminate_pending = true;
 		return FYAIEA_CONTINUE;
 	}
 	(void)agents_publish(ctx, ctx->loop->terminate_pending ? "cancelled" :
-			     ctx->agents->activity);
+			     ctx->astate->registry->activity);
 	fyai_agents_present(ctx);
 	return FYAIEA_CONTINUE;
 }
 
 void fyai_agents_activity(struct fyai_ctx *ctx, const char *state)
 {
-	if (!ctx->agent_execution || !ctx->agents)
+	if (!ctx->astate->execution || !ctx->astate->registry)
 		return;
-	snprintf(ctx->agents->activity, sizeof(ctx->agents->activity), "%s", state);
+	snprintf(ctx->astate->registry->activity, sizeof(ctx->astate->registry->activity), "%s", state);
 	(void)agents_publish(ctx, state);
 }
 
 void fyai_agents_output(struct fyai_ctx *ctx)
 {
-	if (ctx->agents && ctx->agents->subscribed)
-		(void)agents_publish(ctx, ctx->agents->activity);
+	if (ctx->astate->registry && ctx->astate->registry->subscribed)
+		(void)agents_publish(ctx, ctx->astate->registry->activity);
 }
 
 static int agents_question(struct fyai_ctx *ctx, struct jsonrpc_conn *conn,
@@ -609,8 +609,8 @@ static enum agents_served agents_serve_ask(struct fyai_ctx *ctx,
 		fyai_error(ctx, "ask_user is only available to a user-owned agent");
 		return AGENTS_SERVED_FAIL;
 	}
-	if (ctx->agent_execution && ctx->tool_rpc)
-		rc = agents_forward(ctx, conn, ctx->tool_rpc, "user/ask", params, id);
+	if (ctx->astate->execution && ctx->jobs->rpc)
+		rc = agents_forward(ctx, conn, ctx->jobs->rpc, "user/ask", params, id);
 	else if (fyai_ui_active(ctx) && ctx->turn->answer_next >= ctx->cfg->answer_count)
 		rc = agents_question(ctx, conn, params, id);
 	else
@@ -634,8 +634,8 @@ static enum agents_served agents_serve_admit(struct fyai_ctx *ctx,
 	const char *branch;
 	int active = 0, rc;
 
-	if (ctx->agent_execution && ctx->tool_rpc) {
-		rc = agents_forward(ctx, conn, ctx->tool_rpc, "agent/admit", params, id);
+	if (ctx->astate->execution && ctx->jobs->rpc) {
+		rc = agents_forward(ctx, conn, ctx->jobs->rpc, "agent/admit", params, id);
 		return rc ? AGENTS_SERVED_FAIL : AGENTS_SERVED_OK;
 	}
 	branch = fy_get(params, "branch", "");
@@ -723,7 +723,7 @@ static enum agents_served agents_serve_control(struct fyai_ctx *ctx,
 
 	execution = fy_get(params, "execution", 0LL);
 	action = fy_get(params, "action", "");
-	if (execution > 0 && execution == ctx->agent_execution)
+	if (execution > 0 && execution == ctx->astate->execution)
 		return agents_serve_own_control(ctx, a, gb, action, params, result);
 	r = agents_record(a, execution);
 	fyai_error_check(ctx, r && agent_active(r) && r->route, err_out,
@@ -809,8 +809,8 @@ static enum agents_served agents_serve_message(struct fyai_ctx *ctx,
 				"deadlock: the parent is waiting for this agent to finish");
 			return AGENTS_SERVED_OK;
 		}
-	} else if (execution > 0 && execution == ctx->agent_execution) {
-		fyai_error_check(ctx, conn == ctx->tool_rpc, err_out,
+	} else if (execution > 0 && execution == ctx->astate->execution) {
+		fyai_error_check(ctx, conn == ctx->jobs->rpc, err_out,
 				 "agent message did not come from its parent");
 		from = fy_get(params, "from", "");
 		sender_execution = fy_get(params, "sender_execution", 0LL);
@@ -909,12 +909,12 @@ int fyai_agents_enter(struct fyai_ctx *ctx)
 
 	a = agents_get(ctx);
 	gb = fyai_ctx_transient_gb(ctx);
-	if (!a || !gb || !ctx->tool_rpc || !ctx->bstate->agent_branch)
+	if (!a || !gb || !ctx->jobs->rpc || !ctx->bstate->agent_branch)
 		return -1;
-	request = jsonrpc_request_submit(ctx->tool_rpc, "agent/admit",
+	request = jsonrpc_request_submit(ctx->jobs->rpc, "agent/admit",
 		fy_mapping(gb, "branch", ctx->bstate->agent_branch,
-			"parent", ctx->agent_parent, "model", ctx->cfg->model),
-		jsonrpc_conn_next_id(ctx->tool_rpc), false, NULL, NULL);
+			"parent", ctx->astate->parent, "model", ctx->cfg->model),
+		jsonrpc_conn_next_id(ctx->jobs->rpc), false, NULL, NULL);
 	fyai_error_check(ctx, request, err_out, "cannot ask the parent for admission");
 	while (!jsonrpc_request_done(request) && !ctx->loop->terminate_pending) {
 		rc = fyai_event_loop_step(fyai_ctx_loop(ctx), -1);
@@ -924,10 +924,10 @@ int fyai_agents_enter(struct fyai_ctx *ctx)
 		}
 	}
 	result = jsonrpc_request_result(request);
-	ctx->agent_execution = jsonrpc_request_ok(request) ?
+	ctx->astate->execution = jsonrpc_request_ok(request) ?
 		fy_get(result, "execution", 0LL) : 0;
 	jsonrpc_request_destroy(request);
-	fyai_error_check(ctx, ctx->agent_execution, err_out,
+	fyai_error_check(ctx, ctx->astate->execution, err_out,
 			 "agent admission refused: name is active or agent/max_live_agents reached");
 	rc = fyai_event_add_timer(fyai_ctx_loop(ctx), AGENT_TICK_MS, AGENT_TICK_MS,
 				 agents_tick, ctx, &a->timer);
@@ -940,12 +940,12 @@ err_out:
 
 void fyai_agents_leave(struct fyai_ctx *ctx, bool ok)
 {
-	if (!ctx->agents)
+	if (!ctx->astate->registry)
 		return;
 	(void)agents_publish(ctx, ctx->loop->terminate_pending ? "cancelled" :
 			     ok ? "completed" : "failed");
-	fyai_event_source_remove(ctx->agents->timer);
-	ctx->agents->timer = NULL;
+	fyai_event_source_remove(ctx->astate->registry->timer);
+	ctx->astate->registry->timer = NULL;
 }
 
 /*
@@ -954,7 +954,7 @@ void fyai_agents_leave(struct fyai_ctx *ctx, bool ok)
  */
 void fyai_agents_conn_closed(struct fyai_ctx *ctx, struct jsonrpc_conn *conn)
 {
-	struct fyai_agents *a = ctx->agents;
+	struct fyai_agents *a = ctx->astate->registry;
 	struct agent_record *r;
 	struct agent_forward *f, *next;
 	struct agent_question **qp, *q;
@@ -1001,7 +1001,7 @@ void fyai_agents_conn_closed(struct fyai_ctx *ctx, struct jsonrpc_conn *conn)
 
 unsigned long fyai_agents_generation(const struct fyai_ctx *ctx)
 {
-	return ctx->agents ? ctx->agents->generation : 0;
+	return ctx->astate->registry ? ctx->astate->registry->generation : 0;
 }
 
 /* The record of @branch, or NULL. */
@@ -1010,9 +1010,9 @@ static struct agent_record *agents_branch_record(struct fyai_ctx *ctx,
 {
 	struct agent_record *r;
 
-	if (!ctx->agents || fy_str_empty(branch))
+	if (!ctx->astate->registry || fy_str_empty(branch))
 		return NULL;
-	for (r = ctx->agents->records; r; r = r->next)
+	for (r = ctx->astate->registry->records; r; r = r->next)
 		if (!strcmp(r->branch, branch))
 			return r;
 	return NULL;
@@ -1045,7 +1045,7 @@ fy_generic fyai_agents_rows(struct fyai_ctx *ctx, struct fy_generic_builder *gb)
 	fy_generic rows;
 
 	rows = fy_sequence(gb);
-	for (r = ctx->agents ? ctx->agents->records : NULL; r; r = r->next)
+	for (r = ctx->astate->registry ? ctx->astate->registry->records : NULL; r; r = r->next)
 		rows = fy_append(gb, rows, fy_mapping(gb,
 			"branch", r->branch, "state", agent_state_name(r->state),
 			"execution", r->execution, "parent", r->parent,
@@ -1169,9 +1169,9 @@ const char *fyai_agents_attached(const struct fyai_ctx *ctx)
 {
 	struct agent_record *r;
 
-	if (!ctx->agents || !ctx->agents->attached)
+	if (!ctx->astate->registry || !ctx->astate->registry->attached)
 		return NULL;
-	r = agents_record(ctx->agents, ctx->agents->selected);
+	r = agents_record(ctx->astate->registry, ctx->astate->registry->selected);
 	return r ? r->branch : NULL;
 }
 
@@ -1179,9 +1179,9 @@ const char *fyai_agents_model(const struct fyai_ctx *ctx)
 {
 	struct agent_record *r;
 
-	if (!ctx->agents || !ctx->agents->attached)
+	if (!ctx->astate->registry || !ctx->astate->registry->attached)
 		return NULL;
-	r = agents_record(ctx->agents, ctx->agents->selected);
+	r = agents_record(ctx->astate->registry, ctx->astate->registry->selected);
 	return r ? r->model : NULL;
 }
 
@@ -1270,7 +1270,7 @@ fail:
 
 void fyai_agents_detach(struct fyai_ctx *ctx)
 {
-	struct fyai_agents *a = ctx->agents;
+	struct fyai_agents *a = ctx->astate->registry;
 	struct agent_record *r;
 
 	if (!a)
@@ -1371,7 +1371,7 @@ static void agents_answer(struct fyai_ctx *ctx, struct fyai_agents *a,
 
 bool fyai_agents_input(struct fyai_ctx *ctx, const char *line)
 {
-	struct fyai_agents *a = ctx->agents;
+	struct fyai_agents *a = ctx->astate->registry;
 	struct agent_record *r;
 
 	if (!a)
@@ -1411,16 +1411,16 @@ static void agents_message_done(struct jsonrpc_request *request, void *userdata)
 
 	ack->state = cancelled ? AGENT_ACK_CANCELLED : AGENT_ACK_SETTLED;
 	ack->request = NULL;
-	if (!ack->ask_parent && !ack->ctx->agents->closing && !cancelled)
+	if (!ack->ask_parent && !ack->ctx->astate->registry->closing && !cancelled)
 		fyai_event_injectf(ack->ctx, "[agent_message '%s' %s]", ack->name,
 			queued ? "queued" : "not queued");
-	if (ack->ask_parent && !queued && !ack->ctx->agents->closing) {
-		ask = agents_parent_ask_find(ack->ctx->agents, ack->name);
+	if (ack->ask_parent && !queued && !ack->ctx->astate->registry->closing) {
+		ask = agents_parent_ask_find(ack->ctx->astate->registry, ack->name);
 		if (ask) {
 			fyai_event_injectf(ack->ctx,
 				"[ask_parent '%s' not queued]%s%s", ack->name,
 				*reason ? "\n" : "", reason);
-			agents_parent_ask_remove(ack->ctx->agents, ask);
+			agents_parent_ask_remove(ack->ctx->astate->registry, ask);
 		}
 	}
 	jsonrpc_request_destroy(request);
@@ -1429,7 +1429,7 @@ static void agents_message_done(struct jsonrpc_request *request, void *userdata)
 static void agents_message_settle(struct agent_message_ack *ack, bool queued)
 {
 	ack->state = AGENT_ACK_SETTLED;
-	if (!ack->ctx->agents->closing)
+	if (!ack->ctx->astate->registry->closing)
 		fyai_event_injectf(ack->ctx, "[agent_message '%s' %s]",
 			ack->name, queued ? "queued" : "not queued");
 }
@@ -1439,15 +1439,15 @@ static int agents_message_submit(struct agent_message_ack *ack,
 {
 	struct fyai_ctx *ctx = ack->ctx;
 	struct fy_generic_builder *gb = fyai_ctx_transient_gb(ctx);
-	struct jsonrpc_conn *route = r ? r->route : ctx->tool_rpc;
-	long long execution = r ? r->execution : ctx->agent_execution;
+	struct jsonrpc_conn *route = r ? r->route : ctx->jobs->rpc;
+	long long execution = r ? r->execution : ctx->astate->execution;
 
 	if (!gb || !route || !execution)
 		return -1;
 	ack->request = jsonrpc_request_submit(route, "agent/message",
 		fy_mapping(gb, "execution", execution,
 			"target", r ? "agent" : "parent", "from", ack->from,
-			"sender_execution", ctx->agent_execution,
+			"sender_execution", ctx->astate->execution,
 			"text", ack->text, "message_id", ack->name,
 			"reply_to", ack->reply_to,
 			"ask_parent", ack->ask_parent),
@@ -1477,7 +1477,7 @@ bool fyai_agents_message_pending(struct fyai_ctx *ctx, const char *name)
 {
 	struct agent_message_ack *ack;
 
-	for (ack = ctx->agents ? ctx->agents->messages : NULL; ack;
+	for (ack = ctx->astate->registry ? ctx->astate->registry->messages : NULL; ack;
 	     ack = ack->next)
 		if (!ack->ask_parent && !strcmp(ack->name, name))
 			return ack->state < AGENT_ACK_SETTLED;
@@ -1490,7 +1490,7 @@ fy_generic fyai_agents_message_rows(struct fyai_ctx *ctx,
 	struct agent_message_ack *ack;
 	fy_generic rows = fy_sequence(gb);
 
-	for (ack = ctx->agents ? ctx->agents->messages : NULL; ack;
+	for (ack = ctx->astate->registry ? ctx->astate->registry->messages : NULL; ack;
 	     ack = ack->next)
 		if (ack->state < AGENT_ACK_SETTLED && !ack->ask_parent)
 			rows = fy_append(gb, rows, fy_mapping(gb,
@@ -1502,7 +1502,7 @@ bool fyai_agents_message_cancel(struct fyai_ctx *ctx, const char *name)
 {
 	struct agent_message_ack *ack;
 
-	for (ack = ctx->agents ? ctx->agents->messages : NULL; ack;
+	for (ack = ctx->astate->registry ? ctx->astate->registry->messages : NULL; ack;
 	     ack = ack->next) {
 		if (strcmp(ack->name, name) || ack->state >= AGENT_ACK_SETTLED)
 			continue;
@@ -1531,7 +1531,7 @@ static int agents_message_new(struct fyai_ctx *ctx, const char *name,
 		fyai_ctx_branch(ctx);
 
 	if (parent) {
-		if (!ctx->tool_rpc || !ctx->agent_execution)
+		if (!ctx->jobs->rpc || !ctx->astate->execution)
 			return -1;
 	} else if (!r || !r->route || !agent_active(r)) {
 		branch = fyai_tool_agent_live_branch(ctx, name);
@@ -1598,7 +1598,7 @@ int fyai_agents_ask_parent(struct fyai_ctx *ctx, const char *name,
 	const char *from = ctx->bstate->agent_branch ? ctx->bstate->agent_branch :
 		fyai_ctx_branch(ctx);
 
-	if (!a || !ctx->agent_execution || !ctx->tool_rpc ||
+	if (!a || !ctx->astate->execution || !ctx->jobs->rpc ||
 	    fy_str_empty(name) || fy_str_empty(question) ||
 	    agents_parent_ask_find(a, name))
 		return -1;
@@ -1624,16 +1624,16 @@ int fyai_agents_ask_parent(struct fyai_ctx *ctx, const char *name,
 
 bool fyai_agents_parent_ask_pending(struct fyai_ctx *ctx, const char *name)
 {
-	return agents_parent_ask_find(ctx->agents, name) != NULL;
+	return agents_parent_ask_find(ctx->astate->registry, name) != NULL;
 }
 
 bool fyai_agents_parent_ask_cancel(struct fyai_ctx *ctx, const char *name)
 {
-	struct agent_parent_ask *ask = agents_parent_ask_find(ctx->agents, name);
+	struct agent_parent_ask *ask = agents_parent_ask_find(ctx->astate->registry, name);
 
 	if (!ask)
 		return false;
-	agents_parent_ask_remove(ctx->agents, ask);
+	agents_parent_ask_remove(ctx->astate->registry, ask);
 	fyai_waiters_kick(ctx);
 	return true;
 }
@@ -1644,7 +1644,7 @@ fy_generic fyai_agents_parent_ask_rows(struct fyai_ctx *ctx,
 	struct agent_parent_ask *ask;
 	fy_generic rows = fy_sequence(gb);
 
-	for (ask = ctx->agents ? ctx->agents->parent_asks : NULL; ask;
+	for (ask = ctx->astate->registry ? ctx->astate->registry->parent_asks : NULL; ask;
 	     ask = ask->next)
 		rows = fy_append(gb, rows, fy_mapping(gb,
 			"name", ask->name, "target", "parent"));
@@ -1655,7 +1655,7 @@ void fyai_agents_message_branch_closed(struct fyai_ctx *ctx, const char *branch)
 {
 	struct agent_message_ack *ack;
 
-	for (ack = ctx->agents ? ctx->agents->messages : NULL; ack;
+	for (ack = ctx->astate->registry ? ctx->astate->registry->messages : NULL; ack;
 	     ack = ack->next)
 		if (ack->state == AGENT_ACK_WAITING &&
 		    !strcmp(ack->branch, branch))
@@ -1664,12 +1664,12 @@ void fyai_agents_message_branch_closed(struct fyai_ctx *ctx, const char *branch)
 
 bool fyai_agents_surface(struct fyai_ctx *ctx, const struct fytim_surface *sf)
 {
-	return ctx->agents && ctx->agents->surface && ctx->agents->surface == sf;
+	return ctx->astate->registry && ctx->astate->registry->surface && ctx->astate->registry->surface == sf;
 }
 
 bool fyai_agents_keys(struct fyai_ctx *ctx, const char *data, size_t len)
 {
-	struct fyai_agents *a = ctx->agents;
+	struct fyai_agents *a = ctx->astate->registry;
 	size_t i;
 
 	if (!fyai_agents_surface(ctx, fyai_workpane_focused(ctx->workpane)))
@@ -1700,7 +1700,7 @@ bool fyai_agents_keys(struct fyai_ctx *ctx, const char *data, size_t len)
 
 size_t fyai_agents_questions_waiting(struct fyai_ctx *ctx)
 {
-	struct fyai_agents *a = ctx ? ctx->agents : NULL;
+	struct fyai_agents *a = ctx ? ctx->astate->registry : NULL;
 	struct agent_question *q;
 	size_t n = 0;
 
@@ -1718,7 +1718,7 @@ static void agents_ask_done(void *user, const struct fyai_ask_reply *replies,
 {
 	struct agent_question *q = user;
 	struct fyai_ctx *ctx = q->ctx;
-	struct fyai_agents *a = ctx->agents;
+	struct fyai_agents *a = ctx->astate->registry;
 
 	if (!a || a->questions != q)
 		return;
@@ -1806,7 +1806,7 @@ static void agents_present_progress(struct fyai_ctx *ctx, struct fyai_agents *a)
 
 	fp = open_memstream(&md, &size);
 	fyai_error_check(ctx, fp, err_out, "cannot build the agent progress band");
-	count = agents_progress(fp, a, ctx->agent_execution);
+	count = agents_progress(fp, a, ctx->astate->execution);
 	fclose(fp);
 	if (!count) {
 		fyai_sink_band_destroy(a->progress);
@@ -1823,7 +1823,7 @@ err_out:
 
 void fyai_agents_present(struct fyai_ctx *ctx)
 {
-	struct fyai_agents *a = ctx->agents;
+	struct fyai_agents *a = ctx->astate->registry;
 	struct agent_record *selected;
 
 	if (!a || a->painted == a->generation)
@@ -1834,13 +1834,13 @@ void fyai_agents_present(struct fyai_ctx *ctx)
 	selected = agents_record(a, a->selected);
 	if (a->surface && selected)
 		agents_present_view(ctx, a, selected);
-	if (ctx->agent_execution && fyai_sink_bands_available(ctx->sink))
+	if (ctx->astate->execution && fyai_sink_bands_available(ctx->sink))
 		agents_present_progress(ctx, a);
 }
 
 void fyai_agents_cleanup(struct fyai_ctx *ctx)
 {
-	struct fyai_agents *a = ctx->agents;
+	struct fyai_agents *a = ctx->astate->registry;
 	struct agent_record *r, *next;
 	struct agent_question *q;
 	struct agent_message_ack *ack;
@@ -1881,5 +1881,5 @@ void fyai_agents_cleanup(struct fyai_ctx *ctx)
 		agent_record_destroy(r);
 	}
 	free(a);
-	ctx->agents = NULL;
+	ctx->astate->registry = NULL;
 }

@@ -2318,7 +2318,7 @@ fyai_turn_run_submit(struct fyai_ctx *ctx, fy_generic turn)
 	run->state = FYAITRS_NEW;
 	/* A request of a turn that stopped does not end this one. */
 	ctx->turn->end_requested = false;
-	ctx->tool_output_displayed = false;
+	ctx->jobs->output_displayed = false;
 	rc = fyai_output_begin(ctx, FYAI_OUTPUT_ASSISTANT);
 	fyai_error_check(ctx, !rc, err_free,
 			 "could not start assistant display output");
@@ -2535,17 +2535,17 @@ void fyai_cleanup(struct fyai_ctx *ctx)
 	ctx->bstate->head_branch = NULL;
 	ctx->bstate->session_unstored = NULL;
 	ctx->bstate->agent_branch = NULL;
-	ctx->agent_spawn = fy_invalid;
-	free(ctx->tool_submit_error);
-	ctx->tool_submit_error = NULL;
+	ctx->astate->spawn = fy_invalid;
+	free(ctx->jobs->submit_error);
+	ctx->jobs->submit_error = NULL;
 	fyai_request_cache_release(ctx);
 	fyai_patch_display_clear(ctx);
-	free(ctx->patch_display);
-	ctx->patch_display = NULL;
-	if (ctx->shell_stream) {
-		fyai_fenced_stream_finish(ctx->shell_stream);
-		free(ctx->shell_stream);
-		ctx->shell_stream = NULL;
+	free(ctx->jobs->patch_display);
+	ctx->jobs->patch_display = NULL;
+	if (ctx->jobs->stream) {
+		fyai_fenced_stream_finish(ctx->jobs->stream);
+		free(ctx->jobs->stream);
+		ctx->jobs->stream = NULL;
 	}
 	fyai_mcp_cleanup(ctx);
 	fyai_ui_close(ctx);
@@ -2745,6 +2745,8 @@ int fyai_setup(struct fyai_ctx *ctx, struct fyai_app *app)
 	ctx->askq = &app->askq;
 	ctx->bstate = &app->bstate;
 	ctx->turn = &app->turn;
+	ctx->jobs = &app->jobs;
+	ctx->astate = &app->astate;
 	ctx->usage = &app->usage;
 	ctx->scope = &app->scope;
 	ctx->tty = &app->tty;
@@ -2787,7 +2789,7 @@ int fyai_setup(struct fyai_ctx *ctx, struct fyai_app *app)
 	ctx->bstate->prev = fy_invalid;
 	ctx->bstate->desc = fy_invalid;
 	ctx->bstate->agent = fy_invalid;
-	ctx->agent_spawn = fy_invalid;
+	ctx->astate->spawn = fy_invalid;
 	ctx->bstate->store = fy_invalid;
 	ctx->bstate->project_state = fy_invalid;
 	ctx->bstate->tool_changes = fy_seq_empty;
@@ -4049,7 +4051,7 @@ static int fyai_prompt_interactive_async(struct fyai_ctx *ctx)
 				continue;
 		}
 		/* A side question may complete after its parent turn releases scratch. */
-		if ((ctx->btw_runs || ctx->agent_bg_runs || ctx->monitors) &&
+		if ((ctx->jobs->btw || ctx->jobs->agent_bg || ctx->jobs->monitors) &&
 		    !ctx->transient->gb) {
 			rc = fyai_setup_transient_builder(ctx);
 			fyai_error_check(ctx, !rc, out,

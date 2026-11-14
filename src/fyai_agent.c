@@ -61,7 +61,7 @@ bool fyai_agent_delegated(const struct fyai_ctx *ctx)
 {
 	if (!ctx || !ctx->cfg->agent_child)
 		return false;
-	return ctx->tool_rpc || ctx->cfg->agent_rpc;
+	return ctx->jobs->rpc || ctx->cfg->agent_rpc;
 }
 
 static fy_generic fyai_agent_final_text(struct fyai_ctx *ctx, fy_generic turn)
@@ -440,8 +440,8 @@ static void agent_gate_ask(struct fyai_ctx *ctx, uint64_t id, size_t index,
 		ask->id = id;
 		ask->index = index;
 		ask->after = after;
-		req = jsonrpc_request_submit(ctx->tool_rpc, "tool/gate", params,
-					     jsonrpc_conn_next_id(ctx->tool_rpc),
+		req = jsonrpc_request_submit(ctx->jobs->rpc, "tool/gate", params,
+					     jsonrpc_conn_next_id(ctx->jobs->rpc),
 					     false, agent_gate_answer, ask);
 	}
 	if (req)
@@ -490,7 +490,7 @@ static void agent_step_relay(struct fyai_ctx *ctx, fy_generic turn, void *data)
 
 	(void)data;
 	usage = fy_get(fyai_turn_meta(turn), "usage", fy_invalid);
-	rc = jsonrpc_notify(ctx->tool_rpc, "turn/step", fy_mapping(gb,
+	rc = jsonrpc_notify(ctx->jobs->rpc, "turn/step", fy_mapping(gb,
 		"messages", fy_get(turn, "messages", fy_seq_empty),
 		"usage", fyai_generic_or_null(usage),
 		"model", ctx->cfg->model ? ctx->cfg->model : ""));
@@ -586,8 +586,8 @@ static int agent_run_branch(struct fyai_ctx *ctx, struct agent_run *r)
 				return -1;
 		}
 		/* An executed child adopts the state that its parent sent. */
-		if (fy_is_mapping(ctx->agent_spawn)) {
-			rc = fyai_agent_spawn_adopt(ctx, ctx->agent_spawn);
+		if (fy_is_mapping(ctx->astate->spawn)) {
+			rc = fyai_agent_spawn_adopt(ctx, ctx->astate->spawn);
 			fyai_error_check(ctx, !rc, err,
 					 "could not adopt the parent state");
 		}
@@ -700,7 +700,7 @@ static int agent_run_setup(struct fyai_ctx *ctx, struct agent_run *r)
 	/* Apply child settings after the arena restores branch configuration. */
 	cfg->agent_child = true;
 	cfg->mcp_enabled = false;
-	cfg->system_prompt = ctx->tool_rpc ? fyai_agent_system_prompt :
+	cfg->system_prompt = ctx->jobs->rpc ? fyai_agent_system_prompt :
 		fyai_agent_user_system_prompt;
 	if (fy_is_mapping(r->persona)) {
 		rc = fyai_agent_persona_apply(ctx, r->persona, r->fork_mode);
@@ -713,7 +713,7 @@ static int agent_run_setup(struct fyai_ctx *ctx, struct agent_run *r)
 	if (fy_get(r->args, "_fyai_btw", false))
 		cfg->screen = "inline";
 
-	if (!ctx->tool_rpc && ctx->link->curl) {
+	if (!ctx->jobs->rpc && ctx->link->curl) {
 		curl_easy_cleanup(ctx->link->curl);
 		ctx->link->curl = NULL;
 	}
@@ -776,11 +776,11 @@ static int agent_run_turn(struct fyai_ctx *ctx, struct agent_run *r)
 	/* Render only when the parent supplied a terminal. */
 	ctx->tty->stdout_tty = cfg->agent_pty;
 
-	if (ctx->tool_rpc && ctx->turn->relay_gate) {
+	if (ctx->jobs->rpc && ctx->turn->relay_gate) {
 		ctx->turn->gate = &agent_gate_ops;
 		ctx->turn->gate_data = NULL;
 	}
-	if (ctx->tool_rpc && ctx->turn->relay_steps) {
+	if (ctx->jobs->rpc && ctx->turn->relay_steps) {
 		ctx->turn->observe = agent_step_relay;
 		ctx->turn->observe_data = NULL;
 	}
@@ -1011,8 +1011,8 @@ fy_generic fyai_agent_background(struct fyai_ctx *ctx, fy_generic args,
 		return fy_is_string(result) ? result :
 			fy_value(gb, "tool error: the sub-agent did not start");
 	}
-	run->next = ctx->agent_bg_runs;
-	ctx->agent_bg_runs = run;
+	run->next = ctx->jobs->agent_bg;
+	ctx->jobs->agent_bg = run;
 	/* Its tools join the scope for as long as it runs. */
 	fyai_scope_pin(ctx, &run->pin);
 	*okp = true;
@@ -1032,7 +1032,7 @@ bool fyai_agent_background_running(struct fyai_ctx *ctx, const char *name)
 {
 	struct fyai_agent_bg_run *run;
 
-	for (run = ctx->agent_bg_runs; run; run = run->next)
+	for (run = ctx->jobs->agent_bg; run; run = run->next)
 		if (run->group &&
 		    (!strcmp(run->name, name) || !strcmp(run->handle, name)))
 			return true;
@@ -1044,7 +1044,7 @@ const char *fyai_agent_background_original_name(struct fyai_ctx *ctx,
 {
 	struct fyai_agent_bg_run *run;
 
-	for (run = ctx->agent_bg_runs; run; run = run->next)
+	for (run = ctx->jobs->agent_bg; run; run = run->next)
 		if (!strcmp(run->name, name) || !strcmp(run->handle, name))
 			return run->name;
 	return NULL;
@@ -1054,18 +1054,18 @@ void fyai_agent_background_close(struct fyai_ctx *ctx)
 {
 	struct fyai_agent_bg_run *run, *next;
 
-	for (run = ctx->agent_bg_runs; run; run = next) {
+	for (run = ctx->jobs->agent_bg; run; run = next) {
 		next = run->next;
 		fyai_event_defer_cancel(fyai_ctx_loop(ctx), agent_bg_finish, run);
 		agent_bg_free(run);
 	}
-	ctx->agent_bg_runs = NULL;
+	ctx->jobs->agent_bg = NULL;
 }
 
 /* The loop sources of the parent are not the child's to remove. */
 void fyai_agent_background_abandon(struct fyai_ctx *ctx)
 {
-	ctx->agent_bg_runs = NULL;
+	ctx->jobs->agent_bg = NULL;
 }
 
 /* The `agent` tool: delegate the call, or start it in the background. */

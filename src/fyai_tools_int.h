@@ -139,7 +139,7 @@ struct fyai_tool_job {
 	struct fyai_event_source *hang_deadline;
 	int term_signal;
 	struct fyai_tool_job_group *group;
-	struct fyai_tool_job *next;	/* ctx->tool_jobs, for a resize */
+	struct fyai_tool_job *next;	/* ctx->jobs->tools, for a resize */
 	struct fyai_shell_session *session;	/* the session this job drives */
 	struct fyai_view_run *view_run;	/* the view of an isolated sub-agent */
 	bool view_entry_failed;		/* the child could not enter that view */

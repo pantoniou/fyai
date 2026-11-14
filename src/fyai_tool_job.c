@@ -78,8 +78,8 @@
 /* Keep the live jobs reachable, so that a resize finds every child. */
 static void fyai_tool_job_link(struct fyai_ctx *ctx, struct fyai_tool_job *job)
 {
-	job->next = ctx->tool_jobs;
-	ctx->tool_jobs = job;
+	job->next = ctx->jobs->tools;
+	ctx->jobs->tools = job;
 	fyai_tools_work_update(ctx);
 }
 
@@ -88,7 +88,7 @@ static void fyai_tool_job_unlink(struct fyai_ctx *ctx,
 {
 	struct fyai_tool_job **pp;
 
-	for (pp = &ctx->tool_jobs; *pp; pp = &(*pp)->next) {
+	for (pp = &ctx->jobs->tools; *pp; pp = &(*pp)->next) {
 		if (*pp != job)
 			continue;
 		*pp = job->next;
@@ -105,7 +105,7 @@ void fyai_tool_jobs_abandon(struct fyai_ctx *ctx)
 
 	if (!ctx)
 		return;
-	for (job = ctx->tool_jobs; job; job = next) {
+	for (job = ctx->jobs->tools; job; job = next) {
 		next = job->next;
 		/* Never a standard descriptor: this child keeps its own. */
 		if (job->pfd > STDERR_FILENO)
@@ -120,7 +120,7 @@ void fyai_tool_jobs_abandon(struct fyai_ctx *ctx)
 		job->animation = NULL;
 		job->next = NULL;
 	}
-	ctx->tool_jobs = NULL;
+	ctx->jobs->tools = NULL;
 }
 
 /*
@@ -139,7 +139,7 @@ void fyai_tool_jobs_resize(struct fyai_ctx *ctx, int rows, int cols)
 	if (!gb)
 		return;
 
-	for (job = ctx->tool_jobs; job; job = job->next) {
+	for (job = ctx->jobs->tools; job; job = job->next) {
 		if (!job->conn || job->phase == FYAI_JOB_DONE)
 			continue;
 		/* Displayed terminals use their post-layout tile size. */
@@ -251,7 +251,7 @@ struct fyai_tool_job *fyai_agent_job_named(struct fyai_ctx *ctx,
 	if (fy_str_empty(name))
 		return NULL;
 	fyai_branch_sanitize(name, "agent", slug, sizeof(slug));
-	for (job = ctx->tool_jobs; job; job = job->next) {
+	for (job = ctx->jobs->tools; job; job = job->next) {
 		if (!job->agent || job->phase == FYAI_JOB_DONE || !job->branch)
 			continue;
 		who = fyai_agent_job_name(job);
@@ -275,7 +275,7 @@ bool fyai_tool_agent_foreground_wait(struct fyai_ctx *ctx,
 	struct fyai_tool_job *job;
 	fy_generic args;
 
-	for (job = ctx->tool_jobs; job; job = job->next) {
+	for (job = ctx->jobs->tools; job; job = job->next) {
 		if (!job->agent || job->phase == FYAI_JOB_DONE ||
 		    job->conn != conn)
 			continue;
@@ -320,7 +320,7 @@ static struct fyai_tool_job *fyai_tool_job_by_branch(struct fyai_ctx *ctx,
 {
 	struct fyai_tool_job *job;
 
-	for (job = ctx->tool_jobs; job; job = job->next) {
+	for (job = ctx->jobs->tools; job; job = job->next) {
 		if (job->branch && !strcmp(job->branch, branch) &&
 		    job->phase != FYAI_JOB_DONE)
 			return job;
@@ -347,7 +347,7 @@ uint64_t fyai_tool_agent_transport_exec(struct fyai_ctx *ctx, const char *name)
 	size_t bl, nl;
 
 	nl = strlen(name);
-	for (job = ctx->tool_jobs; job; job = job->next) {
+	for (job = ctx->jobs->tools; job; job = job->next) {
 		if (!job->agent || job->phase == FYAI_JOB_DONE || !job->branch)
 			continue;
 		bl = strlen(job->branch);
@@ -692,9 +692,9 @@ static unsigned int fyai_tool_job_timeout_ms(struct fyai_ctx *ctx,
 
 static const char *fyai_tool_submit_error(struct fyai_ctx *ctx)
 {
-	if (!ctx->tool_submit_error)
+	if (!ctx->jobs->submit_error)
 		return "tool error: could not start the tool";
-	return ctx->tool_submit_error;
+	return ctx->jobs->submit_error;
 }
 
 static void fyai_tool_submit_error_set(struct fyai_ctx *ctx,
@@ -707,8 +707,8 @@ static void fyai_tool_submit_error_set(struct fyai_ctx *ctx,
 	if (vasprintf(&msg, fmt, ap) < 0)
 		msg = NULL;
 	va_end(ap);
-	free(ctx->tool_submit_error);
-	ctx->tool_submit_error = msg;
+	free(ctx->jobs->submit_error);
+	ctx->jobs->submit_error = msg;
 }
 
 /*
@@ -722,7 +722,7 @@ static void fyai_tool_submit_error_set(struct fyai_ctx *ctx,
 #define fyai_tool_submit_check(_ctx, _cond, _label, _fmt, ...)		\
 	do {								\
 		if (!(_cond)) {						\
-			if ((_ctx)->tool_submit_error)			\
+			if ((_ctx)->jobs->submit_error)			\
 				fyai_warning((_ctx), (_fmt),		\
 					     ##__VA_ARGS__);		\
 			else						\
@@ -887,8 +887,8 @@ static int fyai_tool_job_submit_validate(struct fyai_ctx *ctx,
 	const char *name;
 	bool native_call, eligible;
 
-	free(ctx->tool_submit_error);
-	ctx->tool_submit_error = NULL;
+	free(ctx->jobs->submit_error);
+	ctx->jobs->submit_error = NULL;
 	eligible = fyai_tool_call_parallel_eligible(ctx, tool_call);
 	fyai_error_check(ctx, eligible, err,
 		"tool call is not eligible for asynchronous submission");
@@ -1007,7 +1007,7 @@ static int fyai_tool_job_submit_session(struct fyai_ctx *ctx,
 			/* The name points into sub->sub->session_call, which lives to the end. */
 			sub->session_name = asked;
 		fyai_tool_submit_check(ctx,
-				       sub->session_name && !ctx->tool_submit_error,
+				       sub->session_name && !ctx->jobs->submit_error,
 				       err,
 				       "could not name the terminal session");
 		sub->have_session = true;
@@ -1033,7 +1033,7 @@ static int fyai_tool_job_submit_isolation(struct fyai_ctx *ctx,
 			"tool error: with credential isolation a sub-agent must "
 			"execute fyai again: use agent/spawn exec with a saved "
 			"arena and a root that is not pinned");
-	fyai_tool_submit_check(ctx, !ctx->tool_submit_error, err,
+	fyai_tool_submit_check(ctx, !ctx->jobs->submit_error, err,
 			       "a sub-agent cannot be forked with credential isolation");
 	return 0;
 err:
@@ -1066,7 +1066,7 @@ static int fyai_tool_job_submit_spawn(struct fyai_ctx *ctx,
 			 "could not allocate tool job");
 	/* A sub-agent renders to a terminal of its own; the parent shows it. */
 	rc = fyai_tool_job_spawn(ctx, job, fy_equal(name, "agent") &&
-				 fyai_agents_detail(ctx->agent_execution ? 2 : 1) == 2 &&
+				 fyai_agents_detail(ctx->astate->execution ? 2 : 1) == 2 &&
 				 (fyai_ui_active(ctx) ||
 				  fyai_uimodel_consumed(ctx)),
 				 fy_equal(name, "agent") &&
@@ -1488,10 +1488,10 @@ static fy_generic fyai_tool_job_serve(struct jsonrpc_conn *conn,
 		job->pending_output.len += len;
 		job->pending_output.data[job->pending_output.len] = '\0';
 	}
-	else if (!job->agent && job->ctx->shell_stream &&
-		 job->ctx->shell_stream->active)
+	else if (!job->agent && job->ctx->jobs->stream &&
+		 job->ctx->jobs->stream->active)
 		/* Stream command output into the sub-agent's live shell region. */
-		(void)fyai_fenced_stream_push(job->ctx->shell_stream, p, len);
+		(void)fyai_fenced_stream_push(job->ctx->jobs->stream, p, len);
 	return fy_invalid;
 }
 
@@ -1605,10 +1605,10 @@ bool fyai_tools_active(const struct fyai_ctx *ctx)
 	const struct fyai_tool_job *job;
 	const struct fyai_shell_session *session;
 
-	for (job = ctx->tool_jobs; job; job = job->next)
+	for (job = ctx->jobs->tools; job; job = job->next)
 		if (job->phase != FYAI_JOB_DONE)
 			return true;
-	for (session = ctx->shell_sessions; session; session = session->next)
+	for (session = ctx->jobs->sessions; session; session = session->next)
 		if (!session->exited)
 			return true;
 	return false;

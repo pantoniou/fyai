@@ -223,10 +223,10 @@ void fyai_tools_inline_refence(struct fyai_ctx *ctx)
 	if (!ctx)
 		return;
 	sep = fyai_inline_sep(ctx);
-	for (sess = ctx->shell_sessions; sess; sess = sess->next)
+	for (sess = ctx->jobs->sessions; sess; sess = sess->next)
 		if (sess->inline_block && sess->inline_sep != sep)
 			fyai_shell_session_inline_paint(sess, false);
-	for (job = ctx->tool_jobs; job; job = job->next)
+	for (job = ctx->jobs->tools; job; job = job->next)
 		if (job->inline_block && job->inline_sep != sep)
 			fyai_agent_inline_paint(job, false, true);
 }
@@ -239,7 +239,7 @@ void fyai_tool_surfaces_publish(struct fyai_ctx *ctx)
 
 	if (!ctx)
 		return;
-	for (sess = ctx->shell_sessions; sess; sess = sess->next) {
+	for (sess = ctx->jobs->sessions; sess; sess = sess->next) {
 		if (sess->inline_block) {
 			fyai_shell_session_inline_follow(sess);
 			if (fyai_terminal_view_dirty(sess->view))
@@ -250,7 +250,7 @@ void fyai_tool_surfaces_publish(struct fyai_ctx *ctx)
 		    fyai_ui_surface_publish(sess->surface, sess->view) > 0)
 			fyai_ui_wake(ctx);
 	}
-	for (job = ctx->tool_jobs; job; job = job->next) {
+	for (job = ctx->jobs->tools; job; job = job->next) {
 		if (job->inline_block) {
 			fyai_agent_inline_follow(job);
 			if (fyai_terminal_view_dirty(job->view))
@@ -270,10 +270,10 @@ bool fyai_tool_surfaces_active(const struct fyai_ctx *ctx)
 
 	if (!ctx)
 		return false;
-	for (sess = ctx->shell_sessions; sess; sess = sess->next)
+	for (sess = ctx->jobs->sessions; sess; sess = sess->next)
 		if (sess->surface)
 			return true;
-	for (job = ctx->tool_jobs; job; job = job->next)
+	for (job = ctx->jobs->tools; job; job = job->next)
 		if (job->surface)
 			return true;
 	return false;
@@ -447,7 +447,7 @@ bool fyai_event_agent_live(struct fyai_ctx *ctx, const char *branch)
 
 	if (!ctx || fy_str_empty(branch))
 		return false;
-	for (job = ctx->tool_jobs; job; job = job->next) {
+	for (job = ctx->jobs->tools; job; job = job->next) {
 		if (!job->agent || job->phase == FYAI_JOB_DONE || !job->branch)
 			continue;
 		if (!strcmp(job->branch, branch))
@@ -801,7 +801,7 @@ void fyai_tools_btw_panels_close(struct fyai_ctx *ctx)
 
 	if (!ctx)
 		return;
-	for (job = ctx->tool_jobs; job; job = next) {
+	for (job = ctx->jobs->tools; job; job = next) {
 		next = job->next;
 		if (job->btw_panel)
 			fyai_tool_job_discard(job);
@@ -816,7 +816,7 @@ bool fyai_tools_btw_dismiss_focused(struct fyai_ctx *ctx)
 	if (!ctx || !ctx->workpane)
 		return false;
 	focused = fyai_workpane_focused(ctx->workpane);
-	for (job = ctx->tool_jobs; job; job = job->next)
+	for (job = ctx->jobs->tools; job; job = job->next)
 		if (job->btw_panel && job->surface == focused) {
 			fyai_tool_job_discard(job);
 			return true;
@@ -831,7 +831,7 @@ bool fyai_tools_kept_surface(struct fyai_ctx *ctx,
 
 	if (!ctx || !sf)
 		return false;
-	for (sess = ctx->shell_sessions; sess; sess = sess->next)
+	for (sess = ctx->jobs->sessions; sess; sess = sess->next)
 		if (sess->surface == sf)
 			return sess->exited && sess->keep_tile;
 	return false;
@@ -843,7 +843,7 @@ bool fyai_tools_btw_surface(struct fyai_ctx *ctx, struct fytim_surface *sf)
 
 	if (!ctx || !sf)
 		return false;
-	for (job = ctx->tool_jobs; job; job = job->next)
+	for (job = ctx->jobs->tools; job; job = job->next)
 		if (job->btw_panel && job->surface == sf)
 			return true;
 	return false;

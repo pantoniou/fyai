@@ -56,7 +56,7 @@ static struct fyai_monitor_run *monitor_find(struct fyai_ctx *ctx,
 {
 	struct fyai_monitor_run *run;
 
-	for (run = ctx->monitors; run; run = run->next)
+	for (run = ctx->jobs->monitors; run; run = run->next)
 		if (!strcmp(run->name, name))
 			return run;
 	return NULL;
@@ -64,7 +64,7 @@ static struct fyai_monitor_run *monitor_find(struct fyai_ctx *ctx,
 
 static void monitor_unlink(struct fyai_monitor_run *run)
 {
-	struct fyai_monitor_run **link = &run->ctx->monitors;
+	struct fyai_monitor_run **link = &run->ctx->jobs->monitors;
 
 	while (*link && *link != run)
 		link = &(*link)->next;
@@ -329,8 +329,8 @@ static fy_generic monitor_start(struct fyai_ctx *ctx, fy_generic args,
 	fyai_error_check(ctx, run->group, err,
 			 "monitor: could not create the job group");
 	/* The first output can come before the run is linked: link it first. */
-	run->next = ctx->monitors;
-	ctx->monitors = run;
+	run->next = ctx->jobs->monitors;
+	ctx->jobs->monitors = run;
 	/* The command runs until the monitor ends, past the exchange that started it. */
 	fyai_scope_pin(ctx, &run->pin);
 	rc = fyai_tool_job_group_add(run->group, call);
@@ -425,7 +425,7 @@ fy_generic fyai_monitors_rows(struct fyai_ctx *ctx,
 	const struct fyai_monitor_run *run;
 	fy_generic rows = fy_sequence(gb);
 
-	for (run = ctx->monitors; run; run = run->next)
+	for (run = ctx->jobs->monitors; run; run = run->next)
 		rows = fy_append(gb, rows, fy_mapping(gb, "name", run->name,
 				"events", (long long)run->events));
 	return rows;
@@ -435,17 +435,17 @@ void fyai_monitor_close(struct fyai_ctx *ctx)
 {
 	struct fyai_monitor_run *run, *next;
 
-	for (run = ctx->monitors; run; run = next) {
+	for (run = ctx->jobs->monitors; run; run = next) {
 		next = run->next;
 		fyai_event_defer_cancel(fyai_ctx_loop(ctx), monitor_finish, run);
 		monitor_free(run);
 	}
-	ctx->monitors = NULL;
+	ctx->jobs->monitors = NULL;
 }
 
 void fyai_monitor_abandon(struct fyai_ctx *ctx)
 {
-	ctx->monitors = NULL;
+	ctx->jobs->monitors = NULL;
 }
 
 /* The command is a job of the parent, so the tool is a call of the parent. */

@@ -224,10 +224,10 @@ static int fyai_tool_child_spawn_take(struct fyai_ctx *ctx, fy_generic spawn)
 
 	if (!fy_is_mapping(spawn))
 		return 0;
-	ctx->agent_spawn = fy_gb_internalize(cfg->gb, spawn);
-	fyai_error_check(ctx, fy_is_mapping(ctx->agent_spawn), err,
+	ctx->astate->spawn = fy_gb_internalize(cfg->gb, spawn);
+	fyai_error_check(ctx, fy_is_mapping(ctx->astate->spawn), err,
 			 "could not keep the sub-agent spawn state");
-	ctx->agent_parent = fy_get(spawn, "parent", 0LL);
+	ctx->astate->parent = fy_get(spawn, "parent", 0LL);
 	/* Credential isolation: the parent has registered this child. */
 	if (fyai_transport_supervised()) {
 		fyai_error_check(ctx, fy_get(fy_get(spawn, "transport", fy_invalid),
@@ -566,8 +566,8 @@ static void fyai_tool_child_dispatch(struct fyai_ctx *ctx, struct fyai_tool_chil
 	jsonrpc_conn_respond(conn, tc->id,
 		fy_gb_mapping(fyai_ctx_transient_gb(ctx),
 			      "result", result, "ok", ok,
-			      "display", ctx->patch_display ?
-				fy_value(ctx->patch_display) :
+			      "display", ctx->jobs->patch_display ?
+				fy_value(ctx->jobs->patch_display) :
 				fy_null,
 			      "detached", fyai_orphan_children(
 				fyai_ctx_transient_gb(ctx)),
@@ -614,7 +614,7 @@ void fyai_tool_child_serve_loop(struct fyai_ctx *ctx)
 				  FYAI_TOOL_CHILD_REQ_FD, 0, "tool", NULL);
 	if (!conn || jsonrpc_conn_serve(conn, fyai_tool_child_serve, &tc))
 		_exit(1);
-	ctx->tool_rpc = conn;
+	ctx->jobs->rpc = conn;
 
 	while (tc.phase != FYAI_TC_TAKEN) {
 		if (tc.phase == FYAI_TC_REQUESTED) {
@@ -765,7 +765,7 @@ fy_generic fyai_agent_spawn_state(struct fyai_ctx *ctx,
 		"branch_skills", fy_is_mapping(ctx->bstate->skills) ?
 			fy_value(gb, (long long)ctx->bstate->skills.v) : fy_null,
 		"fork", fork,
-		"parent", ctx->agent_execution,
+		"parent", ctx->astate->execution,
 		"transport", transport_exec ?
 			fyai_transport_spawn_state(ctx, gb, transport_exec) :
 			fy_null,

@@ -391,8 +391,8 @@ void fyai_patch_display_record(struct fyai_ctx *ctx, fy_generic tool_call,
 	entry->unified = strdup(unified);
 	fyai_error_check(ctx, entry->unified, out,
 			 "could not copy patch display data");
-	entry->next = ctx->patch_views;
-	ctx->patch_views = entry;
+	entry->next = ctx->jobs->patch_views;
+	ctx->jobs->patch_views = entry;
 	return;
 out:
 	if (entry) {
@@ -410,7 +410,7 @@ const char *fyai_patch_display_text(struct fyai_ctx *ctx, fy_generic tool_call)
 
 	gid = patch_call_id(tool_call);
 	id = fy_castp(&gid, (const char *)NULL);
-	for (entry = ctx->patch_views; entry; entry = entry->next) {
+	for (entry = ctx->jobs->patch_views; entry; entry = entry->next) {
 		if (!entry->id || !id) {
 			if (!entry->id && !id)
 				return entry->unified;
@@ -427,13 +427,13 @@ void fyai_patch_display_clear(struct fyai_ctx *ctx)
 	struct fyai_patch_display *entry;
 	struct fyai_patch_display *next;
 
-	for (entry = ctx->patch_views; entry; entry = next) {
+	for (entry = ctx->jobs->patch_views; entry; entry = next) {
 		next = entry->next;
 		free(entry->id);
 		free(entry->unified);
 		free(entry);
 	}
-	ctx->patch_views = NULL;
+	ctx->jobs->patch_views = NULL;
 }
 
 /* Build an apply_patch work band. */
@@ -517,7 +517,7 @@ void fyai_print_tool_call(struct fyai_ctx *ctx, fy_generic tool_call,
 				*command ? command : name);
 		}
 		free(header);
-		ctx->tool_output_displayed = true;
+		ctx->jobs->output_displayed = true;
 		return;
 	}
 	if (cfg->markdown && fy_equal(name, "shell")) {
@@ -543,20 +543,20 @@ void fyai_print_tool_call(struct fyai_ctx *ctx, fy_generic tool_call,
 		free(body.data);
 		memset(&body, 0, sizeof(body));
 		/* Allocate a stream only for an executing call. */
-		ctx->shell_stream = execute ?
-			calloc(1, sizeof(*ctx->shell_stream)) : NULL;
-		if (ctx->shell_stream != NULL &&
-		    fyai_fenced_stream_start(ctx->shell_stream, ctx, cfg, NULL,
+		ctx->jobs->stream = execute ?
+			calloc(1, sizeof(*ctx->jobs->stream)) : NULL;
+		if (ctx->jobs->stream != NULL &&
+		    fyai_fenced_stream_start(ctx->jobs->stream, ctx, cfg, NULL,
 					     cfg->tool_preview_lines > 0 ?
 					     (size_t) cfg->tool_preview_lines : 0,
 					     markdown_tool_output_indent(cfg),
 					     stderr,
 					     fyai_sink_bands_available(ctx->sink) ||
 					     terminal_is_tty(STDERR_FILENO)) != 0) {
-			free(ctx->shell_stream);
-			ctx->shell_stream = NULL;
+			free(ctx->jobs->stream);
+			ctx->jobs->stream = NULL;
 		}
-		ctx->tool_output_displayed = true;
+		ctx->jobs->output_displayed = true;
 	} else if (cfg->markdown && fyai_sink_bands_available(ctx->sink) &&
 		   fy_equal(name, "apply_patch")) {
 		/* Show the patch in a marked work band. */
@@ -573,7 +573,7 @@ void fyai_print_tool_call(struct fyai_ctx *ctx, fy_generic tool_call,
 		}
 		free(body.data);
 		free(header);
-		ctx->tool_output_displayed = true;
+		ctx->jobs->output_displayed = true;
 	} else if (cfg->markdown && fyai_sink_bands_available(ctx->sink) &&
 		   fy_any_equal(name, "read_file", "write_file")) {
 		args = fyai_tool_call_args(ctx, tool_call);
@@ -594,23 +594,23 @@ void fyai_print_tool_call(struct fyai_ctx *ctx, fy_generic tool_call,
 		free(body.data);
 		memset(&body, 0, sizeof(body));
 		free(header);
-		ctx->tool_output_displayed = true;
+		ctx->jobs->output_displayed = true;
 	} else if (*command) {
 		fyai_report(ctx, "fyai $ %s\n", command);
 	} else {
 		fyai_report(ctx, "fyai $ %s\n", name);
 	}
 	if (fy_equal(name, "shell"))
-		ctx->tool_output_displayed = true;
+		ctx->jobs->output_displayed = true;
 }
 
 static void fyai_shell_live_close(struct fyai_ctx *ctx)
 {
-	if (!ctx || !ctx->shell_stream)
+	if (!ctx || !ctx->jobs->stream)
 		return;
-	fyai_fenced_stream_finish(ctx->shell_stream);
-	free(ctx->shell_stream);
-	ctx->shell_stream = NULL;
+	fyai_fenced_stream_finish(ctx->jobs->stream);
+	free(ctx->jobs->stream);
+	ctx->jobs->stream = NULL;
 }
 
 /* Send tool progress to the parent through JSON-RPC. */
@@ -620,7 +620,7 @@ void fyai_tool_progress_emit(struct fyai_ctx *ctx, const char *data, size_t len)
 	const char *text;
 	char *copy;
 
-	if (!ctx || !ctx->tool_rpc || !len)
+	if (!ctx || !ctx->jobs->rpc || !len)
 		return;
 	/* Do not resend progress already visible on the agent terminal. */
 	if (ctx->cfg->agent_pty)
@@ -636,7 +636,7 @@ void fyai_tool_progress_emit(struct fyai_ctx *ctx, const char *data, size_t len)
 	copy[len] = '\0';
 	text = fy_gb_intern_string(gb, copy);
 	free(copy);
-	(void)jsonrpc_notify(ctx->tool_rpc, "tool/progress",
+	(void)jsonrpc_notify(ctx->jobs->rpc, "tool/progress",
 			     fy_gb_mapping(gb, "text", text));
 }
 
@@ -644,12 +644,12 @@ void fyai_tool_progress_flush(struct fyai_ctx *ctx)
 {
 	struct fyai_event_loop *el;
 
-	if (!ctx || !ctx->tool_rpc)
+	if (!ctx || !ctx->jobs->rpc)
 		return;
 	el = fyai_ctx_loop(ctx);
 	if (!el)
 		return;
-	while (jsonrpc_conn_has_output(ctx->tool_rpc))
+	while (jsonrpc_conn_has_output(ctx->jobs->rpc))
 		if (fyai_event_loop_step(el, 1000) <= 0)
 			break;
 }
@@ -680,8 +680,8 @@ static void fyai_shell_output(void *userdata,
 	/* Markdown streams progressively into the bounded live region; plain
 	 * mode dumps raw output for scripting visibility. */
 	if (ctx && ctx->cfg->markdown) {
-		if (ctx->shell_stream)
-			fyai_fenced_stream_push(ctx->shell_stream, data, len);
+		if (ctx->jobs->stream)
+			fyai_fenced_stream_push(ctx->jobs->stream, data, len);
 		return;
 	}
 
@@ -1217,8 +1217,8 @@ static fy_generic fyai_ask_user_upward(struct fyai_ctx *ctx,
 	fyai_agents_activity(ctx, "waiting for input");
 	params = fy_mapping(gb, "questions", questions, "branch",
 			    fyai_ctx_branch(ctx));
-	req = jsonrpc_request_submit(ctx->tool_rpc, "user/ask", params,
-				     jsonrpc_conn_next_id(ctx->tool_rpc),
+	req = jsonrpc_request_submit(ctx->jobs->rpc, "user/ask", params,
+				     jsonrpc_conn_next_id(ctx->jobs->rpc),
 				     false, NULL, NULL);
 	if (!req) {
 		fyai_error(ctx, "ask_user: could not put the questions to the "
@@ -1476,7 +1476,7 @@ fy_generic fyai_ask_user_from(struct fyai_ctx *ctx, fy_generic args,
 	if (fy_is_invalid(questions))
 		return fy_value(ctx->transient->gb,
 				fy_sprintfa("tool error: ask_user: %s", why));
-	if (!from && fyai_agent_delegated(ctx) && ctx->tool_rpc)
+	if (!from && fyai_agent_delegated(ctx) && ctx->jobs->rpc)
 		return fyai_ask_user_upward(ctx, questions);
 
 	/*
@@ -1688,8 +1688,8 @@ fy_generic fyai_execute_tool_call(struct fyai_ctx *ctx,
 
 	result_generic = fyai_tool_run_one(ctx, name, args, okp);
 	/* Retain the resolved patch for display. */
-	if (ctx->patch_display)
-		fyai_patch_display_record(ctx, tool_call, ctx->patch_display);
+	if (ctx->jobs->patch_display)
+		fyai_patch_display_record(ctx, tool_call, ctx->jobs->patch_display);
 out:
 	result_generic = fy_gb_internalize(ctx->transient->gb, result_generic);
 	if (fy_is_invalid(result_generic))
@@ -1753,8 +1753,8 @@ static fy_generic tool_apply_patch(struct fyai_ctx *ctx, fy_generic args,
 	char *result;
 
 	/* Resolve the patch before it changes the pre-image. */
-	free(ctx->patch_display);
-	ctx->patch_display = fyai_patch_to_unified_ctx(ctx, content);
+	free(ctx->jobs->patch_display);
+	ctx->jobs->patch_display = fyai_patch_to_unified_ctx(ctx, content);
 	result = fyai_apply_patch_text_ctx(ctx, content);
 	*okp = result && strncmp(result, "tool error:", 11);
 	return fyai_tool_take_text(ctx, result);
@@ -2436,8 +2436,8 @@ void fyai_ctx_fork_disown(struct fyai_ctx *ctx)
 	fyai_events_release(ctx);		/* and what they queued for it */
 	fyai_request_cache_release(ctx);	/* its conversation text */
 	fyai_patch_display_clear(ctx);		/* patches it resolved */
-	free(ctx->patch_display);
-	ctx->patch_display = NULL;
+	free(ctx->jobs->patch_display);
+	ctx->jobs->patch_display = NULL;
 	fyai_output_cleanup(ctx);		/* the document it has open */
 	fyai_diag_reset(fyai_ctx_diag(ctx));	/* what the parent has not drained yet */
 	fyai_cover_abandon(&ctx->scope->cover);	/* the holder that it does not own */
@@ -2452,10 +2452,10 @@ void fyai_ctx_fork_disown(struct fyai_ctx *ctx)
 	ctx->ui = NULL;				/* its display */
 	ctx->workpane = NULL;			/* and the tiles that it drew */
 	ctx->browser = NULL;
-	ctx->agents = NULL;
-	ctx->agent_parent = ctx->agent_execution;
-	ctx->agent_execution = 0;
-	ctx->shell_stream = NULL;
+	ctx->astate->registry = NULL;
+	ctx->astate->parent = ctx->astate->execution;
+	ctx->astate->execution = 0;
+	ctx->jobs->stream = NULL;
 	ctx->tty->session = NULL;		/* the terminal it runs in */
 	ctx->tty->winch_src = NULL;			/* a source on the loop it owns */
 	/* The child owns neither the loop nor the dump of its parent. */
@@ -2498,7 +2498,7 @@ static fy_generic fyai_list_agents(struct fyai_ctx *ctx, struct fy_generic_build
 	rows = fy_sequence(gb);
 	len = snprintf(prefix, sizeof(prefix), "%s/" FYAI_BRANCH_AGENT_PREFIX, fyai_ctx_branch(ctx));
 	views = fyai_view_list(ctx, gb);
-	for (job = ctx->tool_jobs; job; job = job->next) {
+	for (job = ctx->jobs->tools; job; job = job->next) {
 		if (!job->agent || job->btw || job->phase == FYAI_JOB_DONE ||
 		    !job->branch || strncmp(job->branch, prefix, len) ||
 		    strchr(job->branch + len, '/'))
@@ -2571,7 +2571,7 @@ static fy_generic fyai_list_shells(struct fyai_ctx *ctx, struct fy_generic_build
 	fy_generic rows;
 
 	rows = fy_sequence(gb);
-	for (sess = ctx->shell_sessions; sess; sess = sess->next) {
+	for (sess = ctx->jobs->sessions; sess; sess = sess->next) {
 		if (sess->exited)
 			continue;
 		rows = fy_append(gb, rows, fy_mapping(gb, "name", sess->name,
@@ -2647,7 +2647,7 @@ static fy_generic fyai_view_tool(struct fyai_ctx *ctx, fy_generic args, bool *ok
 	if (ctx->cfg->view_project)
 		return fy_value(ctx->transient->gb, "tool error: project_view is not available inside a view");
 	/* The tool is not given to such an agent: refuse a call that names it anyway. */
-	if (ctx->cfg->agent_child && !ctx->agent_execution)
+	if (ctx->cfg->agent_child && !ctx->astate->execution)
 		return fy_value(ctx->transient->gb, "tool error: project_view is not available to this agent");
 	if (strcmp(action, "changes") && strcmp(action, "apply"))
 		return fy_value(ctx->transient->gb, "tool error: action is changes or apply");
