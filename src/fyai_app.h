@@ -12,9 +12,11 @@
 #include "fyai.h"
 #include "fyai_diag.h"
 #include "fyai_arena.h"
+#include "fyai_askq.h"
 #include "fyai_cred.h"
 #include "fyai_loop.h"
 #include "fyai_transient.h"
+#include "fyai_waitq.h"
 #include "fyai_transport_state.h"
 #include "fyai_link.h"
 
@@ -35,6 +37,8 @@ struct fyai_app {
 	struct fyai_transient transient; /* depends on the arena builder */
 	struct fyai_transport_state transport; /* depends on loop and cred */
 	struct fyai_mcp mcp;		/* depends on loop, cred, transient */
+	struct fyai_waitq waitq;	/* depends on loop and diag */
+	struct fyai_askq askq;		/* depends on diag */
 	struct fyai_link link;		/* depends on loop and cred */
 	struct fyai_cred cred;		/* depends on loop */
 	struct fyai_cfg cfg;		/* depends on diag */

@@ -30,6 +30,8 @@ int fyai_app_init(struct fyai_app *app)
 	fyai_cred_init(&app->cred, &app->loop);
 	fyai_transport_state_init(&app->transport, &app->loop, &app->cred);
 	fyai_mcp_state_init(&app->mcp, &app->loop, &app->cred, &app->transient);
+	fyai_waitq_init(&app->waitq, &app->loop, &app->diag);
+	fyai_askq_init(&app->askq, &app->diag);
 	fyai_link_init(&app->link, &app->loop, &app->cred);
 	fyai_arena_init(&app->arena);
 	fyai_transient_init(&app->transient);

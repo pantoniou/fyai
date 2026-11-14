@@ -891,6 +891,7 @@ static int view_render_exchange(void *user, size_t index, int width,
 	struct fyai_ctx view;
 	struct fyai_cfg cfg;
 	struct fyai_transient transient;
+	struct fyai_askq askq;
 	FILE *fp = NULL;
 	int rc = -1;
 
@@ -902,7 +903,7 @@ static int view_render_exchange(void *user, size_t index, int width,
 	fyai_error_check(ctx, gb, out, "cannot build the transcript view");
 	view.cfg = &cfg;
 	view.ui = NULL;
-	fyai_uimodel_view_detach(&view);
+	fyai_uimodel_view_detach(&view, &askq);
 	view.display_output = NULL;
 	view.browser = NULL;
 	fyai_transient_init(&transient);

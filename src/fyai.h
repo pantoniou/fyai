@@ -15,7 +15,9 @@
 #include <limits.h>
 
 #include <curl/curl.h>
+#include "fyai_askq.h"
 #include "fyai_link.h"
+#include "fyai_waitq.h"
 #include "fyai_mcp_state.h"
 #include "fyai_transport_state.h"
 #include <libfyaml.h>
@@ -880,18 +882,10 @@ struct fyai_ctx {
 	struct fyai_shell_session *shell_sessions;
 	/* The one owner of work-pane geometry, focus, and zoom. */
 	struct fyai_workpane_manager *workpane;
-	struct fyai_wait *waits;	/* named waits, live for this run */
-	struct fyai_ask_pending *asks;	/* background questions that wait for the user */
-	/* The sets of questions in the questions store (src/fyai_ask.c). */
-	struct fyai_ask_entry *ask_entries;
-	unsigned long long ask_serial;
-	unsigned int asks_seq;		/* the number of the last question named by default */
-	struct fyai_waiter *waiters;	/* waits that hold a call, active */
-	struct fyai_event_source *waiter_tick;	/* earliest deadline of a waiter */
-	bool waiter_kick;			/* a look at the waiters is queued */
-	/* Events queued for model turns in arrival order. */
-	struct fyai_pending_event *events;
-	struct fyai_pending_event **events_tail;
+	/* The waits component, owned by struct fyai_app. */
+	struct fyai_waitq *waitq;
+	/* The questions component, owned by struct fyai_app. */
+	struct fyai_askq *askq;
 	struct fyai_event_source *winch_src;
 	bool tool_output_displayed;
 	/* Set once a tool row has been drawn live, so the next one gets a

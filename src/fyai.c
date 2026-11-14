@@ -2741,6 +2741,8 @@ int fyai_setup(struct fyai_ctx *ctx, struct fyai_app *app)
 	ctx->link = &app->link;
 	ctx->transport = &app->transport;
 	ctx->mcp = &app->mcp;
+	ctx->waitq = &app->waitq;
+	ctx->askq = &app->askq;
 	fyai_cred_bind(ctx->cred, ctx);
 	ctx->transient->on_release = fyai_transient_released;
 	ctx->transient->on_release_data = ctx;
@@ -2986,10 +2988,10 @@ static int fyai_event_inject_queue(struct fyai_ctx *ctx, char *text,
 	}
 	ev->owner_kind = owner_kind;
 	ev->owner = owner;
-	if (!ctx->events_tail)
-		ctx->events_tail = &ctx->events;
-	*ctx->events_tail = ev;
-	ctx->events_tail = &ev->next;
+	if (!ctx->waitq->events_tail)
+		ctx->waitq->events_tail = &ctx->waitq->events;
+	*ctx->waitq->events_tail = ev;
+	ctx->waitq->events_tail = &ev->next;
 	fyai_waiters_kick(ctx);
 	return 0;
 
@@ -3080,12 +3082,12 @@ char *fyai_event_take(struct fyai_ctx *ctx)
 	struct fyai_pending_event *ev;
 	char *text;
 
-	if (!ctx || !ctx->events)
+	if (!ctx || !ctx->waitq->events)
 		return NULL;
-	ev = ctx->events;
-	ctx->events = ev->next;
-	if (!ctx->events)
-		ctx->events_tail = &ctx->events;
+	ev = ctx->waitq->events;
+	ctx->waitq->events = ev->next;
+	if (!ctx->waitq->events)
+		ctx->waitq->events_tail = &ctx->waitq->events;
 	text = ev->text;
 	ev->text = NULL;
 	fyai_pending_event_free(ev);
@@ -3096,7 +3098,7 @@ bool fyai_event_queued(const struct fyai_ctx *ctx)
 {
 	const struct fyai_pending_event *ev;
 
-	for (ev = ctx ? ctx->events : NULL; ev; ev = ev->next)
+	for (ev = ctx ? ctx->waitq->events : NULL; ev; ev = ev->next)
 		if (!ev->seen)
 			return true;
 	return false;
@@ -3122,7 +3124,7 @@ bool fyai_event_pending_prefix(struct fyai_ctx *ctx, const char *prefix)
 	const struct fyai_pending_event *ev;
 	size_t len = strlen(prefix);
 
-	for (ev = ctx ? ctx->events : NULL; ev; ev = ev->next)
+	for (ev = ctx ? ctx->waitq->events : NULL; ev; ev = ev->next)
 		if (!strncmp(ev->text, prefix, len) &&
 		    fyai_event_owner_live(ctx, ev))
 			return true;
@@ -3135,7 +3137,7 @@ char *fyai_event_peek_prefix(struct fyai_ctx *ctx, const char *prefix)
 	size_t len = strlen(prefix);
 	char *text;
 
-	for (ev = ctx ? ctx->events : NULL; ev; ev = ev->next) {
+	for (ev = ctx ? ctx->waitq->events : NULL; ev; ev = ev->next) {
 		if (strncmp(ev->text, prefix, len) ||
 		    !fyai_event_owner_live(ctx, ev))
 			continue;
@@ -3153,7 +3155,7 @@ void fyai_events_purge_seen(struct fyai_ctx *ctx)
 
 	if (!ctx)
 		return;
-	link = &ctx->events;
+	link = &ctx->waitq->events;
 	while ((ev = *link)) {
 		if (!ev->seen) {
 			link = &ev->next;
@@ -3161,7 +3163,7 @@ void fyai_events_purge_seen(struct fyai_ctx *ctx)
 		}
 		*link = ev->next;
 		if (!*link)
-			ctx->events_tail = link;
+			ctx->waitq->events_tail = link;
 		fyai_pending_event_free(ev);
 	}
 }
@@ -3175,7 +3177,7 @@ static void fyai_events_drop_owner(struct fyai_ctx *ctx,
 
 	if (!ctx || kind == FYAI_EVENT_OWNER_NONE || !name || !*name)
 		return;
-	link = &ctx->events;
+	link = &ctx->waitq->events;
 	while ((ev = *link) != NULL) {
 		if (ev->owner_kind != kind || !ev->owner ||
 		    strcmp(ev->owner, name)) {
@@ -3184,7 +3186,7 @@ static void fyai_events_drop_owner(struct fyai_ctx *ctx,
 		}
 		*link = ev->next;
 		if (!*link)
-			ctx->events_tail = link;
+			ctx->waitq->events_tail = link;
 		fyai_diag_tracef("event", "dropped stale %s wait from '%s'",
 				 kind == FYAI_EVENT_OWNER_AGENT ?
 				 "agent" : "session", name);
@@ -3238,7 +3240,7 @@ bool fyai_event_take_live_input(struct fyai_ctx *ctx,
 	memset(input, 0, sizeof(*input));
 	if (!ctx)
 		return false;
-	link = &ctx->events;
+	link = &ctx->waitq->events;
 	while ((ev = *link)) {
 		if (ev->seen) {
 			link = &ev->next;
@@ -3246,7 +3248,7 @@ bool fyai_event_take_live_input(struct fyai_ctx *ctx,
 		}
 		*link = ev->next;
 		if (!*link)
-			ctx->events_tail = link;
+			ctx->waitq->events_tail = link;
 		if (fyai_event_owner_live(ctx, ev)) {
 			input->text = ev->text;
 			input->from = ev->from;

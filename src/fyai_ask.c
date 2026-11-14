@@ -409,7 +409,7 @@ int fyai_ask_open(struct fyai_ctx *ctx, fy_generic questions, const char *from,
 		return -1;
 	e = calloc(1, sizeof(*e));
 	fyai_error_check(ctx, e, err, "cannot keep a set of questions");
-	snprintf(e->qid, sizeof(e->qid), "q%llu", ++ctx->ask_serial);
+	snprintf(e->qid, sizeof(e->qid), "q%llu", ++ctx->askq->serial);
 	e->done = done;
 	e->user = user;
 	gb = fyai_uimodel_begin(ctx);
@@ -428,7 +428,7 @@ int fyai_ask_open(struct fyai_ctx *ctx, fy_generic questions, const char *from,
 		free(e);
 		return -1;
 	}
-	for (ep = &ctx->ask_entries; *ep; ep = &(*ep)->next)
+	for (ep = &ctx->askq->entries; *ep; ep = &(*ep)->next)
 		;
 	*ep = e;
 	/* A display whose page stopped cannot show the set. */
@@ -449,7 +449,7 @@ void fyai_ask_close(struct fyai_ctx *ctx, void *user)
 
 	if (!ctx)
 		return;
-	ep = &ctx->ask_entries;
+	ep = &ctx->askq->entries;
 	while ((e = *ep)) {
 		if (e->user != user) {
 			ep = &e->next;
@@ -499,7 +499,7 @@ void fyai_ask_settle(struct fyai_ctx *ctx, const char *qid,
 		ask_settle_remote(ctx, qid, replies, n);
 		return;
 	}
-	for (ep = &ctx->ask_entries; (e = *ep); ep = &e->next)
+	for (ep = &ctx->askq->entries; (e = *ep); ep = &e->next)
 		if (!strcmp(e->qid, qid))
 			break;
 	if (!e)
@@ -513,16 +513,16 @@ void fyai_ask_settle(struct fyai_ctx *ctx, const char *qid,
 
 void fyai_ask_settle_all(struct fyai_ctx *ctx)
 {
-	while (ctx && ctx->ask_entries)
-		fyai_ask_settle(ctx, ctx->ask_entries->qid, NULL, 0);
+	while (ctx && ctx->askq->entries)
+		fyai_ask_settle(ctx, ctx->askq->entries->qid, NULL, 0);
 }
 
 void fyai_ask_abandon(struct fyai_ctx *ctx)
 {
 	struct fyai_ask_entry *e;
 
-	while (ctx && (e = ctx->ask_entries)) {
-		ctx->ask_entries = e->next;
+	while (ctx && (e = ctx->askq->entries)) {
+		ctx->askq->entries = e->next;
 		free(e);
 	}
 }

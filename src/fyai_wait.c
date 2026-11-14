@@ -190,7 +190,7 @@ static struct fyai_wait *fyai_wait_find(struct fyai_ctx *ctx, const char *name)
 {
 	struct fyai_wait *w;
 
-	for (w = ctx->waits; w; w = w->next)
+	for (w = ctx->waitq->waits; w; w = w->next)
 		if (!strcmp(w->name, name))
 			return w;
 	return NULL;
@@ -238,7 +238,7 @@ static void fyai_waits_reap(struct fyai_ctx *ctx)
 {
 	struct fyai_wait **pp, *w;
 
-	for (pp = &ctx->waits; *pp; ) {
+	for (pp = &ctx->waitq->waits; *pp; ) {
 		if (!(*pp)->fired) {
 			pp = &(*pp)->next;
 			continue;
@@ -260,7 +260,7 @@ bool fyai_wait_cancel(struct fyai_ctx *ctx, const char *name)
 	struct fyai_wait **pp, *w;
 
 	fyai_waits_reap(ctx);
-	for (pp = &ctx->waits; (w = *pp); pp = &w->next) {
+	for (pp = &ctx->waitq->waits; (w = *pp); pp = &w->next) {
 		if (strcmp(w->name, name))
 			continue;
 		*pp = w->next;
@@ -279,7 +279,7 @@ fy_generic fyai_waits_rows(struct fyai_ctx *ctx, struct fy_generic_builder *gb)
 
 	rows = fy_sequence(gb);
 	fyai_waits_reap(ctx);
-	for (w = ctx->waits; w; w = w->next) {
+	for (w = ctx->waitq->waits; w; w = w->next) {
 		left = w->due_ms - fyai_event_now_ms();
 		row = fy_mapping(gb, "name", w->name,
 				 "remaining_seconds", (long long)(left > 0 ? (left + 999) / 1000 : 0));
@@ -296,11 +296,11 @@ void fyai_waits_release(struct fyai_ctx *ctx)
 
 	if (!ctx)
 		return;
-	for (w = ctx->waits; w; w = next) {
+	for (w = ctx->waitq->waits; w; w = next) {
 		next = w->next;
 		fyai_wait_free(w);
 	}
-	ctx->waits = NULL;
+	ctx->waitq->waits = NULL;
 }
 
 /* Drop inherited wait records without removing the parent's timers. */
@@ -310,12 +310,12 @@ void fyai_waits_abandon(struct fyai_ctx *ctx)
 
 	if (!ctx)
 		return;
-	for (w = ctx->waits; w; w = next) {
+	for (w = ctx->waitq->waits; w; w = next) {
 		next = w->next;
 		w->timer = NULL;
 		fyai_wait_free(w);
 	}
-	ctx->waits = NULL;
+	ctx->waitq->waits = NULL;
 }
 
 /* Start a wait that does not hold the turn. */
@@ -352,8 +352,8 @@ static char *fyai_wait_start(struct fyai_ctx *ctx, const char *name,
 	w->due_ms = fyai_event_now_ms() + ms;
 	rc = fyai_event_add_timer(el, ms, 0, fyai_wait_fired, w, &w->timer);
 	fyai_error_check(ctx, !rc, out_free, "wait: could not arm timer");
-	w->next = ctx->waits;
-	ctx->waits = w;
+	w->next = ctx->waitq->waits;
+	ctx->waitq->waits = w;
 	return strdup(fy_sprintfa("[wait '%s' started: %.3g seconds]\nIt does "
 				  "not hold your turn. Keep working; you are "
 				  "told when it fires.", name, seconds));
@@ -626,7 +626,7 @@ static bool fyai_waiters_active(const struct fyai_ctx *ctx)
 {
 	const struct fyai_waiter *w;
 
-	for (w = ctx->waiters; w; w = w->next)
+	for (w = ctx->waitq->waiters; w; w = w->next)
 		if (!w->done)
 			return true;
 	return false;
@@ -654,7 +654,7 @@ static void fyai_waiters_arm(struct fyai_ctx *ctx)
 	const struct fyai_waiter *w;
 	fyai_event_ms_t first = -1, now = fyai_event_now_ms(), left;
 
-	for (w = ctx->waiters; w; w = w->next) {
+	for (w = ctx->waitq->waiters; w; w = w->next) {
 		if (w->done)
 			continue;
 		left = w->deadline - now;
@@ -662,18 +662,18 @@ static void fyai_waiters_arm(struct fyai_ctx *ctx)
 			first = left;
 	}
 	if (first < 0) {
-		fyai_event_source_remove(ctx->waiter_tick);
-		ctx->waiter_tick = NULL;
+		fyai_event_source_remove(ctx->waitq->waiter_tick);
+		ctx->waitq->waiter_tick = NULL;
 		(void)fyai_event_defer(el, fyai_waiters_purge, ctx);
 		return;
 	}
 	if (first < 1)
 		first = 1;
-	if (ctx->waiter_tick)
-		(void)fyai_event_timer_rearm(ctx->waiter_tick, first, 0);
+	if (ctx->waitq->waiter_tick)
+		(void)fyai_event_timer_rearm(ctx->waitq->waiter_tick, first, 0);
 	else if (el)
 		(void)fyai_event_add_timer(el, first, 0, fyai_waiters_timer, ctx,
-					   &ctx->waiter_tick);
+					   &ctx->waitq->waiter_tick);
 }
 
 /* Look at every active waiter; finish those whose condition holds. */
@@ -682,7 +682,7 @@ static void fyai_waiters_poll(struct fyai_ctx *ctx)
 	struct fyai_waiter *w, *next;
 	bool was_done;
 
-	for (w = ctx->waiters; w; w = next) {
+	for (w = ctx->waitq->waiters; w; w = next) {
 		next = w->next;
 		was_done = w->done;
 		fyai_waiter_poll(w);
@@ -702,16 +702,16 @@ static void fyai_waiters_kicked(void *userdata)
 {
 	struct fyai_ctx *ctx = userdata;
 
-	ctx->waiter_kick = false;
+	ctx->waitq->waiter_kick = false;
 	fyai_waiters_poll(ctx);
 }
 
 void fyai_waiters_kick(struct fyai_ctx *ctx)
 {
-	if (!ctx || ctx->waiter_kick || !fyai_waiters_active(ctx))
+	if (!ctx || ctx->waitq->waiter_kick || !fyai_waiters_active(ctx))
 		return;
 	/* Many changes in one pass of the loop make one look. */
-	ctx->waiter_kick = !fyai_event_defer(fyai_ctx_loop(ctx),
+	ctx->waitq->waiter_kick = !fyai_event_defer(fyai_ctx_loop(ctx),
 					     fyai_waiters_kicked, ctx);
 }
 
@@ -719,7 +719,7 @@ static void fyai_waiter_unlink(struct fyai_waiter *w)
 {
 	struct fyai_waiter **pp;
 
-	for (pp = &w->ctx->waiters; *pp; pp = &(*pp)->next) {
+	for (pp = &w->ctx->waitq->waiters; *pp; pp = &(*pp)->next) {
 		if (*pp != w)
 			continue;
 		*pp = w->next;
@@ -905,8 +905,8 @@ struct fyai_waiter *fyai_waiter_start(struct fyai_ctx *ctx, fy_generic args,
 		goto err;
 	}
 	w->deadline = fyai_event_now_ms() + (fyai_event_ms_t)(w->seconds * 1000.0);
-	w->next = ctx->waiters;
-	ctx->waiters = w;
+	w->next = ctx->waitq->waiters;
+	ctx->waitq->waiters = w;
 	/* The condition can hold at once; the owner reads it from done. */
 	fyai_waiter_poll(w);
 	fyai_waiters_arm(ctx);
@@ -938,8 +938,8 @@ static struct fyai_waiter *fyai_waiter_start_sleep(struct fyai_ctx *ctx,
 	w->kind = on_event ? FYAI_WAITER_SLEEP_EVENT : FYAI_WAITER_SLEEP;
 	w->seconds = seconds;
 	w->deadline = fyai_event_now_ms() + (fyai_event_ms_t)(seconds * 1000.0);
-	w->next = ctx->waiters;
-	ctx->waiters = w;
+	w->next = ctx->waitq->waiters;
+	ctx->waitq->waiters = w;
 	fyai_waiter_poll(w);
 	fyai_waiters_arm(ctx);
 	return w;
@@ -949,14 +949,14 @@ void fyai_waiters_release(struct fyai_ctx *ctx)
 {
 	if (!ctx)
 		return;
-	if (ctx->waiter_kick)
+	if (ctx->waitq->waiter_kick)
 		fyai_event_defer_cancel(fyai_ctx_loop(ctx), fyai_waiters_kicked,
 					ctx);
-	ctx->waiter_kick = false;
-	while (ctx->waiters)
-		fyai_waiter_destroy(ctx->waiters);
-	fyai_event_source_remove(ctx->waiter_tick);
-	ctx->waiter_tick = NULL;
+	ctx->waitq->waiter_kick = false;
+	while (ctx->waitq->waiters)
+		fyai_waiter_destroy(ctx->waitq->waiters);
+	fyai_event_source_remove(ctx->waitq->waiter_tick);
+	ctx->waitq->waiter_tick = NULL;
 }
 
 /* Drop the waiters of the parent in a forked child, without ending them. */
@@ -964,9 +964,9 @@ void fyai_waiters_abandon(struct fyai_ctx *ctx)
 {
 	if (!ctx)
 		return;
-	ctx->waiters = NULL;
-	ctx->waiter_tick = NULL;
-	ctx->waiter_kick = false;
+	ctx->waitq->waiters = NULL;
+	ctx->waitq->waiter_tick = NULL;
+	ctx->waitq->waiter_kick = false;
 }
 
 /*
@@ -1145,3 +1145,12 @@ const struct fyai_tool_def fyai_wait_defs[] = {
 };
 const size_t fyai_wait_defs_count = sizeof(fyai_wait_defs) /
 				    sizeof(fyai_wait_defs[0]);
+
+void fyai_waitq_init(struct fyai_waitq *q, struct fyai_loop *loop,
+		     struct fyai_diag *diag)
+{
+	memset(q, 0, sizeof(*q));
+	q->loop = loop;
+	q->diag = diag;
+	q->events_tail = &q->events;
+}

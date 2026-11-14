@@ -518,14 +518,16 @@ int fyai_uimodel_intent(struct fyai_ctx *ctx, const char *subtype,
 	return m->intent(m->intent_data, subtype, request);
 }
 
-void fyai_uimodel_view_detach(struct fyai_ctx *view)
+void fyai_uimodel_view_detach(struct fyai_ctx *view,
+			      struct fyai_askq *own_askq)
 {
 	view->uimodel = NULL;
 	view->uilog = NULL;
 	view->uiwork = NULL;
 	view->uitranscript = NULL;
 	view->uidraw = NULL;
-	view->ask_entries = NULL;
+	view->askq = own_askq;
+	fyai_askq_init(own_askq, fyai_cfg_diag(view->cfg));
 	view->uimodel_detached = true;
 }
 

@@ -1673,6 +1673,7 @@ static char *browser_capture(struct fyai_browser *b, char *name,
 	struct fyai_ctx view = *b->ctx;
 	struct fyai_cfg cfg;
 	struct fyai_transient transient;
+	struct fyai_askq askq;
 	struct fyai_branch branch;
 	struct fy_generic_builder_cfg gbcfg = {
 		.flags = FYGBCF_SCOPE_LEADER | FYGBCF_DEDUP_ENABLED,
@@ -1693,7 +1694,7 @@ static char *browser_capture(struct fyai_browser *b, char *name,
 	browser_warn_check(b, gb, none, "cannot build the branch preview of %s", name);
 	view.cfg = &cfg;
 	view.ui = NULL;
-	fyai_uimodel_view_detach(&view);
+	fyai_uimodel_view_detach(&view, &askq);
 	view.display_output = NULL;
 	view.browser = NULL;
 	view.branch = name;
@@ -1760,6 +1761,7 @@ static char *browser_foreign_capture(struct fyai_browser *b,
 	struct fyai_ctx view = *b->ctx;
 	struct fyai_cfg cfg;
 	struct fyai_transient transient;
+	struct fyai_askq askq;
 	struct fy_generic_builder *gb;
 	FILE *fp = NULL;
 	const char *captured;
@@ -1772,7 +1774,7 @@ static char *browser_foreign_capture(struct fyai_browser *b,
 		return NULL;
 	view.cfg = &cfg;
 	view.ui = NULL;
-	fyai_uimodel_view_detach(&view);
+	fyai_uimodel_view_detach(&view, &askq);
 	view.display_output = NULL;
 	view.browser = NULL;
 	fyai_transient_init(&transient);

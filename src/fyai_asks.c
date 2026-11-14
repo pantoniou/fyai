@@ -40,7 +40,7 @@ static struct fyai_ask_pending *asks_find(struct fyai_ctx *ctx, const char *name
 {
 	struct fyai_ask_pending *p;
 
-	for (p = ctx->asks; p; p = p->next)
+	for (p = ctx->askq->asks; p; p = p->next)
 		if (!strcmp(p->name, name))
 			return p;
 	return NULL;
@@ -59,7 +59,7 @@ static void asks_unlink(struct fyai_ctx *ctx, struct fyai_ask_pending *p)
 {
 	struct fyai_ask_pending **pp;
 
-	for (pp = &ctx->asks; *pp; pp = &(*pp)->next) {
+	for (pp = &ctx->askq->asks; *pp; pp = &(*pp)->next) {
 		if (*pp != p)
 			continue;
 		*pp = p->next;
@@ -72,7 +72,7 @@ static bool asks_live(struct fyai_ctx *ctx, const struct fyai_ask_pending *p)
 {
 	struct fyai_ask_pending *q;
 
-	for (q = ctx->asks; q; q = q->next)
+	for (q = ctx->askq->asks; q; q = q->next)
 		if (q == p)
 			return true;
 	return false;
@@ -133,7 +133,7 @@ bool fyai_asks_background(fy_generic args)
 static void asks_default_name(struct fyai_ctx *ctx, char *buf, size_t size)
 {
 	do
-		snprintf(buf, size, "ask-%u", ++ctx->asks_seq);
+		snprintf(buf, size, "ask-%u", ++ctx->askq->seq);
 	while (asks_find(ctx, buf));
 }
 
@@ -173,8 +173,8 @@ fy_generic fyai_asks_start(struct fyai_ctx *ctx,
 	p->questions = fy_gb_internalize(p->gb, questions);
 	fyai_error_check(ctx, fy_is_valid(p->questions), err_free,
 			 "ask_user: cannot keep the questions of '%s'", name);
-	p->next = ctx->asks;
-	ctx->asks = p;
+	p->next = ctx->askq->asks;
+	ctx->askq->asks = p;
 	rc = fyai_ask_open(ctx, p->questions, NULL, asks_done, p);
 	if (rc) {
 		asks_unlink(ctx, p);
@@ -216,7 +216,7 @@ fy_generic fyai_asks_rows(struct fyai_ctx *ctx, struct fy_generic_builder *gb)
 	fy_generic rows, headers, q;
 
 	rows = fy_sequence(gb);
-	for (p = ctx->asks; p; p = p->next) {
+	for (p = ctx->askq->asks; p; p = p->next) {
 		headers = fy_sequence(gb);
 		fy_foreach(q, p->questions)
 			headers = fy_append(gb, headers,
@@ -233,12 +233,12 @@ void fyai_asks_release(struct fyai_ctx *ctx)
 
 	if (!ctx)
 		return;
-	for (p = ctx->asks; p; p = next) {
+	for (p = ctx->askq->asks; p; p = next) {
 		next = p->next;
 		fyai_ask_close(ctx, p);
 		asks_free(p);
 	}
-	ctx->asks = NULL;
+	ctx->askq->asks = NULL;
 }
 
 /* The questions of the parent stay with the parent's user interface. */
@@ -248,9 +248,15 @@ void fyai_asks_abandon(struct fyai_ctx *ctx)
 
 	if (!ctx)
 		return;
-	for (p = ctx->asks; p; p = next) {
+	for (p = ctx->askq->asks; p; p = next) {
 		next = p->next;
 		asks_free(p);
 	}
-	ctx->asks = NULL;
+	ctx->askq->asks = NULL;
+}
+
+void fyai_askq_init(struct fyai_askq *q, struct fyai_diag *diag)
+{
+	memset(q, 0, sizeof(*q));
+	q->diag = diag;
 }

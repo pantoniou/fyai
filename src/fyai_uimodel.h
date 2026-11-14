@@ -197,7 +197,8 @@ int fyai_uimodel_intent(struct fyai_ctx *ctx, const char *subtype,
  * from the UI model of the context it copies: its writes go nowhere, and it
  * makes no model, log or band registry of its own.
  */
-void fyai_uimodel_view_detach(struct fyai_ctx *view);
+void fyai_uimodel_view_detach(struct fyai_ctx *view,
+			      struct fyai_askq *own_askq);
 
 /* Release the model of @ctx at cleanup. */
 void fyai_uimodel_release(struct fyai_ctx *ctx);
