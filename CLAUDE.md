@@ -69,6 +69,27 @@ A `const char *` loop variable from `fy_foreach()`,
 accessor uses the address of the stored item. Thus, the pointer refers to
 collection storage and not to a copy.
 
+### Copies of arena data
+
+Do not copy a generic into the C heap to pass it to a consumer that can hold
+the generic or a borrowed pointer.
+
+- `ctx->gb` and `ctx->durable_gb` are not stable across `fyai_arena_reopen()`.
+  Do not borrow a generic from them across a reopen. `ctx->transient_gb` is
+  released on an idle loop iteration, so nothing asynchronous borrows from it.
+- Intern a name, an id, a path or another bounded value that lives long into
+  `cfg->gb` with `fyai_ctx_keep_str()`, and keep a `const char *`. The builder
+  deduplicates and never frees, so no `free()` remains.
+- Do not intern a value that is new for each turn, request, message, call, run
+  or event: an id, a wait name, rendered text, a diff, typed text, a tool
+  result, a command line. `cfg->gb` would grow for the life of the process.
+  Those stay copies, or live in a builder that the object owns, as
+  `job->call_gb` and `p->gb` of the asks do.
+- Do not intern a token or a secret: `fyai_secret_clear()` zeroes it, and a
+  builder never zeroes.
+- A mutable buffer, a path of the environment, a string for a thread, a fork
+  child or curl, and the transport code stay copies.
+
 ### Short forms
 
 Use the short generic API. It says the same thing with less text:
