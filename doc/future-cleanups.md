@@ -6,8 +6,8 @@ Status: the document has four parts.
   in a forked child. The entries that stay were checked and need no change.
 - Part 2 plans the split of the TUI from the core. It is a plan, and no step
   is done.
-- "Other cleanups" lists what is open: the tests that poll (item 19). The wait
-  of a delegated child for an answer to its question stays by design (item 1).
+- "Other cleanups" lists what is open. The wait of a delegated child for an
+  answer to its question stays by design (item 1).
 - "Copies of arena data" lists copies that a generic or an interned string
   replaces. Open: the rows of class a and class b.
 
@@ -472,21 +472,9 @@ is a series. Check an item again before work on it.
     `macos-transport-isolation-sdd.md`, `web-fetch-plan.md`). They may be
     plans, not errors.
 
-19. Timing in tests (S). Open, with no portable wake source:
-    `reads_stdin_is_seen` polls the state of a process that is no child, and
-    `transport_bootstrap.sh` and `retry_interrupt.sh` poll a file that a
-    running program writes (`tail --pid` is not on macOS).
-
-
 The agent found no hand-built JSON outside `fyai_mock.c`, no second transcript
 renderer, and no event source registered with a discarded handle. Whether each
 of the 475 cases has a positive control is unverified.
-
-### Suggested order
-
-The remaining timing sites of item 19 need a wake source and not a poll
-interval. Item 1 goes with the state-machine and TUI work, because they touch
-the same code.
 
 ## Copies of arena data
 

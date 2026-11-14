@@ -2229,6 +2229,15 @@ steps of a case with state:
 - Before input during a turn, wait for text that the turn shows, or for the
   `served` file of the mock (`wait-file`). The driver then sends the input
   after that state and not after a time.
+- A shell case waits on a wake source, not on a file that it polls. The
+  mock writes a line to the FIFO that `$FYAI_MOCK_NOTIFY` names, when it
+  binds its port and for each request: `mock_start` waits on it, and a case
+  opens it with `exec 8<>"$FYAI_MOCK_NOTIFY"` before the run it waits for and
+  reads it. A program that reports on standard error is run with a FIFO for
+  its standard error. A process that is not a child is waited for with a
+  pidfd (`os.pidfd_open()`), which is readable at its exit. Keep the FIFO
+  outside the project: a capture of the project refuses a special file. A
+  deadline on such a read bounds a failure, and does not pace the case.
 - Hold a mock reply with `wait_for: <marker>`. Without `wait_after_event`,
   the mock holds the whole reply until the marker exists in the run
   directory. The case creates the marker with a `touch:` step when the state
