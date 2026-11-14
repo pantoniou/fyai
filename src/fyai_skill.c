@@ -1443,8 +1443,8 @@ void fyai_skill_dirs_release(struct fyai_ctx *ctx)
 	if (!ctx)
 		return;
 	/* Cleanup cannot act on a failure: the tree is in a temporary place. */
-	if (ctx->skill_root)
-		(void)skill_tree_remove(ctx->skill_root);
+	if (ctx->skills->root)
+		(void)skill_tree_remove(ctx->skills->root);
 	fyai_skill_dirs_abandon(ctx);
 }
 
@@ -1454,14 +1454,14 @@ void fyai_skill_dirs_abandon(struct fyai_ctx *ctx)
 
 	if (!ctx)
 		return;
-	while ((d = ctx->skill_dirs)) {
-		ctx->skill_dirs = d->next;
+	while ((d = ctx->skills->dirs)) {
+		ctx->skills->dirs = d->next;
 		free(d->name);
 		free(d->path);
 		free(d);
 	}
-	free(ctx->skill_root);
-	ctx->skill_root = NULL;
+	free(ctx->skills->root);
+	ctx->skills->root = NULL;
 }
 
 /* Make the private directory of this invocation under $TMPDIR. */
@@ -1471,7 +1471,7 @@ static int skill_root_open(struct fyai_ctx *ctx)
 	char tmpl[PATH_MAX];
 	int rc;
 
-	if (ctx->skill_root)
+	if (ctx->skills->root)
 		return 0;
 	tmp = getenv("TMPDIR");
 	if (fy_str_empty(tmp))
@@ -1488,8 +1488,8 @@ static int skill_root_open(struct fyai_ctx *ctx)
 			     tmp, strerror(errno));
 		return -1;
 	}
-	ctx->skill_root = strdup(tmpl);
-	if (!ctx->skill_root) {
+	ctx->skills->root = strdup(tmpl);
+	if (!ctx->skills->root) {
 		(void)rmdir(tmpl);
 		fyai_warning(ctx, "cannot keep the directory of the skills");
 		return -1;
@@ -1561,7 +1561,7 @@ static const char *skill_dir(struct fyai_ctx *ctx, fy_generic skill)
 	name_v = fy_get(skill_frontmatter(skill), "name", fy_invalid);
 	name = fy_castp(&name_v, "");
 	n = 0;
-	for (d = ctx->skill_dirs; d; d = d->next) {
+	for (d = ctx->skills->dirs; d; d = d->next) {
 		if (strcmp(d->name, name))
 			continue;
 		if (d->value == skill.v)
@@ -1570,9 +1570,9 @@ static const char *skill_dir(struct fyai_ctx *ctx, fy_generic skill)
 	}
 	if (skill_root_open(ctx))
 		return NULL;
-	rc = n ? snprintf(path, sizeof(path), "%s/%s.%u", ctx->skill_root,
+	rc = n ? snprintf(path, sizeof(path), "%s/%s.%u", ctx->skills->root,
 			  name, n + 1) :
-		 snprintf(path, sizeof(path), "%s/%s", ctx->skill_root, name);
+		 snprintf(path, sizeof(path), "%s/%s", ctx->skills->root, name);
 	if (rc < 0 || rc >= (int)sizeof(path)) {
 		fyai_warning(ctx, "the directory of skill '%s' is too long",
 			     name);
@@ -1603,8 +1603,8 @@ static const char *skill_dir(struct fyai_ctx *ctx, fy_generic skill)
 		return NULL;
 	}
 	d->value = skill.v;
-	d->next = ctx->skill_dirs;
-	ctx->skill_dirs = d;
+	d->next = ctx->skills->dirs;
+	ctx->skills->dirs = d;
 	return d->path;
 }
 
@@ -2020,10 +2020,10 @@ bool fyai_skill_tool_allowed(struct fyai_ctx *ctx, const char *name)
 	 * An allow list is never empty: it keeps the base tools. A zeroed
 	 * context field reads as an empty sequence and restricts nothing.
 	 */
-	if (!ctx || !fy_is_sequence(ctx->tools_allow) ||
-	    fy_empty(ctx->tools_allow))
+	if (!ctx || !fy_is_sequence(ctx->toolspec->allow) ||
+	    fy_empty(ctx->toolspec->allow))
 		return true;
-	fy_foreach(item, ctx->tools_allow)
+	fy_foreach(item, ctx->toolspec->allow)
 		if (fy_equal(item, name))
 			return true;
 	return false;

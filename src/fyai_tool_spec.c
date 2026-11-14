@@ -99,12 +99,12 @@ static fy_generic tools_strip_isolated(struct fyai_ctx *ctx, fy_generic tool)
 
 static bool fyai_tool_spec_needs_update(struct fyai_ctx *ctx)
 {
-	return fy_is_invalid(ctx->tools_spec) ||
-	       ctx->tools_spec_generation != ctx->cfg->config_generation ||
-	       ctx->tools_spec_skills != ctx->arena_skills.v ||
-	       ctx->tools_spec_allow != ctx->tools_allow.v ||
-	       ctx->tools_spec_agent_child != fyai_agent_delegated(ctx) ||
-	       ctx->tools_spec_agent_restricted !=
+	return fy_is_invalid(ctx->toolspec->spec) ||
+	       ctx->toolspec->generation != ctx->cfg->config_generation ||
+	       ctx->toolspec->spec_skills != ctx->arena_skills.v ||
+	       ctx->toolspec->spec_allow != ctx->toolspec->allow.v ||
+	       ctx->toolspec->agent_child != fyai_agent_delegated(ctx) ||
+	       ctx->toolspec->agent_restricted !=
 		(ctx->cfg->agent_child && !ctx->agent_execution);
 }
 
@@ -117,7 +117,7 @@ fy_generic make_tools_filtered(struct fyai_ctx *ctx)
 	bool isolation, delegated;
 
 	if (!fyai_tool_spec_needs_update(ctx))
-		return ctx->tools_spec;
+		return ctx->toolspec->spec;
 
 	tools = make_tools(ctx);
 	delegated = fyai_agent_delegated(ctx);
@@ -173,12 +173,12 @@ fy_generic make_tools_filtered(struct fyai_ctx *ctx)
 	} else
 		out = tools;
 
-	ctx->tools_spec = out;
-	ctx->tools_spec_generation = ctx->cfg->config_generation;
-	ctx->tools_spec_skills = ctx->arena_skills.v;
-	ctx->tools_spec_allow = ctx->tools_allow.v;
-	ctx->tools_spec_agent_child = delegated;
-	ctx->tools_spec_agent_restricted =
+	ctx->toolspec->spec = out;
+	ctx->toolspec->generation = ctx->cfg->config_generation;
+	ctx->toolspec->spec_skills = ctx->arena_skills.v;
+	ctx->toolspec->spec_allow = ctx->toolspec->allow.v;
+	ctx->toolspec->agent_child = delegated;
+	ctx->toolspec->agent_restricted =
 		ctx->cfg->agent_child && !ctx->agent_execution;
 	return out;
 }

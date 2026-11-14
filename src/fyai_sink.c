@@ -585,7 +585,7 @@ static bool sink_term_wants_live(const struct fyai_sink *s,
 
 	return (t->mode == SINK_DOC_ONESHOT || t->mode == SINK_DOC_PAUSED) &&
 	       !t->out && kind == FYAI_SINK_DOC_ASSISTANT &&
-	       ctx->cfg->markdown && ctx->stdout_tty &&
+	       ctx->cfg->markdown && ctx->tty->stdout_tty &&
 	       markdown_available(ctx->cfg) &&
 	       strcmp(ctx->cfg->markdown_mode, "oneshot");
 }

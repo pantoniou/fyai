@@ -665,8 +665,8 @@ static int agent_run_persona(struct fyai_ctx *ctx, struct agent_run *r)
 		allow_tools = fy_get(r->persona, "tools", fy_invalid);
 	if (fy_is_sequence(allow_tools)) {
 		/* The configuration builder lives as long as the process. */
-		ctx->tools_allow = fy_gb_internalize(cfg->gb, allow_tools);
-		fyai_error_check(ctx, fy_is_sequence(ctx->tools_allow), err,
+		ctx->toolspec->allow = fy_gb_internalize(cfg->gb, allow_tools);
+		fyai_error_check(ctx, fy_is_sequence(ctx->toolspec->allow), err,
 				 "could not keep the tools of the sub-agent");
 	}
 
@@ -774,7 +774,7 @@ static int agent_run_turn(struct fyai_ctx *ctx, struct agent_run *r)
 	struct fyai_event_input input = {};
 
 	/* Render only when the parent supplied a terminal. */
-	ctx->stdout_tty = cfg->agent_pty;
+	ctx->tty->stdout_tty = cfg->agent_pty;
 
 	if (ctx->tool_rpc && ctx->relay_gate) {
 		ctx->tool_gate = &agent_gate_ops;

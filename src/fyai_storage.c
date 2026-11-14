@@ -701,7 +701,7 @@ static int storage_bootstrap_ask(struct fyai_ctx *ctx)
 	struct fyai_cfg *cfg = ctx->cfg;
 	char answer[8];
 
-	if (!cfg->interactive || !ctx->stdout_tty ||
+	if (!cfg->interactive || !ctx->tty->stdout_tty ||
 	    !terminal_is_tty(STDIN_FILENO))
 		goto refused;
 

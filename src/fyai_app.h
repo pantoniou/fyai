@@ -39,6 +39,10 @@ struct fyai_app {
 	struct fyai_mcp mcp;		/* depends on loop, cred, transient */
 	struct fyai_waitq waitq;	/* depends on loop and diag */
 	struct fyai_askq askq;		/* depends on diag */
+	struct fyai_scope scope;	/* depends on loop and diag */
+	struct fyai_tty tty;		/* depends on loop and diag */
+	struct fyai_skills skills;	/* depends on arena and transient */
+	struct fyai_toolspec toolspec;	/* depends on skills */
 	struct fyai_link link;		/* depends on loop and cred */
 	struct fyai_cred cred;		/* depends on loop */
 	struct fyai_cfg cfg;		/* depends on diag */

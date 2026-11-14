@@ -314,25 +314,25 @@ static fy_generic fyai_tool_child_serve(struct jsonrpc_conn *conn,
 		return fy_invalid;
 	}
 	if (!strcmp(method, "tty/resize")) {
-		tc->ctx->tty_rows = (int)fy_get(params, "rows", 0LL);
-		tc->ctx->tty_cols = (int)fy_get(params, "cols", 0LL);
+		tc->ctx->tty->rows = (int)fy_get(params, "rows", 0LL);
+		tc->ctx->tty->cols = (int)fy_get(params, "cols", 0LL);
 		/*
 		 * A resize before the session starts replaces the size of
 		 * the run: the parent sends each grant one time.
 		 */
-		if (!tc->relay && tc->ctx->tty_rows > 0 &&
-		    tc->ctx->tty_cols > 0) {
-			tc->size_rows = tc->ctx->tty_rows;
-			tc->size_cols = tc->ctx->tty_cols;
+		if (!tc->relay && tc->ctx->tty->rows > 0 &&
+		    tc->ctx->tty->cols > 0) {
+			tc->size_rows = tc->ctx->tty->rows;
+			tc->size_cols = tc->ctx->tty->cols;
 		}
-		fyai_terminal_session_resize(tc->ctx, tc->ctx->tty_rows,
-					     tc->ctx->tty_cols);
+		fyai_terminal_session_resize(tc->ctx, tc->ctx->tty->rows,
+					     tc->ctx->tty->cols);
 		if (tc->relay)
-			fyai_terminal_relay_resize(tc->relay, tc->ctx->tty_rows,
-						   tc->ctx->tty_cols);
+			fyai_terminal_relay_resize(tc->relay, tc->ctx->tty->rows,
+						   tc->ctx->tty->cols);
 		(void)jsonrpc_notify(conn, "tty/resized",
-			fy_gb_mapping(gb, "rows", (long long)tc->ctx->tty_rows,
-				      "cols", (long long)tc->ctx->tty_cols));
+			fy_gb_mapping(gb, "rows", (long long)tc->ctx->tty->rows,
+				      "cols", (long long)tc->ctx->tty->cols));
 		return fy_invalid;
 	}
 	if (!strcmp(method, "shell/write")) {

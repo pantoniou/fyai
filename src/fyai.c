@@ -2488,10 +2488,10 @@ void fyai_cleanup(struct fyai_ctx *ctx)
 		return;
 	cfg = ctx->cfg;
 
-	fyai_cover_release(&ctx->cover);
+	fyai_cover_release(&ctx->scope->cover);
 	fyai_orphan_release(ctx);
 	/* The holder gives what is left in the scope its time before the process ends. */
-	fyai_cover_drain(&ctx->cover);
+	fyai_cover_drain(&ctx->scope->cover);
 
 	/* Remove the handlers before the context that they name is destroyed. */
 	/* A session cannot outlive the invocation that opened it, and neither
@@ -2743,6 +2743,10 @@ int fyai_setup(struct fyai_ctx *ctx, struct fyai_app *app)
 	ctx->mcp = &app->mcp;
 	ctx->waitq = &app->waitq;
 	ctx->askq = &app->askq;
+	ctx->scope = &app->scope;
+	ctx->tty = &app->tty;
+	ctx->skills = &app->skills;
+	ctx->toolspec = &app->toolspec;
 	fyai_cred_bind(ctx->cred, ctx);
 	ctx->transient->on_release = fyai_transient_released;
 	ctx->transient->on_release_data = ctx;
@@ -2750,12 +2754,12 @@ int fyai_setup(struct fyai_ctx *ctx, struct fyai_app *app)
 	ctx->loop->on_interrupt = fyai_loop_interrupt_hook;
 	ctx->loop->on_interrupt_data = ctx;
 	/* A holder that an ancestor started is in the environment, which a tool clears. */
-	fyai_cover_init(&ctx->cover);
+	fyai_cover_init(&ctx->scope->cover);
 
-	ctx->stdout_tty = terminal_is_tty(STDOUT_FILENO);
-	if (!terminal_window_size(STDOUT_FILENO, &ctx->tty_rows, &ctx->tty_cols))
-		(void)terminal_window_size(STDERR_FILENO, &ctx->tty_rows,
-					   &ctx->tty_cols);
+	ctx->tty->stdout_tty = terminal_is_tty(STDOUT_FILENO);
+	if (!terminal_window_size(STDOUT_FILENO, &ctx->tty->rows, &ctx->tty->cols))
+		(void)terminal_window_size(STDERR_FILENO, &ctx->tty->rows,
+					   &ctx->tty->cols);
 
 	/* Before anything can render: every later step reports through it. */
 	ctx->sink = cfg->sink_frames ? fyai_sink_create_frames(ctx, STDOUT_FILENO) :
@@ -2765,14 +2769,14 @@ int fyai_setup(struct fyai_ctx *ctx, struct fyai_app *app)
 
 	ctx->tools = fy_invalid;
 	ctx->mcp->active_tools = fy_invalid;
-	ctx->tools_spec = fy_invalid;
+	ctx->toolspec->spec = fy_invalid;
 	ctx->last_message = fy_invalid;
 	ctx->usage_head = fy_invalid;
 	ctx->usage_agents_root = fy_invalid;
 	ctx->arena_config = fy_invalid;
 	ctx->arena_catalog = fy_invalid;
 	ctx->arena_skills = fy_invalid;
-	ctx->tools_allow = fy_invalid;
+	ctx->toolspec->allow = fy_invalid;
 	ctx->output_schema = fy_invalid;
 	ctx->structured_output = fy_invalid;
 	/* A zeroed fy_generic is an empty sequence, not fy_invalid. */
@@ -3307,7 +3311,7 @@ int fyai_prompt_batch(struct fyai_ctx *ctx)
 	 * its own prompt, so only the batch path needs it, and only on a
 	 * terminal - piped/redirected output stays byte-clean for scripting.
 	 */
-	if (ctx->stdout_tty)
+	if (ctx->tty->stdout_tty)
 		(void)fyai_sink_write(ctx->sink, FYAI_SINK_TRANSCRIPT, "\n", 1);
 
 	rc = fyai_publish_state(ctx);
@@ -3364,7 +3368,7 @@ static void fyai_interactive_finish_output(struct fyai_ctx *ctx)
 	fyai_ui_diag_drain(ctx, "error");
 	fyai_ui_drain_output(ctx);
 	fyai_session_banner_update(ctx);
-	if (ctx->cfg->markdown && ctx->stdout_tty)
+	if (ctx->cfg->markdown && ctx->tty->stdout_tty)
 		(void)fyai_sink_write(ctx->sink, FYAI_SINK_TRANSCRIPT, "\n", 1);
 }
 
@@ -3480,7 +3484,7 @@ static int fyai_interactive_handle_slash(struct fyai_ctx *ctx,
 		free(fyai_ui_pane_take(ctx));
 	fyai_error_check(ctx, rc >= 0, out,
 			 "could not run the slash command");
-	if (transcript && ctx->cfg->markdown && ctx->stdout_tty)
+	if (transcript && ctx->cfg->markdown && ctx->tty->stdout_tty)
 		(void)fyai_sink_write(ctx->sink, FYAI_SINK_TRANSCRIPT, "\n", 1);
 out:
 	fyai_ui_drain_output(ctx);
@@ -4165,7 +4169,7 @@ int fyai_prompt_interactive(struct fyai_ctx *ctx)
 	 */
 	prompt = cfg->prompt_marker && *cfg->prompt_marker ?
 		cfg->prompt_marker : "> ";
-	if (cfg->markdown && ctx->stdout_tty) {
+	if (cfg->markdown && ctx->tty->stdout_tty) {
 		/* The top row and the bottom status row (both {key} templates)
 		 * are installed by the banner update, which frames the input. */
 		fyai_session_banner_update(ctx);

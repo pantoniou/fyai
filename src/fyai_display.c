@@ -929,7 +929,7 @@ int fyai_present_diff(struct fyai_ctx *ctx, const char *diff, bool unified)
 	char *text;
 	int rc;
 
-	if (!ctx->stdout_tty || !markdown_color_enabled(ctx->cfg->color))
+	if (!ctx->tty->stdout_tty || !markdown_color_enabled(ctx->cfg->color))
 		return fyai_sink_write(ctx->sink, FYAI_SINK_NOTICE, diff,
 				     strlen(diff));
 	/* The unified rows are for tools: they keep the bytes of the patch. */
@@ -1987,7 +1987,7 @@ void fyai_print_login_url(struct fyai_ctx *ctx, const char *lead,
 		label = "open the sign-in page";
 	md = fy_sprintfa("**%s** [%s](%s)\n", lead, label, url);
 	if (md && ctx && ctx->cfg->markdown && markdown_available(ctx->cfg) &&
-	    (fyai_ui_active(ctx) || ctx->stdout_tty) &&
+	    (fyai_ui_active(ctx) || ctx->tty->stdout_tty) &&
 	    !markdown_render(ctx->cfg, md, strlen(md), &out,
 			     markdown_color_enabled(ctx->cfg->color),
 			     ctx->cfg->theme_variant) &&
@@ -3838,7 +3838,7 @@ static int fyai_display_message(struct fyai_display_render *view,
 		return 0;
 
 	if (c.is_str && fy_equal(c.role, "user") && !view->args->raw &&
-	    view->cfg->markdown && view->ctx->stdout_tty) {
+	    view->cfg->markdown && view->ctx->tty->stdout_tty) {
 		rc = fyai_display_flush_reopen(view);
 		fyai_error_check(view->ctx, !rc, out,
 				 "could not flush the display buffer");
@@ -3938,7 +3938,7 @@ static int fyai_display_finish(struct fyai_display_render *view)
 	}
 	free(view->md);
 	view->md = NULL;
-	if (view->ctx->stdout_tty && !view->args->raw)
+	if (view->ctx->tty->stdout_tty && !view->args->raw)
 		(void)fyai_sink_write(view->ctx->sink, FYAI_SINK_TRANSCRIPT,
 				      "\n", 1);
 	return 0;
@@ -4107,7 +4107,7 @@ int fyai_display_view(struct fyai_ctx *ctx)
 	rc = fyai_display_window(ctx, tgb, &stack, lo, hi, &emitted);
 	fyai_error_check(ctx, !rc, err_out,
 			 "could not render the conversation");
-	if (ctx->stdout_tty && !args->raw)
+	if (ctx->tty->stdout_tty && !args->raw)
 		(void)fyai_sink_write(ctx->sink, FYAI_SINK_TRANSCRIPT, "\n", 1);
 	rc = 0;
 
@@ -4384,7 +4384,7 @@ static int display_screen_rows(struct fyai_ctx *ctx)
 /* Repaint recent stored exchanges at the current display width. */
 int fyai_display_repaint(struct fyai_ctx *ctx, int rows)
 {
-	if (!ctx || !ctx->cfg->markdown || !ctx->stdout_tty)
+	if (!ctx || !ctx->cfg->markdown || !ctx->tty->stdout_tty)
 		return 0;
 	if (rows <= 0)
 		rows = display_screen_rows(ctx);
@@ -4878,7 +4878,7 @@ void fyai_interactive_recap(struct fyai_ctx *ctx)
 	if (fy_is_invalid(last) || fy_is_null(last))
 		return;
 
-	replayed = cfg->recap_exchanges && cfg->markdown && ctx->stdout_tty;
+	replayed = cfg->recap_exchanges && cfg->markdown && ctx->tty->stdout_tty;
 
 	/* Last assistant reply on the most recent turn, first line only. */
 	msgs = fy_get(last, "messages");
@@ -4987,7 +4987,7 @@ static void fyai_print_card(struct fyai_ctx *ctx, const char *line, bool live)
 	quoted = NULL;
 	quotedlen = 0;
 
-	if (!cfg->markdown || !ctx->stdout_tty)
+	if (!cfg->markdown || !ctx->tty->stdout_tty)
 		return;
 
 	/*
@@ -5047,7 +5047,7 @@ void fyai_echo_user_turn(struct fyai_ctx *ctx, const char *line)
 {
 	const char *shown;
 
-	if (!ctx || !ctx->cfg->markdown || !ctx->stdout_tty)
+	if (!ctx || !ctx->cfg->markdown || !ctx->tty->stdout_tty)
 		return;
 	/*
 	 * The card shows the attachment rows beside the words that carry them.
@@ -5071,7 +5071,7 @@ int fyai_render_display_output(struct fyai_ctx *ctx, const char *tag,
 		return -1;
 	cfg = ctx->cfg;
 	if (!strcmp(tag, "user")) {
-		if (cfg->markdown && ctx->stdout_tty) {
+		if (cfg->markdown && ctx->tty->stdout_tty) {
 			fyai_print_user_turn(ctx, markdown, false);
 			return 0;
 		}

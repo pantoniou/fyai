@@ -573,7 +573,7 @@ int fyai_home_ensure(struct fyai_ctx *ctx)
 	size_t i;
 	int rc = -1, r;
 
-	if (ctx->home || ctx->cfg->tool_child || !ctx->cfg->enable_sandbox)
+	if (ctx->scope->home || ctx->cfg->tool_child || !ctx->cfg->enable_sandbox)
 		return 0;
 	home = fy_get(ctx->cfg->sandbox, "home", fy_invalid);
 	mounts = fy_get(ctx->cfg->sandbox, "mounts", fy_invalid);
@@ -594,7 +594,7 @@ int fyai_home_ensure(struct fyai_ctx *ctx)
 
 	if (home_dir_make(&e, home, root, private))
 		goto err_out;
-	ctx->home = h;
+	ctx->scope->home = h;
 	/* The tool verb runs in the namespace, so the process that waits for it removes the tree. */
 	if (h->owned && ctx->cfg->cmd.reg.path && !strncmp(ctx->cfg->cmd.reg.path, "tool", 4))
 		fyai_fsview_on_parent_exit(home_exit_remove, h->dir);
@@ -623,7 +623,7 @@ err_out:
 	free(root);
 	free(real_copy);
 	if (rc) {
-		if (ctx->home)
+		if (ctx->scope->home)
 			fyai_home_release(ctx);
 		else if (h)
 			free(h);
@@ -686,9 +686,9 @@ void fyai_home_release(struct fyai_ctx *ctx)
 {
 	struct fyai_home *h;
 
-	if (!ctx || !ctx->home)
+	if (!ctx || !ctx->scope->home)
 		return;
-	h = ctx->home;
+	h = ctx->scope->home;
 	/* A forked child holds a copy of the record, and leaves the directory to its owner. */
 	if (ctx->cfg->tool_child) {
 		fyai_home_abandon(ctx);
@@ -696,12 +696,12 @@ void fyai_home_release(struct fyai_ctx *ctx)
 	}
 	/* A mount point can go only when the namespace that mounted on it is gone. */
 	if (h->mount_n)
-		fyai_cover_drain(&ctx->cover);
+		fyai_cover_drain(&ctx->scope->cover);
 	/*
 	 * A process that is inside the namespace does not remove the tree: its
 	 * mounts show the project. The process that waits for it does.
 	 */
-	if (h->owned && !ctx->sandbox_applied)
+	if (h->owned && !ctx->scope->sandbox_applied)
 		home_remove_tree(h->dir, 0);
 	fyai_home_abandon(ctx);
 }
@@ -711,14 +711,14 @@ void fyai_home_abandon(struct fyai_ctx *ctx)
 	struct fyai_home *h;
 	size_t i;
 
-	if (!ctx || !ctx->home)
+	if (!ctx || !ctx->scope->home)
 		return;
-	h = ctx->home;
+	h = ctx->scope->home;
 	for (i = 0; i < h->strings_n; i++)
 		free(h->strings[i]);
 	free(h->strings);
 	free(h->mount);
 	free(h->dir);
 	free(h);
-	ctx->home = NULL;
+	ctx->scope->home = NULL;
 }

@@ -27,7 +27,7 @@ struct fyai_home {
 /*
  * Make the mounts of the sandbox profile when it has any: `mounts`, the `userns`
  * exposure (a read-only mask of the paths of /proc that change the kernel), and the
- * private home (`home: {private: true}`), and set ctx->home. The private home is
+ * private home (`home: {private: true}`), and set ctx->scope->home. The private home is
  * a tree that is mounted over the real home, so the tools see the same paths and
  * the real files are hidden. It holds the private versions that `copy` and `env`
  * name, each at its own place: a directory is an overlay of the original, so

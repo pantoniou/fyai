@@ -840,10 +840,10 @@ void fyai_shell_tty_size(struct fyai_ctx *ctx, fy_generic call,
 	struct fyai_cfg *cfg = ctx->cfg;
 
 	*rowsp = fyai_shell_tty_dim(fy_get(call, "rows", 0LL),
-				    cfg->shell_tty_rows, ctx->tty_rows,
+				    cfg->shell_tty_rows, ctx->tty->rows,
 				    FYAI_TTY_ROWS_DEFAULT, FYAI_TTY_MAX_ROWS);
 	*colsp = fyai_shell_tty_dim(fy_get(call, "cols", 0LL),
-				    cfg->shell_tty_cols, ctx->tty_cols,
+				    cfg->shell_tty_cols, ctx->tty->cols,
 				    FYAI_TTY_COLS_DEFAULT, FYAI_TTY_MAX_COLS);
 }
 
@@ -2120,7 +2120,7 @@ fy_generic fyai_tool_run_one(struct fyai_ctx *ctx, const char *name,
 
 /* Build the shell/tool sandbox spec from cfg and apply it to this process
  * irreversibly. Best-effort per spec->strict; a no-op when disabled. Marks
- * ctx->sandbox_applied so inner steps do not re-derive/re-apply it. */
+ * ctx->scope->sandbox_applied so inner steps do not re-derive/re-apply it. */
 int fyai_tool_apply_sandbox(struct fyai_ctx *ctx)
 {
 	struct fyai_shell_sandbox sb;
@@ -2138,7 +2138,7 @@ int fyai_tool_apply_sandbox(struct fyai_ctx *ctx)
 		fyai_error(ctx, "sandbox: could not confine this process");
 		return -1;
 	}
-	ctx->sandbox_applied = true;
+	ctx->scope->sandbox_applied = true;
 	return 0;
 }
 
@@ -2159,7 +2159,7 @@ int fyai_tools_confine_native_view(struct fyai_ctx *ctx, const struct fyai_fsvie
 	size_t i, count;
 	int rc, saved;
 
-	if (!slash || ctx->sandbox_applied) {
+	if (!slash || ctx->scope->sandbox_applied) {
 		errno = ENOTSUP;
 		return -1;
 	}
@@ -2192,7 +2192,7 @@ int fyai_tools_confine_native_view(struct fyai_ctx *ctx, const struct fyai_fsvie
 	policy.filter_path = true;
 	rc = fyai_sandbox_apply(&policy);
 	if (!rc)
-		ctx->sandbox_applied = true;
+		ctx->scope->sandbox_applied = true;
 out:
 	saved = errno;
 	free(deny);
@@ -2440,11 +2440,11 @@ void fyai_ctx_fork_disown(struct fyai_ctx *ctx)
 	ctx->patch_display = NULL;
 	fyai_output_cleanup(ctx);		/* the document it has open */
 	fyai_diag_reset(fyai_ctx_diag(ctx));	/* what the parent has not drained yet */
-	fyai_cover_abandon(&ctx->cover);	/* the holder that it does not own */
+	fyai_cover_abandon(&ctx->scope->cover);	/* the holder that it does not own */
 	fyai_session_btw_abandon(ctx);		/* its side questions */
 	fyai_orphan_abandon(ctx);		/* and the processes that the scope keeps */
-	ctx->scope_pins = 0;
-	ctx->scope_open = false;
+	ctx->scope->pins = 0;
+	ctx->scope->open = false;
 	fyai_skill_dirs_abandon(ctx);		/* the skills it wrote out */
 	fyai_settings_abandon(ctx);		/* and the exports */
 	fyai_cred_abandon(ctx);			/* the refresh of the parent */
@@ -2456,8 +2456,8 @@ void fyai_ctx_fork_disown(struct fyai_ctx *ctx)
 	ctx->agent_parent = ctx->agent_execution;
 	ctx->agent_execution = 0;
 	ctx->shell_stream = NULL;
-	ctx->tty_session = NULL;		/* the terminal it runs in */
-	ctx->winch_src = NULL;			/* a source on the loop it owns */
+	ctx->tty->session = NULL;		/* the terminal it runs in */
+	ctx->tty->winch_src = NULL;			/* a source on the loop it owns */
 	/* The child owns neither the loop nor the dump of its parent. */
 	fyai_loop_abandon(ctx->loop);
 	ctx->transport->src = NULL;
@@ -2552,7 +2552,7 @@ fy_generic fyai_scope_rows(struct fyai_ctx *ctx, struct fy_generic_builder *gb)
 	fy_generic rows;
 
 	rows = fyai_orphan_rows(ctx, gb);
-	n = fyai_cover_members(&ctx->cover, pids, ARRAY_SIZE(pids));
+	n = fyai_cover_members(&ctx->scope->cover, pids, ARRAY_SIZE(pids));
 	for (i = 0; i < n; i++) {
 		fyai_orphan_name(pids[i], name, sizeof(name));
 		fyai_orphan_label(pids[i], label, sizeof(label));

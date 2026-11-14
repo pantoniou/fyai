@@ -799,13 +799,13 @@ fyai_tool_job_band_delay(const struct fyai_event *ev)
 /* End the scope when no exchange runs and no object keeps it. */
 static void fyai_scope_settle(struct fyai_ctx *ctx)
 {
-	if (ctx->scope_open || ctx->scope_pins > 0 ||
+	if (ctx->scope->open || ctx->scope->pins > 0 ||
 	    ctx->cfg->sandbox_scope_kind == FYAI_SCOPE_SESSION)
 		return;
 	/* A process that did not start the holder does not end it. */
-	if (ctx->cover.owner) {
-		fyai_diag_tracef("scope", "end, holder %ld", (long)ctx->cover.holder);
-		fyai_cover_release(&ctx->cover);
+	if (ctx->scope->cover.owner) {
+		fyai_diag_tracef("scope", "end, holder %ld", (long)ctx->scope->cover.holder);
+		fyai_cover_release(&ctx->scope->cover);
 	}
 	if (fyai_orphan_count(ctx))
 		fyai_diag_tracef("scope", "stop %zu tracked daemons",
@@ -815,7 +815,7 @@ static void fyai_scope_settle(struct fyai_ctx *ctx)
 
 void fyai_scope_exchange(struct fyai_ctx *ctx, bool begin)
 {
-	ctx->scope_open = begin;
+	ctx->scope->open = begin;
 	if (!begin)
 		fyai_scope_settle(ctx);
 }
@@ -825,7 +825,7 @@ void fyai_scope_pin(struct fyai_ctx *ctx, struct fyai_scope_pin *pin)
 	if (pin->held)
 		return;
 	pin->held = true;
-	ctx->scope_pins++;
+	ctx->scope->pins++;
 }
 
 void fyai_scope_unpin(struct fyai_ctx *ctx, struct fyai_scope_pin *pin)
@@ -834,8 +834,8 @@ void fyai_scope_unpin(struct fyai_ctx *ctx, struct fyai_scope_pin *pin)
 		return;
 	pin->held = false;
 	/* A forked child resets the count and drops the objects of its parent. */
-	if (ctx->scope_pins > 0)
-		ctx->scope_pins--;
+	if (ctx->scope->pins > 0)
+		ctx->scope->pins--;
 	fyai_scope_settle(ctx);
 }
 
@@ -851,14 +851,14 @@ static void fyai_scope_ensure(struct fyai_ctx *ctx)
 	pid_t holder;
 
 	if (ctx->cfg->tool_child || !ctx->cfg->enable_sandbox ||
-	    ctx->sandbox_applied || ctx->cfg->sandbox_scope_kind == FYAI_SCOPE_CALL)
+	    ctx->scope->sandbox_applied || ctx->cfg->sandbox_scope_kind == FYAI_SCOPE_CALL)
 		return;
-	holder = ctx->cover.holder;
+	holder = ctx->scope->cover.holder;
 	if (fyai_shell_sandbox_begin(ctx, &sb, &spec))
 		return;
 	fyai_shell_sandbox_end(&sb);
-	if (ctx->cover.holder && ctx->cover.holder != holder)
-		fyai_diag_tracef("scope", "begin, holder %ld", (long)ctx->cover.holder);
+	if (ctx->scope->cover.holder && ctx->scope->cover.holder != holder)
+		fyai_diag_tracef("scope", "begin, holder %ld", (long)ctx->scope->cover.holder);
 }
 
 /*

@@ -1791,7 +1791,7 @@ void fyai_session_banner_update(struct fyai_ctx *ctx)
 	/* A remote consumer reads the header of a process with no display. */
 	if (!fyai_uimodel_consumed(ctx) &&
 	    (!ctx->cfg->interactive || !ctx->cfg->markdown ||
-	     !ctx->stdout_tty))
+	     !ctx->tty->stdout_tty))
 		return;
 	/* A delegated sub-agent has no header: the head of its tile in the
 	 * parent names it. */

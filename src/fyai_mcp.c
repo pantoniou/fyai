@@ -2385,7 +2385,7 @@ void fyai_mcp_publish_tools(struct fyai_ctx *ctx)
 		    fy_is_valid(mcp->tools))
 			out = fy_concat(ctx->arena->gb, out, mcp->tools);
 	ctx->mcp->tools = fy_gb_internalize(ctx->arena->gb, out);
-	ctx->tools_spec = fy_invalid;
+	ctx->toolspec->spec = fy_invalid;
 }
 
 static struct fyai_mcp_ctx *

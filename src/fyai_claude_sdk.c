@@ -3574,10 +3574,10 @@ static int sdk_cmd_tools(struct fyai_cmd_call *call, struct sdk_server *srv)
 				    names);
 	if (fy_is_sequence(allowed) && !fy_empty(allowed)) {
 		/* The tools of a request were made at setup: make them again. */
-		ctx->tools_allow = fy_gb_internalize(ctx->cfg->gb, allowed);
+		ctx->toolspec->allow = fy_gb_internalize(ctx->cfg->gb, allowed);
 		rc = fyai_setup_transient_builder(ctx);
 		if (!rc) {
-			ctx->tools_spec = fy_invalid;
+			ctx->toolspec->spec = fy_invalid;
 			rc = fyai_request_state_apply(ctx);
 		}
 		fyai_cleanup_transient_builder(ctx);
@@ -3591,7 +3591,7 @@ static int sdk_cmd_tools(struct fyai_cmd_call *call, struct sdk_server *srv)
 		ctx->output_schema = parse_json_string(ctx->cfg->gb, text);
 		rc = fyai_setup_transient_builder(ctx);
 		if (!rc) {
-			ctx->tools_spec = fy_invalid;
+			ctx->toolspec->spec = fy_invalid;
 			rc = fyai_request_state_apply(ctx);
 		}
 		fyai_cleanup_transient_builder(ctx);

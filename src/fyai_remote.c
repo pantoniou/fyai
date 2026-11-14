@@ -941,7 +941,7 @@ static int remote_command_run(struct remote_client *client)
 
 	rc = remote_request(client, "run", fy_mapping(client->gb,
 		"subtype", "fyai_run", "args", cfg->remote_args, "stdin", input,
-		"cols", (long long)(ctx->stdout_tty ? ctx->tty_cols : 0)));
+		"cols", (long long)(ctx->tty->stdout_tty ? ctx->tty->cols : 0)));
 	if (rc)
 		return -1;
 	client->phase = REMOTE_RUNNING;

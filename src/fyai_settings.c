@@ -2493,8 +2493,8 @@ static const char *settings_export_dir(struct fyai_ctx *ctx)
 	char tmpl[PATH_MAX];
 	int rc;
 
-	if (ctx->settings_export_dir)
-		return ctx->settings_export_dir;
+	if (ctx->skills->export_dir)
+		return ctx->skills->export_dir;
 	tmp = getenv("TMPDIR");
 	if (fy_str_empty(tmp))
 		tmp = "/tmp";
@@ -2507,10 +2507,10 @@ static const char *settings_export_dir(struct fyai_ctx *ctx)
 	fyai_error_check(ctx, made, err_out,
 			 "settings: cannot make a directory in %s: %s", tmp,
 			 strerror(errno));
-	ctx->settings_export_dir = strdup(tmpl);
-	fyai_error_check(ctx, ctx->settings_export_dir, err_out,
+	ctx->skills->export_dir = strdup(tmpl);
+	fyai_error_check(ctx, ctx->skills->export_dir, err_out,
 			 "settings: cannot keep the name of %s", tmpl);
-	return ctx->settings_export_dir;
+	return ctx->skills->export_dir;
 err_out:
 	return NULL;
 }
@@ -2519,14 +2519,14 @@ void fyai_settings_release(struct fyai_ctx *ctx)
 {
 	size_t i;
 
-	if (!ctx || !ctx->settings_export_dir)
+	if (!ctx || !ctx->skills->export_dir)
 		return;
 	/* Cleanup cannot act on a failure: the files are temporary. */
 	for (i = 0; i < ARRAY_SIZE(settings_export_files); i++)
 		(void)unlinkat(AT_FDCWD, fy_sprintfa("%s/%s",
-				ctx->settings_export_dir,
+				ctx->skills->export_dir,
 				settings_export_files[i]), 0);
-	(void)rmdir(ctx->settings_export_dir);
+	(void)rmdir(ctx->skills->export_dir);
 	fyai_settings_abandon(ctx);
 }
 
@@ -2534,8 +2534,8 @@ void fyai_settings_abandon(struct fyai_ctx *ctx)
 {
 	if (!ctx)
 		return;
-	free(ctx->settings_export_dir);
-	ctx->settings_export_dir = NULL;
+	free(ctx->skills->export_dir);
+	ctx->skills->export_dir = NULL;
 }
 
 static int settings_write_file(const char *path, const char *text)

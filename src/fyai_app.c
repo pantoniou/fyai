@@ -17,6 +17,39 @@
 #include "fyai_app.h"
 #include "fyai_config.h"
 
+void fyai_scope_state_init(struct fyai_scope *scope, struct fyai_loop *loop,
+			   struct fyai_diag *diag)
+{
+	memset(scope, 0, sizeof(*scope));
+	scope->loop = loop;
+	scope->diag = diag;
+}
+
+void fyai_tty_init(struct fyai_tty *tty, struct fyai_loop *loop,
+		   struct fyai_diag *diag)
+{
+	memset(tty, 0, sizeof(*tty));
+	tty->loop = loop;
+	tty->diag = diag;
+}
+
+void fyai_skills_init(struct fyai_skills *skills, struct fyai_arena *arena,
+		      struct fyai_transient *transient)
+{
+	memset(skills, 0, sizeof(*skills));
+	skills->arena = arena;
+	skills->transient = transient;
+}
+
+void fyai_toolspec_init(struct fyai_toolspec *ts, struct fyai_skills *skills)
+{
+	memset(ts, 0, sizeof(*ts));
+	ts->skills = skills;
+	/* Not the all-zero word: that is an empty sequence. */
+	ts->spec = fy_invalid;
+	ts->allow = fy_invalid;
+}
+
 int fyai_app_init(struct fyai_app *app)
 {
 	int rc;
@@ -32,6 +65,10 @@ int fyai_app_init(struct fyai_app *app)
 	fyai_mcp_state_init(&app->mcp, &app->loop, &app->cred, &app->transient);
 	fyai_waitq_init(&app->waitq, &app->loop, &app->diag);
 	fyai_askq_init(&app->askq, &app->diag);
+	fyai_scope_state_init(&app->scope, &app->loop, &app->diag);
+	fyai_tty_init(&app->tty, &app->loop, &app->diag);
+	fyai_skills_init(&app->skills, &app->arena, &app->transient);
+	fyai_toolspec_init(&app->toolspec, &app->skills);
 	fyai_link_init(&app->link, &app->loop, &app->cred);
 	fyai_arena_init(&app->arena);
 	fyai_transient_init(&app->transient);

@@ -464,7 +464,7 @@ int fyai_terminal_session_run(struct fyai_ctx *ctx, const char *command,
 	if (rc)
 		goto fail_child;
 
-	ctx->tty_session = &r;
+	ctx->tty->session = &r;
 	/*
 	 * An interrupt must reach the command. Without this the user can only
 	 * wait for the limit, because nothing else stops the process group.
@@ -478,7 +478,7 @@ int fyai_terminal_session_run(struct fyai_ctx *ctx, const char *command,
 		if (rc < 0)
 			break;
 	}
-	ctx->tty_session = NULL;
+	ctx->tty->session = NULL;
 
 	tty_sources_remove(&r);
 
@@ -527,7 +527,7 @@ void fyai_terminal_session_resize(struct fyai_ctx *ctx, int rows, int cols)
 
 	if (!ctx || rows <= 0 || cols <= 0)
 		return;
-	r = ctx->tty_session;
+	r = ctx->tty->session;
 	if (!r || (rows == r->rows && cols == r->cols))
 		return;
 
@@ -552,11 +552,11 @@ static enum fyai_event_action tty_winch(const struct fyai_event *ev)
 	    !terminal_window_size(STDOUT_FILENO, &rows, &cols) &&
 	    !terminal_window_size(STDERR_FILENO, &rows, &cols))
 		return FYAIEA_CONTINUE;
-	if (rows == ctx->tty_rows && cols == ctx->tty_cols)
+	if (rows == ctx->tty->rows && cols == ctx->tty->cols)
 		return FYAIEA_CONTINUE;
 
-	ctx->tty_rows = rows;
-	ctx->tty_cols = cols;
+	ctx->tty->rows = rows;
+	ctx->tty->cols = cols;
 	fyai_terminal_session_resize(ctx, rows, cols);
 	fyai_tool_jobs_resize(ctx, rows, cols);
 	return FYAIEA_CONTINUE;
@@ -566,7 +566,7 @@ int fyai_terminal_winch_open(struct fyai_ctx *ctx)
 {
 	struct fyai_event_loop *el;
 
-	if (!ctx || ctx->winch_src)
+	if (!ctx || ctx->tty->winch_src)
 		return 0;
 	/* A tool child has no terminal of its own; the parent tells it. */
 	if (ctx->cfg->tool_child)
@@ -576,15 +576,15 @@ int fyai_terminal_winch_open(struct fyai_ctx *ctx)
 	if (!el)
 		return -1;
 	return fyai_event_add_signal(el, SIGWINCH, tty_winch, ctx,
-				     &ctx->winch_src);
+				     &ctx->tty->winch_src);
 }
 
 void fyai_terminal_winch_close(struct fyai_ctx *ctx)
 {
-	if (!ctx || !ctx->winch_src)
+	if (!ctx || !ctx->tty->winch_src)
 		return;
-	fyai_event_source_remove(ctx->winch_src);
-	ctx->winch_src = NULL;
+	fyai_event_source_remove(ctx->tty->winch_src);
+	ctx->tty->winch_src = NULL;
 }
 
 void fyai_terminal_result_cleanup(struct fyai_terminal_result *result)

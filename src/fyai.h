@@ -17,6 +17,10 @@
 #include <curl/curl.h>
 #include "fyai_askq.h"
 #include "fyai_link.h"
+#include "fyai_scope.h"
+#include "fyai_skills.h"
+#include "fyai_tty.h"
+#include "fyai_toolspec.h"
 #include "fyai_waitq.h"
 #include "fyai_mcp_state.h"
 #include "fyai_transport_state.h"
@@ -784,33 +788,11 @@ struct fyai_ctx {
 	/* Output allowance after the context check. Zero uses the configuration. */
 	long long context_max_tokens;
 	fy_generic tools;
-	/* The built-in tool specification in the configuration builder. */
-	fy_generic tools_spec;
-	unsigned int tools_spec_generation;
-	bool tools_spec_agent_child;
-	bool tools_spec_agent_restricted;
-	/* The skills and the tool allow list that tools_spec describes. */
-	uint64_t tools_spec_skills;
-	uint64_t tools_spec_allow;
-	/*
-	 * The tools that a sub-agent run for a skill may call, a sequence of
-	 * canonical names, or fy_invalid for every tool.
-	 */
-	fy_generic tools_allow;
 	fy_generic last_message;
 	fy_generic arena_config;	/* the active branch's config, or fy_invalid */
 	fy_generic arena_catalog;	/* catalogue of the branch, or fy_invalid */
 	/* Skills of the branch, a mapping by name, or fy_invalid. */
 	fy_generic arena_skills;
-	/*
-	 * The private directory under $TMPDIR that this invocation writes its
-	 * skills out to, and the skills written there. Owned by this process:
-	 * cleanup removes the tree, and a forked child forgets it.
-	 */
-	char *skill_root;
-	/* The directory that the settings tool exports to, or NULL. */
-	char *settings_export_dir;
-	struct fyai_skill_dir *skill_dirs;
 	/* Active branch state and its next ref-log predecessor. */
 	const char *branch;
 	/* Stored HEAD, which can differ from the active branch. */
@@ -862,17 +844,15 @@ struct fyai_ctx {
 	 * and cleared when the project states can no longer be taken.
 	 */
 	bool tool_diff_tracking;
+	/* The components below are owned by struct fyai_app. */
+	struct fyai_scope *scope;
+	struct fyai_tty *tty;
+	struct fyai_skills *skills;
+	struct fyai_toolspec *toolspec;
 	/* The MCP client component, owned by struct fyai_app. */
 	struct fyai_mcp *mcp;
 	/* The shared refresh of the login and its waiters (fyai_cred.h). */
 	struct fyai_cred *cred;
-	bool stdout_tty;			/* stdout is a terminal (cached) */
-	/* The size of the real terminal, recorded by the parent and kept up to
-	 * date by SIGWINCH. A forked tool child inherits it, because it calls
-	 * setsid() and can no longer ask the kernel itself. 0 = unknown. */
-	int tty_rows;
-	int tty_cols;
-	void *tty_session;		/* the PTY session running in this process */
 	struct fyai_tool_job *tool_jobs;	/* live jobs, for a resize */
 	struct fyai_btw_run *btw_runs;	/* side questions in this session */
 	struct fyai_agent_bg_run *agent_bg_runs; /* background sub-agents */
@@ -886,7 +866,6 @@ struct fyai_ctx {
 	struct fyai_waitq *waitq;
 	/* The questions component, owned by struct fyai_app. */
 	struct fyai_askq *askq;
-	struct fyai_event_source *winch_src;
 	bool tool_output_displayed;
 	/* Set once a tool row has been drawn live, so the next one gets a
 	 * blank line ahead of it */
@@ -959,14 +938,6 @@ struct fyai_ctx {
 	/* Set inside a forked tool sub-execution once the environment has been
 	 * sanitized and the sandbox applied, so inner steps (the shell tool's
 	 * own fork) do not re-derive and re-apply the confinement. */
-	struct fyai_cover cover;	/* how a tool hides the arena, and the holder of it */
-	int scope_pins;			/* objects that keep the scope of an exchange */
-	bool scope_open;		/* an exchange runs */
-	struct fyai_orphan *orphans;	/* processes that a tool left, to end with the scope */
-	struct fyai_event_source *orphan_kill;
-	struct fyai_home *home;		/* the home of the tools, when a profile gives them one */
-	bool sandbox_applied;
-	bool sandbox_warned;		/* the failure of the sandbox was reported */
 	/* Index of the next pre-supplied --answer to hand to ask_user. */
 	size_t answer_next;
 	/* Set when ask_user needs an answer but none can be obtained

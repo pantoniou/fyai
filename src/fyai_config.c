@@ -2692,7 +2692,7 @@ static void config_cover_report(struct fyai_ctx *ctx, const char *key)
 	free(root);
 	if (n < 0 || (size_t)n >= sizeof(path) || access(path, F_OK))
 		return;
-	fyai_cover_probe(&ctx->cover, &userns, &bwrap);
+	fyai_cover_probe(&ctx->scope->cover, &userns, &bwrap);
 	if (userns || bwrap)
 		return;
 	fyai_cfg_warning(cfg, "sandbox '%s': this host does not let fyai hide the project "

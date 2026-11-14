@@ -155,7 +155,7 @@ int fyai_shell_sandbox_build(struct fyai_ctx *ctx,
 
 	memset(sb, 0, sizeof(*sb));
 	*specp = NULL;
-	if (!ctx->cfg->enable_sandbox || ctx->sandbox_applied)
+	if (!ctx->cfg->enable_sandbox || ctx->scope->sandbox_applied)
 		return 0;
 
 	sb->root = ctx->cfg->view_project ? strdup(ctx->cfg->view_project) :
@@ -218,11 +218,11 @@ int fyai_shell_sandbox_build(struct fyai_ctx *ctx,
 					       FYAI_COVER_START_SCOPE;
 	fyai_fsview_set_grace((long)ctx->cfg->sandbox_grace_ms);
 	method = ctx->cfg->view_project ? FYAI_COVER_NONE :
-		 fyai_cover_select(&ctx->cover, ctx->cfg->sandbox_cover,
+		 fyai_cover_select(&ctx->scope->cover, ctx->cfg->sandbox_cover,
 				   (const char *const *)cand, cn, &holder, start);
 	for (i = 0; i < cn; i++) {
 		if (method == FYAI_COVER_USERNS ||
-		    (method == FYAI_COVER_BWRAP && fyai_cover_covers(&ctx->cover, cand[i]))) {
+		    (method == FYAI_COVER_BWRAP && fyai_cover_covers(&ctx->scope->cover, cand[i]))) {
 			sb->hide[sb->hide_n++] = cand[i];
 		} else {
 			sb->deny[sp->deny_n++] = cand[i];
@@ -235,7 +235,7 @@ int fyai_shell_sandbox_build(struct fyai_ctx *ctx,
 	sp->deny = sb->deny;
 	sp->hide = (const char *const *)sb->hide;
 	sp->hide_n = sb->hide_n;
-	mounts = ctx->home ? ctx->home->mount_n : 0;
+	mounts = ctx->scope->home ? ctx->scope->home->mount_n : 0;
 	fyai_error_check(ctx, !mounts || method != FYAI_COVER_NONE, err_out,
 			 ctx->cfg->view_project ?
 			 "sandbox: the profile makes mounts, which a view does not support yet" :
@@ -266,7 +266,7 @@ int fyai_shell_sandbox_build(struct fyai_ctx *ctx,
 			goto err_out;
 	}
 	/* A program that makes a user namespace writes the maps of /proc/self, with O_TRUNC. */
-	if (ctx->home && ctx->home->userns) {
+	if (ctx->scope->home && ctx->scope->home->userns) {
 		resolved = strdup("/proc");
 		fyai_error_check(ctx, resolved, err_out,
 				 "sandbox: could not copy the /proc path");
@@ -274,14 +274,14 @@ int fyai_shell_sandbox_build(struct fyai_ctx *ctx,
 			goto err_out;
 	}
 	/* The home directory of the tool is its own to write, whatever is denied. */
-	if (ctx->home) {
-		resolved = strdup(ctx->home->dir);
+	if (ctx->scope->home) {
+		resolved = strdup(ctx->scope->home->dir);
 		fyai_error_check(ctx, resolved, err_out,
 				 "sandbox: could not copy the home directory path");
 		if (fyai_shell_sandbox_allow(ctx, sb, resolved, FYAI_SB_RW))
 			goto err_out;
-		sp->mount = ctx->home->mount;
-		sp->mount_n = ctx->home->mount_n;
+		sp->mount = ctx->scope->home->mount;
+		sp->mount_n = ctx->scope->home->mount_n;
 	}
 	sp->allow = sb->allow;
 
@@ -397,7 +397,7 @@ int fyai_shell_sandbox_begin(struct fyai_ctx *ctx,
 	cause = had_error ? NULL : fyai_diag_string(fyai_ctx_diag(ctx));
 	if (!had_error)
 		fyai_diag_reset(fyai_ctx_diag(ctx));
-	if (!ctx->sandbox_warned) {
+	if (!ctx->scope->sandbox_warned) {
 		len = cause ? strlen(cause) : 0;
 		while (len && (cause[len - 1] == '\n' || cause[len - 1] == ' '))
 			cause[--len] = '\0';
@@ -406,7 +406,7 @@ int fyai_shell_sandbox_begin(struct fyai_ctx *ctx,
 			     "`sandbox_on_failure: fail` to stop the tools instead, or fix the "
 			     "cause (doc/apparmor-userns.md)",
 			     len ? cause : "no cause was reported");
-		ctx->sandbox_warned = true;
+		ctx->scope->sandbox_warned = true;
 	}
 	free(cause);
 	memset(sb, 0, sizeof(*sb));
