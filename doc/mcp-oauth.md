@@ -58,6 +58,17 @@ Before use, `fyai` refreshes a token that is near expiry. It retries one
 authenticated request after an HTTP 401 response. A timer starts refresh five
 minutes before expiry.
 
+The refresh (`src/fyai_mcp_oauth.c`) takes the store lock and reads the record
+again. If another process renewed the token in the last 30 seconds, `fyai`
+uses that token and sends no request. Otherwise it sends the stored refresh
+token, and saves the answer under the lock. A cancel lets a token request that
+is out end, so that a rotated refresh token is not lost; logout aborts it, so
+that the deleted record stays deleted. MCP OAuth does not use the credential
+component of the ChatGPT login.
+
+A save of the client registration or of the tokens waits for the store lock
+with a timer when a sibling holds it.
+
 Explicit login or logout cancels an active discovery, refresh, or browser wait.
 Each terminal path releases the discovery state.
 

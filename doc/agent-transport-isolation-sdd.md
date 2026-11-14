@@ -1142,6 +1142,19 @@ What the transport protects:
   is whited out of the transport log and of any provider text that echoes it.
 - The transport is undumpable, takes no listening socket, and forks no child
   after it has read a credential (section 6).
+- The transport uses the same credential component as the agent
+  (`src/fyai_cred.c`; `doc/credential-sources-plan.md`). The component keeps
+  one refresh for each process and a list of the requests that wait for it.
+  The transport verbs call `prepare` before a request and `reject` after a
+  401. A cancel of a request that waits only removes that request.
+- A cancel that reaches the token request does not close it. The provider can
+  rotate the refresh token when it receives the request, so the request ends
+  and the transport saves the new tokens under the store lock. The owner gets
+  its answer at once.
+- One timer renews the login five minutes before it expires. When another
+  process renewed the token first, the timer only moves to the new time. A
+  failed renewal is tried again after 300 s. A token with less than 60 s of
+  life gets no timer.
 
 A token can be rejected before its expiry time, for example after the
 account revoked it or another process replaced it. The transport then renews

@@ -169,6 +169,21 @@ sequenceDiagram
     F->>S: Release lock
 ```
 
+One refresh runs in a process at a time. A request that needs a token while
+the refresh runs waits for it. A request that the server rejects with HTTP 401
+forces one refresh, unless the stored token is not the one that the request
+sent. In that case the request repeats with the stored token. The agent and
+the transport use the same component (`doc/credential-sources-plan.md`).
+
+A cancel of a request that waits for the refresh removes only that request. A
+cancel after the token request started lets the request end, because the
+provider can rotate the refresh token when it receives the request. The new
+tokens are saved under the lock. One timer starts a refresh five minutes
+before the token expires. It reads the store first, so a token that another
+process renewed starts no refresh.
+At exit, fyai waits up to 30 seconds for a token request that a cancel left
+out, so that the rotated tokens are saved.
+
 A signing-key retrieval failure leaves the rotating refresh token unredeemed.
 Refresh may retain the previous scope if the response omits it, but a narrowed
 scope is rejected. Validation or refresh failure stops subscription use.
