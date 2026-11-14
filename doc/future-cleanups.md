@@ -476,11 +476,10 @@ is a series. Check an item again before work on it.
 ### Dead code and compatibility
 
 17. Long functions (M to L each), with the split seam:
-    `capture_run` (347, `fyai_project_capture.c`), `ui_page_update` (323; one
-    function for each region), `fyai_agent_run` (312), `fyai_config_setup`
-    (308; argv, layers, validation), `fyai_cmd_claude_sdk` (279),
-    `fyai_view_capture` (268), `capture_scan_dir` (252) and `ui_service` (250;
-    key routing).
+    `capture_run` (347, `fyai_project_capture.c`), `fyai_agent_run` (312),
+    `fyai_config_setup` (308; argv, layers, validation), `fyai_cmd_claude_sdk`
+    (279), `fyai_view_capture` (268), `capture_scan_dir` (252) and
+    `ui_service` (250; key routing).
 
 ### Documentation and tests
 
