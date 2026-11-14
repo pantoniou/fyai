@@ -18,6 +18,7 @@
 #include "fyai_app.h"
 #include "fyai_diag.h"
 #include "fyai_event.h"
+#include "fyai_arena.h"
 #include "fyai_loop.h"
 #include "fyai_transient.h"
 
@@ -31,6 +32,8 @@ FYAI_TEST_ENTRY(app, wires_loop, app_wires_loop)
 FYAI_TEST_ENTRY(app, loop_tells_an_interrupt, app_loop_tells_an_interrupt)
 FYAI_TEST_ENTRY(app, cleanup_releases_loop, app_cleanup_releases_loop)
 FYAI_TEST_ENTRY(app, release_keeps_dump, app_release_keeps_dump)
+FYAI_TEST_ENTRY(app, arena_release_order, app_arena_release_order)
+FYAI_TEST_ENTRY(app, transient_follows_arena, app_transient_follows_arena)
 FYAI_TEST_ENTRY(app, transient_stacks_on_slot, app_transient_stacks_on_slot)
 FYAI_TEST_ENTRY(app, transient_tells_its_release, app_transient_tells_its_release)
 FYAI_TEST_ENTRY(app, other_loop_keeps_handlers, app_other_loop_keeps_handlers)
@@ -295,5 +298,67 @@ int app_transient_tells_its_release(void)
 	FYAI_TCHECK(released == 1);
 	FYAI_TCHECK(!t.autorelease);
 	printf("ok - the owner is told when the transient builder goes\n");
+	return 0;
+}
+
+/* The release destroys the overlay before the builder that it stacks on. */
+int app_arena_release_order(void)
+{
+	struct fy_auto_allocator_cfg acfg = { .scenario = FYAST_PER_TAG_FREE_DEDUP };
+	struct fy_generic_builder_cfg gbcfg = { .flags = FYGBCF_SCOPE_LEADER };
+	struct fyai_arena arena;
+
+	fyai_arena_init(&arena);
+	fyai_arena_release(&arena);
+
+	arena.durable_allocator = fy_allocator_create("auto", &acfg);
+	FYAI_TCHECK(arena.durable_allocator);
+	gbcfg.allocator = arena.durable_allocator;
+	arena.durable_gb = fy_generic_builder_create(&gbcfg);
+	FYAI_TCHECK(arena.durable_gb);
+	arena.overlay_allocator = fy_allocator_create("auto", &acfg);
+	FYAI_TCHECK(arena.overlay_allocator);
+	gbcfg.allocator = arena.overlay_allocator;
+	gbcfg.parent = arena.durable_gb;
+	arena.gb = fy_generic_builder_create(&gbcfg);
+	FYAI_TCHECK(arena.gb && arena.gb != arena.durable_gb);
+	arena.refs_head = 42;
+
+	fyai_arena_release(&arena);
+	FYAI_TCHECK(!arena.gb && !arena.durable_gb);
+	FYAI_TCHECK(!arena.durable_allocator && !arena.overlay_allocator);
+	FYAI_TCHECK(!arena.refs_head);
+	/* A builder that is the durable one is destroyed once. */
+	arena.durable_allocator = fy_allocator_create("auto", &acfg);
+	gbcfg.allocator = arena.durable_allocator;
+	gbcfg.parent = NULL;
+	arena.durable_gb = fy_generic_builder_create(&gbcfg);
+	arena.gb = arena.durable_gb;
+	FYAI_TCHECK(arena.gb);
+	fyai_arena_release(&arena);
+	FYAI_TCHECK(!arena.gb && !arena.durable_gb && !arena.durable_allocator);
+	fyai_arena_release(&arena);
+	printf("ok - the arena releases the overlay, the builder and the allocator\n");
+	return 0;
+}
+
+/* The transient builder of the app follows the working builder of the arena. */
+int app_transient_follows_arena(void)
+{
+	struct fy_generic_builder_cfg gbcfg = { .flags = FYGBCF_SCOPE_LEADER };
+	struct fyai_app app;
+	fy_generic kept;
+
+	FYAI_TCHECK(!fyai_app_init(&app));
+	FYAI_TCHECK(app.transient.parent_gb == &app.arena.gb);
+	app.arena.gb = app.arena.durable_gb = fy_generic_builder_create(&gbcfg);
+	FYAI_TCHECK(app.arena.gb);
+	kept = fy_value(app.arena.gb, "in the arena");
+	FYAI_TCHECK(fy_is_valid(kept));
+	FYAI_TCHECK(!fyai_transient_setup(&app.transient));
+	FYAI_TCHECK(app.transient.gb);
+	fyai_app_cleanup(&app);
+	FYAI_TCHECK(!app.arena.gb && !app.transient.gb);
+	printf("ok - the transient builder follows the arena of the app\n");
 	return 0;
 }
