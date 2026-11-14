@@ -19,6 +19,7 @@
 #include "fyai_diag.h"
 #include "fyai_event.h"
 #include "fyai_loop.h"
+#include "fyai_transient.h"
 
 #include "fyai_test.h"
 #include "fyai_test_registry.h"
@@ -30,6 +31,8 @@ FYAI_TEST_ENTRY(app, wires_loop, app_wires_loop)
 FYAI_TEST_ENTRY(app, loop_tells_an_interrupt, app_loop_tells_an_interrupt)
 FYAI_TEST_ENTRY(app, cleanup_releases_loop, app_cleanup_releases_loop)
 FYAI_TEST_ENTRY(app, release_keeps_dump, app_release_keeps_dump)
+FYAI_TEST_ENTRY(app, transient_stacks_on_slot, app_transient_stacks_on_slot)
+FYAI_TEST_ENTRY(app, transient_tells_its_release, app_transient_tells_its_release)
 FYAI_TEST_ENTRY(app, other_loop_keeps_handlers, app_other_loop_keeps_handlers)
 
 /* The configuration reports into the sink that the app owns. */
@@ -227,5 +230,70 @@ int app_other_loop_keeps_handlers(void)
 	fyai_event_interrupt_ack(&app.loop);
 	fyai_app_cleanup(&app);
 	printf("ok - a loop does not remove the handlers of another\n");
+	return 0;
+}
+
+/* The transient builder stacks on the builder that its slot holds now. */
+int app_transient_stacks_on_slot(void)
+{
+	struct fy_generic_builder_cfg gbcfg = { .flags = FYGBCF_SCOPE_LEADER };
+	struct fy_generic_builder *first, *second;
+	struct fyai_transient t;
+	fy_generic stored;
+
+	fyai_transient_init(&t);
+	first = fy_generic_builder_create(&gbcfg);
+	FYAI_TCHECK(first);
+	t.parent_gb = &first;
+	stored = fy_value(first, "kept in the parent");
+	FYAI_TCHECK(fy_is_valid(stored));
+
+	FYAI_TCHECK(!fyai_transient_setup(&t));
+	FYAI_TCHECK(t.gb && t.allocator && !t.autorelease);
+	/* A second setup keeps the builder, as an owner adopts it. */
+	FYAI_TCHECK(!fyai_transient_setup(&t));
+	FYAI_TCHECK(fyai_transient_get(&t) == t.gb);
+	fyai_transient_cleanup(&t);
+	FYAI_TCHECK(!t.gb && !t.allocator);
+
+	/* The arena replaces its builder: the slot gives the new one. */
+	second = fy_generic_builder_create(&gbcfg);
+	FYAI_TCHECK(second);
+	fy_generic_builder_destroy(first);
+	first = second;
+	FYAI_TCHECK(!fyai_transient_setup(&t));
+	FYAI_TCHECK(t.gb);
+	fyai_transient_cleanup(&t);
+	fy_generic_builder_destroy(first);
+	printf("ok - the transient builder reads its parent from the slot\n");
+	return 0;
+}
+
+static int released;
+
+static void note_release(void *data)
+{
+	(*(int *)data)++;
+}
+
+/* The owner is told when a builder goes, and not when there is none. */
+int app_transient_tells_its_release(void)
+{
+	struct fyai_transient t;
+
+	fyai_transient_init(&t);
+	t.on_release = note_release;
+	t.on_release_data = &released;
+
+	fyai_transient_cleanup(&t);
+	FYAI_TCHECK(released == 0);
+
+	/* A builder that an idle operation made is released by the idle loop. */
+	FYAI_TCHECK(fyai_transient_get(&t));
+	FYAI_TCHECK(t.autorelease);
+	fyai_transient_cleanup(&t);
+	FYAI_TCHECK(released == 1);
+	FYAI_TCHECK(!t.autorelease);
+	printf("ok - the owner is told when the transient builder goes\n");
 	return 0;
 }
