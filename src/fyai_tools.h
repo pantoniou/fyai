@@ -391,6 +391,12 @@ bool fyai_mcp_stop_done(const struct fyai_ctx *ctx);
 void fyai_mcp_stop_finish(struct fyai_ctx *ctx);
 
 /*
+ * Move a malloc'd result into the transient builder and free it. A NULL text
+ * is a failure that errno describes.
+ */
+fy_generic fyai_tool_take_text(struct fyai_ctx *ctx, char *text);
+
+/*
  * Execute a single named built-in tool (read_file, write_file, apply_patch,
  * shell, ask_user) with already-parsed @args, returning the result generic in
  * ctx->transient_gb. Shared by the model tool-use loop, the fork-per-tool

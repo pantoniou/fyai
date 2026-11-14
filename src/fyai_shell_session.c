@@ -1409,14 +1409,16 @@ static void fyai_shell_session_idle_gate(struct fyai_shell_session *sess,
 	sess->feeding = false;
 }
 
-/* Find the session a call names, or say why it cannot be used. */
+/*
+ * Find the session a call names. On failure give the reason in *errp, built in
+ * the transient builder.
+ */
 static struct fyai_shell_session *
-fyai_shell_session_of(struct fyai_ctx *ctx, fy_generic args, char **errp)
+fyai_shell_session_of(struct fyai_ctx *ctx, fy_generic args, fy_generic *errp)
 {
 	struct fyai_shell_session *sess;
 	fy_generic name;
 
-	*errp = NULL;
 	name = fy_get(args, "name", fy_invalid);
 	sess = fyai_shell_session_find(ctx, fy_castp(&name, ""));
 	if (sess)
@@ -1425,29 +1427,26 @@ fyai_shell_session_of(struct fyai_ctx *ctx, fy_generic args, char **errp)
 	 * A session lives for one invocation. A name from an earlier one names
 	 * nothing, so report that rather than let the model wait for output.
 	 */
-	*errp = strdup(fy_sprintfa(
+	*errp = fy_stringf(ctx->transient_gb,
 		"tool error: no shell named '%s' is open on branch %s; "
 		"open one with the shell tool and a name",
-		fy_castp(&name, ""), fyai_ctx_branch(ctx)));
+		fy_castp(&name, ""), fyai_ctx_branch(ctx));
 	return NULL;
 }
 
-char *fyai_shell_output_tool(struct fyai_ctx *ctx, fy_generic args,
-			     bool *okp)
+fy_generic fyai_shell_output_tool(struct fyai_ctx *ctx, fy_generic args,
+				  bool *okp)
 {
 	struct fyai_terminal_region region = {};
 	struct fyai_shell_session *sess;
 	enum fyai_terminal_read what;
 	long long idle, max_wait;
-	char *err;
+	fy_generic err;
 
 	*okp = false;
 	sess = fyai_shell_session_of(ctx, args, &err);
-	if (!sess) {
-		fyai_error_check(ctx, err, out,
-				 "shell: could not report the missing session");
+	if (!sess)
 		return err;
-	}
 
 	/*
 	 * Read only a program that has settled on its terminal. A session that
@@ -1467,40 +1466,37 @@ char *fyai_shell_output_tool(struct fyai_ctx *ctx, fy_generic args,
 	fyai_shell_session_idle_arm(sess);
 	what = fyai_shell_view_kind(args, &region);
 	*okp = true;
-	return fyai_shell_session_result(ctx, sess, args, what, &region);
-
-out:
-	return NULL;
+	return fyai_tool_take_text(ctx, fyai_shell_session_result(ctx, sess,
+								   args, what,
+								   &region));
 }
 
-char *fyai_shell_input_tool(struct fyai_ctx *ctx, fy_generic args,
-			    bool *okp)
+fy_generic fyai_shell_input_tool(struct fyai_ctx *ctx, fy_generic args,
+				 bool *okp)
 {
 	struct fyai_terminal_region region = {};
 	struct fyai_shell_session *sess;
 	struct fy_generic_builder *gb;
 	struct fyai_buf in = {};
-	fy_generic input;
+	fy_generic input, err;
 	const char *text;
 	long long wait, idle, max_wait;
-	char *err, *result;
+	char *result;
 	int rc;
 
 	*okp = false;
 	sess = fyai_shell_session_of(ctx, args, &err);
-	if (!sess) {
-		fyai_error_check(ctx, err, out,
-				 "shell: could not report the missing session");
+	if (!sess)
 		return err;
-	}
-	if (sess->exited)
-		return strdup(fy_sprintfa(
-			"tool error: the shell '%s' has ended; its output can "
-			"still be read with shell_output", sess->name));
-
 	gb = fyai_ctx_transient_gb(ctx);
-	if (!gb || !sess->job || !sess->job->conn)
-		return strdup("tool error: the shell session is not reachable");
+	if (sess->exited)
+		return fy_stringf(gb,
+			"tool error: the shell '%s' has ended; its output can "
+			"still be read with shell_output", sess->name);
+
+	if (!sess->job || !sess->job->conn)
+		return fy_value(gb, "tool error: the shell session is not "
+				"reachable");
 
 	input = fy_get(args, "input", fy_invalid);
 	text = fy_castp(&input, "");
@@ -1545,33 +1541,31 @@ char *fyai_shell_input_tool(struct fyai_ctx *ctx, fy_generic args,
 					   &region);
 	fyai_error_check(ctx, result, out,
 			 "shell: could not read session '%s'", sess->name);
-	return result;
+	return fyai_tool_take_text(ctx, result);
 
 out:
 	free(in.data);
-	return NULL;
+	*okp = false;
+	return fy_value(gb, "tool error: the shell input could not be sent");
 }
 
-char *fyai_shell_close_tool(struct fyai_ctx *ctx, fy_generic args,
-			    bool *okp)
+fy_generic fyai_shell_close_tool(struct fyai_ctx *ctx, fy_generic args,
+				 bool *okp)
 {
+	struct fy_generic_builder *gb = ctx->transient_gb;
 	struct fyai_shell_session *sess;
 	struct fyai_event_loop *el;
+	fy_generic err;
 	bool force;
-	char *err, *result;
 
 	*okp = false;
 	sess = fyai_shell_session_of(ctx, args, &err);
-	if (!sess) {
-		fyai_error_check(ctx, err, out,
-				 "shell: could not report the missing session");
+	if (!sess)
 		return err;
-	}
-	if (sess->user_owned) {
-		return strdup(fy_sprintfa(
+	if (sess->user_owned)
+		return fy_stringf(gb,
 			"tool error: the shell '%s' belongs to the user and cannot "
-			"be closed by the model", sess->name));
-	}
+			"be closed by the model", sess->name);
 
 	force = fy_get(args, "force", false);
 	if (!sess->exited) {
@@ -1585,18 +1579,10 @@ char *fyai_shell_close_tool(struct fyai_ctx *ctx, fy_generic args,
 	}
 	*okp = true;
 	if (sess->exited)
-		result = strdup(fy_sprintfa("[shell '%s' ended: status %d]",
-					  sess->name, sess->signal ?
-					  128 + sess->signal : sess->exit_code));
-	else
-		result = strdup(fy_sprintfa("[shell '%s' was asked to end]",
-					    sess->name));
-	fyai_error_check(ctx, result, out,
-			 "shell: could not build session close result");
-	return result;
-
-out:
-	return NULL;
+		return fy_stringf(gb, "[shell '%s' ended: status %d]",
+				  sess->name, sess->signal ?
+				  128 + sess->signal : sess->exit_code);
+	return fy_stringf(gb, "[shell '%s' was asked to end]", sess->name);
 }
 
 /* Find the live session or sub-agent that owns @sf. */

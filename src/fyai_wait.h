@@ -9,12 +9,12 @@
 struct fyai_ctx;
 
 /* The `time` tool: what the clock says now. */
-char *fyai_time_tool(struct fyai_ctx *ctx, bool *okp);
+fy_generic fyai_time_tool(struct fyai_ctx *ctx, bool *okp);
 /* The same text, for anything else that has to say what the time is. */
 char *fyai_time_now_text(void);
 
 /* Wait synchronously, or schedule a named asynchronous wait. */
-char *fyai_wait_tool(struct fyai_ctx *ctx, fy_generic args, bool *okp);
+fy_generic fyai_wait_tool(struct fyai_ctx *ctx, fy_generic args, bool *okp);
 
 /* Cancel the pending wait @name; false when no such wait is pending. */
 bool fyai_wait_cancel(struct fyai_ctx *ctx, const char *name);

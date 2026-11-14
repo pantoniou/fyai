@@ -999,8 +999,8 @@ static bool fyai_shell_background_requested(fy_generic args)
 	return fy_get(args, "background", false);
 }
 
-static char *fyai_run_shell_command(struct fyai_ctx *ctx, fy_generic args,
-				    bool *okp)
+static char *fyai_run_shell_text(struct fyai_ctx *ctx, fy_generic args,
+				 bool *okp)
 {
 	struct fyai_cfg *cfg = ctx->cfg;
 	struct shell_command_result result = {};
@@ -1184,6 +1184,12 @@ out:
 	fyai_terminal_result_cleanup(&tty_result);
 	shell_command_result_cleanup(&result);
 	return ret;
+}
+
+static fy_generic fyai_run_shell_command(struct fyai_ctx *ctx, fy_generic args,
+					 bool *okp)
+{
+	return fyai_tool_take_text(ctx, fyai_run_shell_text(ctx, args, okp));
 }
 
 /*
@@ -1502,7 +1508,8 @@ static fy_generic fyai_view_tool(struct fyai_ctx *ctx, fy_generic args, bool *ok
 
 static fy_generic fyai_list_tool(struct fyai_ctx *ctx, fy_generic args, bool *okp);
 
-static char *fyai_cancel_tool(struct fyai_ctx *ctx, fy_generic args, bool *okp);
+static fy_generic fyai_cancel_tool(struct fyai_ctx *ctx, fy_generic args,
+				   bool *okp);
 
 fy_generic fyai_execute_tool_call(struct fyai_ctx *ctx,
 				  fy_generic tool_call, bool *okp)
@@ -1709,20 +1716,21 @@ static fy_generic fyai_tool_result_text(struct fyai_ctx *ctx, fy_generic result)
 }
 
 /* The tools whose behaviour is a short function of the arguments. */
-static char *tool_read_file(struct fyai_ctx *ctx, fy_generic args, bool *okp)
+static fy_generic tool_read_file(struct fyai_ctx *ctx, fy_generic args,
+				 bool *okp)
 {
 	char *result = fyai_read_file_tool(ctx, args);
 
 	*okp = result != NULL;
-	return result;
+	return fyai_tool_take_text(ctx, result);
 }
 
-static char *tool_write_file(struct fyai_ctx *ctx, fy_generic args, bool *okp)
+static fy_generic tool_write_file(struct fyai_ctx *ctx, fy_generic args,
+				  bool *okp)
 {
 	const char *path, *content;
 	int rc, err;
 
-	(void)ctx;
 	path = fy_get(args, "path", "");
 	content = fy_get(args, "content", "");
 	/* The directories above the file are made, as apply_patch makes them. */
@@ -1732,12 +1740,13 @@ static char *tool_write_file(struct fyai_ctx *ctx, fy_generic args, bool *okp)
 	err = errno;
 	*okp = !rc;
 	if (rc)
-		return strdup(fy_sprintfa("tool error: write %s: %s", path,
-					  strerror(err)));
-	return strdup("ok");
+		return fy_stringf(ctx->transient_gb, "tool error: write %s: %s",
+				  path, strerror(err));
+	return fy_value(ctx->transient_gb, "ok");
 }
 
-static char *tool_apply_patch(struct fyai_ctx *ctx, fy_generic args, bool *okp)
+static fy_generic tool_apply_patch(struct fyai_ctx *ctx, fy_generic args,
+				   bool *okp)
 {
 	const char *content = fy_get(args, "patch", "");
 	char *result;
@@ -1747,7 +1756,7 @@ static char *tool_apply_patch(struct fyai_ctx *ctx, fy_generic args, bool *okp)
 	ctx->patch_display = fyai_patch_to_unified_ctx(ctx, content);
 	result = fyai_apply_patch_text_ctx(ctx, content);
 	*okp = result && strncmp(result, "tool error:", 11);
-	return result;
+	return fyai_tool_take_text(ctx, result);
 }
 
 static fy_generic tool_project_view(struct fyai_ctx *ctx, fy_generic args,
@@ -2026,27 +2035,27 @@ static void tool_head_agent_input(struct fyai_ctx *ctx, FILE *mf,
  * which a forked job does not have.
  */
 const struct fyai_tool_def fyai_tools_defs[] = {
-	{ .name = "read_file", .run_text = tool_read_file,
+	{ .name = "read_file", .run = tool_read_file,
 	  .head = fyai_tool_head_read_file, .flags = FYAI_TOOL_MARKED },
-	{ .name = "write_file", .run_text = tool_write_file,
+	{ .name = "write_file", .run = tool_write_file,
 	  .head = fyai_tool_head_write_file, .flags = FYAI_TOOL_MARKED,
 	  .effect = FYAI_TOOL_EFFECT_FILES },
-	{ .name = "apply_patch", .run_text = tool_apply_patch,
+	{ .name = "apply_patch", .run = tool_apply_patch,
 	  .head = fyai_tool_head_apply_patch, .flags = FYAI_TOOL_MARKED,
 	  .effect = FYAI_TOOL_EFFECT_FILES },
-	{ .name = "shell", .run_text = fyai_run_shell_command,
+	{ .name = "shell", .run = fyai_run_shell_command,
 	  .head = fyai_tool_head_shell, .in_parent = fyai_shell_background_requested,
 	  .flags = FYAI_TOOL_MARKED | FYAI_TOOL_INSTANT,
 	  .effect = FYAI_TOOL_EFFECT_PROCESS },
-	{ .name = "shell_input", .run_text = fyai_shell_input_tool,
+	{ .name = "shell_input", .run = fyai_shell_input_tool,
 	  .flags = FYAI_TOOL_PARENT | FYAI_TOOL_SILENT,
 	  .effect = FYAI_TOOL_EFFECT_PROCESS },
-	{ .name = "shell_output", .run_text = fyai_shell_output_tool,
+	{ .name = "shell_output", .run = fyai_shell_output_tool,
 	  .flags = FYAI_TOOL_PARENT | FYAI_TOOL_SILENT },
-	{ .name = "shell_close", .run_text = fyai_shell_close_tool,
+	{ .name = "shell_close", .run = fyai_shell_close_tool,
 	  .flags = FYAI_TOOL_PARENT | FYAI_TOOL_SILENT,
 	  .effect = FYAI_TOOL_EFFECT_PROCESS },
-	{ .name = "cancel", .run_text = fyai_cancel_tool,
+	{ .name = "cancel", .run = fyai_cancel_tool,
 	  .head = tool_head_cancel, .flags = FYAI_TOOL_PARENT,
 	  .effect = FYAI_TOOL_EFFECT_PROCESS },
 	{ .name = "agent_input", .run = fyai_agent_input_tool,
@@ -2072,40 +2081,40 @@ const struct fyai_tool_def fyai_tools_defs[] = {
 };
 const size_t fyai_tools_defs_count = ARRAY_SIZE(fyai_tools_defs);
 
+/*
+ * Move a malloc'd result into the transient builder and free it. A NULL text
+ * is a failure: the cause is errno.
+ */
+fy_generic fyai_tool_take_text(struct fyai_ctx *ctx, char *text)
+{
+	fy_generic result;
+
+	if (!text)
+		return fy_stringf(ctx->transient_gb, "tool error: %s",
+				  strerror(errno));
+	/*
+	 * Internalize before freeing: fy_value() on a char * only references
+	 * the buffer, since a long string is not copied into the scratch
+	 * generic.
+	 */
+	result = fy_gb_internalize(ctx->transient_gb, fy_value(text));
+	free(text);
+	return result;
+}
+
 fy_generic fyai_tool_run_one(struct fyai_ctx *ctx, const char *name,
 			     fy_generic args, bool *okp)
 {
 	const struct fyai_tool_def *def = fyai_tool_find(name);
-	fy_generic result_generic;
-	char *result;
 
 	*okp = false;
-	if (!def || (!def->run && !def->run_text))
+	if (!def || !def->run)
 		return fy_gb_internalize(ctx->transient_gb,
 				fy_stringf("tool error: unknown tool %s", name));
 	args = fyai_tool_args_normalize(ctx->transient_gb, name, args);
 	if (fyai_shell_args_lack_command(name, args))
 		return fy_value(ctx->transient_gb, FYAI_SHELL_NO_COMMAND);
-	if (def->run)
-		return def->run(ctx, args, okp);
-
-	result = def->run_text(ctx, args, okp);
-	if (result) {
-		/*
-		 * Internalize before freeing: fy_value() on a char * only
-		 * references the buffer (long strings are not copied into the
-		 * scratch generic), so freeing first leaves the deferred
-		 * internalize reading freed memory - survivable for small
-		 * results, silently empty for large ones.
-		 */
-		result_generic = fy_gb_internalize(ctx->transient_gb,
-						   fy_value(result));
-		free(result);
-	} else {
-		result_generic = fy_gb_internalize(ctx->transient_gb,
-				fy_stringf("tool error: %s", strerror(errno)));
-	}
-	return result_generic;
+	return def->run(ctx, args, okp);
 }
 
 /* Build the shell/tool sandbox spec from cfg and apply it to this process
@@ -2218,13 +2227,14 @@ fy_generic fyai_tool_result_note(struct fyai_ctx *ctx, bool agent_call,
  * Cancel background work by name. The name must be unique among the waits,
  * the running sub-agents and the open sessions unless @kind says which.
  */
-static char *fyai_cancel_tool(struct fyai_ctx *ctx, fy_generic args, bool *okp)
+static fy_generic fyai_cancel_tool(struct fyai_ctx *ctx, fy_generic args,
+				   bool *okp)
 {
+	struct fy_generic_builder *gb = ctx->transient_gb;
 	struct fyai_tool_job *job;
 	fy_generic name_v, kind_v;
 	const char *name, *kind;
 	bool is_wait, is_agent, is_shell, is_monitor, is_question, is_message;
-	char *result;
 
 	*okp = false;
 	name_v = fy_get(args, "name", fy_invalid);
@@ -2232,7 +2242,7 @@ static char *fyai_cancel_tool(struct fyai_ctx *ctx, fy_generic args, bool *okp)
 	name = fy_castp(&name_v, "");
 	kind = fy_is_string(kind_v) ? fy_castp(&kind_v, "") : "";
 	if (!*name)
-		return strdup("tool error: give the name to cancel");
+		return fy_value(gb, "tool error: give the name to cancel");
 
 	job = fyai_agent_job_named(ctx, name);
 	is_agent = job && (!*kind || !strcmp(kind, "agent"));
@@ -2249,51 +2259,47 @@ static char *fyai_cancel_tool(struct fyai_ctx *ctx, fy_generic args, bool *okp)
 		     fyai_agents_message_pending(ctx, name);
 	if (is_wait + is_agent + is_shell + is_monitor + is_question +
 	    is_message > 1)
-		return strdup(fy_sprintfa("tool error: '%s' names more than "
-					  "one thing; say its kind", name));
+		return fy_stringf(gb, "tool error: '%s' names more than one "
+				  "thing; say its kind", name);
 	if (is_monitor && fyai_monitor_cancel(ctx, name)) {
 		*okp = true;
-		return strdup(fy_sprintfa("[monitor '%s' cancelled]", name));
+		return fy_stringf(gb, "[monitor '%s' cancelled]", name);
 	}
 	if (is_agent) {
 		fyai_tool_job_cancel(job);
 		*okp = true;
-		return strdup(fy_sprintfa("[agent '%s' was asked to stop]",
-					  name));
+		return fy_stringf(gb, "[agent '%s' was asked to stop]", name);
 	}
-	if (is_shell) {
-		result = fyai_shell_close_tool(ctx,
-			fy_mapping(ctx->transient_gb, "name", name,
-				   "force", true), okp);
-		return result;
-	}
+	if (is_shell)
+		return fyai_shell_close_tool(ctx,
+			fy_mapping(gb, "name", name, "force", true), okp);
 	if (is_question && fyai_asks_cancel(ctx, name)) {
 		*okp = true;
-		return strdup(fy_sprintfa("[question '%s' cancelled]", name));
+		return fy_stringf(gb, "[question '%s' cancelled]", name);
 	}
 	if (is_question && fyai_agents_parent_ask_cancel(ctx, name)) {
 		*okp = true;
-		return strdup(fy_sprintfa("[ask_parent '%s' cancelled]", name));
+		return fy_stringf(gb, "[ask_parent '%s' cancelled]", name);
 	}
 	if (is_message && fyai_agents_message_cancel(ctx, name)) {
 		*okp = true;
-		return strdup(fy_sprintfa("[agent_message '%s' receipt cancelled; "
-			"the message may still be queued]", name));
+		return fy_stringf(gb, "[agent_message '%s' receipt cancelled; "
+				  "the message may still be queued]", name);
 	}
 	if (is_wait && fyai_wait_cancel(ctx, name)) {
 		*okp = true;
-		return strdup(fy_sprintfa("[wait '%s' cancelled]", name));
+		return fy_stringf(gb, "[wait '%s' cancelled]", name);
 	}
 	/* A daemon of the scope, by its label or its pid, when nothing else has the name. */
 	if ((!*kind || !strcmp(kind, "daemon")) && fyai_scope_stop(ctx, name)) {
 		*okp = true;
-		return strdup(fy_sprintfa("[daemon '%s' was asked to stop; it is ended after "
-					  "%lld ms if it stays]", name,
-					  (long long)ctx->cfg->sandbox_grace_ms));
+		return fy_stringf(gb, "[daemon '%s' was asked to stop; it is "
+				  "ended after %lld ms if it stays]", name,
+				  (long long)ctx->cfg->sandbox_grace_ms);
 	}
-	return strdup(fy_sprintfa("tool error: nothing named '%s' is running"
-				  "%s%s; use list to see what is open", name,
-				  *kind ? " as a " : "", kind));
+	return fy_stringf(gb, "tool error: nothing named '%s' is running"
+			  "%s%s; use list to see what is open", name,
+			  *kind ? " as a " : "", kind);
 }
 
 int fyai_tool_call_file_effect(struct fyai_ctx *ctx, fy_generic tool_call)

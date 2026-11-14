@@ -17,9 +17,6 @@ struct fyai_md_blocks;
  */
 typedef fy_generic (*fyai_tool_run_fn)(struct fyai_ctx *ctx, fy_generic args,
 				       bool *okp);
-/* The same, for a tool that returns a malloc'd string, or NULL on failure. */
-typedef char *(*fyai_tool_run_text_fn)(struct fyai_ctx *ctx, fy_generic args,
-				       bool *okp);
 /* Write the title row of a call as Markdown to @mf. */
 typedef void (*fyai_tool_head_fn)(struct fyai_ctx *ctx, FILE *mf,
 				  struct fy_generic_builder *gb,
@@ -95,13 +92,12 @@ enum {
 /*
  * Everything the program knows about one tool, by canonical name. The file
  * that implements a tool defines its entry; fyai_tool_registry.c only joins
- * the tables. A tool needs `run` or `run_text` unless it is hosted, and a
+ * the tables. A tool needs `run` unless it is hosted, and a
  * `head` unless it is silent.
  */
 struct fyai_tool_def {
 	const char *name;
 	fyai_tool_run_fn run;
-	fyai_tool_run_text_fn run_text;
 	fyai_tool_head_fn head;
 	/* When set, the result of a call that succeeded is shown through it. */
 	fyai_tool_format_fn format_result;

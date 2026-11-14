@@ -425,7 +425,7 @@ static void test_registry(void)
 			fprintf(stderr, "tool '%s' is not registered\n", name);
 			fail("a tool of tools.yaml has no registry entry");
 		}
-		require(def->run || def->run_text, "a tool needs a run function");
+		require(def->run, "a tool needs a run function");
 		require(def->head || (def->flags & FYAI_TOOL_SILENT),
 			"a tool needs a head or must be silent");
 	}
@@ -434,7 +434,7 @@ static void test_registry(void)
 	for (i = 0; (def = fyai_tool_at(i)); i++) {
 		require(def->name && *def->name, "an entry needs a name");
 		require(!(def->flags & FYAI_TOOL_HOSTED) ||
-			(!def->run && !def->run_text),
+			!def->run,
 			"a hosted tool is run by the provider");
 		for (j = i + 1; (other = fyai_tool_at(j)); j++)
 			require(strcmp(def->name, other->name),

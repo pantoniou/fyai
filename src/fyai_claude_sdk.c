@@ -2643,13 +2643,14 @@ static const char *sdk_mentions(struct sdk_server *srv, const char *prompt)
 	struct fy_generic_builder *gb = fyai_ctx_transient_gb(ctx);
 	const struct fyai_tool_def *read = fyai_tool_find("read_file");
 	struct fyai_buf out = { 0 };
-	const char *p, *json, *head, *res = prompt;
-	char *path, *content;
+	const char *p, *json, *head, *content, *res = prompt;
+	char *path;
+	fy_generic result;
 	size_t len;
 	bool ok;
 	int rc;
 
-	if (!read || !read->run_text)
+	if (!read || !read->run)
 		return prompt;
 	rc = fyai_buf_append_data(&out, prompt, strlen(prompt));
 	for (p = prompt; !rc && (p = strchr(p, '@')); p++) {
@@ -2659,7 +2660,8 @@ static const char *sdk_mentions(struct sdk_server *srv, const char *prompt)
 		path = len ? sdk_mention_path(p + 1, len) : NULL;
 		if (!path)
 			continue;
-		content = read->run_text(ctx, fy_mapping(gb, "path", path), &ok);
+		result = read->run(ctx, fy_mapping(gb, "path", path), &ok);
+		content = fy_castp(&result, (const char *)NULL);
 		json = emit_json_string(gb, fy_mapping(gb, "file_path", path));
 		head = json ? fy_gb_intern_string(gb, fy_sprintfa(
 			"\n\nCalled the Read tool with the following input: "
@@ -2673,7 +2675,6 @@ static const char *sdk_mentions(struct sdk_server *srv, const char *prompt)
 		else
 			fyai_warning(ctx, "claude-sdk: cannot read %s, which "
 				     "the prompt names", path);
-		free(content);
 		free(path);
 	}
 	if (rc)

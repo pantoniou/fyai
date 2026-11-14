@@ -51,7 +51,8 @@ int branch_ui_agent_message_receipt(void)
 	struct jsonrpc_conn *to_child, *to_root;
 	fy_generic params, result, error;
 	bool handled, ok;
-	char *report;
+	const char *report;
+	fy_generic waited;
 	int forward[2], back[2];
 
 	FYAI_TCHECK(gb != NULL);
@@ -73,7 +74,8 @@ int branch_ui_agent_message_receipt(void)
 	FYAI_TCHECK(fyai_agents_message_pending(&root, "steer1"));
 	/* The receipt is resolved by the ordinary wait path. */
 	params = fy_mapping(gb, "for", "steer1", "seconds", 1.0);
-	report = fyai_wait_tool(&root, params, &ok);
+	waited = fyai_wait_tool(&root, params, &ok);
+	report = fy_castp(&waited, (const char *)NULL);
 	FYAI_TCHECK(ok && report && strstr(report, "'steer1' queued]"));
 	FYAI_TCHECK(!fyai_agents_message_pending(&root, "steer1"));
 	FYAI_TCHECK(fyai_event_take_live_input(&child, &input));
@@ -81,13 +83,12 @@ int branch_ui_agent_message_receipt(void)
 	FYAI_TCHECK(!strcmp(input.from, "main"));
 	FYAI_TCHECK(!strcmp(input.message_id, "main:steer1"));
 	fyai_event_input_clear(&input);
-	free(report);
 	FYAI_TCHECK(!fyai_agents_message(&child, "parent", "acknowledged",
 		"reply1", "main:steer1"));
 	params = fy_mapping(gb, "for", "reply1", "seconds", 1.0);
-	report = fyai_wait_tool(&child, params, &ok);
+	waited = fyai_wait_tool(&child, params, &ok);
+	report = fy_castp(&waited, (const char *)NULL);
 	FYAI_TCHECK(ok && report && strstr(report, "'reply1' queued]"));
-	free(report);
 	FYAI_TCHECK(fyai_event_take_live_input(&root, &input));
 	FYAI_TCHECK(!strcmp(input.from, "main/agent:worker"));
 	FYAI_TCHECK(!strcmp(input.reply_to, "main:steer1"));

@@ -1026,10 +1026,11 @@ bool fyai_wait_sleep(struct fyai_ctx *ctx, long long ms)
 	return ok;
 }
 
-char *fyai_wait_tool(struct fyai_ctx *ctx, fy_generic args, bool *okp)
+fy_generic fyai_wait_tool(struct fyai_ctx *ctx, fy_generic args, bool *okp)
 {
+	struct fy_generic_builder *gb = ctx->transient_gb;
 	struct fyai_event_loop *el;
-	fy_generic reason;
+	fy_generic reason, text;
 	const char *name, *reason_text;
 	double seconds;
 	volatile bool finished = false;
@@ -1039,19 +1040,19 @@ char *fyai_wait_tool(struct fyai_ctx *ctx, fy_generic args, bool *okp)
 
 	*okp = false;
 	if (fyai_wait_for_requested(args))
-		return fyai_wait_for_sync(ctx, args, okp);
+		return fyai_tool_take_text(ctx,
+					   fyai_wait_for_sync(ctx, args, okp));
 	seconds = fyai_wait_seconds(args, &why);
 	if (seconds < 0) {
-		out = strdup(fy_sprintfa("tool error: %s", why ? why :
-					 "the wait could not be read"));
+		text = fy_stringf(gb, "tool error: %s", why ? why :
+				  "the wait could not be read");
 		free(why);
-		return out;
+		return text;
 	}
 	if (seconds * 1000.0 > (double)FYAI_WAIT_MAX_MS)
-		return strdup(fy_sprintfa("tool error: a wait of %.0f seconds "
-					  "is longer than this program lives; "
-					  "wait for less, or ask the user",
-					  seconds));
+		return fy_stringf(gb, "tool error: a wait of %.0f seconds is "
+				  "longer than this program lives; wait for "
+				  "less, or ask the user", seconds);
 
 	reason = fy_get(args, "reason", fy_invalid);
 	reason_text = fy_is_string(reason) ? fy_castp(&reason, "") : NULL;
@@ -1060,37 +1061,40 @@ char *fyai_wait_tool(struct fyai_ctx *ctx, fy_generic args, bool *okp)
 	if (!fy_str_empty(name)) {
 		out = fyai_wait_start(ctx, name, reason_text, seconds);
 		*okp = out && strncmp(out, "tool error:", 11);
-		return out;
+		return fyai_tool_take_text(ctx, out);
 	}
 
 	/* Wait on the event loop so UI and interrupts remain active. */
 	el = fyai_ctx_loop(ctx);
 	if (!el)
-		return strdup("tool error: no event loop for a wait");
+		return fy_value(gb, "tool error: no event loop for a wait");
 	w = fyai_waiter_start_sleep(ctx, seconds, true,
 				    fyai_wait_for_sync_done,
 				    (void *)&finished, &why);
 	if (!w)
-		return why;
+		return fyai_tool_take_text(ctx, why);
 	if (!fyai_waiter_done(w))
 		(void)fyai_event_loop_run_until(el, &finished, -1);
 	fyai_waiter_cancel(w);
 	out = fyai_waiter_result(w, okp);
 	fyai_waiter_destroy(w);
-	return out ? out : strdup("tool error: out of memory");
+	if (!out)
+		return fy_value(gb, "tool error: out of memory");
+	return fyai_tool_take_text(ctx, out);
 }
 
-char *fyai_time_tool(struct fyai_ctx *ctx, bool *okp)
+fy_generic fyai_time_tool(struct fyai_ctx *ctx, bool *okp)
 {
-	char *text;
+	char *text = fyai_time_now_text();
 
-	(void)ctx;
-	text = fyai_time_now_text();
 	*okp = text != NULL;
-	return text ? text : strdup("tool error: could not read the clock");
+	if (!text)
+		return fy_value(ctx->transient_gb,
+				"tool error: could not read the clock");
+	return fyai_tool_take_text(ctx, text);
 }
 
-static char *tool_time(struct fyai_ctx *ctx, fy_generic args, bool *okp)
+static fy_generic tool_time(struct fyai_ctx *ctx, fy_generic args, bool *okp)
 {
 	(void)args;
 	return fyai_time_tool(ctx, okp);
@@ -1134,9 +1138,9 @@ static void tool_head_wait(struct fyai_ctx *ctx, FILE *mf,
 
 /* The waits and the clock belong to the parent, which has the event loop. */
 const struct fyai_tool_def fyai_wait_defs[] = {
-	{ .name = "time", .run_text = tool_time, .head = tool_head_time,
+	{ .name = "time", .run = tool_time, .head = tool_head_time,
 	  .flags = FYAI_TOOL_PARENT },
-	{ .name = "wait", .run_text = fyai_wait_tool, .head = tool_head_wait,
+	{ .name = "wait", .run = fyai_wait_tool, .head = tool_head_wait,
 	  .in_parent = fyai_wait_in_parent },
 };
 const size_t fyai_wait_defs_count = sizeof(fyai_wait_defs) /
