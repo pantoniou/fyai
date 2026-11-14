@@ -100,23 +100,24 @@ the code before a change.
 ### 3. Retry and authentication retry (partly done)
 
 `struct stream_response` and `struct fyai_buffered_request`
-(`fyai_stream.c`), and the former `ctx->auth_retry_done`.
+(`fyai_stream.c`).
 
 - Done: `struct fyai_retry` holds the state that the stream and the buffered
-  request share: `phase`, `timer`, `auth_refresh`, `attempt`, `band` and
-  `refreshed`. `enum fyai_retry_phase` (IDLE, BACKOFF, AUTH) names what the
-  request waits on between two transfers. The cancel and the destroy paths
-  read the phase and not the pointers, and `stream_request_resubmit()` keeps
-  the whole structure across its `memset()` and not four fields.
+  request share: `phase`, `timer`, `attempt` and `band`. `enum
+  fyai_retry_phase` (IDLE, BACKOFF) names what the request waits on between
+  two transfers. The cancel and the destroy paths read the phase and not the
+  pointers, and `stream_request_resubmit()` keeps the whole structure across
+  its `memset()` and not four fields.
+- The authentication retry left the stream. The refresh of the login and the
+  one renewal after a 401 are in `fyai_xfer.c` and `fyai_cred.c` (item 7), so
+  the AUTH phase, `auth_refresh` and `refreshed` no longer exist.
 - Stay booleans: `band` is open from the first retry report to the settle of
-  the request, across the phases. `refreshed` is a one-way latch of one
-  refresh for each request. `cancel_requested` is a request from outside.
+  the request, across the phases. `cancel_requested` is a request from
+  outside.
 - Survey corrections: `retry_band` is a plain bool and not three-valued.
-  The stream state already has RETRYING; it covers both BACKOFF and AUTH,
-  which is why the phase is a separate field of the shared structure and
-  not new values of `enum fyai_stream_state`. `auth_refresh` with
-  `retry_timer` was never possible: each arm site runs after the transfer
-  ended, and a phase holds only one of them.
+  The stream state already has RETRYING, which covers the backoff, so the
+  phase is a separate field of the shared structure and not new values of
+  `enum fyai_stream_state`.
 - Left: `retry_hint`, `retry_cause`, `printed_content` and `printed_reasoning`
   are stream only. The buffered request has no counterpart, so they stay in
   `struct stream_response`. `retry_hint` without `retry_cause` is reachable
@@ -185,8 +186,24 @@ the code before a change.
 ### 7. curl transfer
 
 Done for `struct fyai_curl_transfer`: `enum fyai_curl_phase` and one bit for a
-cancel that comes while a callback runs. `struct fyai_xfer` still has a
-`finished` flag that repeats the phase.
+cancel that comes while a callback runs.
+
+`struct fyai_xfer` (`fyai_xfer.c`) holds the state of one model request in
+flags: `login`, `rekey`, `parked`, `retried`, `started`, `hold`, `cancelled`,
+`deferred` and `finished`. The states are NEW, PARKED (waits for the shared
+refresh), SENT, HELD (a 401 whose body is kept back) and RETRIED
+(`doc/credential-sources-plan.md`, section 4.3).
+
+- Illegal combinations: `parked` with `finished`; `hold` with `started`;
+  `retried` without a first send; `deferred` with `parked`; `login` with
+  `rekey`.
+- `finished` still repeats the end of the request. `cancelled` is a request
+  from outside. `started` and `hold` are the two answers to the first bytes of
+  a response.
+- Not done: replace the flags with an `enum` of the five states and keep
+  `cancelled` and `deferred` as flags. The transitions are in
+  `xfer_curl_complete()`, `xfer_waiter_run()`, `xfer_defer_cb()` and
+  `xfer_write()`. S.
 
 ### 8. Sink document mode
 
@@ -807,14 +824,14 @@ is a series. Check an item again before work on it.
     callback steps the loop for a token. `fyai_auth_resolve()` never waits,
     and a due token is renewed on the loop by the request that needs it
     (`doc/credential-sources-plan.md`).
-15. Done. `src/fyai_tools.c` was 9585 lines. It is now 2619 lines, the
+15. Done. `src/fyai_tools.c` was 9585 lines. It is now 2618 lines, the
     dispatch of tool calls, the tool implementations and the glue. The seams
-    moved to `src/fyai_tool_job.c` (2340 lines, the job lifecycle and the
-    job groups), `src/fyai_shell_session.c` (2655, the sessions, their tiles,
-    zoom, focus and bang commands), `src/fyai_agent_view.c` (848, the screen
-    of a sub-agent and the inline terminal), `src/fyai_tool_child.c` (821, the
+    moved to `src/fyai_tool_job.c` (2344 lines, the job lifecycle and the
+    job groups), `src/fyai_shell_session.c` (2665, the sessions, their tiles,
+    zoom, focus and bang commands), `src/fyai_agent_view.c` (849, the screen
+    of a sub-agent and the inline terminal), `src/fyai_tool_child.c` (826, the
     child serve, spawn and exec path) and `src/fyai_shell_sandbox.c` (436).
-    `src/fyai_tools_int.h` (355 lines) holds the structures and the
+    `src/fyai_tools_int.h` (401 lines) holds the structures and the
     prototypes that cross the files. Open: `fyai_shell_session.c` still holds
     the focus and zoom code (about 1000 lines) that could be a file of its
     own.
@@ -841,7 +858,8 @@ is a series. Check an item again before work on it.
     plans, not errors.
 19. Timing in tests (S). The sleep of `fyai_event_test.c` is removed. The
     watchdog sleeps in that file test a timer and stay. `shell_tty.sh` waits
-    on a FIFO and `fyai_shell_test.c` on a pidfd (Linux), as wake sources.
+    on a FIFO and `fyai_shell_test.c` on a pidfd (Linux) or a kqueue process
+    event (macOS), as wake sources.
     Open, with no portable wake source: `reads_stdin_is_seen` polls the
     state of a process that is no child, and `transport_bootstrap.sh` and
     `retry_interrupt.sh` poll a file that a running program writes
@@ -883,8 +901,12 @@ the hook and tunnel names are interned; the worker branch, terminal names
 and epoch of the remote files, the branch and model of an agent record, the
 names of a monitor and of a question, the events of a monitor (one format),
 `cfg->branch`, the paths of a view run (borrowed from its record), the session
-name, monitor and origin of a tool job, the read map of the history view and
-`fyai_media_pending_display()` are done.
+name, monitor and origin of a tool job, the read map of the history view,
+`fyai_media_pending_display()`, the data URL of an image (a generic from the
+builder of the request), `fyai_branch_pick_last()` (a generic) with the branch
+of the peek (interned), and the stack names of `fyai_mcp_import.c` are done.
+A token or secret is not interned: the static token of an MCP server is an
+owned copy that is cleared, as the OAuth access token is.
 
 Checked and kept: the question text of `fyai_ui.c` (`ui_ask_copy()`). The UI
 model store has two builders and a write resets one of them, so a string of
@@ -999,25 +1021,14 @@ stays: a mapping copies at each add. `peer->dir` takes a `realpath` string.
 ### Class a: the copy is not needed
 
 The source generic outlives the consumer. Replace the copy with a generic or a
-borrowed pointer.
+borrowed pointer. The sites that the status paragraph above names as done,
+checked, kept or dropped are not listed again.
 
 | Site | Field | Note |
 |---|---|---|
-| `fyai_mcp.c:543, 545, 630, 636-637` | `oauth_client_id`, `oauth_redirect_uri`, `oauth_scopes`, `oauth_access_type`, `oauth_prompt` | Source is the config in `cfg->gb`; `oauth_scopes` is already in it. Generic fields, cast at 916-921, drop the free at 2231. S |
 | `fyai_mcp.c:1085, 1291, 1639, 1710` | `od->url` | Borrowed after the row above. Drops the free at 761 and 1261. S |
 | `fyai_browser.c:488` | `copy` | Two more copies follow in `browser_add_path()` and `browser_add()`. S |
-| `fyai_ui.c:1619-1646, 1737` | `struct ui_qtext` fields, `q->from` | Strings live as long as the store entry. `ui_ask_copy()` goes away. Unverified: that the model builder never recycles the entry of an open question. M |
-| `fyai_tool_job.c:980` | `session_name` | `session_call` is a local generic of the same function. Cast it. S |
-| `fyai_tool_job.c:1083, 1148, 1092` | `job->monitor`, `job->command`, `job->origin` | Generic or borrowed. `job->origin` copies `job->branch`. Unverified for a job that outlives its turn: use `call_gb`. S |
-| `fyai_acp.c:493-495` | `user_id` | The loop copy was the reason for the `strdup()`. S |
-| `fyai_display.c:3212-3213, 3269` | `struct fyai_read_map` | One mapping from id to path, built with `fy_assoc(tgb, ...)`. Delete the struct and its realloc code. S |
-| `fyai_display.c:186` | `fyai_export_call_add()` | One mapping from `call_id` to `output`. S |
-| `fyai_cmd_fsview.c:1945-1947` | `run->project`, `runtime`, `storage` | Fields of the view record in `ctx->gb`; `run->view` holds the record. S |
-| `fyai_branch.c:873` | `fyai_branch_pick_last()` | Return a generic. The caller at `fyai_storage.c:886` needs no copy. The peek caller at `:1322` destroys the arena and interns. S |
-| `fyai_mcp_import.c:74, 101, 211` | `strdup(fy_sprintfa())` | The callees do not keep the string. Use the stack buffer. S |
 | `fyai.c:1961` | `cause` | Unverified: needed only if `gate_refuse` clears `a->text` first. S |
-| `fyai_media.c:789-805` | `fyai_media_pending_display()` | Five callers free the result at once. Return a generic from the transient builder. Check that `fyai_output_record()` does not reset it. S |
-| `fyai_media.c:1250-1357` | `fyai_media_part_base64()`, `_data_url()` | Three copies per image (buffer, `asprintf`, `fy_value`). Take `gb`, return a generic, build the URL once. S/M |
 | `utils.h:196` | `fyai_bytes_from_generic()` | Two callers. Unverified: `fy_castp()` with a length may do. S |
 
 ### Class b: one intern replaces the copy
@@ -1026,9 +1037,6 @@ The source is transient and the consumer lives long. Intern into `cfg->gb`
 with `fyai_ctx_keep_str()` and keep a `const char *`. Every field below is a
 name, an id, a path or a bounded set, so none changes for each turn.
 
-- MCP OAuth (`fyai_mcp.c`): `oauth_issuer`, `oauth_resource` (1496-1497),
-  the three endpoints (1568-1571), `oauth_redirect_host` and `_path`
-  (572-573, a `curl_url_get` buffer), `oauth_client_id` (929, 1444). S each.
 - Claude SDK (`fyai_claude_sdk.c`), with a builder in `struct sdk_server`:
   `d->claude_name`, `fyai_name`, `tool_use_id` (1560-1564), `p->rpc_id_json`
   (1835), `in->command_id` and `srv->init_id` (1964, 2404, already passed to
@@ -1049,8 +1057,7 @@ name, an id, a path or a bounded set, so none changes for each turn.
   local and destroyed, which is why the rows are copied; keep one builder for
   the life of the browser and make `cwd`, `title` and `path` generics, M),
   `fyai_tools.c:386` (`entry->id`).
-- Storage: `fyai_storage.c:1375` (`*branchp`, a `gb` is passed already),
-  `fyai_cmd_fsview.c:3195` (`run->name`).
+- Storage: `fyai_cmd_fsview.c:3195` (`run->name`).
 - `fyai_skill.c:1591` (`d->name`), `fyai_wait.c:345, 805, 816` (names and
   reasons), `fyai_shell_session.c:475-491` (`name`, `branch`, `title`,
   `description`: the API takes `const char *`, so the call sites stay). The
