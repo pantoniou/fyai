@@ -37,6 +37,7 @@ FYAI_TEST_ENTRY(app, transient_follows_arena, app_transient_follows_arena)
 FYAI_TEST_ENTRY(app, transient_stacks_on_slot, app_transient_stacks_on_slot)
 FYAI_TEST_ENTRY(app, transient_tells_its_release, app_transient_tells_its_release)
 FYAI_TEST_ENTRY(app, wires_transport, app_wires_transport)
+FYAI_TEST_ENTRY(app, wires_mcp, app_wires_mcp)
 FYAI_TEST_ENTRY(app, wires_link, app_wires_link)
 FYAI_TEST_ENTRY(app, wires_cred, app_wires_cred)
 FYAI_TEST_ENTRY(app, cred_holds_login_state, app_cred_holds_login_state)
@@ -131,6 +132,20 @@ int app_wires_transport(void)
 	FYAI_TCHECK(app.transport.ctl == -1 && app.transport.envfd == -1);
 	fyai_app_cleanup(&app);
 	printf("ok - the transport component starts with no client\n");
+	return 0;
+}
+
+int app_wires_mcp(void)
+{
+	struct fyai_app app;
+
+	FYAI_TCHECK(!fyai_app_init(&app));
+	FYAI_TCHECK(app.mcp.loop == &app.loop && app.mcp.cred == &app.cred);
+	FYAI_TCHECK(app.mcp.transient == &app.transient);
+	FYAI_TCHECK(!app.mcp.conns && !app.mcp.stopping && !app.mcp.invocation);
+	FYAI_TCHECK(fy_is_invalid(app.mcp.tools) && fy_is_invalid(app.mcp.active_tools));
+	fyai_app_cleanup(&app);
+	printf("ok - the MCP component starts with no connection\n");
 	return 0;
 }
 

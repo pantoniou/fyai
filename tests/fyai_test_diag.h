@@ -114,4 +114,19 @@ static inline struct fyai_transient *fyai_test_transient_of(struct fyai_ctx *ctx
 	return ctx->transient;
 }
 
+/*
+ * The MCP client component of a test context: the one that the test gave the
+ * context, else one that the context holds.
+ */
+static inline struct fyai_mcp *fyai_test_mcp_of(struct fyai_ctx *ctx)
+{
+	if (!ctx->mcp) {
+		ctx->mcp = calloc(1, sizeof(*ctx->mcp));
+		if (!ctx->mcp)
+			return NULL;
+		fyai_mcp_state_init(ctx->mcp, ctx->loop, ctx->cred, ctx->transient);
+	}
+	return ctx->mcp;
+}
+
 #endif

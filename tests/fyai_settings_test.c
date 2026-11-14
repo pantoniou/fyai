@@ -56,7 +56,9 @@ static int settings_setup(void)
 	};
 
 	memset(&test_cfg, 0, sizeof(test_cfg));
+	free(test_ctx.mcp);
 	memset(&test_ctx, 0, sizeof(test_ctx));
+	fyai_test_mcp_of(&test_ctx);
 	test_ctx.cfg = &test_cfg;
 	fyai_test_transient_of(&test_ctx)->gb = fy_generic_builder_create(&gb_cfg);
 	if (!fyai_test_transient_of(&test_ctx)->gb)

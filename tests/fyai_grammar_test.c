@@ -1138,7 +1138,9 @@ static int grammar_run(void (*testfn)(void))
 	};
 
 	memset(&test_cfg, 0, sizeof(test_cfg));
+	free(test_ctx.mcp);
 	memset(&test_ctx, 0, sizeof(test_ctx));
+	fyai_test_mcp_of(&test_ctx);
 	fyai_test_link_of(&test_ctx);
 
 	test_ctx.cfg = &test_cfg;
