@@ -167,6 +167,10 @@ initialize each generic field explicitly.
 - `src/fyai_cmd_complete.c`, `src/fyai_cmd_help.c`: completion and help from
   the definitions.
 - `src/fyai_cmd_*.c`: the handlers of the commands, one file for each group.
+- `src/fyai_app.c`: `struct fyai_app`, the root that owns the components that
+  the whole program shares, in dependency order (`doc/context-components.md`).
+  `main()` declares it and everything else borrows from it. Today it holds the
+  diagnostics and the configuration; the other components move in one by one.
 - `src/fyai.c`: engine orchestration.
 - `src/fyai_sink.c`: the one rendering component and its backends.
 - `src/fyai_sink_frames.c`: the sink of a command that a client runs with

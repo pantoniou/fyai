@@ -1,6 +1,7 @@
 # The context as a set of components
 
-Status: design. No code is changed. The counts come from a script over
+Status: design, and the first step is done: `struct fyai_app` exists and holds
+`diag` and `cfg`. The counts come from a script over
 `src/*.c` that counts `ctx->FIELD` per file; check a row against the code
 before a change. The first step is at the end.
 
@@ -30,9 +31,12 @@ can use all of them. Three effects follow:
    first and destroys them last.
 3. A function of a component takes the component (`struct fyai_X *`). It does
    not take `ctx`, and it reaches another component only through `X->deps`.
-4. `struct fyai_ctx` is the composition root. It holds each component, makes
-   them in dependency order, wires the pointers, and destroys them in the
-   reverse order. It holds no state of its own besides what no component owns.
+4. `struct fyai_app` (`src/fyai_app.h`) is the composition root. It holds each
+   component that more than one part of the program uses, makes them in
+   dependency order, wires the pointers, and destroys them in the reverse
+   order. `main()` declares one and it outlives the context. `struct fyai_ctx`
+   keeps the state of one run until a component takes it, and then points at
+   the app. It holds no state of its own besides what no component owns.
 5. The graph has no cycle. When two components need each other, one of them
    gets a callback (a function pointer and its data) instead of a pointer, as
    `turn_observe` is today.
@@ -186,10 +190,13 @@ and to `turn`).
 Each step builds, passes both suites, and lands as its own patch series
 (implementation, tests, documentation), as `CLAUDE.md` asks.
 
-1. `diag`. Take the diagnostics out of `struct fyai_cfg` into a component
-   that owns its builder and its descriptor. `fyai_error()` and its family
-   take the component. It has no dependencies, so it is the proof of the
-   pattern. This is step 2 of the TUI plan.
+1. `diag` (done). The diagnostics left `struct fyai_cfg` for `struct
+   fyai_app`. The configuration holds a pointer to the sink as a dependency,
+   and `fyai_cfg_diag()` and `fyai_ctx_diag()` resolve it. A configuration
+   with no sink is muted, which is what a zeroed scratch copy was; a NULL
+   configuration reports at once. A test that builds a configuration of its
+   own gives it a sink with `fyai_test_diag_setup()`. This is step 2 of the
+   TUI plan.
 2. `loop`, with `diag` as its dependency. Move the loop, the pools, the signal
    state and the interrupt state into it. This is step 1 of the TUI plan.
    `fyai_ctx_loop()` stays as a thin accessor until the last user is gone.
