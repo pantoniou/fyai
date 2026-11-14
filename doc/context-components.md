@@ -1,7 +1,7 @@
 # The context as a set of components
 
 Status: design, and the first three steps are done: `struct fyai_app` exists
-and holds `diag`, `loop`, `transient` and `cfg`. The counts come from a script over
+and holds `diag`, `loop`, `arena`, `transient` and `cfg`. The counts come from a script over
 `src/*.c` that counts `ctx->FIELD` per file; check a row against the code
 before a change. The order of the work is near the end.
 
@@ -233,9 +233,15 @@ Each step builds, passes both suites, and lands as its own patch series
    (`fyai_setup_transient_builder()`, `fyai_cleanup_transient_builder()`,
    `fyai_ctx_transient_gb()`) call it. The scratch state of a bang command
    saves and restores the whole component. A copy of the context that renders
-   gets a component of its own. `arena` is next: it owns the durable
-   allocator and builder, the overlay and the working builder, which the 266
-   uses of `ctx->gb` read.
+   gets a component of its own. `arena` is done too: `struct fyai_arena` owns
+   the durable allocator and builder, the overlay, the working builder and the
+   head of the published root, which the 266 uses of `ctx->gb` read; they read
+   `ctx->arena->gb`. `fyai_arena_release()` destroys them in order. Opening and
+   publishing are still in `src/fyai_storage.c`, which takes the context
+   because it reads the configuration and the branch state: those functions
+   take the arena when the branch state is a component of its own. The
+   component has no dependencies yet, and the transient builder depends on its
+   `gb` slot.
 4. `cred`, then `transport`, `xfer`, `mcp`: the example of the first
    consumers. `cred` takes `loop` and `diag`; its 17 reads of `transient_gb`
    become its own builder. Each of the four ends with a unit test that builds
