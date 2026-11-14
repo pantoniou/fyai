@@ -454,7 +454,7 @@ static void browser_refresh(struct fyai_browser *b)
 		.flags = FYGBCF_SCOPE_LEADER | FYGBCF_DEDUP_ENABLED,
 	};
 	struct fy_generic_builder *gb;
-	char *copy, *newest = NULL;
+	char *newest = NULL;
 	const char *selected;
 	bool restored = false;
 	int rc;
@@ -485,11 +485,8 @@ static void browser_refresh(struct fyai_browser *b)
 	rc = 0;
 	fy_foreach_key_value(name, entry, b->branches) {
 		(void)entry;
-		copy = strdup(fy_castp(&name, ""));
-		browser_warn_check(b, copy, incomplete,
-				   "cannot copy a branch name");
-		rc = browser_add_path(b, copy, true, NULL);
-		free(copy);
+		/* browser_add_path() copies the name to split it. */
+		rc = browser_add_path(b, fy_castp(&name, ""), true, NULL);
 		if (rc)
 			goto incomplete;
 	}
