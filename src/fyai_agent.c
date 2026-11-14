@@ -552,27 +552,21 @@ int fyai_agent_reopen_for_call(struct fyai_ctx *ctx, fy_generic *call)
 	return rc;
 }
 
-fy_generic fyai_agent_run(struct fyai_ctx *ctx, fy_generic args, bool *okp)
-{
-	struct fyai_cfg *cfg = ctx->cfg;
-	struct timespec t_intern;
+/* The state that the stages of a sub-agent run share. */
+struct agent_run {
+	fy_generic args;
 	fy_generic name, description;
-	fy_generic task_v, context_v;
-	fy_generic persona_v, persona, persona_model;
-	fy_generic skill_v, skill_model, allow_tools, skill_name, skill_args;
-	fy_generic turn;
-	fy_generic report;
-	struct fyai_event_input input = {};
-	struct fyai_branch stored;
-	bool revive = false;
-	const char *task;
-	const char *model_bare;
-	char *persona_names;
+	fy_generic persona_v, persona, skill_v;
+	fy_generic turn, report;
+	bool revive;
 	bool fork_mode;
-	int rc;
+};
 
-	*okp = false;
-	task = NULL;
+/* Prepare the storage and select or revive the sub-agent branch. */
+static int agent_run_branch(struct fyai_ctx *ctx, struct agent_run *r)
+{
+	struct fyai_branch stored;
+	int rc;
 
 	if (!ctx->transient_gb) {
 		rc = fyai_setup_transient_builder(ctx);
@@ -587,9 +581,9 @@ fy_generic fyai_agent_run(struct fyai_ctx *ctx, fy_generic args, bool *okp)
 	/* Re-open the arena before the forked child writes to it. */
 	if (ctx->agent_branch) {
 		if (!ctx->arena_reopened) {
-			rc = agent_reopen_keeping(ctx, &args);
+			rc = agent_reopen_keeping(ctx, &r->args);
 			if (rc)
-				goto err;
+				return -1;
 		}
 		/* An executed child adopts the state that its parent sent. */
 		if (fy_is_mapping(ctx->agent_spawn)) {
@@ -607,10 +601,10 @@ fy_generic fyai_agent_run(struct fyai_ctx *ctx, fy_generic args, bool *okp)
 		ctx->branch_desc = fy_invalid;
 		ctx->branch_agent = fy_invalid;
 		/* Continue the stored conversation identified by this name. */
-		revive = fyai_branch_lookup(ctx->arena_branches,
+		r->revive = fyai_branch_lookup(ctx->arena_branches,
 					    ctx->agent_branch, &stored) &&
 			 fy_is_valid(stored.head);
-		if (revive) {
+		if (r->revive) {
 			fyai_ctx_branch_prev_set(ctx, stored.entry);
 			ctx->branch_desc = stored.description;
 			ctx->branch_agent = stored.agent;
@@ -623,41 +617,52 @@ fy_generic fyai_agent_run(struct fyai_ctx *ctx, fy_generic args, bool *okp)
 				"could not adopt the sub-agent branch configuration");
 		}
 	} else {
-		fork_mode = false;
+		r->fork_mode = false;
 	}
+	return 0;
+err:
+	return -1;
+}
 
-	persona_v = fy_get(args, "persona", fy_invalid);
-	persona = fy_is_string(persona_v) && *fy_castp(&persona_v, "") ?
-		fy_get(fyai_agent_personas(ctx), persona_v, fy_invalid) :
+/* Resolve the persona, the skill model, the tools and the context mode. */
+static int agent_run_persona(struct fyai_ctx *ctx, struct agent_run *r)
+{
+	struct fyai_cfg *cfg = ctx->cfg;
+	fy_generic skill_model, allow_tools, context_v;
+	char *persona_names;
+
+	r->persona_v = fy_get(r->args, "persona", fy_invalid);
+	r->persona = fy_is_string(r->persona_v) && *fy_castp(&r->persona_v, "") ?
+		fy_get(fyai_agent_personas(ctx), r->persona_v, fy_invalid) :
 		fy_invalid;
-	if (fy_is_string(persona_v) &&
-	    *fy_castp(&persona_v, "") &&
-	    !fy_is_mapping(persona)) {
+	if (fy_is_string(r->persona_v) &&
+	    *fy_castp(&r->persona_v, "") &&
+	    !fy_is_mapping(r->persona)) {
 		persona_names = fyai_agent_persona_names(ctx);
 		fyai_error(ctx, "no persona '%s'; configured: %s",
-			   fy_castp(&persona_v, ""),
+			   fy_castp(&r->persona_v, ""),
 			   persona_names ? persona_names : "unknown");
 		free(persona_names);
-		goto err;
+		return -1;
 	}
 
 	/*
 	 * A skill that runs as a sub-agent can name a model, which overlays
 	 * the persona, and the tools the sub-agent may call.
 	 */
-	skill_v = fy_get(args, "_fyai_skill", fy_invalid);
-	skill_model = fy_get(skill_v, "model", fy_invalid);
+	r->skill_v = fy_get(r->args, "_fyai_skill", fy_invalid);
+	skill_model = fy_get(r->skill_v, "model", fy_invalid);
 	if (fy_is_string(skill_model)) {
-		persona = fy_assoc(ctx->transient_gb,
-				   fy_is_mapping(persona) ? persona : fy_map_empty,
+		r->persona = fy_assoc(ctx->transient_gb,
+				   fy_is_mapping(r->persona) ? r->persona : fy_map_empty,
 				   "model", skill_model);
-		fyai_error_check(ctx, fy_is_mapping(persona), err,
+		fyai_error_check(ctx, fy_is_mapping(r->persona), err,
 				 "could not apply the model of the skill");
 	}
-	allow_tools = fy_get(skill_v, "tools", fy_invalid);
+	allow_tools = fy_get(r->skill_v, "tools", fy_invalid);
 	/* A persona can limit the tools; the tools of a skill replace them. */
 	if (!fy_is_sequence(allow_tools))
-		allow_tools = fy_get(persona, "tools", fy_invalid);
+		allow_tools = fy_get(r->persona, "tools", fy_invalid);
 	if (fy_is_sequence(allow_tools)) {
 		/* The configuration builder lives as long as the process. */
 		ctx->tools_allow = fy_gb_internalize(cfg->gb, allow_tools);
@@ -666,33 +671,46 @@ fy_generic fyai_agent_run(struct fyai_ctx *ctx, fy_generic args, bool *okp)
 	}
 
 	/* The call overrides the persona's conversation mode. */
-	context_v = fy_get(args, "context", fy_invalid);
+	context_v = fy_get(r->args, "context", fy_invalid);
 	if (!fy_is_string(context_v))
-		context_v = fy_get(persona, "context", fy_invalid);
+		context_v = fy_get(r->persona, "context", fy_invalid);
 	if (ctx->agent_branch)
-		fork_mode = !fy_equal(context_v, "fresh");
+		r->fork_mode = !fy_equal(context_v, "fresh");
 	/* A revived agent keeps its existing conversation. */
-	if (revive)
-		fork_mode = false;
-	else if (!fork_mode)
+	if (r->revive)
+		r->fork_mode = false;
+	else if (!r->fork_mode)
 		ctx->last_message = fy_invalid;
-	name = fy_get(args, "name", fy_invalid);
-	description = fy_get(args, "description", fy_invalid);
+	r->name = fy_get(r->args, "name", fy_invalid);
+	r->description = fy_get(r->args, "description", fy_invalid);
+	return 0;
+err:
+	return -1;
+}
+
+/* Apply the child settings and put the task in the conversation. */
+static int agent_run_setup(struct fyai_ctx *ctx, struct agent_run *r)
+{
+	struct fyai_cfg *cfg = ctx->cfg;
+	struct timespec t_intern;
+	fy_generic task_v, skill_name, skill_args;
+	const char *task;
+	int rc;
 
 	/* Apply child settings after the arena restores branch configuration. */
 	cfg->agent_child = true;
 	cfg->mcp_enabled = false;
 	cfg->system_prompt = ctx->tool_rpc ? fyai_agent_system_prompt :
 		fyai_agent_user_system_prompt;
-	if (fy_is_mapping(persona)) {
-		rc = fyai_agent_persona_apply(ctx, persona, fork_mode);
+	if (fy_is_mapping(r->persona)) {
+		rc = fyai_agent_persona_apply(ctx, r->persona, r->fork_mode);
 		fyai_error_check(ctx, !rc, err,
 				 "could not apply the sub-agent persona");
 	}
 	rc = fyai_config_grammar_gate(cfg);
 	fyai_error_check(ctx, !rc, err,
 			 "could not apply sub-agent endpoint capabilities");
-	if (fy_get(args, "_fyai_btw", false))
+	if (fy_get(r->args, "_fyai_btw", false))
 		cfg->screen = "inline";
 
 	if (!ctx->tool_rpc && ctx->curl) {
@@ -708,25 +726,25 @@ fy_generic fyai_agent_run(struct fyai_ctx *ctx, fy_generic args, bool *okp)
 			 "could not apply sub-agent request settings");
 
 	/* Add a persona to a fork as a user instruction. */
-	if (fork_mode && !revive) {
+	if (r->fork_mode && !r->revive) {
 		ctx->last_message = fyai_turn_append(ctx, ctx->last_message,
 			fy_sequence(fyai_make_instruction_message(ctx,
 					cfg->system_prompt)));
 		ctx->last_message = fyai_output_record(ctx, ctx->last_message,
 			FYAI_OUTPUT_USER, cfg->system_prompt);
 	}
-	if (!fork_mode && !revive) {
+	if (!r->fork_mode && !r->revive) {
 		ctx->last_message = fyai_turn_append(ctx, ctx->last_message,
 			fy_sequence(fyai_make_system_message(ctx,
 					cfg->system_prompt)));
 		ctx->last_message = fyai_output_record(ctx, ctx->last_message,
 			FYAI_OUTPUT_SYSTEM, cfg->system_prompt);
 	}
-	task_v = fy_get(args, "task", fy_invalid);
+	task_v = fy_get(r->args, "task", fy_invalid);
 	/* A skill run as a sub-agent is loaded here, in its own process. */
-	skill_name = fy_get(skill_v, "name", fy_invalid);
+	skill_name = fy_get(r->skill_v, "name", fy_invalid);
 	if (fy_is_string(skill_name)) {
-		skill_args = fy_get(skill_v, "args", fy_invalid);
+		skill_args = fy_get(r->skill_v, "args", fy_invalid);
 		task_v = fyai_skill_task(ctx, ctx->transient_gb,
 					 fy_castp(&skill_name, ""),
 					 fy_castp(&skill_args, ""));
@@ -744,6 +762,16 @@ fy_generic fyai_agent_run(struct fyai_ctx *ctx, fy_generic args, bool *okp)
 	fyai_prof_since("agent_input_internalize", &t_intern);
 	fyai_error_check(ctx, fy_is_valid(ctx->last_message), err,
 			 "could not store the sub-agent input");
+	return 0;
+err:
+	return -1;
+}
+
+/* Run the turns of the sub-agent and take its final report. */
+static int agent_run_turn(struct fyai_ctx *ctx, struct agent_run *r)
+{
+	struct fyai_cfg *cfg = ctx->cfg;
+	struct fyai_event_input input = {};
 
 	/* Render only when the parent supplied a terminal. */
 	ctx->stdout_tty = cfg->agent_pty;
@@ -761,8 +789,8 @@ fy_generic fyai_agent_run(struct fyai_ctx *ctx, fy_generic args, bool *okp)
 	if (cfg->agent_pty && !fyai_ui_open(ctx))
 		fyai_ui_prompt_enabled(ctx, false);
 
-	turn = fyai_run_turn(ctx, ctx->last_message);
-	while (fy_is_valid(turn) && !ctx->terminate_pending && fyai_event_queued(ctx)) {
+	r->turn = fyai_run_turn(ctx, ctx->last_message);
+	while (fy_is_valid(r->turn) && !ctx->terminate_pending && fyai_event_queued(ctx)) {
 		/*
 		 * A wait whose owner settled since the poll is dropped.
 		 * The queue may then be empty, so the loop re-checks.
@@ -770,30 +798,42 @@ fy_generic fyai_agent_run(struct fyai_ctx *ctx, fy_generic args, bool *okp)
 		if (!fyai_event_take_live_input(ctx, &input))
 			break;
 
-		ctx->last_message = turn;
-		ctx->last_message = fyai_turn_append_event(ctx, turn, &input);
+		ctx->last_message = r->turn;
+		ctx->last_message = fyai_turn_append_event(ctx, r->turn, &input);
 		fyai_event_input_clear(&input);
-		turn = fyai_run_turn(ctx, ctx->last_message);
+		r->turn = fyai_run_turn(ctx, ctx->last_message);
 	}
-	turn = fyai_report_diag(ctx, turn);
+	r->turn = fyai_report_diag(ctx, r->turn);
 	/* Identify the failed sub-agent after its own cause. */
-	fyai_error_check(ctx, fy_is_valid(turn), err,
+	fyai_error_check(ctx, fy_is_valid(r->turn), err,
 			 "sub-agent '%s' did not complete its turn (model %s, "
-			 "%s)", fy_castp(&name, ""),
+			 "%s)", fy_castp(&r->name, ""),
 			 cfg->model ? cfg->model : "unset",
 			 fyai_api_to_string(cfg->api_mode));
-	ctx->last_message = turn;
-	report = fyai_agent_final_text(ctx, turn);
+	ctx->last_message = r->turn;
+	r->report = fyai_agent_final_text(ctx, r->turn);
+	return 0;
+err:
+	return -1;
+}
+
+/* Publish the durable conversation of the sub-agent. */
+static int agent_run_publish(struct fyai_ctx *ctx, struct agent_run *r)
+{
+	struct fyai_cfg *cfg = ctx->cfg;
+	fy_generic persona_model;
+	const char *model_bare;
+	int rc;
 
 	/* Publish the durable sub-agent conversation. */
 	if (ctx->agent_branch) {
 		/* Preserve the original agent metadata when reviving it. */
-		if (!revive)
+		if (!r->revive)
 			ctx->branch_agent = fy_gb_mapping(ctx->gb,
-				"name", fyai_generic_or_null(name),
-				"description", fyai_generic_or_null(description),
-				"context", fork_mode ? "fork" : "fresh",
-				"persona", fyai_generic_or_null(persona_v));
+				"name", fyai_generic_or_null(r->name),
+				"description", fyai_generic_or_null(r->description),
+				"context", r->fork_mode ? "fork" : "fresh",
+				"persona", fyai_generic_or_null(r->persona_v));
 		/*
 		 * Store the resolved provider and model on the branch. A revive
 		 * without a persona resolves the same offering from them. The
@@ -802,8 +842,8 @@ fy_generic fyai_agent_run(struct fyai_ctx *ctx, fy_generic args, bool *okp)
 		 * the parent model, and an agent with no persona keeps the parent
 		 * configuration. Neither stores a model key.
 		 */
-		persona_model = fy_get(persona, "model", fy_invalid);
-		if (!fork_mode && fy_is_string(persona_model) &&
+		persona_model = fy_get(r->persona, "model", fy_invalid);
+		if (!r->fork_mode && fy_is_string(persona_model) &&
 		    !fy_str_empty(cfg->model) && !fy_str_empty(cfg->provider) &&
 		    fy_is_valid(fyai_catalog_provider(
 			    fyai_catalog_effective(cfg->catalog, cfg->gb),
@@ -817,7 +857,7 @@ fy_generic fyai_agent_run(struct fyai_ctx *ctx, fy_generic args, bool *okp)
 			fyai_error_check(ctx, fy_is_valid(ctx->arena_config), err,
 					 "could not persist the sub-agent model");
 		}
-		fyai_branch_op_set(ctx, revive ? FYAI_BRANCH_OP_TURN :
+		fyai_branch_op_set(ctx, r->revive ? FYAI_BRANCH_OP_TURN :
 					 FYAI_BRANCH_OP_CREATE, NULL);
 		rc = fyai_publish_state(ctx);
 		fyai_error_check(ctx, !rc, err,
@@ -830,13 +870,26 @@ fy_generic fyai_agent_run(struct fyai_ctx *ctx, fy_generic args, bool *okp)
 	 * the run that recovered is not a failed one.
 	 */
 	fyai_error_check(ctx,
-			 fy_is_string(report) &&
-			 *fy_castp(&report, ""),
+			 fy_is_string(r->report) &&
+			 *fy_castp(&r->report, ""),
 			 err, "the sub-agent returned no final report");
+	return 0;
+err:
+	return -1;
+}
 
+fy_generic fyai_agent_run(struct fyai_ctx *ctx, fy_generic args, bool *okp)
+{
+	struct agent_run r = { .args = args };
+
+	*okp = false;
+	if (agent_run_branch(ctx, &r) || agent_run_persona(ctx, &r) ||
+	    agent_run_setup(ctx, &r) || agent_run_turn(ctx, &r) ||
+	    agent_run_publish(ctx, &r))
+		goto err;
 	*okp = true;
 	fyai_ui_close(ctx);
-	return report;
+	return r.report;
 
 err:
 	fyai_ui_close(ctx);
