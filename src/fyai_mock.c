@@ -152,6 +152,30 @@ static int file_write(const char *path, int flags, const void *data, size_t n)
 	return w == (ssize_t)n ? 0 : -1;
 }
 
+/*
+ * Tell a reader of the FIFO that $FYAI_MOCK_NOTIFY names that @what happened.
+ * The FIFO is not in the run directory: a case runs in a project, and a
+ * project holds no special file. Nothing is created: a run with no FIFO, or
+ * with no reader that has it open, is not told, and a full FIFO drops the
+ * line.
+ */
+static void mock_notify(const struct mock *m, const char *what)
+{
+	const char *path = getenv("FYAI_MOCK_NOTIFY");
+	ssize_t n;
+	int fd;
+
+	(void)m;
+	if (fy_str_empty(path))
+		return;
+	fd = open(path, O_WRONLY | O_NONBLOCK | O_CLOEXEC);
+	if (fd < 0)
+		return;
+	n = write(fd, what, strlen(what));
+	(void)n;
+	close(fd);
+}
+
 static void marker_failed(const struct mock *m)
 {
 	char path[4096];
@@ -444,6 +468,7 @@ static void mock_note(struct mock *m, const char *line, size_t n)
 	rundir_path(m, "served", path, sizeof(path));
 	len = snprintf(num, sizeof(num), "%zu\n", m->served);
 	(void)file_write(path, O_TRUNC, num, (size_t)len);
+	mock_notify(m, "request\n");
 }
 
 /* ---- replies --------------------------------------------------------------- */
@@ -933,6 +958,7 @@ static int mock_publish_port(struct mock *m)
 	rc = rename(tmp, path);
 	fyai_error_check(m->ctx, !rc, err, "mock: cannot publish %s: %s", path,
 			 strerror(errno));
+	mock_notify(m, "port\n");
 	return 0;
 err:
 	return -1;

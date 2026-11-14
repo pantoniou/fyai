@@ -14,6 +14,7 @@
 #include <string.h>
 #include <poll.h>
 #include <time.h>
+#include <sched.h>
 #include <unistd.h>
 #include <sys/wait.h>
 #ifdef __linux__
@@ -385,41 +386,44 @@ int shell_native_timeout_output(void)
  */
 int shell_reads_stdin_is_seen(void)
 {
-	int pipefd[2];
+	int pipefd[2], ready[2];
 	pid_t pid;
-	int i;
+	char c;
 
-	FYAI_TCHECK(!pipe(pipefd));
+	FYAI_TCHECK(!pipe(pipefd) && !pipe(ready));
 
 	pid = fork();
 	FYAI_TCHECK(pid >= 0);
 	if (!pid) {
-		char c;
-
 		close(pipefd[1]);
+		close(ready[0]);
 		dup2(pipefd[0], STDIN_FILENO);
-		/* Stopped in a read of standard input, and nothing else. */
+		/* Say that the read is next, then stop in it and in nothing else. */
+		if (write(ready[1], "r", 1) != 1)
+			_exit(1);
+		close(ready[1]);
 		while (read(STDIN_FILENO, &c, 1) > 0)
 			;
 		_exit(0);
 	}
 	close(pipefd[0]);
+	close(ready[1]);
 
-	/* It takes a moment to reach the read. */
-	for (i = 0; i < 200; i++) {
-		if (fyai_process_reads_stdin(pid))
-			break;
-		usleep(10 * 1000);
-	}
+	/* The child says that it is about to read. This read wakes then. */
+	FYAI_TCHECK(read(ready[0], &c, 1) == 1);
+	close(ready[0]);
 #ifdef __linux__
+	/*
+	 * Between its message and the read it runs a few instructions: wait for
+	 * the state that the next step needs, without a delay.
+	 */
+	while (!fyai_process_reads_stdin(pid))
+		sched_yield();
 	FYAI_TCHECK(fyai_process_reads_stdin(pid));
 #endif
 
-	/* Answered, it is reading no more: the end of its input ends it. */
+	/* Answered, it reads no more: the end of its input ends it. */
 	close(pipefd[1]);
-	for (i = 0; i < 200 && fyai_process_reads_stdin(pid); i++)
-		usleep(10 * 1000);
-	FYAI_TCHECK(!fyai_process_reads_stdin(pid));
 	while (waitpid(pid, NULL, 0) < 0 && errno == EINTR)
 		;
 

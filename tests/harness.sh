@@ -271,19 +271,33 @@ mock_start() {
 	# a new bind in that window fails and the old server answers the
 	# new leg with exhausted steps. Stop it first so the port is free.
 	mock_stop_quiet
+	# The mock writes a line to the FIFO of $FYAI_MOCK_NOTIFY for the port it
+	# bound and for each request, when a reader has it open. The FIFO is in
+	# a directory of its own: the project of a case holds no special file.
+	# Open it before the mock starts, so no line is lost, and wait on it: a
+	# read wakes when the mock writes, with no polling. The mock does not
+	# hold the descriptor.
+	if [ ! -d "${MOCK_NOTIFY_DIR:-}" ]; then
+		MOCK_NOTIFY_DIR="$(mktemp -d "$FYAI_TMPDIR_BASE/fyai-mock-XXXXXX")"
+		fyai_test_on_exit "rm -rf '$MOCK_NOTIFY_DIR'"
+	fi
+	FYAI_MOCK_NOTIFY="$MOCK_NOTIFY_DIR/notify"
+	export FYAI_MOCK_NOTIFY
+	rm -f "$FYAI_MOCK_NOTIFY"
+	mkfifo "$FYAI_MOCK_NOTIFY" || fail "cannot make the FIFO of the mock"
+	exec 7<>"$FYAI_MOCK_NOTIFY"
 	# FYAI_MOCK_LOG=1 puts a line for each request in mock.log.
 	"$FYAI_BIN" __mock-server ${FYAI_MOCK_LOG:+--log} "$scenario" "$TEST_DIR" \
-		2>"$TEST_DIR/mock.log" &
+		2>"$TEST_DIR/mock.log" 7<&- &
 	MOCK_PID=$!
 
-	local i=0
-	local tries=$((100 * FYAI_TIMEOUT_SCALE))
-	while [ ! -f "$TEST_DIR/port" ]; do
-		kill -0 "$MOCK_PID" 2>/dev/null || fail "mock server died: $(cat "$TEST_DIR/mock.log")"
-		i=$((i + 1))
-		[ "$i" -gt "$tries" ] && fail "mock server did not bind"
-		sleep 0.05
+	# The deadline bounds a failure: a slow runner can stall for a while.
+	local line=""
+	while [ "$line" != port ]; do
+		read -r -t $((60 * FYAI_TIMEOUT_SCALE)) -u 7 line ||
+			fail "mock server did not bind: $(cat "$TEST_DIR/mock.log")"
 	done
+	exec 7<&-
 	MOCK_PORT="$(cat "$TEST_DIR/port")"
 	MOCK_URL="http://127.0.0.1:$MOCK_PORT"
 	export MOCK_URL
@@ -313,11 +327,6 @@ mock_stop_quiet() {
 	MOCK_PID=""
 	[ -n "$pid" ] || return 0
 	kill "$pid" 2>/dev/null || true
-	local i=0
-	while kill -0 "$pid" 2>/dev/null && [ "$i" -lt 100 ]; do
-		sleep 0.02
-		i=$((i + 1))
-	done
 	wait "$pid" 2>/dev/null || true
 }
 

@@ -17,24 +17,26 @@ KEY_ENV="sk-env-0123456789abcdef"
 fyai_test_setup
 mock_start transport_delay.json
 
+# The mock tells its FIFO about each request, when a reader holds it. Open it
+# before the run starts, so no line is lost.
+exec 8<>"$FYAI_MOCK_NOTIFY"
+
 # The mock holds the reply until the case releases it, so the run stays alive
 # for as long as the inspection takes, however loaded the machine is.
 FYAI_TRANSPORT_ISOLATION=level-b OPENAI_API_KEY="$KEY_ENV" \
 	"$FYAI_BIN" --color off --set api=chat-completions --set display/stream=false \
 	--set api_url="$MOCK_URL/v1/chat/completions" -m mock-model \
-	-k "$KEY_ARG" "hello" >"$TEST_DIR/stdout" 2>"$TEST_DIR/stderr" </dev/null &
+	-k "$KEY_ARG" "hello" >"$TEST_DIR/stdout" 2>"$TEST_DIR/stderr" </dev/null 8<&- &
 pid=$!
 
-# Wait for the request to reach the provider, by state and not by time.
-# A bound on a failure, not a delay: a slow runner can stall for minutes.
-tries=$((6000 * FYAI_TIMEOUT_SCALE))
-i=0
-while [ ! -s "$TEST_DIR/requests.jsonl" ]; do
-	kill -0 "$pid" 2>/dev/null || fail "fyai ended before it made a request"
-	i=$((i + 1))
-	[ "$i" -gt "$tries" ] && fail "no request reached the provider"
-	sleep 0.05
+# Wait for the request to reach the provider: the read wakes when the mock
+# writes. The deadline bounds a failure: a slow runner can stall for minutes.
+line=""
+while [ "$line" != request ]; do
+	read -r -t $((300 * FYAI_TIMEOUT_SCALE)) -u 8 line ||
+		fail "no request reached the provider"
 done
+exec 8<&-
 
 # The agent process: no key in its arguments or environment.
 ! tr '\0' '\n' <"/proc/$pid/cmdline" | grep -q "$KEY_ARG" ||
@@ -68,11 +70,14 @@ fi
 wait "$pid" || fail "fyai failed: $(cat "$TEST_DIR/stderr")"
 grep -q "slow reply" "$TEST_DIR/stdout" || fail "no reply"
 assert_request 0 'r["auth"] == "Bearer '"$KEY_ARG"'"'
-# The transport ends with the run.
-i=0
-while [ -d "/proc/$tpid" ] && grep -qv "^State:.*Z" "/proc/$tpid/status" 2>/dev/null; do
-	i=$((i + 1))
-	[ "$i" -gt "$tries" ] && fail "the transport outlived the run"
-	sleep 0.05
-done
+# The transport ends with the run. A pidfd is readable when the process has
+# exited, a zombie included, so the wait is for the exit and not for a poll.
+python3 -I -c '
+import os, select, sys
+try:
+    fd = os.pidfd_open(int(sys.argv[1]))
+except ProcessLookupError:
+    sys.exit(0)
+sys.exit(0 if select.select([fd], [], [], float(sys.argv[2]))[0] else 1)
+' "$tpid" $((300 * FYAI_TIMEOUT_SCALE)) || fail "the transport outlived the run"
 mock_stop 1
