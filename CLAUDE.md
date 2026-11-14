@@ -208,7 +208,12 @@ initialize each generic field explicitly.
 - `src/fyai_event_dump.c`: SIGUSR2 event-loop diagnostics.
 - `src/fyai_render.c`: generic-to-Markdown table rendering.
 - `src/fyai_diag.c`: collected diagnostics.
-- `src/utils.c`: HTTP buffers, shell capture, and generic serialization.
+- `src/utils.c`: HTTP buffers, file helpers, and generic serialization.
+- `src/fyai_shell_capture.c`: shell capture on the event loop, and the child
+  start: its status channel, `fyai_child_exec_prepare()` and
+  `fyai_exec_shell_command()`.
+- `src/fyai_editor.c`: the external editor child, and the editor in a tile of
+  the work pane.
 - `src/fyai_workpane.c`: the one owner of work-pane geometry, focus, and zoom.
 - `src/fyai_chrome.c`: the one owner of tile chrome: which controls and scroll
   bar a tile carries, and its head.

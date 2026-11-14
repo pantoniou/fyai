@@ -7,9 +7,8 @@ Status: the document has four parts.
 - Part 2 plans the split of the TUI from the core. It is a plan, and no step
   is done.
 - "Other cleanups" lists what is open: the parallel-construction oracles
-  (item 9), the split of `utils.c` (item 16), the long functions (item 17),
-  the focus and zoom code of `fyai_shell_session.c` (item 15) and the tests
-  that poll (item 19). The wait of a delegated child for an answer to its
+  (item 9), the long functions (item 17), the focus and zoom code of
+  `fyai_shell_session.c` (item 15) and the tests that poll (item 19). The wait of a delegated child for an answer to its
   question stays by design (item 1).
 - "Copies of arena data" lists copies that a generic or an interned string
   replaces. Open: the rows of class a and class b.
@@ -481,10 +480,6 @@ is a series. Check an item again before work on it.
     lines) that could be a file of its own.
 
     own.
-16. `src/utils.c` holds shell capture (490-1277, which overlaps
-    `fyai_tools.c`), the editor pane, and JSON helpers (M). Move shell capture
-    and the editor into files of their own, and correct the one-line entry in
-    `CLAUDE.md`.
 17. Long functions (M to L each), with the split seam: `fyai_config_apply`
     (474 lines, `fyai_config.c:398`; a table of key and setter),
     `fyai_tool_job_submit` (351; validate, build, spawn), `capture_run`
