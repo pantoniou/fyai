@@ -171,7 +171,7 @@ initialize each generic field explicitly.
   the whole program shares, in dependency order (`doc/context-components.md`).
   `main()` declares it and everything else borrows from it. Today it holds the
   diagnostics, the event loop, the arena, the transient builder, the
-  credential refresh, the model connection, the transport client and the configuration; the other components move in one by one.
+  credential refresh, the model connection, the transport client, the MCP client and the configuration; the other components move in one by one.
 - `src/fyai_arena.c`: `struct fyai_arena`, the durable and working builders of
   the canonical state. `ctx->arena` points at the one in the app; read
   `ctx->arena->gb` where you need the working builder.
@@ -183,6 +183,8 @@ initialize each generic field explicitly.
 - `src/fyai_transport_state.h`: `struct fyai_transport_state`, the client of the
   credential transport and its control channel. `ctx->transport` points at the
   one in the app.
+- `src/fyai_mcp_state.h`: `struct fyai_mcp`, the connections to the MCP servers
+  and their tool catalogue. `ctx->mcp` points at the one in the app.
 - `src/fyai_cred.c`: `struct fyai_cred`, the shared refresh of the login and
   the secrets in memory. `ctx->cred` points at the one in the app; it stands
   on the loop of the app for its timer.

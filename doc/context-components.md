@@ -2,7 +2,7 @@
 
 Status: design, and the first three steps are done and the fourth has begun:
 `struct fyai_app` exists and holds `diag`, `loop`, `arena`, `transient`,
-`cred`, `link`, `transport` and `cfg`. The counts come from a script over
+`cred`, `link`, `transport`, `mcp` and `cfg`. The counts come from a script over
 `src/*.c` that counts `ctx->FIELD` per file; check a row against the code
 before a change. The order of the work is near the end.
 
@@ -257,7 +257,11 @@ Each step builds, passes both suites, and lands as its own patch series
    this component, which is why the name is `link`.
    `transport` is the client of the credential transport: the role, the
    control channel, the source that drains it and the profiles granted. It
-   stands on `loop` and `cred`; its functions still take `ctx`. `cred` takes `loop` and `diag`; its 17 reads of `transient_gb`
+   stands on `loop` and `cred`; its functions still take `ctx`.
+   `mcp` holds the list of connections to the servers, the tool catalogue
+   folded from them and the names activated from a large catalogue. It stands
+   on `loop`, `cred` and `transient`; `struct fyai_mcp_ctx` is one connection,
+   not this component. The connections still name `ctx`. `cred` takes `loop` and `diag`; its 17 reads of `transient_gb`
    become its own builder. Each of the four ends with a unit test that builds
    the component with a stub loop and diagnostics, which is the test that a
    struct of pointers makes possible and `ctx` did not.
