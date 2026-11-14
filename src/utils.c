@@ -533,7 +533,7 @@ void emit_generic_to_sink_anchored(struct fyai_ctx *ctx, const char *label,
 	if (label) {
 		text = fy_sprintfa("\n# %s:\n", label);
 		if (text) {
-			rc = fyai_sink_write(ctx->sink, FYAI_SINK_MACHINE,
+			rc = fyai_sink_write(ctx->front->sink, FYAI_SINK_MACHINE,
 					     text, strlen(text));
 			fyai_error_check(ctx, !rc, err,
 					 "could not write the %s label", label);
@@ -544,7 +544,7 @@ void emit_generic_to_sink_anchored(struct fyai_ctx *ctx, const char *label,
 			 "could not emit the %s as machine data",
 			 label ? label : "value");
 	text = fy_castp(&emitted, "");
-	rc = fyai_sink_write(ctx->sink, FYAI_SINK_MACHINE, text, strlen(text));
+	rc = fyai_sink_write(ctx->front->sink, FYAI_SINK_MACHINE, text, strlen(text));
 	fyai_error_check(ctx, !rc, err, "could not write the %s",
 			 label ? label : "value");
 err:

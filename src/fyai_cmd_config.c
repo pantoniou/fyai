@@ -396,10 +396,10 @@ int fyai_cmd_config_edit(struct fyai_cmd_call *call, fy_generic *result)
 	(void)result;
 	if (call->surface == FYAI_CMD_CLI)
 		return fyai_config_edit(ctx);
-	fyai_error_check(ctx, !ctx->config_edit, err,
+	fyai_error_check(ctx, !ctx->front->config_edit, err,
 			 "configuration editor is already active");
-	ctx->config_edit = fyai_config_edit_submit(ctx);
-	return ctx->config_edit ? 0 : -1;
+	ctx->front->config_edit = fyai_config_edit_submit(ctx);
+	return ctx->front->config_edit ? 0 : -1;
 err:
 	return -1;
 }

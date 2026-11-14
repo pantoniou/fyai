@@ -145,7 +145,7 @@ static void remote_ui_term_free(struct fyai_ctx *ctx, struct remote_ui_term *t)
 	if (t->mirror)
 		fyai_tools_mirror_drop(fyai_shell_session_find(ctx, t->name));
 	if (t->surface) {
-		fyai_workpane_unregister(ctx->workpane, t->surface);
+		fyai_workpane_unregister(ctx->front->workpane, t->surface);
 		fyai_ui_surface_close(ctx, t->surface);
 	}
 	fyai_terminal_view_destroy(t->view);
@@ -191,7 +191,7 @@ static int remote_ui_term_open(struct fyai_remote_ui *view,
 	t->surface = fyai_ui_surface_open(ctx, t->rows, t->cols);
 	fyai_error_check(ctx, t->surface, err, "cannot show the terminal %s",
 			 t->name);
-	rc = fyai_workpane_register(ctx->workpane, t->surface,
+	rc = fyai_workpane_register(ctx->front->workpane, t->surface,
 				    FYAI_WORKPANE_TILE_SHELL, t,
 				    &remote_ui_term_ops, t->rows, 0);
 	fyai_error_check(ctx, !rc, err, "cannot place the terminal %s",
@@ -296,7 +296,7 @@ static bool remote_ui_term_keys(void *data, struct fytim_surface *sf,
 			view->failed = true;
 		t->dismissed = true;
 		fyai_tools_unzoom(ctx);
-		fyai_workpane_unregister(ctx->workpane, t->surface);
+		fyai_workpane_unregister(ctx->front->workpane, t->surface);
 		fyai_ui_surface_close(ctx, t->surface);
 		t->surface = NULL;
 		if (len > 1 && fyai_ui_keys_return(ctx, bytes + 1, len - 1))
@@ -424,7 +424,7 @@ static int remote_ui_terms(struct fyai_remote_ui *view, fy_generic root)
 				}, NULL);
 			/* The hint of a focused tile says that Escape closes
 			 * it now. */
-			if (fyai_workpane_focused(ctx->workpane) == t->surface)
+			if (fyai_workpane_focused(ctx->front->workpane) == t->surface)
 				fyai_chrome_focus(ctx, t->surface, true);
 		}
 		if (t->rows != fy_get(term, "rows", 24) ||
@@ -485,7 +485,7 @@ static int remote_ui_display_open(struct fyai_remote_ui *view)
 	if (view->watch) {
 		fyai_ui_prompt_enabled(ctx, false);
 		fyai_ui_pane_begin(ctx);
-		(void)fyai_sink_printf(ctx->sink, FYAI_SINK_NOTICE,
+		(void)fyai_sink_printf(ctx->front->sink, FYAI_SINK_NOTICE,
 				       "watching: this client sends no input; "
 				       "^C leaves\n");
 		fyai_ui_pane_end(ctx, "remote", true, true);
@@ -917,7 +917,7 @@ int fyai_remote_ui_step(struct fyai_remote_ui *view)
 	fy_generic_builder_reset(view->inbox_gb);
 	if (view->error) {
 		fyai_ui_pane_begin(ctx);
-		(void)fyai_sink_printf(ctx->sink, FYAI_SINK_NOTICE, "%s\n",
+		(void)fyai_sink_printf(ctx->front->sink, FYAI_SINK_NOTICE, "%s\n",
 				       view->error);
 		fyai_ui_pane_end(ctx, "remote", true, true);
 		free(view->error);

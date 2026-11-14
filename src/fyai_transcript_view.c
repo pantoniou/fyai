@@ -902,28 +902,27 @@ static int view_render_exchange(void *user, size_t index, int width,
 	gb = fy_generic_builder_create(&gbcfg);
 	fyai_error_check(ctx, gb, out, "cannot build the transcript view");
 	view.cfg = &cfg;
-	view.ui = NULL;
 	fyai_uimodel_view_detach(&view, &own);
-	view.display_output = NULL;
-	view.browser = NULL;
+	view.front->display_output = NULL;
+	view.front->browser = NULL;
 	fyai_transient_init(&transient);
 	transient.gb = gb;
 	view.transient = &transient;
 	cfg.render_width = width;
 	fp = open_memstream(textp, lenp);
 	fyai_error_check(ctx, fp, out, "cannot render the transcript view");
-	view.sink = fyai_sink_create_render(&view, fp);
-	fyai_error_check(ctx, view.sink, out,
+	view.front->sink = fyai_sink_create_render(&view, fp);
+	fyai_error_check(ctx, view.front->sink, out,
 			 "cannot render the transcript view");
 	/* An exchange after another is separated from it as a replay
 	 * separates them. */
 	if (index)
-		fyai_flow_emitted(fyai_sink_flow(view.sink), FYAI_FLOW_PROSE,
+		fyai_flow_emitted(fyai_sink_flow(view.front->sink), FYAI_FLOW_PROSE,
 				  true);
 	if (fyai_display_turn_range(&view, r->stack, r->starts[index],
 				    r->starts[index + 1], index > 0))
 		fyai_warning(ctx, "the transcript view is incomplete");
-	fyai_sink_destroy(view.sink);
+	fyai_sink_destroy(view.front->sink);
 	rc = 0;
 out:
 	/* The memstream must be closed before *@textp names its bytes. */
@@ -1041,7 +1040,7 @@ int fyai_transcript_view_refresh(struct fyai_ctx *ctx,
 		fymd_renderer_destroy(r.measurer);
 		fyai_error_check(ctx, !rc, out,
 				 "cannot keep the rows of the transcript view");
-		flow = fyai_sink_flow(ctx->sink);
+		flow = fyai_sink_flow(ctx->front->sink);
 		if (flow) {
 			flow->at_line_start = true;
 			fyai_flow_blank_rows(flow, view_tail_blank_rows(v));

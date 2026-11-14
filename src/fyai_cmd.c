@@ -1535,7 +1535,7 @@ int fyai_cmd_machine_write(struct fyai_cmd_call *call, const char *buf,
 {
 	int rc;
 
-	rc = fyai_sink_write(call->ctx->sink, FYAI_SINK_MACHINE, buf, len);
+	rc = fyai_sink_write(call->ctx->front->sink, FYAI_SINK_MACHINE, buf, len);
 	fyai_error_check(call->ctx, !rc, err,
 			 "%s: cannot write the result", call->path);
 	return 0;
@@ -1651,10 +1651,10 @@ static int present_document(struct fyai_cmd_call *call, fy_generic value,
 			 "%s: cannot write the result as YAML", call->path);
 	text = fy_castp(&emitted, "");
 	if (call->surface == FYAI_CMD_CLI) {
-		(void)fyai_sink_write(call->ctx->sink, FYAI_SINK_MACHINE, text,
+		(void)fyai_sink_write(call->ctx->front->sink, FYAI_SINK_MACHINE, text,
 				      strlen(text));
 		if (!*text || text[strlen(text) - 1] != '\n')
-			(void)fyai_sink_write(call->ctx->sink,
+			(void)fyai_sink_write(call->ctx->front->sink,
 					      FYAI_SINK_MACHINE, "\n", 1);
 		return 0;
 	}
@@ -2211,7 +2211,7 @@ int fyai_cmd_session_run(struct fyai_ctx *ctx, const char *line, bool *viewp)
 	}
 	*viewp = fy_get(parsed.def, "view", false);
 
-	fyai_error_check(ctx, !ctx->cmd_call, err,
+	fyai_error_check(ctx, !ctx->front->cmd_call, err,
 			 "%s: another command is running", parsed.path);
 	call = calloc(1, sizeof(*call));
 	fyai_error_check(ctx, call, err, "%s: cannot allocate the call",
@@ -2223,7 +2223,7 @@ int fyai_cmd_session_run(struct fyai_ctx *ctx, const char *line, bool *viewp)
 	rc = fyai_cmd_call_run(call);
 	if (rc == FYAI_CMD_PENDING) {
 		call->finish = session_call_finish;
-		ctx->cmd_call = call;
+		ctx->front->cmd_call = call;
 		return 0;
 	}
 	if (!rc)
@@ -2237,7 +2237,7 @@ err:
 
 bool fyai_cmd_session_input(struct fyai_ctx *ctx, const char *line)
 {
-	struct fyai_cmd_call *call = ctx->cmd_call;
+	struct fyai_cmd_call *call = ctx->front->cmd_call;
 
 	if (!call || call->done || !call->input)
 		return false;
@@ -2247,13 +2247,13 @@ bool fyai_cmd_session_input(struct fyai_ctx *ctx, const char *line)
 
 bool fyai_cmd_session_step(struct fyai_ctx *ctx)
 {
-	struct fyai_cmd_call *call = ctx->cmd_call;
+	struct fyai_cmd_call *call = ctx->front->cmd_call;
 	bool error;
 	int rc;
 
 	if (!call || !call->done)
 		return false;
-	ctx->cmd_call = NULL;
+	ctx->front->cmd_call = NULL;
 	fyai_ui_pane_begin(ctx);
 	rc = call_present(call);
 	error = rc || fyai_diag_got_error(fyai_ctx_diag(ctx));
@@ -2267,7 +2267,7 @@ bool fyai_cmd_session_step(struct fyai_ctx *ctx)
 
 void fyai_cmd_session_interrupt(struct fyai_ctx *ctx)
 {
-	struct fyai_cmd_call *call = ctx->cmd_call;
+	struct fyai_cmd_call *call = ctx->front->cmd_call;
 
 	/* The work completes as cancelled; the step presents that. */
 	if (!call || call->done || !call->cancel)
@@ -2278,11 +2278,11 @@ void fyai_cmd_session_interrupt(struct fyai_ctx *ctx)
 
 void fyai_cmd_session_cancel(struct fyai_ctx *ctx)
 {
-	struct fyai_cmd_call *call = ctx->cmd_call;
+	struct fyai_cmd_call *call = ctx->front->cmd_call;
 
 	if (!call)
 		return;
-	ctx->cmd_call = NULL;
+	ctx->front->cmd_call = NULL;
 	call->finish = NULL;
 	if (!call->done && call->cancel)
 		call->cancel(call);

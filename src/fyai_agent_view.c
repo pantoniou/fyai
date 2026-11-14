@@ -137,7 +137,7 @@ static void fyai_agent_apply_grant(void *owner, int rows, int cols)
 		return;
 	}
 	(void)fyai_ui_surface_resize(job->surface, rows, cols);
-	fyai_workpane_grid_resized(job->ctx->workpane, job->surface, rows, cols);
+	fyai_workpane_grid_resized(job->ctx->front->workpane, job->surface, rows, cols);
 }
 
 static void fyai_agent_focus_changed(void *owner, bool focused)
@@ -624,11 +624,11 @@ int fyai_agent_view_open(struct fyai_ctx *ctx,
 	if (job->surface) {
 		/* A sub-agent keeps the height it opened with, whatever it
 		 * has drawn: two lines of output is not a two-row tile. */
-		(void)fyai_workpane_register(ctx->workpane, job->surface,
+		(void)fyai_workpane_register(ctx->front->workpane, job->surface,
 					     FYAI_WORKPANE_TILE_AGENT, job,
 					     &fyai_agent_tile_ops,
 					     job->pty_rows, 0);
-		fyai_workpane_tile_set_ladder(ctx->workpane, job->surface,
+		fyai_workpane_tile_set_ladder(ctx->front->workpane, job->surface,
 					      &fyai_tile_ladder);
 		(void)fyai_chrome_update(ctx, job->surface,
 			&(struct fyai_chrome_spec){
@@ -813,9 +813,9 @@ bool fyai_tools_btw_dismiss_focused(struct fyai_ctx *ctx)
 	struct fyai_tool_job *job;
 	struct fytim_surface *focused;
 
-	if (!ctx || !ctx->workpane)
+	if (!ctx || !ctx->front->workpane)
 		return false;
-	focused = fyai_workpane_focused(ctx->workpane);
+	focused = fyai_workpane_focused(ctx->front->workpane);
 	for (job = ctx->jobs->tools; job; job = job->next)
 		if (job->btw_panel && job->surface == focused) {
 			fyai_tool_job_discard(job);

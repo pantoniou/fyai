@@ -2354,7 +2354,7 @@ static int fenced_stream_render(struct fyai_fenced_stream *fs)
 			fenced_stream_band_update(fs);
 		else
 			fyai_sink_band_paint(
-				fyai_sink_band_shared(fs->ctx->sink), NULL,
+				fyai_sink_band_shared(fs->ctx->front->sink), NULL,
 				NULL, fs->body.data, fs->body.len, NULL);
 		rc = 0;
 		goto out;
@@ -2411,7 +2411,7 @@ static void fenced_stream_tap(struct fyai_fenced_stream *fs,
 	struct fyai_sink_band *band = fs->band;
 
 	if (!band && fs->live)
-		band = fyai_sink_band_shared(fs->ctx->sink);
+		band = fyai_sink_band_shared(fs->ctx->front->sink);
 	if (!band)
 		return;
 	fyai_uiwork_band_source(fs->ctx, band, fs,

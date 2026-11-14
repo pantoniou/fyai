@@ -497,9 +497,9 @@ static int view_capture_attempt(struct view_capture *c)
 			return -1;
 		c->opts.baseline_manifest = &c->previous_manifest;
 	}
-	if (c->opts.progress && !c->progress.band && fyai_sink_bands_available(ctx->sink))
+	if (c->opts.progress && !c->progress.band && fyai_sink_bands_available(ctx->front->sink))
 		c->progress.band =
-			fyai_sink_band_open(ctx->sink, false, "Capturing project view", NULL);
+			fyai_sink_band_open(ctx->front->sink, false, "Capturing project view", NULL);
 	rc = fyai_project_capture_manifest(&c->opts, &c->manifest, c->error, sizeof(c->error));
 	if (rc) {
 		c->unstable = errno == EAGAIN;
@@ -2286,7 +2286,7 @@ static int view_fs_emit_sink(void *arg, const void *data, size_t length)
 {
 	struct fyai_ctx *ctx = arg;
 
-	if (fyai_sink_write(ctx->sink, FYAI_SINK_MACHINE, data, length)) {
+	if (fyai_sink_write(ctx->front->sink, FYAI_SINK_MACHINE, data, length)) {
 		errno = EIO;
 		return -1;
 	}

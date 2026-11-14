@@ -48,16 +48,16 @@ const char *fyai_output_tag_name(enum fyai_output_tag tag)
 
 void fyai_output_cleanup(struct fyai_ctx *ctx)
 {
-	if (!ctx || !ctx->display_output)
+	if (!ctx || !ctx->front->display_output)
 		return;
 	/* A document that ends unrecorded is discarded. The renderer of the
 	 * UI model draws the live document from the transcript store. */
-	if (!ctx->display_output->ended) {
+	if (!ctx->front->display_output->ended) {
 		fyai_uitranscript_end(ctx, "discarded");
 	}
-	free(ctx->display_output->markdown.data);
-	free(ctx->display_output);
-	ctx->display_output = NULL;
+	free(ctx->front->display_output->markdown.data);
+	free(ctx->front->display_output);
+	ctx->front->display_output = NULL;
 }
 
 int fyai_output_begin(struct fyai_ctx *ctx, enum fyai_output_tag tag)
@@ -72,7 +72,7 @@ int fyai_output_begin(struct fyai_ctx *ctx, enum fyai_output_tag tag)
 			 "could not allocate display output");
 	output->tag = tag;
 	output->fragments = fy_seq_empty;
-	ctx->display_output = output;
+	ctx->front->display_output = output;
 	fyai_uitranscript_begin(ctx, fyai_output_tag_name(tag));
 	return 0;
 err:
@@ -82,7 +82,7 @@ err:
 static int fyai_output_record_source(struct fyai_ctx *ctx, const char *text,
 				     size_t len)
 {
-	struct fyai_display_output *output = ctx->display_output;
+	struct fyai_display_output *output = ctx->front->display_output;
 	int rc;
 
 	rc = fyai_buf_reserve(&output->markdown,
@@ -101,7 +101,7 @@ int fyai_output_append(struct fyai_ctx *ctx, const char *text, size_t len)
 {
 	int rc;
 
-	if (!ctx || !ctx->display_output || (!text && len))
+	if (!ctx || !ctx->front->display_output || (!text && len))
 		return -1;
 	if (!len)
 		return 0;
@@ -109,11 +109,11 @@ int fyai_output_append(struct fyai_ctx *ctx, const char *text, size_t len)
 	fyai_error_check(ctx, !rc, err,
 			 "could not grow display output");
 	fyai_uitranscript_append(ctx, text, len, true);
-	if (ctx->display_output->tag == FYAI_OUTPUT_ASSISTANT &&
-	    ctx->display_output->markdown.len -
-	    ctx->display_output->banner_len >= 256) {
-		ctx->display_output->banner_len =
-			ctx->display_output->markdown.len;
+	if (ctx->front->display_output->tag == FYAI_OUTPUT_ASSISTANT &&
+	    ctx->front->display_output->markdown.len -
+	    ctx->front->display_output->banner_len >= 256) {
+		ctx->front->display_output->banner_len =
+			ctx->front->display_output->markdown.len;
 		fyai_session_banner_update(ctx);
 	}
 	return 0;
@@ -124,7 +124,7 @@ err:
 int fyai_output_append_recorded(struct fyai_ctx *ctx, const char *text,
 				size_t len)
 {
-	if (!ctx || !ctx->display_output || (!text && len))
+	if (!ctx || !ctx->front->display_output || (!text && len))
 		return -1;
 	if (!len)
 		return 0;
@@ -166,9 +166,9 @@ int fyai_output_start_block(struct fyai_ctx *ctx)
 	struct fyai_display_output *output;
 	size_t len;
 
-	if (!ctx || !ctx->display_output)
+	if (!ctx || !ctx->front->display_output)
 		return -1;
-	output = ctx->display_output;
+	output = ctx->front->display_output;
 	len = output->markdown.len;
 
 	if (!len)
@@ -191,9 +191,9 @@ int fyai_output_reasoning_append(struct fyai_ctx *ctx, const char *text)
 	const char *p, *nl;
 	size_t len;
 
-	if (!ctx || !ctx->display_output || !text || !*text)
+	if (!ctx || !ctx->front->display_output || !text || !*text)
 		return 0;
-	output = ctx->display_output;
+	output = ctx->front->display_output;
 	if (!output->reasoning) {
 		if (fyai_output_start_block(ctx))
 			return -1;
@@ -220,9 +220,9 @@ int fyai_output_reasoning_finish(struct fyai_ctx *ctx)
 {
 	struct fyai_display_output *output;
 
-	if (!ctx || !ctx->display_output)
+	if (!ctx || !ctx->front->display_output)
 		return 0;
-	output = ctx->display_output;
+	output = ctx->front->display_output;
 	if (!output->reasoning)
 		return 0;
 	output->reasoning = false;
@@ -232,18 +232,18 @@ int fyai_output_reasoning_finish(struct fyai_ctx *ctx)
 const char *fyai_output_markdown(const struct fyai_ctx *ctx, size_t *len)
 {
 	if (len)
-		*len = ctx && ctx->display_output ?
-			ctx->display_output->markdown.len : 0;
-	return ctx && ctx->display_output &&
-	       ctx->display_output->markdown.data ?
-		ctx->display_output->markdown.data : "";
+		*len = ctx && ctx->front->display_output ?
+			ctx->front->display_output->markdown.len : 0;
+	return ctx && ctx->front->display_output &&
+	       ctx->front->display_output->markdown.data ?
+		ctx->front->display_output->markdown.data : "";
 }
 
 long long fyai_output_estimated_tokens(const struct fyai_ctx *ctx)
 {
 	const struct fyai_display_output *output;
 
-	output = ctx ? ctx->display_output : NULL;
+	output = ctx ? ctx->front->display_output : NULL;
 	if (!output || output->tag != FYAI_OUTPUT_ASSISTANT)
 		return 0;
 	return (long long)(output->markdown.len + 3) / 4;
@@ -251,7 +251,7 @@ long long fyai_output_estimated_tokens(const struct fyai_ctx *ctx)
 
 bool fyai_output_renders_live(const struct fyai_ctx *ctx)
 {
-	return ctx && ctx->display_output && fyai_sink_doc_is_live(ctx->sink);
+	return ctx && ctx->front->display_output && fyai_sink_doc_is_live(ctx->front->sink);
 }
 
 int fyai_output_add_fragment(struct fyai_ctx *ctx, const char *kind,
@@ -261,9 +261,9 @@ int fyai_output_add_fragment(struct fyai_ctx *ctx, const char *kind,
 	struct fyai_display_output *output;
 	fy_generic fragment;
 
-	if (!ctx || !ctx->display_output || end < start)
+	if (!ctx || !ctx->front->display_output || end < start)
 		return -1;
-	output = ctx->display_output;
+	output = ctx->front->display_output;
 	fragment = fy_null_filtered_mapping(
 		"kind", kind,
 		"start", (long long)start,
@@ -289,9 +289,9 @@ int fyai_output_add_tool_head_fragment(struct fyai_ctx *ctx, size_t start,
 	fy_generic fragment;
 	int rc;
 
-	if (!ctx || !ctx->display_output || end < start)
+	if (!ctx || !ctx->front->display_output || end < start)
 		return -1;
-	output = ctx->display_output;
+	output = ctx->front->display_output;
 	fragment = fy_null_filtered_mapping(
 		"kind", "tool_head",
 		"start", (long long)start,
@@ -316,18 +316,18 @@ int fyai_output_checkpoint(struct fyai_ctx *ctx)
 {
 	if (!fyai_output_renders_live(ctx))
 		return 0;
-	ctx->display_output->paused = true;
+	ctx->front->display_output->paused = true;
 	fyai_uitranscript_pause(ctx, true);
 	return 0;
 }
 
 int fyai_output_resume(struct fyai_ctx *ctx)
 {
-	if (!ctx || !ctx->display_output)
+	if (!ctx || !ctx->front->display_output)
 		return -1;
-	if (!ctx->display_output->paused)
+	if (!ctx->front->display_output->paused)
 		return 0;
-	ctx->display_output->paused = false;
+	ctx->front->display_output->paused = false;
 	fyai_uitranscript_pause(ctx, false);
 	return 0;
 }
@@ -339,13 +339,13 @@ fy_generic fyai_output_finalize(struct fyai_ctx *ctx, fy_generic turn,
 	const char *state = aborted ? "aborted" : "finalized";
 	fy_generic record;
 
-	if (!ctx || !ctx->display_output || fy_is_invalid(turn))
+	if (!ctx || !ctx->front->display_output || fy_is_invalid(turn))
 		return turn;
 	if (fy_is_null(turn)) {
 		fyai_output_cleanup(ctx);
 		return turn;
 	}
-	output = ctx->display_output;
+	output = ctx->front->display_output;
 	(void)fyai_output_reasoning_finish(ctx);
 	fyai_uitranscript_end(ctx, state);
 	output->ended = true;

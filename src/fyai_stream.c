@@ -187,7 +187,7 @@ static void stream_spinner_clear(struct fyai_ctx *ctx,
 	if (!spinner->active)
 		return;
 
-	(void)fyai_sink_write(ctx->sink, FYAI_SINK_STATUS,
+	(void)fyai_sink_write(ctx->front->sink, FYAI_SINK_STATUS,
 			      FYAI_ANSI_ERASE_LINE,
 			      sizeof(FYAI_ANSI_ERASE_LINE) - 1);
 	spinner->active = false;
@@ -313,15 +313,15 @@ static int stream_write_reasoning_md(struct stream_response *stream)
 		return -1;
 	}
 	if (stream->reasoning_active_rows) {
-		(void)fyai_sink_printf(ctx->sink, FYAI_SINK_STATUS,
+		(void)fyai_sink_printf(ctx->front->sink, FYAI_SINK_STATUS,
 				       FYAI_ANSI_CURSOR_UP_FMT,
 				       stream->reasoning_active_rows);
-		(void)fyai_sink_write(ctx->sink, FYAI_SINK_STATUS,
+		(void)fyai_sink_write(ctx->front->sink, FYAI_SINK_STATUS,
 				      FYAI_ANSI_ERASE_DOWN,
 				      sizeof(FYAI_ANSI_ERASE_DOWN) - 1);
 	}
 	rows = count_newlines(out.data, out.len);
-	(void)fyai_sink_write(ctx->sink, FYAI_SINK_STATUS, out.data, out.len);
+	(void)fyai_sink_write(ctx->front->sink, FYAI_SINK_STATUS, out.data, out.len);
 	stream->reasoning_active_rows = rows;
 	free(out.data);
 	return 0;
@@ -366,7 +366,7 @@ static void stream_write_reasoning(struct stream_response *stream,
 		} else {
 			prefix = color ? markdown_role_on(cfg, "reasoning",
 							  FYAI_ANSI_DIM) : "";
-			(void)fyai_sink_write(ctx->sink, FYAI_SINK_STATUS,
+			(void)fyai_sink_write(ctx->front->sink, FYAI_SINK_STATUS,
 					      prefix, strlen(prefix));
 			/* A palette theme marks reasoning with its gutter
 			 * glyph, not a label. */
@@ -381,7 +381,7 @@ static void stream_write_reasoning(struct stream_response *stream,
 				prefix = color ? "reasoning \xe2\x96\xb8 " :
 						 "reasoning > ";
 			}
-			(void)fyai_sink_write(ctx->sink, FYAI_SINK_STATUS,
+			(void)fyai_sink_write(ctx->front->sink, FYAI_SINK_STATUS,
 					      prefix, strlen(prefix));
 			stream->printed_reasoning = true;
 		}
@@ -392,7 +392,7 @@ static void stream_write_reasoning(struct stream_response *stream,
 		    stream_write_reasoning_md(stream))
 			stream->parse.failed = true;
 	} else {
-		(void)fyai_sink_write(ctx->sink, FYAI_SINK_STATUS, text,
+		(void)fyai_sink_write(ctx->front->sink, FYAI_SINK_STATUS, text,
 				      strlen(text));
 	}
 }
@@ -404,13 +404,13 @@ static void stream_reasoning_trailer(struct stream_response *stream, bool color)
 	const char *sep = ctx->cfg->section_separator;
 
 	if (color)
-		(void)fyai_sink_write(ctx->sink, FYAI_SINK_STATUS,
+		(void)fyai_sink_write(ctx->front->sink, FYAI_SINK_STATUS,
 				      FYAI_ANSI_RESET,
 				      sizeof(FYAI_ANSI_RESET) - 1);
 	if (*sep)
-		(void)fyai_sink_write(ctx->sink, FYAI_SINK_STATUS, sep,
+		(void)fyai_sink_write(ctx->front->sink, FYAI_SINK_STATUS, sep,
 				      strlen(sep));
-	(void)fyai_sink_write(ctx->sink, FYAI_SINK_STATUS, "\n\n", 2);
+	(void)fyai_sink_write(ctx->front->sink, FYAI_SINK_STATUS, "\n\n", 2);
 }
 
 static void stream_finish_reasoning(struct stream_response *stream)
@@ -805,7 +805,7 @@ static void stream_retry_report(struct fyai_ctx *ctx, long status,
 		fyai_agents_activity(ctx, "retrying");
 		return;
 	}
-	if (!bandp || !fyai_sink_bands_available(ctx->sink)) {
+	if (!bandp || !fyai_sink_bands_available(ctx->front->sink)) {
 		/* Keep the reason last: a provider message can be long. */
 		fyai_report(ctx, "retrying in %.1f s (attempt %d of %d): %s\n",
 			    (double)delay_ms / 1000.0, attempt + 1,
@@ -816,14 +816,14 @@ static void stream_retry_report(struct fyai_ctx *ctx, long status,
 	 * Never take a band another producer is drawing in. A model request
 	 * runs with no tool band open, so this is a guard, not the usual path.
 	 */
-	if (!*bandp && fyai_sink_band_shared(ctx->sink))
+	if (!*bandp && fyai_sink_band_shared(ctx->front->sink))
 		return;
 	if (!*bandp) {
-		if (!fyai_sink_band_open(ctx->sink, true, "**provider**", NULL))
+		if (!fyai_sink_band_open(ctx->front->sink, true, "**provider**", NULL))
 			return;
 		*bandp = true;
 	}
-	band = fyai_sink_band_shared(ctx->sink);
+	band = fyai_sink_band_shared(ctx->front->sink);
 	if (!band)
 		return;
 	body = fy_sprintfa("%s\n\nretrying in %.1f s (attempt %d of %d)\n",
@@ -848,7 +848,7 @@ static void stream_retry_band_close(struct fyai_ctx *ctx, bool *bandp, bool ok,
 	if (!bandp || !*bandp)
 		return;
 	*bandp = false;
-	fyai_sink_band_close(ctx->sink, ok, cause);
+	fyai_sink_band_close(ctx->front->sink, ok, cause);
 }
 
 /* The text of a transfer error: the transport's own, else curl's. */

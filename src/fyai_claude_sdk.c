@@ -1988,7 +1988,7 @@ static void sdk_model_command_run(struct sdk_server *srv, struct sdk_input *in)
 	int rc;
 
 	rc = fyai_session_slash(ctx, in->text);
-	if (ctx->cmd_call) {
+	if (ctx->front->cmd_call) {
 		srv->command_id = in->command_id;
 		in->command_id = NULL;
 		return;
@@ -3437,7 +3437,7 @@ static int sdk_cmd_setup(struct fyai_cmd_call *call, struct sdk_server *srv)
 	 * layer keeps it over each change of the configuration.
 	 */
 	if (srv->remote_worker) {
-		ctx->uidraw_off = true;
+		ctx->front->uidraw_off = true;
 		rc = fyai_config_invocation_set(ctx, "display/markdown",
 						fy_true);
 		if (!rc)
@@ -3624,10 +3624,10 @@ static int sdk_cmd_serve(struct sdk_server *srv)
 	while (!srv->failed) {
 		/* An edit that the user finished in a tile applies between
 		 * turns, as it does in a local session. */
-		if (ctx->config_edit)
+		if (ctx->front->config_edit)
 			(void)fyai_interactive_config_edit_step(ctx);
 		/* An async command holds the inputs behind it. */
-		if (ctx->cmd_call) {
+		if (ctx->front->cmd_call) {
 			if (fyai_cmd_session_step(ctx)) {
 				sdk_respond(srv, fy_value(fyai_ctx_transient_gb(
 					ctx), srv->command_id), fy_invalid, NULL);
@@ -3683,10 +3683,10 @@ static void sdk_cmd_cleanup(struct fyai_ctx *ctx, struct sdk_server *srv)
 	struct sdk_decision *d;
 	struct sdk_tunnel *t;
 
-	if (ctx->config_edit) {
-		fyai_config_edit_cancel(ctx->config_edit);
-		fyai_config_edit_destroy(ctx->config_edit);
-		ctx->config_edit = NULL;
+	if (ctx->front->config_edit) {
+		fyai_config_edit_cancel(ctx->front->config_edit);
+		fyai_config_edit_destroy(ctx->front->config_edit);
+		ctx->front->config_edit = NULL;
 	}
 	ctx->turn->observe = NULL;
 	ctx->turn->observe_data = NULL;

@@ -215,9 +215,9 @@ int fyai_chrome_update(struct fyai_ctx *ctx, struct fytim_surface *sf,
 	int cols, granted, room;
 	int rc;
 
-	if (!ctx || !ctx->ui || !sf || !spec || !spec->title)
+	if (!ctx || !ctx->front->ui || !sf || !spec || !spec->title)
 		return -1;
-	(void)fyai_workpane_tile_owner(ctx->workpane, sf, &kind);
+	(void)fyai_workpane_tile_owner(ctx->front->workpane, sf, &kind);
 	items = fyai_chrome_items(ctx, kind,
 				  chrome_phase(ctx, sf, spec->mark));
 	/* fyai writes @right and the buttons, so they take the right edge as
@@ -280,7 +280,7 @@ int fyai_chrome_update(struct fyai_ctx *ctx, struct fytim_surface *sf,
 	free(escaped);
 	free(cut.data);
 	/* The tile keeps the regions of the head it shows. */
-	fyai_workpane_tile_set_regions(ctx->workpane, sf, regions, nregions);
+	fyai_workpane_tile_set_regions(ctx->front->workpane, sf, regions, nregions);
 	if (!rc) {
 		fyai_buf_trim(&out);
 		if (!fy_str_empty(spec->command))
@@ -289,7 +289,7 @@ int fyai_chrome_update(struct fyai_ctx *ctx, struct fytim_surface *sf,
 	}
 	if (!rc) {
 		fyai_buf_trim(&out);
-		rc = fyai_workpane_tile_set_head(ctx->workpane, sf,
+		rc = fyai_workpane_tile_set_head(ctx->front->workpane, sf,
 						 out.data ? out.data : "");
 		fyai_diag_tracef("page", "tile=%p head=%zu", (void *)sf,
 				 out.len);
@@ -337,7 +337,7 @@ void fyai_chrome_focus(struct fyai_ctx *ctx, struct fytim_surface *sf,
 	uint32_t bg = 0;
 	bool reversed;
 
-	if (!ctx || !ctx->cfg || !sf || !ctx->ui)
+	if (!ctx || !ctx->cfg || !sf || !ctx->front->ui)
 		return;
 	/* Without a configured ground, mark focus by reversing the margin. */
 	reversed = fyai_ui_focus_ground(ctx, focused, &bg);
@@ -429,7 +429,7 @@ int fyai_chrome_panel(struct fyai_ctx *ctx, struct fyai_buf *out,
 
 	memset(info, 0, sizeof(*info));
 	chrome_work_counts(ctx, counts);
-	hidden = fyai_workpane_hidden(ctx->workpane);
+	hidden = fyai_workpane_hidden(ctx->front->workpane);
 	work = hidden || counts[0] || counts[1] || counts[2];
 	if (!work && messages <= 0)
 		return 0;

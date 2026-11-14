@@ -164,7 +164,7 @@ int fyai_cmd_page_review_sample(struct fyai_cmd_call *call,
 		goto err_out;
 	/* The picture is presentation; a machine format takes the areas. */
 	if (call->format == FYAI_CMD_OUT_MARKDOWN && picture.data) {
-		rc = fyai_sink_write(ctx->sink, FYAI_SINK_NOTICE, picture.data,
+		rc = fyai_sink_write(ctx->front->sink, FYAI_SINK_NOTICE, picture.data,
 				     picture.len);
 		fyai_error_check(ctx, !rc, err_out,
 				 "cannot write the picture of the page");

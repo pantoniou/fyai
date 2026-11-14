@@ -503,7 +503,7 @@ static int agents_publish(struct fyai_ctx *ctx, const char *state)
 		"model", ctx->cfg->model ? ctx->cfg->model : "",
 		"sequence", ++a->sequence, "state", state);
 	if (a->subscribed) {
-		source = ctx->display_output ? fyai_output_markdown(ctx, &len) : NULL;
+		source = ctx->front->display_output ? fyai_output_markdown(ctx, &len) : NULL;
 		if (source && len > AGENT_SOURCE_MAX) {
 			/* Resume at a row boundary so the tail is legible. */
 			line = strchr(source + len - AGENT_SOURCE_MAX, '\n');
@@ -1073,7 +1073,7 @@ static void agents_grant(void *owner, int rows, int cols)
 	if (fyai_ui_surface_resize(a->surface, rows, cols))
 		fyai_warning(a->ctx, "the agent view did not take its %dx%d grant",
 			     cols, rows);
-	fyai_workpane_grid_resized(a->ctx->workpane, a->surface, rows, cols);
+	fyai_workpane_grid_resized(a->ctx->front->workpane, a->surface, rows, cols);
 	a->painted = 0;
 }
 
@@ -1207,22 +1207,21 @@ static char *agents_history(struct fyai_ctx *ctx, const char *name)
 	if (!gb)
 		return NULL;
 	view.cfg = &cfg;
-	view.ui = NULL;
 	fyai_uimodel_view_detach(&view, &own);
-	view.display_output = NULL;
+	view.front->display_output = NULL;
 	view.turn->last_message = branch.head;
 	fyai_transient_init(&transient);
 	transient.gb = gb;
 	view.transient = &transient;
-	view.sink = fyai_sink_create_capture(&view);
-	if (view.sink) {
+	view.front->sink = fyai_sink_create_capture(&view);
+	if (view.front->sink) {
 		/* The recap returns the exchanges it showed. */
 		if (fyai_display_recap(&view, 10, 0) < 0)
 			fyai_warning(ctx, "the stored history of %s is incomplete", name);
-		text = strdup(fyai_sink_captured(view.sink, NULL));
+		text = strdup(fyai_sink_captured(view.front->sink, NULL));
 		if (!text)
 			fyai_warning(ctx, "cannot keep the history of %s", name);
-		fyai_sink_destroy(view.sink);
+		fyai_sink_destroy(view.front->sink);
 	}
 	fy_generic_builder_destroy(gb);
 	return text;
@@ -1246,7 +1245,7 @@ const char *fyai_agents_zoom(struct fyai_ctx *ctx, const char *name, bool attach
 	a->draft = attach ? fyai_ui_input_copy(ctx) : NULL;
 	a->surface = fyai_ui_surface_open(ctx, AGENT_VIEW_ROWS, AGENT_VIEW_COLS);
 	fyai_error_check(ctx, a->surface, fail, "cannot open the agent view");
-	rc = fyai_workpane_register(ctx->workpane, a->surface,
+	rc = fyai_workpane_register(ctx->front->workpane, a->surface,
 		FYAI_WORKPANE_TILE_AGENT_VIEW, a, &agents_ops, AGENT_VIEW_ROWS, 0);
 	fyai_error_check(ctx, !rc, fail, "cannot place the agent view in the work pane");
 	(void)fyai_ui_surface_zoom(ctx, a->surface);
@@ -1254,7 +1253,7 @@ const char *fyai_agents_zoom(struct fyai_ctx *ctx, const char *name, bool attach
 		fyai_ui_input_set(ctx, "");
 	else {
 		(void)fyai_tools_focus_next(ctx);
-		fyai_workpane_set_focus(ctx->workpane, a->surface);
+		fyai_workpane_set_focus(ctx->front->workpane, a->surface);
 	}
 	rc = agents_control(ctx, r, "subscribe", NULL, true);
 	fyai_error_check(ctx, !rc, fail, "agent %s does not answer", r->branch);
@@ -1672,7 +1671,7 @@ bool fyai_agents_keys(struct fyai_ctx *ctx, const char *data, size_t len)
 	struct fyai_agents *a = ctx->astate->registry;
 	size_t i;
 
-	if (!fyai_agents_surface(ctx, fyai_workpane_focused(ctx->workpane)))
+	if (!fyai_agents_surface(ctx, fyai_workpane_focused(ctx->front->workpane)))
 		return false;
 	for (i = 0; i < len; i++) {
 		if (data[i] == 'j' || data[i] == 'k') {
@@ -1733,7 +1732,7 @@ static void agents_present_question(struct fyai_ctx *ctx, struct fyai_agents *a)
 	/* The page renderer puts them in its input area. */
 	if (fyai_ui_ask_available(ctx)) {
 		a->question_presented = true;
-		fyai_workpane_clear_focus(ctx->workpane);
+		fyai_workpane_clear_focus(ctx->front->workpane);
 		if (!fyai_ask_open(ctx, fy_get(params, "questions", fy_invalid),
 				 fy_get(params, "branch", "agent"),
 				 agents_ask_done, a->questions))
@@ -1743,7 +1742,7 @@ static void agents_present_question(struct fyai_ctx *ctx, struct fyai_agents *a)
 	(void)fyai_browser_cancel_input(ctx);
 	a->question_draft = fyai_ui_input_copy(ctx);
 	a->question_presented = true;
-	fyai_workpane_clear_focus(ctx->workpane);
+	fyai_workpane_clear_focus(ctx->front->workpane);
 	fyai_ui_input_set(ctx, "");
 	agents_report_question(ctx, a, 0);
 }
@@ -1786,7 +1785,7 @@ static void agents_present_view(struct fyai_ctx *ctx, struct fyai_agents *a,
 		(void)agents_progress(fp, a, r->execution);
 	}
 	fclose(fp);
-	rc = fyai_sink_page(ctx->sink, a->surface, md, a->offset);
+	rc = fyai_sink_page(ctx->front->sink, a->surface, md, a->offset);
 	if (rc)
 		fyai_warning(ctx, "the agent view did not render");
 err_out:
@@ -1814,7 +1813,7 @@ static void agents_present_progress(struct fyai_ctx *ctx, struct fyai_agents *a)
 		goto err_out;
 	}
 	if (!a->progress)
-		a->progress = fyai_sink_band_open(ctx->sink, false, "Agent progress", NULL);
+		a->progress = fyai_sink_band_open(ctx->front->sink, false, "Agent progress", NULL);
 	if (a->progress)
 		fyai_sink_band_paint(a->progress, "Agent progress", NULL, md, size, NULL);
 err_out:
@@ -1834,7 +1833,7 @@ void fyai_agents_present(struct fyai_ctx *ctx)
 	selected = agents_record(a, a->selected);
 	if (a->surface && selected)
 		agents_present_view(ctx, a, selected);
-	if (ctx->astate->execution && fyai_sink_bands_available(ctx->sink))
+	if (ctx->astate->execution && fyai_sink_bands_available(ctx->front->sink))
 		agents_present_progress(ctx, a);
 }
 

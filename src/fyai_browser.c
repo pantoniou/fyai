@@ -736,7 +736,7 @@ static void browser_pane(struct fyai_browser *b, int *rowsp, int *colsp)
 	*rowsp = fyai_sink_page_rows(&probe, rows, cols);
 	*colsp = fyai_sink_page_cols(&probe, rows, cols);
 	if (b->resume) {
-		footer_rows = fyai_sink_markdown_measure(b->ctx->sink,
+		footer_rows = fyai_sink_markdown_measure(b->ctx->front->sink,
 				browser_resume_footer, *colsp);
 		if (footer_rows > 0 && footer_rows + 1 < *rowsp)
 			*rowsp -= footer_rows + 1;
@@ -1032,7 +1032,7 @@ static void browser_fit(struct fyai_browser *b, struct browser_page *p)
 		cur = limit;
 		if (p->md) {
 			header = strndup(p->md, p->header_len);
-			used = header ? fyai_sink_markdown_measure(b->ctx->sink,
+			used = header ? fyai_sink_markdown_measure(b->ctx->front->sink,
 								   header, cols) : -1;
 			free(header);
 			if (used > 0 && used < rows) {
@@ -1230,7 +1230,7 @@ static void browser_grant(void *owner, int rows, int cols)
 	struct fyai_browser *b = owner;
 
 	(void)fyai_ui_surface_resize(b->surface, rows, cols);
-	fyai_workpane_grid_resized(b->ctx->workpane, b->surface, rows, cols);
+	fyai_workpane_grid_resized(b->ctx->front->workpane, b->surface, rows, cols);
 	b->dirty = true;
 	browser_paint(b);
 }
@@ -1241,7 +1241,7 @@ static const struct fyai_workpane_tile_ops browser_ops = {
 
 bool fyai_browser_surface(struct fyai_ctx *ctx, const struct fytim_surface *sf)
 {
-	return ctx && ctx->browser && ctx->browser->surface == sf;
+	return ctx && ctx->front->browser && ctx->front->browser->surface == sf;
 }
 
 /*
@@ -1257,7 +1257,7 @@ static int browser_open(struct fyai_ctx *ctx, bool resume, bool all,
 
 	if (!fyai_ui_active(ctx))
 		return fyai_branch_list(ctx, NULL, true);
-	b = ctx->browser;
+	b = ctx->front->browser;
 	if (!b) {
 		b = calloc(1, sizeof(*b));
 		fyai_error_check(ctx, b, err_out, "cannot open the branch browser");
@@ -1274,22 +1274,22 @@ static int browser_open(struct fyai_ctx *ctx, bool resume, bool all,
 			b->view = 0;
 		b->root = b->branches = fy_invalid;
 		b->preview_root = fy_invalid;
-		ctx->browser = b;
+		ctx->front->browser = b;
 		b->surface = fyai_ui_surface_open(ctx, 16, 80);
 		if (!b->surface)
 			goto fail;
-		rc = fyai_workpane_register(ctx->workpane, b->surface,
+		rc = fyai_workpane_register(ctx->front->workpane, b->surface,
 			resume ? FYAI_WORKPANE_TILE_PICKER :
 				 FYAI_WORKPANE_TILE_BROWSER, b, &browser_ops,
 			resume ? FYAI_WORKPANE_FILL : 16, 0);
 		if (rc)
 			goto fail;
 		if (resume)
-			fyai_workpane_set_zoom(ctx->workpane, b->surface);
+			fyai_workpane_set_zoom(ctx->front->workpane, b->surface);
 		browser_refresh(b);
 	}
 	fyai_tools_focus_next(ctx);
-	fyai_workpane_set_focus(ctx->workpane, b->surface);
+	fyai_workpane_set_focus(ctx->front->workpane, b->surface);
 	fyai_ui_wake(ctx);
 	return 0;
 fail:
@@ -1311,14 +1311,14 @@ int fyai_browser_open_resume(struct fyai_ctx *ctx, bool all)
 int fyai_browser_open_switch(struct fyai_ctx *ctx, bool all)
 {
 	/* The branch browser and the picker share the one browser. */
-	if (ctx->browser && !ctx->browser->resume)
+	if (ctx->front->browser && !ctx->front->browser->resume)
 		fyai_browser_close(ctx);
 	return browser_open(ctx, true, all, false);
 }
 
 void fyai_browser_close(struct fyai_ctx *ctx)
 {
-	struct fyai_browser *b = ctx ? ctx->browser : NULL;
+	struct fyai_browser *b = ctx ? ctx->front->browser : NULL;
 	size_t i;
 
 	if (!b)
@@ -1343,13 +1343,13 @@ void fyai_browser_close(struct fyai_ctx *ctx)
 		fyai_ui_input_set(ctx, b->draft);
 	free(b->draft);
 	free(b);
-	ctx->browser = NULL;
+	ctx->front->browser = NULL;
 	fyai_ui_wake(ctx);
 }
 
 void fyai_browser_service(struct fyai_ctx *ctx)
 {
-	struct fyai_browser *b = ctx->browser;
+	struct fyai_browser *b = ctx->front->browser;
 
 	if (!b)
 		return;
@@ -1396,7 +1396,7 @@ static void browser_edit(struct fyai_browser *b)
 {
 	free(b->draft);
 	b->draft = fyai_ui_input_copy(b->ctx);
-	fyai_workpane_clear_focus(b->ctx->workpane);
+	fyai_workpane_clear_focus(b->ctx->front->workpane);
 	fyai_ui_input_set(b->ctx, b->input_mode == BROWSER_INPUT_FILTER ?
 			  b->filter : "");
 }
@@ -1406,14 +1406,14 @@ static void browser_edit_end(struct fyai_browser *b)
 	fyai_ui_input_set(b->ctx, b->draft);
 	free(b->draft);
 	b->draft = NULL;
-	fyai_workpane_set_focus(b->ctx->workpane, b->surface);
+	fyai_workpane_set_focus(b->ctx->front->workpane, b->surface);
 	b->dirty = true;
 	fyai_ui_wake(b->ctx);
 }
 
 bool fyai_browser_cancel_input(struct fyai_ctx *ctx)
 {
-	struct fyai_browser *b = ctx->browser;
+	struct fyai_browser *b = ctx->front->browser;
 
 	if (!b || b->input_mode == BROWSER_INPUT_NONE)
 		return false;
@@ -1425,7 +1425,7 @@ bool fyai_browser_cancel_input(struct fyai_ctx *ctx)
 
 bool fyai_browser_input(struct fyai_ctx *ctx, const char *line)
 {
-	struct fyai_browser *b = ctx->browser;
+	struct fyai_browser *b = ctx->front->browser;
 	size_t len = strlen(line);
 
 	if (!b || b->input_mode == BROWSER_INPUT_NONE)
@@ -1572,11 +1572,11 @@ static void browser_key(struct fyai_browser *b, unsigned char c)
 
 bool fyai_browser_keys(struct fyai_ctx *ctx, const char *data, size_t len)
 {
-	struct fyai_browser *b = ctx->browser;
+	struct fyai_browser *b = ctx->front->browser;
 	size_t i;
 	char c;
 
-	if (!b || fyai_workpane_focused(ctx->workpane) != b->surface)
+	if (!b || fyai_workpane_focused(ctx->front->workpane) != b->surface)
 		return false;
 	for (i = 0; i < len; i++) {
 		c = data[i];
@@ -1693,10 +1693,9 @@ static char *browser_capture(struct fyai_browser *b, char *name,
 	gb = fy_generic_builder_create(&gbcfg);
 	browser_warn_check(b, gb, none, "cannot build the branch preview of %s", name);
 	view.cfg = &cfg;
-	view.ui = NULL;
 	fyai_uimodel_view_detach(&view, &own);
-	view.display_output = NULL;
-	view.browser = NULL;
+	view.front->display_output = NULL;
+	view.front->browser = NULL;
 	view.bstate->name = name;
 	view.bstate->branches = b->branches;
 	view.bstate->prev = branch.entry;
@@ -1713,10 +1712,10 @@ static char *browser_capture(struct fyai_browser *b, char *name,
 	if (action == 'p') {
 		fp = open_memstream(&out, &len);
 		browser_warn_check(b, fp, out, "cannot build the preview of %s", name);
-		view.sink = fyai_sink_create_render(&view, fp);
+		view.front->sink = fyai_sink_create_render(&view, fp);
 	} else
-		view.sink = fyai_sink_create_capture(&view);
-	browser_warn_check(b, view.sink, out, "cannot render the preview of %s", name);
+		view.front->sink = fyai_sink_create_capture(&view);
+	browser_warn_check(b, view.front->sink, out, "cannot render the preview of %s", name);
 	if (action == 't')
 		rc = fyai_display_recap(&view, 10, 0);
 	else if (action == 'p')
@@ -1732,12 +1731,12 @@ static char *browser_capture(struct fyai_browser *b, char *name,
 	if (rc < 0)
 		fyai_warning(b->ctx, "the preview of %s is incomplete", name);
 	if (!fp) {
-		captured = fyai_sink_captured(view.sink, NULL);
+		captured = fyai_sink_captured(view.front->sink, NULL);
 		out = captured ? strdup(captured) : NULL;
 		if (!out)
 			fyai_warning(b->ctx, "cannot keep the preview of %s", name);
 	}
-	fyai_sink_destroy(view.sink);
+	fyai_sink_destroy(view.front->sink);
 out:
 	/* The memstream must be closed before @out names its bytes. */
 	if (fp && fclose(fp))
@@ -1773,10 +1772,9 @@ static char *browser_foreign_capture(struct fyai_browser *b,
 	if (!gb)
 		return NULL;
 	view.cfg = &cfg;
-	view.ui = NULL;
 	fyai_uimodel_view_detach(&view, &own);
-	view.display_output = NULL;
-	view.browser = NULL;
+	view.front->display_output = NULL;
+	view.front->browser = NULL;
 	fyai_transient_init(&transient);
 	transient.gb = gb;
 	view.transient = &transient;
@@ -1787,21 +1785,21 @@ static char *browser_foreign_capture(struct fyai_browser *b,
 		fp = open_memstream(&out, &len);
 		if (!fp)
 			goto out;
-		view.sink = fyai_sink_create_render(&view, fp);
+		view.front->sink = fyai_sink_create_render(&view, fp);
 	} else
-		view.sink = fyai_sink_create_capture(&view);
-	if (!view.sink)
+		view.front->sink = fyai_sink_create_capture(&view);
+	if (!view.front->sink)
 		goto out;
 	if (fyai_foreign_preview(&view, row->path, row->source,
 				 action == 'p' ? -1 : 10,
 				 action == 'p' ? rows : 0) < 0)
 		goto out_sink;
 	if (!fp) {
-		captured = fyai_sink_captured(view.sink, NULL);
+		captured = fyai_sink_captured(view.front->sink, NULL);
 		out = captured ? strdup(captured) : NULL;
 	}
 out_sink:
-	fyai_sink_destroy(view.sink);
+	fyai_sink_destroy(view.front->sink);
 out:
 	if (fp && fclose(fp)) {
 		free(out);
@@ -1930,14 +1928,14 @@ static int browser_present(struct fyai_browser *b, const char *md,
 		b->diagram_cols = fyai_sink_page_cols(&page, rows, cols);
 	else
 		b->drawn_count = 0;
-	rc = fyai_sink_page_split(b->ctx->sink, b->surface, &page);
+	rc = fyai_sink_page_split(b->ctx->front->sink, b->surface, &page);
 	(void)fyai_ui_surface_cursor_visible(b->surface, false);
 	return rc;
 }
 
 void fyai_browser_step(struct fyai_ctx *ctx)
 {
-	struct fyai_browser *b = ctx->browser;
+	struct fyai_browser *b = ctx->front->browser;
 	char action;
 	int rc = 0;
 	struct fyai_branch current;
@@ -2074,7 +2072,7 @@ out:
 
 void fyai_browser_config_changed(struct fyai_ctx *ctx)
 {
-	struct fyai_browser *b = ctx ? ctx->browser : NULL;
+	struct fyai_browser *b = ctx ? ctx->front->browser : NULL;
 	unsigned int view;
 
 	if (!b)

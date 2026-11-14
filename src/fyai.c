@@ -288,7 +288,7 @@ static fy_generic fyai_finish_tool_call(struct fyai_ctx *ctx, fy_generic turn,
 	session_display = fyai_shell_session_display(ctx, tool_call);
 	/* Do not redraw calls already presented live. */
 	banded = (shell || agent) && !session_display &&
-		 (fyai_sink_bands_available(ctx->sink) ||
+		 (fyai_sink_bands_available(ctx->front->sink) ||
 		  (shell && cfg->agent_pty));
 	/* A displayed sub-agent's surface already carries the call header. */
 	agent_display = agent && fyai_ui_active(ctx);
@@ -316,25 +316,25 @@ static fy_generic fyai_finish_tool_call(struct fyai_ctx *ctx, fy_generic turn,
 	if (!session_display && !agent_display &&
 	    !(shell && cfg->agent_pty && !execute) &&
 	    (fyai_agent_delegated(ctx) || !cfg->markdown || banded ||
-	     (marked && fyai_sink_bands_available(ctx->sink))))
+	     (marked && fyai_sink_bands_available(ctx->front->sink))))
 		fyai_print_tool_call(ctx, tool_call, execute);
 	if (cfg->debug)
 		emit_generic_to_sink(ctx, "tool-call", tool_call, cfg->pretty);
 
 	if (execute)
 		tool_result = fyai_execute_tool_call(ctx, tool_call, &tool_ok);
-	if (marked && fyai_sink_bands_available(ctx->sink)) {
+	if (marked && fyai_sink_bands_available(ctx->front->sink)) {
 		/* The patch resolves while it runs; show what it resolved. */
 		fyai_patch_band_refresh(ctx, tool_call);
 		cause = tool_ok ? NULL : fyai_tool_error_cause(tool_result);
-		fyai_sink_band_close(ctx->sink, tool_ok, cause);
+		fyai_sink_band_close(ctx->front->sink, tool_ok, cause);
 		free(cause);
 		if (agent)
 			(void)fyai_ui_commit(ctx, "\n", 1);
 	}
 	if (isolated_tool && !session_display) {
 		/* Store the result in the transcript path. */
-		if (marked && fyai_sink_bands_available(ctx->sink))
+		if (marked && fyai_sink_bands_available(ctx->front->sink))
 			fyai_render_tool_result_exchange(ctx, tool_call,
 						 tool_result);
 		else if (!banded)
@@ -2514,8 +2514,8 @@ void fyai_cleanup(struct fyai_ctx *ctx)
 	fyai_settings_release(ctx);
 	fyai_home_release(ctx);
 	fyai_cleanup_transient_builder(ctx);
-	fyai_sink_destroy(ctx->sink);
-	ctx->sink = NULL;
+	fyai_sink_destroy(ctx->front->sink);
+	ctx->front->sink = NULL;
 	/* After the renderers, which settle what they showed. */
 	fyai_ask_abandon(ctx);
 
@@ -2746,6 +2746,7 @@ int fyai_setup(struct fyai_ctx *ctx, struct fyai_app *app)
 	ctx->bstate = &app->bstate;
 	ctx->turn = &app->turn;
 	ctx->jobs = &app->jobs;
+	ctx->front = &app->front;
 	ctx->astate = &app->astate;
 	ctx->usage = &app->usage;
 	ctx->scope = &app->scope;
@@ -2767,9 +2768,9 @@ int fyai_setup(struct fyai_ctx *ctx, struct fyai_app *app)
 					   &ctx->tty->cols);
 
 	/* Before anything can render: every later step reports through it. */
-	ctx->sink = cfg->sink_frames ? fyai_sink_create_frames(ctx, STDOUT_FILENO) :
+	ctx->front->sink = cfg->sink_frames ? fyai_sink_create_frames(ctx, STDOUT_FILENO) :
 		    fyai_sink_create(ctx);
-	if (!ctx->sink)
+	if (!ctx->front->sink)
 		goto err;
 
 	ctx->tools = fy_invalid;
@@ -3317,7 +3318,7 @@ int fyai_prompt_batch(struct fyai_ctx *ctx)
 	 * terminal - piped/redirected output stays byte-clean for scripting.
 	 */
 	if (ctx->tty->stdout_tty)
-		(void)fyai_sink_write(ctx->sink, FYAI_SINK_TRANSCRIPT, "\n", 1);
+		(void)fyai_sink_write(ctx->front->sink, FYAI_SINK_TRANSCRIPT, "\n", 1);
 
 	rc = fyai_publish_state(ctx);
 	if (rc)
@@ -3374,7 +3375,7 @@ static void fyai_interactive_finish_output(struct fyai_ctx *ctx)
 	fyai_ui_drain_output(ctx);
 	fyai_session_banner_update(ctx);
 	if (ctx->cfg->markdown && ctx->tty->stdout_tty)
-		(void)fyai_sink_write(ctx->sink, FYAI_SINK_TRANSCRIPT, "\n", 1);
+		(void)fyai_sink_write(ctx->front->sink, FYAI_SINK_TRANSCRIPT, "\n", 1);
 }
 
 /* Prepare the common interactive surface before entering its input loop. */
@@ -3490,7 +3491,7 @@ static int fyai_interactive_handle_slash(struct fyai_ctx *ctx,
 	fyai_error_check(ctx, rc >= 0, out,
 			 "could not run the slash command");
 	if (transcript && ctx->cfg->markdown && ctx->tty->stdout_tty)
-		(void)fyai_sink_write(ctx->sink, FYAI_SINK_TRANSCRIPT, "\n", 1);
+		(void)fyai_sink_write(ctx->front->sink, FYAI_SINK_TRANSCRIPT, "\n", 1);
 out:
 	fyai_ui_drain_output(ctx);
 	return rc < 0 ? rc : rc > 0 ? 1 : 0;
@@ -3690,11 +3691,11 @@ static void fyai_interactive_catalog_update_step(struct fyai_ctx *ctx)
 {
 	int rc;
 
-	if (!fyai_catalog_update_done(ctx->catalog_update))
+	if (!fyai_catalog_update_done(ctx->front->catalog_update))
 		return;
-	rc = fyai_catalog_update_collect(ctx->catalog_update);
-	fyai_catalog_update_destroy(ctx->catalog_update);
-	ctx->catalog_update = NULL;
+	rc = fyai_catalog_update_collect(ctx->front->catalog_update);
+	fyai_catalog_update_destroy(ctx->front->catalog_update);
+	ctx->front->catalog_update = NULL;
 	if (!rc)
 		rc = fyai_config_rederive(ctx);
 	/* A failed update leaves the catalogue as it was; the session goes on. */
@@ -3705,12 +3706,12 @@ int fyai_interactive_config_edit_step(struct fyai_ctx *ctx)
 {
 	int rc;
 
-	if (!ctx->config_edit ||
-	    !fyai_config_edit_done(ctx->config_edit))
+	if (!ctx->front->config_edit ||
+	    !fyai_config_edit_done(ctx->front->config_edit))
 		return 0;
-	rc = fyai_config_edit_collect(ctx->config_edit);
-	fyai_config_edit_destroy(ctx->config_edit);
-	ctx->config_edit = NULL;
+	rc = fyai_config_edit_collect(ctx->front->config_edit);
+	fyai_config_edit_destroy(ctx->front->config_edit);
+	ctx->front->config_edit = NULL;
 	fyai_error_check(ctx, !rc, err,
 			 "could not collect the configuration edit");
 	rc = fyai_config_rederive(ctx);
@@ -4009,7 +4010,7 @@ static int fyai_prompt_interactive_async(struct fyai_ctx *ctx)
 		}
 
 		/* Submit events only between turns. */
-		if (!run && gated && !ctx->config_edit && !ctx->cmd_call &&
+		if (!run && gated && !ctx->front->config_edit && !ctx->front->cmd_call &&
 		    fyai_event_queued(ctx)) {
 			/*
 			 * A wait whose owner settled since the poll is
@@ -4039,7 +4040,7 @@ static int fyai_prompt_interactive_async(struct fyai_ctx *ctx)
 		if (!run)
 			(void)fyai_cmd_session_step(ctx);
 		if ((!run || fyai_ui_has_line(ctx)) && gated &&
-		    !ctx->config_edit && !ctx->cmd_call) {
+		    !ctx->front->config_edit && !ctx->front->cmd_call) {
 			line_result = fyai_interactive_read_line(ctx, histfile, &run);
 			if (line_result == FYAILR_QUIT) {
 				quit = true;
@@ -4073,13 +4074,13 @@ out:
 		fyai_turn_run_destroy(run);
 		fyai_session_turn_set(ctx, false);
 	}
-	if (ctx->config_edit) {
-		fyai_config_edit_cancel(ctx->config_edit);
-		fyai_config_edit_destroy(ctx->config_edit);
-		ctx->config_edit = NULL;
+	if (ctx->front->config_edit) {
+		fyai_config_edit_cancel(ctx->front->config_edit);
+		fyai_config_edit_destroy(ctx->front->config_edit);
+		ctx->front->config_edit = NULL;
 	}
-	fyai_catalog_update_destroy(ctx->catalog_update);
-	ctx->catalog_update = NULL;
+	fyai_catalog_update_destroy(ctx->front->catalog_update);
+	ctx->front->catalog_update = NULL;
 	fyai_cmd_session_cancel(ctx);
 	/* Reclaim the active turn's builder or a lingering idle scratch one. */
 	fyai_cleanup_transient_builder(ctx);

@@ -51,7 +51,7 @@ static void uilog_append(struct fyai_uilog *l, fy_generic part)
 static void uilog_diag(void *user, fy_generic item)
 {
 	struct fyai_ctx *ctx = user;
-	struct fyai_uilog *l = ctx->uilog;
+	struct fyai_uilog *l = ctx->front->uilog;
 	enum fyai_error_type type;
 
 	if (!l || !l->open)
@@ -67,13 +67,13 @@ void fyai_uilog_begin(struct fyai_ctx *ctx)
 {
 	struct fyai_uilog *l;
 
-	if (!ctx || ctx->uimodel_detached)
+	if (!ctx || ctx->front->uimodel_detached)
 		return;
-	l = ctx->uilog;
+	l = ctx->front->uilog;
 	if (!l) {
 		l = calloc(1, sizeof(*l));
 		fyai_error_check(ctx, l, err, "cannot keep the log of the session");
-		ctx->uilog = l;
+		ctx->front->uilog = l;
 	}
 	if (!l->gb) {
 		l->gb = fyai_uimodel_builder_new(ctx);
@@ -94,7 +94,7 @@ err:
 void fyai_uilog_sink(struct fyai_ctx *ctx, enum fyai_sink_stream stream,
 		     bool markdown, const char *text, size_t len)
 {
-	struct fyai_uilog *l = ctx ? ctx->uilog : NULL;
+	struct fyai_uilog *l = ctx ? ctx->front->uilog : NULL;
 
 	if (!l || !l->open)
 		return;
@@ -106,7 +106,7 @@ void fyai_uilog_sink(struct fyai_ctx *ctx, enum fyai_sink_stream stream,
 void fyai_uilog_sink_source(struct fyai_ctx *ctx, enum fyai_sink_stream stream,
 			    const char *md, size_t len)
 {
-	struct fyai_uilog *l = ctx ? ctx->uilog : NULL;
+	struct fyai_uilog *l = ctx ? ctx->front->uilog : NULL;
 
 	if (!l || !l->open)
 		return;
@@ -117,7 +117,7 @@ void fyai_uilog_sink_source(struct fyai_ctx *ctx, enum fyai_sink_stream stream,
 
 void fyai_uilog_end(struct fyai_ctx *ctx, const char *title, bool error)
 {
-	struct fyai_uilog *l = ctx ? ctx->uilog : NULL;
+	struct fyai_uilog *l = ctx ? ctx->front->uilog : NULL;
 	struct fy_generic_builder *gb;
 	fy_generic entries, kept, entry, item;
 	enum fyai_error_type level;
@@ -155,7 +155,7 @@ void fyai_uilog_end(struct fyai_ctx *ctx, const char *title, bool error)
 
 void fyai_uilog_release(struct fyai_ctx *ctx)
 {
-	struct fyai_uilog *l = ctx ? ctx->uilog : NULL;
+	struct fyai_uilog *l = ctx ? ctx->front->uilog : NULL;
 
 	if (!l)
 		return;
@@ -163,5 +163,5 @@ void fyai_uilog_release(struct fyai_ctx *ctx)
 		fyai_diag_drain_tap(NULL, NULL);
 	fy_generic_builder_destroy(l->gb);
 	free(l);
-	ctx->uilog = NULL;
+	ctx->front->uilog = NULL;
 }

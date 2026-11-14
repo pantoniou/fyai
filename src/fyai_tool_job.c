@@ -758,7 +758,7 @@ static void fyai_tool_job_band_open(struct fyai_tool_job *job)
 	size_t lines = fyai_tool_history_lines(ctx);
 	int rc = -1;
 
-	job->band = fyai_sink_band_open(ctx->sink, false, NULL, NULL);
+	job->band = fyai_sink_band_open(ctx->front->sink, false, NULL, NULL);
 	if (job->band && job->agent) {
 		/* The progress of a sub-agent is its prose: a quoted stream. */
 		rc = fyai_markdown_quote_stream_start(&job->stream, ctx,
@@ -1212,7 +1212,7 @@ static int fyai_tool_job_submit_display(struct fyai_ctx *ctx,
 	}
 	/* A worker with no display has bands while a client reads it. */
 	if (fy_any_equal(name, "shell", "agent") &&
-	    fyai_sink_bands_available(ctx->sink)) {
+	    fyai_sink_bands_available(ctx->front->sink)) {
 		if (fy_equal(name, "agent")) {
 			if (job->btw) {
 				job->title = strdup("**btw**\n");

@@ -845,7 +845,7 @@ static int fyai_diff_present(struct fyai_ctx *ctx, const char *diff)
 	}
 	fyai_error_check(ctx, !rc, out, "diff: out of memory colouring the "
 			 "diff");
-	rc = fyai_sink_write(ctx->sink, FYAI_SINK_NOTICE, out.data ? out.data : "",
+	rc = fyai_sink_write(ctx->front->sink, FYAI_SINK_NOTICE, out.data ? out.data : "",
 			     out.len);
 out:
 	free(out.data);
@@ -862,7 +862,7 @@ static int fyai_diff_view(struct fyai_ctx *ctx, const char *diff)
 	rc = markdown_diff_render(ctx->cfg, diff, strlen(diff), &out, &len);
 	if (rc)
 		return -1;	/* markdown_diff_render() says why */
-	rc = fyai_sink_write(ctx->sink, FYAI_SINK_NOTICE, out, len);
+	rc = fyai_sink_write(ctx->front->sink, FYAI_SINK_NOTICE, out, len);
 	fymd_free(out);
 	return rc;
 }
@@ -930,7 +930,7 @@ int fyai_present_diff(struct fyai_ctx *ctx, const char *diff, bool unified)
 	int rc;
 
 	if (!ctx->tty->stdout_tty || !markdown_color_enabled(ctx->cfg->color))
-		return fyai_sink_write(ctx->sink, FYAI_SINK_NOTICE, diff,
+		return fyai_sink_write(ctx->front->sink, FYAI_SINK_NOTICE, diff,
 				     strlen(diff));
 	/* The unified rows are for tools: they keep the bytes of the patch. */
 	if (unified || !ctx->cfg->markdown)
@@ -1182,9 +1182,9 @@ static int fyai_emit_stats_markdown(struct fyai_ctx *ctx, fy_generic stats)
 	fclose(mf);
 
 	if (args->format == FYAIOF_RAW)
-		(void)fyai_sink_write(ctx->sink, FYAI_SINK_NOTICE, md, mdlen);
+		(void)fyai_sink_write(ctx->front->sink, FYAI_SINK_NOTICE, md, mdlen);
 	else
-		(void)fyai_sink_markdown(ctx->sink, FYAI_SINK_NOTICE, md);
+		(void)fyai_sink_markdown(ctx->front->sink, FYAI_SINK_NOTICE, md);
 	free(md);
 	return 0;
 }
@@ -1207,8 +1207,8 @@ static int fyai_emit_stats_generic(struct fyai_ctx *ctx, fy_generic stats,
 		return -1;
 	/* Machine output: written as emitted, never rendered. */
 	text = fy_castp(&emitted, "");
-	(void)fyai_sink_write(ctx->sink, FYAI_SINK_MACHINE, text, strlen(text));
-	(void)fyai_sink_write(ctx->sink, FYAI_SINK_MACHINE, "\n", 1);
+	(void)fyai_sink_write(ctx->front->sink, FYAI_SINK_MACHINE, text, strlen(text));
+	(void)fyai_sink_write(ctx->front->sink, FYAI_SINK_MACHINE, "\n", 1);
 	return 0;
 }
 
@@ -1992,7 +1992,7 @@ void fyai_print_login_url(struct fyai_ctx *ctx, const char *lead,
 			     markdown_color_enabled(ctx->cfg->color),
 			     ctx->cfg->theme_variant) &&
 	    out.data && out.len) {
-		(void)fyai_sink_write(ctx->sink, FYAI_SINK_TRANSCRIPT, out.data,
+		(void)fyai_sink_write(ctx->front->sink, FYAI_SINK_TRANSCRIPT, out.data,
 				      out.len);
 		free(out.data);
 		return;
@@ -2001,7 +2001,7 @@ void fyai_print_login_url(struct fyai_ctx *ctx, const char *lead,
 	/* fy_sprintfa() returns frame storage; it is not freed. */
 	plain = fy_sprintfa("%s\n%s\n", lead, url);
 	if (plain)
-		(void)fyai_sink_write(ctx->sink, FYAI_SINK_TRANSCRIPT, plain,
+		(void)fyai_sink_write(ctx->front->sink, FYAI_SINK_TRANSCRIPT, plain,
 				      strlen(plain));
 }
 
@@ -2814,7 +2814,7 @@ static void fyai_render_tool_exchange_common(struct fyai_ctx *ctx,
 				(void)fyai_display_tool_head(ctx, title,
 					strlen(title), tool_ok, cause);
 			if (body.len)
-				(void)fyai_sink_write(ctx->sink,
+				(void)fyai_sink_write(ctx->front->sink,
 					FYAI_SINK_TRANSCRIPT, body.data,
 					body.len);
 		}
@@ -2822,7 +2822,7 @@ static void fyai_render_tool_exchange_common(struct fyai_ctx *ctx,
 		free(body.data);
 	}
 	/* The shared renderer draws the result frameless and row-bounded. */
-	fyai_render_tool_result(ctx->sink, cfg, tv.shown, tv.lang,
+	fyai_render_tool_result(ctx->front->sink, cfg, tv.shown, tv.lang,
 				tv.preview_lines);
 	free(cause);
 	fyai_tool_view_cleanup(&tv);
@@ -2867,7 +2867,7 @@ int fyai_record_shell_screen(struct fyai_ctx *ctx, const char *description,
 	int rc;
 
 	/* A stored turn has no open output document. */
-	if (!ctx || !ctx->display_output)
+	if (!ctx || !ctx->front->display_output)
 		return 0;
 	gb = fyai_ctx_transient_gb(ctx);
 	if (!gb)
@@ -2952,7 +2952,7 @@ int fyai_present_tool_diff(struct fyai_ctx *ctx, const char *diff)
 	int rc, lines;
 
 	/* A stored turn has no open output document. */
-	if (!ctx || !ctx->display_output || fy_str_empty(diff))
+	if (!ctx || !ctx->front->display_output || fy_str_empty(diff))
 		return 0;
 	cfg = ctx->cfg;
 	length = strlen(diff);
@@ -2964,10 +2964,10 @@ int fyai_present_tool_diff(struct fyai_ctx *ctx, const char *diff)
 
 	/* Draw it as the replay draws it: one fenced block of the language diff. */
 	lines = fyai_tool_preview_lines(cfg, "diff");
-	rc = fyai_sink_unit(ctx->sink, FYAI_SINK_TRANSCRIPT, FYAI_FLOW_TOOL_TEXT);
+	rc = fyai_sink_unit(ctx->front->sink, FYAI_SINK_TRANSCRIPT, FYAI_FLOW_TOOL_TEXT);
 	fyai_error_check(ctx, !rc, err_resume, "could not fence the tool diff");
-	fyai_print_tool_separator(ctx->sink, cfg);
-	fyai_print_fenced(ctx->sink, cfg, diff, length, "diff", fy_invalid,
+	fyai_print_tool_separator(ctx->front->sink, cfg);
+	fyai_print_fenced(ctx->front->sink, cfg, diff, length, "diff", fy_invalid,
 			  lines < 0 ? 0 : (size_t)lines);
 
 	/* Store the source that was drawn, with the separator outside the fragment. */
@@ -3017,7 +3017,7 @@ int fyai_present_hosted_call(struct fyai_ctx *ctx, const char *name,
 	int rc;
 
 	/* A stored turn has no open output document. */
-	if (!ctx || !ctx->display_output)
+	if (!ctx || !ctx->front->display_output)
 		return 0;
 	rc = fyai_output_start_block(ctx);
 	fyai_error_check(ctx, !rc, err,
@@ -3064,7 +3064,7 @@ int fyai_present_hosted_call(struct fyai_ctx *ctx, const char *name,
 			} else if (!strcmp(action, "find_in_page")) {
 				detail = fy_get(args, "pattern", "");
 			}
-			(void)fyai_sink_printf(ctx->sink, FYAI_SINK_STATUS,
+			(void)fyai_sink_printf(ctx->front->sink, FYAI_SINK_STATUS,
 				"%s%s%s%s%s%s\n", name,
 				*verb ? " " : "", verb,
 				*detail ? " " : "", detail,
@@ -3339,7 +3339,7 @@ static int fyai_display_markdown_range(struct fyai_ctx *ctx, const char *md,
 		return 0;
 	slice = strndup(md + start, end - start);
 	fyai_error_check(ctx, slice, out, "could not copy display Markdown");
-	rc = fyai_sink_markdown(ctx->sink, FYAI_SINK_TRANSCRIPT, slice);
+	rc = fyai_sink_markdown(ctx->front->sink, FYAI_SINK_TRANSCRIPT, slice);
 	free(slice);
 	fyai_error_check(ctx, !rc, out, "could not render display Markdown");
 	return 0;
@@ -3366,10 +3366,10 @@ static int fyai_display_tool_head(struct fyai_ctx *ctx, const char *md,
 				       markdown_gutter_blank(ctx->cfg),
 				       markdown_gutter_blank(ctx->cfg), &head);
 	if (!rc && head.len) {
-		rc = fyai_sink_unit(ctx->sink, FYAI_SINK_TRANSCRIPT,
+		rc = fyai_sink_unit(ctx->front->sink, FYAI_SINK_TRANSCRIPT,
 				    FYAI_FLOW_TOOL_HEAD);
 		if (!rc)
-			rc = fyai_sink_write(ctx->sink, FYAI_SINK_TRANSCRIPT,
+			rc = fyai_sink_write(ctx->front->sink, FYAI_SINK_TRANSCRIPT,
 					     head.data, head.len);
 	}
 	free(margin);
@@ -3386,7 +3386,7 @@ static int fyai_display_tool_body(struct fyai_ctx *ctx, const char *md,
 
 	rc = view_append_block(ctx, &body, md, len, lang, max_lines);
 	if (!rc && body.len)
-		rc = fyai_sink_write(ctx->sink, FYAI_SINK_TRANSCRIPT,
+		rc = fyai_sink_write(ctx->front->sink, FYAI_SINK_TRANSCRIPT,
 				     body.data, body.len);
 	free(body.data);
 	return rc;
@@ -3522,11 +3522,11 @@ static int render_walk_gap(void *user, const char *md, size_t len,
 
 	if (!range_has_content(md, len))
 		return 0;
-	flow = fyai_sink_flow(w->ctx->sink);
+	flow = fyai_sink_flow(w->ctx->front->sink);
 	/* A gap inside a tool exchange is part of that exchange. */
 	if (!flow || !fyai_flow_unit_is_tool(flow->prev) ||
 	    !fyai_flow_unit_is_tool(next)) {
-		rc = fyai_sink_unit(w->ctx->sink, FYAI_SINK_TRANSCRIPT,
+		rc = fyai_sink_unit(w->ctx->front->sink, FYAI_SINK_TRANSCRIPT,
 				    FYAI_FLOW_PROSE);
 		if (rc)
 			return rc;
@@ -3556,7 +3556,7 @@ static int render_walk_unit(void *user, const struct fyai_fragment *f)
 		fyai_error_check(ctx, !rc, out, "could not replay a tool title");
 		return 0;
 	case FYAI_FLOW_TOOL_BODY:
-		rc = fyai_sink_unit(ctx->sink, FYAI_SINK_TRANSCRIPT, f->unit);
+		rc = fyai_sink_unit(ctx->front->sink, FYAI_SINK_TRANSCRIPT, f->unit);
 		fyai_error_check(ctx, !rc, out, "could not fence a tool body");
 		rc = fyai_display_tool_body(ctx, f->md, f->len, f->lang,
 					    f->preview_lines > 0 ?
@@ -3565,10 +3565,10 @@ static int render_walk_unit(void *user, const struct fyai_fragment *f)
 		return 0;
 	case FYAI_FLOW_TOOL_TEXT:
 		/* Recorded terminal source draws as a tool result. */
-		rc = fyai_sink_unit(ctx->sink, FYAI_SINK_TRANSCRIPT, f->unit);
+		rc = fyai_sink_unit(ctx->front->sink, FYAI_SINK_TRANSCRIPT, f->unit);
 		fyai_error_check(ctx, !rc, out, "could not fence a tool screen");
-		fyai_print_tool_separator(ctx->sink, cfg);
-		fyai_print_fenced(ctx->sink, cfg, f->md, f->len,
+		fyai_print_tool_separator(ctx->front->sink, cfg);
+		fyai_print_fenced(ctx->front->sink, cfg, f->md, f->len,
 				  *f->lang ? f->lang : NULL, fy_invalid,
 				  f->preview_lines < 0 ? 0 :
 				  (size_t)f->preview_lines);
@@ -3576,14 +3576,14 @@ static int render_walk_unit(void *user, const struct fyai_fragment *f)
 	case FYAI_FLOW_TOOL_RESULT:
 		fyai_error_check(ctx, fy_is_valid(f->content), out,
 				 "missing a stored tool result");
-		rc = fyai_sink_unit(ctx->sink, FYAI_SINK_TRANSCRIPT, f->unit);
+		rc = fyai_sink_unit(ctx->front->sink, FYAI_SINK_TRANSCRIPT, f->unit);
 		fyai_error_check(ctx, !rc, out, "could not fence a tool result");
 		/* The stored source is the Markdown the tool wrote for the user. */
 		if (!strcmp(f->lang, FYAI_RESULT_MARKDOWN)) {
-			fyai_render_tool_markdown(ctx->sink, cfg, f->md, f->len);
+			fyai_render_tool_markdown(ctx->front->sink, cfg, f->md, f->len);
 			return 0;
 		}
-		fyai_render_tool_result(ctx->sink, cfg, f->content, f->lang,
+		fyai_render_tool_result(ctx->front->sink, cfg, f->content, f->lang,
 					f->preview_lines);
 		return 0;
 	default:
@@ -3661,18 +3661,18 @@ static void fyai_display_command_output(struct fyai_ctx *ctx,
 	(void)fyai_render_display_output(ctx, "user", line);
 	if (!len)
 		return;
-	(void)fyai_sink_unit(ctx->sink, FYAI_SINK_TRANSCRIPT, FYAI_FLOW_NOTICE);
+	(void)fyai_sink_unit(ctx->front->sink, FYAI_SINK_TRANSCRIPT, FYAI_FLOW_NOTICE);
 	if (markdown_command_ground(ctx->cfg, &bg) &&
 	    !markdown_ground_rows(ctx->cfg, bg, text, len, &washed) &&
 	    washed.len)
-		(void)fyai_sink_write(ctx->sink, FYAI_SINK_TRANSCRIPT,
+		(void)fyai_sink_write(ctx->front->sink, FYAI_SINK_TRANSCRIPT,
 				      washed.data, washed.len);
 	else
-		(void)fyai_sink_write(ctx->sink, FYAI_SINK_TRANSCRIPT, text,
+		(void)fyai_sink_write(ctx->front->sink, FYAI_SINK_TRANSCRIPT, text,
 				      len);
 	free(washed.data);
 	if (text[len - 1] != '\n')
-		(void)fyai_sink_write(ctx->sink, FYAI_SINK_TRANSCRIPT, "\n", 1);
+		(void)fyai_sink_write(ctx->front->sink, FYAI_SINK_TRANSCRIPT, "\n", 1);
 }
 
 static int fyai_display_stored_outputs(struct fyai_ctx *ctx,
@@ -3698,26 +3698,26 @@ static int fyai_display_stored_outputs(struct fyai_ctx *ctx,
 			if (!cfg->transcript_system && fy_equal(tag, "system"))
 				continue;
 			if (args->raw && emitted)
-				(void)fyai_sink_write(ctx->sink,
+				(void)fyai_sink_write(ctx->front->sink,
 					FYAI_SINK_TRANSCRIPT, "\n\n", 2);
 			if (emitted &&
 			    fy_any_equal(tag, "user", "agent", "system") &&
 			    cfg->turn_separator &&
 			    *cfg->turn_separator) {
 				if (args->raw) {
-					(void)fyai_sink_write(ctx->sink,
+					(void)fyai_sink_write(ctx->front->sink,
 						FYAI_SINK_TRANSCRIPT,
 						cfg->turn_separator,
 						strlen(cfg->turn_separator));
-					(void)fyai_sink_write(ctx->sink,
+					(void)fyai_sink_write(ctx->front->sink,
 						FYAI_SINK_TRANSCRIPT, "\n\n", 2);
 				} else
-					(void)fyai_sink_markdown(ctx->sink,
+					(void)fyai_sink_markdown(ctx->front->sink,
 						FYAI_SINK_TRANSCRIPT,
 						cfg->turn_separator);
 			}
 			if (args->raw)
-				(void)fyai_sink_write(ctx->sink,
+				(void)fyai_sink_write(ctx->front->sink,
 					FYAI_SINK_TRANSCRIPT, md, strlen(md));
 			else if (fy_equal(tag, "assistant")) {
 				if (fyai_display_assistant_output(ctx, output, md,
@@ -3773,7 +3773,7 @@ static int fyai_display_flush_reopen(struct fyai_display_render *view)
 	fyai_error_check(view->ctx, !rc, out,
 			 "could not finish the display buffer");
 	if (view->md)
-		(void)fyai_sink_markdown(view->ctx->sink, FYAI_SINK_TRANSCRIPT,
+		(void)fyai_sink_markdown(view->ctx->front->sink, FYAI_SINK_TRANSCRIPT,
 					 view->md);
 	free(view->md);
 	view->md = NULL;
@@ -3843,7 +3843,7 @@ static int fyai_display_message(struct fyai_display_render *view,
 		fyai_error_check(view->ctx, !rc, out,
 				 "could not flush the display buffer");
 		if (view->emitted)
-			(void)fyai_sink_write(view->ctx->sink,
+			(void)fyai_sink_write(view->ctx->front->sink,
 					      FYAI_SINK_TRANSCRIPT, "\n", 1);
 		fyai_print_user_turn(view->ctx, fyai_msg_text(&c), false);
 		view->prev_tool = true;
@@ -3857,7 +3857,7 @@ static int fyai_display_message(struct fyai_display_render *view,
 		fyai_error_check(view->ctx, !rc, out,
 				 "could not flush the display buffer");
 		rlang = fyai_read_result_lang(view->reads, &c);
-		fyai_render_tool_result(view->ctx->sink, view->cfg, result, rlang,
+		fyai_render_tool_result(view->ctx->front->sink, view->cfg, result, rlang,
 					view->cfg->tool_preview_lines);
 		free(rlang);
 		view->prev_tool = c.tool_related;
@@ -3928,18 +3928,18 @@ static int fyai_display_finish(struct fyai_display_render *view)
 			 "could not finish the display buffer");
 	if (view->md) {
 		if (view->args->raw)
-			(void)fyai_sink_write(view->ctx->sink,
+			(void)fyai_sink_write(view->ctx->front->sink,
 					      FYAI_SINK_TRANSCRIPT, view->md,
 					      strlen(view->md));
 		else
-			(void)fyai_sink_markdown(view->ctx->sink,
+			(void)fyai_sink_markdown(view->ctx->front->sink,
 						 FYAI_SINK_TRANSCRIPT,
 						 view->md);
 	}
 	free(view->md);
 	view->md = NULL;
 	if (view->ctx->tty->stdout_tty && !view->args->raw)
-		(void)fyai_sink_write(view->ctx->sink, FYAI_SINK_TRANSCRIPT,
+		(void)fyai_sink_write(view->ctx->front->sink, FYAI_SINK_TRANSCRIPT,
 				      "\n", 1);
 	return 0;
 out:
@@ -4108,7 +4108,7 @@ int fyai_display_view(struct fyai_ctx *ctx)
 	fyai_error_check(ctx, !rc, err_out,
 			 "could not render the conversation");
 	if (ctx->tty->stdout_tty && !args->raw)
-		(void)fyai_sink_write(ctx->sink, FYAI_SINK_TRANSCRIPT, "\n", 1);
+		(void)fyai_sink_write(ctx->front->sink, FYAI_SINK_TRANSCRIPT, "\n", 1);
 	rc = 0;
 
 err_out:
@@ -4937,7 +4937,7 @@ static void card_write(struct fyai_ctx *ctx, bool live, const char *buf,
 	if (live && fyai_ui_active(ctx))
 		(void)fyai_ui_commit(ctx, buf, len);
 	else
-		(void)fyai_sink_write(ctx->sink, FYAI_SINK_TRANSCRIPT, buf, len);
+		(void)fyai_sink_write(ctx->front->sink, FYAI_SINK_TRANSCRIPT, buf, len);
 }
 
 static void fyai_bubble_fence(struct fyai_ctx *ctx, const char *on,
@@ -5018,9 +5018,9 @@ static void fyai_print_card(struct fyai_ctx *ctx, const char *line, bool live)
 	free(quoted);
 
 	/* The card is one unit. Its rows continue it. */
-	flow = fyai_sink_flow(ctx->sink);
+	flow = fyai_sink_flow(ctx->front->sink);
 	fenced = markdown_reverse_pair(cfg, &on, &off);
-	(void)fyai_sink_unit(ctx->sink, FYAI_SINK_TRANSCRIPT,
+	(void)fyai_sink_unit(ctx->front->sink, FYAI_SINK_TRANSCRIPT,
 			     FYAI_FLOW_USER_CARD);
 	fyai_flow_emitted(flow, FYAI_FLOW_PROSE, true);
 
@@ -5084,11 +5084,11 @@ int fyai_render_display_output(struct fyai_ctx *ctx, const char *tag,
 		while (quotedlen > 1 && quoted[quotedlen - 1] == '\n' &&
 		       quoted[quotedlen - 2] == '\n')
 			quotedlen--;
-		(void)fyai_sink_unit(ctx->sink, FYAI_SINK_TRANSCRIPT,
+		(void)fyai_sink_unit(ctx->front->sink, FYAI_SINK_TRANSCRIPT,
 				     FYAI_FLOW_USER_CARD);
-		(void)fyai_sink_write(ctx->sink, FYAI_SINK_TRANSCRIPT, quoted,
+		(void)fyai_sink_write(ctx->front->sink, FYAI_SINK_TRANSCRIPT, quoted,
 				      quotedlen);
-		fyai_flow_emitted(fyai_sink_flow(ctx->sink),
+		fyai_flow_emitted(fyai_sink_flow(ctx->front->sink),
 				  FYAI_FLOW_USER_CARD, true);
 		free(quoted);
 		return 0;
@@ -5097,12 +5097,12 @@ int fyai_render_display_output(struct fyai_ctx *ctx, const char *tag,
 		styled = fy_sprintfa("**System**\n\n*%s*\n\n", markdown);
 		if (!styled)
 			return -1;
-		(void)fyai_sink_unit(ctx->sink, FYAI_SINK_TRANSCRIPT,
+		(void)fyai_sink_unit(ctx->front->sink, FYAI_SINK_TRANSCRIPT,
 				     FYAI_FLOW_SYSTEM);
-		(void)fyai_sink_markdown(ctx->sink, FYAI_SINK_TRANSCRIPT, styled);
+		(void)fyai_sink_markdown(ctx->front->sink, FYAI_SINK_TRANSCRIPT, styled);
 		return 0;
 	}
-	(void)fyai_sink_unit(ctx->sink, FYAI_SINK_TRANSCRIPT, FYAI_FLOW_PROSE);
-	(void)fyai_sink_markdown(ctx->sink, FYAI_SINK_TRANSCRIPT, markdown);
+	(void)fyai_sink_unit(ctx->front->sink, FYAI_SINK_TRANSCRIPT, FYAI_FLOW_PROSE);
+	(void)fyai_sink_markdown(ctx->front->sink, FYAI_SINK_TRANSCRIPT, markdown);
 	return 0;
 }

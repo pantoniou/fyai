@@ -92,10 +92,10 @@ int fyai_cmd_cast_play(struct fyai_cmd_call *call, fy_generic *result)
 		}
 		data = fy_get_at(ev, 2);
 		text = fy_castp(&data, "");
-		(void)fyai_sink_write(ctx->sink, FYAI_SINK_MACHINE, text, strlen(text));
+		(void)fyai_sink_write(ctx->front->sink, FYAI_SINK_MACHINE, text, strlen(text));
 	}
 	/* What the session left on: put the terminal back. */
-	(void)fyai_sink_write(ctx->sink, FYAI_SINK_MACHINE, CAST_RESET,
+	(void)fyai_sink_write(ctx->front->sink, FYAI_SINK_MACHINE, CAST_RESET,
 			      sizeof(CAST_RESET) - 1);
 	(void)stopped;
 	rc = 0;

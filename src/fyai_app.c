@@ -109,6 +109,14 @@ void fyai_agent_state_init(struct fyai_agent_state *as,
 	as->spawn = fy_invalid;
 }
 
+void fyai_front_init(struct fyai_front *front, struct fyai_loop *loop,
+		     struct fyai_diag *diag)
+{
+	memset(front, 0, sizeof(*front));
+	front->loop = loop;
+	front->diag = diag;
+}
+
 int fyai_app_init(struct fyai_app *app)
 {
 	int rc;
@@ -133,6 +141,7 @@ int fyai_app_init(struct fyai_app *app)
 	fyai_turnstate_init(&app->turn, &app->diag);
 	fyai_jobs_init(&app->jobs, &app->loop, &app->diag);
 	fyai_agent_state_init(&app->astate, &app->bstate, &app->diag);
+	fyai_front_init(&app->front, &app->loop, &app->diag);
 	fyai_link_init(&app->link, &app->loop, &app->cred);
 	fyai_arena_init(&app->arena);
 	fyai_transient_init(&app->transient);

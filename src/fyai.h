@@ -19,6 +19,7 @@
 #include "fyai_branch_state.h"
 #include "fyai_agent_state.h"
 #include "fyai_jobs.h"
+#include "fyai_front.h"
 #include "fyai_link.h"
 #include "fyai_turnstate.h"
 #include "fyai_usage.h"
@@ -745,26 +746,10 @@ struct fyai_ctx {
 
 	/* The event loop component, owned by struct fyai_app (src/fyai_loop.h). */
 	struct fyai_loop *loop;
-	struct fyai_ui *ui;
-	/* The state that renderers read (src/fyai_uimodel.h). */
-	struct fyai_uimodel *uimodel;
-	struct fyai_uiwork *uiwork;	/* the bands of the display (src/fyai_uiwork.h) */
-	/* A copy that renders stored output: it has no UI model. */
-	bool uimodel_detached;
-	/*
-	 * The process publishes the model and draws nothing: a remote worker,
-	 * whose client draws the model it replicates.
-	 */
-	bool uidraw_off;
-	struct fyai_uitranscript *uitranscript;	/* the live document (src/fyai_uitranscript.h) */
-	struct fyai_uilog *uilog;	/* the span of a command (src/fyai_uilog.h) */
-	struct fyai_uidraw *uidraw;	/* the renderer of the model (src/fyai_uidraw.h) */
-	struct fyai_browser *browser;
+	/* The front end component, owned by struct fyai_app. */
+	struct fyai_front *front;
 	/* The sub-agent identity component, owned by struct fyai_app. */
 	struct fyai_agent_state *astate;
-	struct fyai_config_edit_request *config_edit;
-	struct fyai_catalog_update_request *catalog_update;
-	struct fyai_cmd_call *cmd_call;	/* the active async command */
 	fy_generic tools;
 	/* The turn component, owned by struct fyai_app. */
 	struct fyai_turnstate *turn;
@@ -779,19 +764,12 @@ struct fyai_ctx {
 	struct fyai_mcp *mcp;
 	/* The shared refresh of the login and its waiters (fyai_cred.h). */
 	struct fyai_cred *cred;
-	/* The one owner of work-pane geometry, focus, and zoom. */
-	struct fyai_workpane_manager *workpane;
 	/* The tool jobs component, owned by struct fyai_app. */
 	struct fyai_jobs *jobs;
 	/* The waits component, owned by struct fyai_app. */
 	struct fyai_waitq *waitq;
 	/* The questions component, owned by struct fyai_app. */
 	struct fyai_askq *askq;
-	/* The sole progressive transcript document for the active user or
-	 * assistant output. Owned by this context, never by a signal handler. */
-	struct fyai_display_output *display_output;
-	/* The one rendering component. Every byte the user sees goes here. */
-	struct fyai_sink *sink;
 	/* ACP worker notifications share the active turn's event loop. */
 	struct jsonrpc_conn *acp_rpc;
 	const char *acp_agent_message_id;
