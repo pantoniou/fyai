@@ -3,9 +3,8 @@
 Status: the document has four parts.
 
 - Part 1 lists implicit state machines. Open: the shell session end and its
-  display mode (item 2), the `enum` for `struct fyai_xfer` (item 7) and the
-  reset functions of the context clusters. The entries that stay were checked
-  and need no change.
+  display mode (item 2) and the reset of the publish record in a forked child.
+  The entries that stay were checked and need no change.
 - Part 2 plans the split of the TUI from the core. It is a plan, and no step
   is done.
 - "Other cleanups" lists what is open: the parallel-construction oracles
@@ -44,9 +43,9 @@ the code before a change.
   `mcp_teardown_settled()`.
 - A kind is a set of booleans. Examples: `agent`, `exec`, `btw` and
   `native_shell` on a job; `poll`, `sleep` and `on_event` on a waiter.
-- A hand-written reset list stands in for a reset point. The block of the
-  forked tool child (`fyai_tools.c`, about 50 assignments) does not reset
-  `terminate_pending`, `interrupt_*`, `compacting` and `xfer_*`.
+- A hand-written reset list stands in for a reset point. The model transfer,
+  the turn control and the usage of a forked child each have a reset function
+  (`fyai_ctx_fork_disown()`); the publish record has none.
   `auth_retry_done` is not a field of `struct fyai_ctx`: it is a latch of
   `struct fyai_mcp_call_request` and lives and dies with the request.
 - A state enum exists, but side flags change its meaning. Examples:
@@ -85,25 +84,6 @@ the code before a change.
   request tests. `cancelled` is a one-way request and `paused` describes curl,
   not the request. Only `rejected` and `retried` form a sequence, and each is
   read at one site.
-
-### 7. curl transfer
-
-`struct fyai_xfer` (`fyai_xfer.c`) holds the state of one model request in
-flags: `login`, `rekey`, `parked`, `retried`, `started`, `hold`, `cancelled`,
-`deferred` and `finished`. The states are NEW, PARKED (waits for the shared
-refresh), SENT, HELD (a 401 whose body is kept back) and RETRIED
-(`doc/credential-sources-plan.md`, section 4.3).
-
-- Illegal combinations: `parked` with `finished`; `hold` with `started`;
-  `retried` without a first send; `deferred` with `parked`; `login` with
-  `rekey`.
-- `finished` still repeats the end of the request. `cancelled` is a request
-  from outside. `started` and `hold` are the two answers to the first bytes of
-  a response.
-- Not done: replace the flags with an `enum` of the five states and keep
-  `cancelled` and `deferred` as flags. The transitions are in
-  `xfer_curl_complete()`, `xfer_waiter_run()`, `xfer_defer_cb()` and
-  `xfer_write()`. S.
 
 ## Medium priority
 
@@ -176,13 +156,15 @@ reset:
    `branch_store`, `branch_prev`, `branch_desc`, `branch_agent`,
    `project_state`, `session_unstored` (`fyai_branch_adopt()` clears it).
 
-A reset function for each sub-structure, called from `fyai_ctx_fork_disown()`
-and from the forked-child block, would remove the risk of a missed field.
+Clusters 1 to 3 have a reset function that `fyai_ctx_fork_disown()` calls.
+Cluster 1 keeps `xfer_body`, `xfer_url` and `xfer_profile`: the child sends to
+the endpoint of its parent. Cluster 4 has none: a sub-agent sets it from the
+branch table when it selects its branch, and `fyai_ctx_branch_prev_set()` also
+updates the todo model and the session head, which a fork must not do.
 
 ## Suggested order
 
-The sub-structures of the context, with one reset function each, are the open
-step of part 1. The event core, the PTY driver and the markdown stream need no
+The reset of the publish record is the open step of part 1. The event core, the PTY driver and the markdown stream need no
 change.
 
 ## Plan: separate the TUI from the core
