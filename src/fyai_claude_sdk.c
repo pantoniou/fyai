@@ -3427,31 +3427,22 @@ static bool sdk_is_clear(const char *text)
 	return !*text;
 }
 
-int fyai_cmd_claude_sdk(struct fyai_cmd_call *call, fy_generic *result)
+/* Take the session, the settings, the rules and the system prompt. */
+static int sdk_cmd_setup(struct fyai_cmd_call *call, struct sdk_server *srv)
 {
 	struct fyai_ctx *ctx = call->ctx;
 	struct fyai_event_loop *el = fyai_ctx_loop(ctx);
-	struct sdk_server srv;
-	struct sdk_input *in;
-	struct sdk_pending *p;
-	struct sdk_decision *d;
-	struct sdk_tunnel *t;
 	const char *branch, *mode, *text, *session_type;
-	fy_generic allowed, names, tool;
-	double budget;
 	bool found;
-	int chan_out, chan_in, devnull;
-	int rc = -1;
+	int rc;
 
-	(void)result;
-	memset(&srv, 0, sizeof(srv));
-	srv.remote_worker = fyai_cmd_arg_bool(call, "remote_worker");
+	srv->remote_worker = fyai_cmd_arg_bool(call, "remote_worker");
 	/*
 	 * A worker presents nothing: its sink gives the client Markdown and
 	 * bands, which the client renders at its own width. The invocation
 	 * layer keeps it over each change of the configuration.
 	 */
-	if (srv.remote_worker) {
+	if (srv->remote_worker) {
 		ctx->uidraw_off = true;
 		rc = fyai_config_invocation_set(ctx, "display/markdown",
 						fy_true);
@@ -3460,18 +3451,18 @@ int fyai_cmd_claude_sdk(struct fyai_cmd_call *call, fy_generic *result)
 		fyai_error_check(ctx, !rc, out,
 				 "claude-sdk: cannot render for a remote client");
 	}
-	srv.ctx = ctx;
-	srv.tail = &srv.head;
-	srv.denials = fy_seq_empty;
-	srv.agents = fy_seq_empty;
+	srv->ctx = ctx;
+	srv->tail = &srv->head;
+	srv->denials = fy_seq_empty;
+	srv->agents = fy_seq_empty;
 	fyai_error_check(ctx, el, out, "claude-sdk: no event loop");
 
 	branch = fyai_ctx_branch(ctx);
 	/* The ID of an sdk/ branch is its name below the prefix. */
 	found = !strncmp(branch, SDK_BRANCH_PREFIX, strlen(SDK_BRANCH_PREFIX));
-	srv.session_id = strdup(found ? branch + strlen(SDK_BRANCH_PREFIX) :
+	srv->session_id = strdup(found ? branch + strlen(SDK_BRANCH_PREFIX) :
 				branch);
-	fyai_error_check(ctx, srv.session_id, out,
+	fyai_error_check(ctx, srv->session_id, out,
 			 "claude-sdk: cannot keep the session ID");
 	/*
 	 * The session of a fyai client runs as a local session does: the sandbox
@@ -3479,7 +3470,7 @@ int fyai_cmd_claude_sdk(struct fyai_cmd_call *call, fy_generic *result)
 	 */
 	mode = fyai_cmd_arg_str(call, "permission_mode");
 	session_type = fyai_cmd_arg_str(call, "session_type");
-	srv.permission_mode = mode ? mode :
+	srv->permission_mode = mode ? mode :
 			      session_type && !strcmp(session_type, "fyai") ?
 			      "bypassPermissions" : "default";
 	/* A change of the configuration during the session keeps them. */
@@ -3490,22 +3481,33 @@ int fyai_cmd_claude_sdk(struct fyai_cmd_call *call, fy_generic *result)
 	fyai_cleanup_transient_builder(ctx);
 	if (rc)		/* the setter says why */
 		goto out;
-	srv.model = fy_get(ctx->cfg->config_doc, "model", (const char *)NULL);
-	if (srv.model)
-		srv.model = fy_gb_intern_string(ctx->cfg->gb, srv.model);
-	srv.can_use_tool = fyai_cmd_arg_str(call, "permission_prompt_tool") !=
+	srv->model = fy_get(ctx->cfg->config_doc, "model", (const char *)NULL);
+	if (srv->model)
+		srv->model = fy_gb_intern_string(ctx->cfg->gb, srv->model);
+	srv->can_use_tool = fyai_cmd_arg_str(call, "permission_prompt_tool") !=
 			   NULL;
 	text = fyai_cmd_arg_str(call, "allowed_tools");
-	rc = text ? sdk_rules_parse(text, &srv.allow) : 0;
+	rc = text ? sdk_rules_parse(text, &srv->allow) : 0;
 	fyai_error_check(ctx, !rc, out, "claude-sdk: cannot keep the rules");
 	text = fyai_cmd_arg_str(call, "disallowed_tools");
-	rc = text ? sdk_rules_parse(text, &srv.deny) : 0;
+	rc = text ? sdk_rules_parse(text, &srv->deny) : 0;
 	fyai_error_check(ctx, !rc, out, "claude-sdk: cannot keep the rules");
 
-	srv.append = fyai_cmd_arg_str(call, "append_system_prompt");
-	rc = sdk_system_append(&srv);
+	srv->append = fyai_cmd_arg_str(call, "append_system_prompt");
+	rc = sdk_system_append(srv);
 	if (rc)		/* sdk_system_append() says why */
 		goto out;
+	return 0;
+out:
+	return -1;
+}
+
+/* Open the channel of the session and the observers of the turns. */
+static int sdk_cmd_channel(struct sdk_server *srv)
+{
+	struct fyai_ctx *ctx = srv->ctx;
+	int chan_out, chan_in, devnull;
+	int rc;
 
 	rc = -1;
 	/*
@@ -3515,7 +3517,7 @@ int fyai_cmd_claude_sdk(struct fyai_cmd_call *call, fy_generic *result)
 	 */
 	chan_out = STDOUT_FILENO;
 	chan_in = STDIN_FILENO;
-	if (srv.remote_worker) {
+	if (srv->remote_worker) {
 		chan_out = fcntl(STDOUT_FILENO, F_DUPFD_CLOEXEC, 10);
 		chan_in = fcntl(STDIN_FILENO, F_DUPFD_CLOEXEC, 10);
 		devnull = open("/dev/null", O_RDWR | O_CLOEXEC);
@@ -3529,20 +3531,33 @@ int fyai_cmd_claude_sdk(struct fyai_cmd_call *call, fy_generic *result)
 				 "claude-sdk: cannot free the standard descriptors");
 		rc = -1;
 	}
-	srv.conn = jsonrpc_conn_stdio(ctx, chan_out, chan_in, 0,
+	srv->conn = jsonrpc_conn_stdio(ctx, chan_out, chan_in, 0,
 				      "claude-sdk", NULL);
-	fyai_error_check(ctx, srv.conn, out,
+	fyai_error_check(ctx, srv->conn, out,
 			 "claude-sdk: cannot open standard input and output");
 	/* The server of a remote session speaks images to its worker. */
-	if (srv.remote_worker)
-		(void)jsonrpc_conn_set_image(srv.conn);
-	rc = jsonrpc_conn_frames(srv.conn, sdk_frame, &srv);
+	if (srv->remote_worker)
+		(void)jsonrpc_conn_set_image(srv->conn);
+	rc = jsonrpc_conn_frames(srv->conn, sdk_frame, srv);
 	fyai_error_check(ctx, !rc, out,
 			 "claude-sdk: cannot read standard input");
 	ctx->turn_observe = sdk_observe;
-	ctx->turn_observe_data = &srv;
+	ctx->turn_observe_data = srv;
 	ctx->agent_observe = sdk_agent_observe;
-	ctx->agent_observe_data = &srv;
+	ctx->agent_observe_data = srv;
+	return 0;
+out:
+	return -1;
+}
+
+/* Start the MCP servers, limit the tools and take the schema and the budget. */
+static int sdk_cmd_tools(struct fyai_cmd_call *call, struct sdk_server *srv)
+{
+	struct fyai_ctx *ctx = srv->ctx;
+	fy_generic allowed, names, tool;
+	const char *text;
+	double budget;
+	int rc;
 
 	/* The servers of the SDK answer through the connection, which reads. */
 	text = fyai_cmd_arg_str(call, "mcp_config");
@@ -3550,7 +3565,7 @@ int fyai_cmd_claude_sdk(struct fyai_cmd_call *call, fy_generic *result)
 		rc = fyai_setup_transient_builder(ctx);
 		fyai_error_check(ctx, !rc, out,
 				 "claude-sdk: cannot prepare the MCP servers");
-		rc = sdk_mcp_start(&srv, text);
+		rc = sdk_mcp_start(srv, text);
 		fyai_cleanup_transient_builder(ctx);
 		if (rc)		/* sdk_mcp_start() says why */
 			goto out;
@@ -3595,12 +3610,24 @@ int fyai_cmd_claude_sdk(struct fyai_cmd_call *call, fy_generic *result)
 	if (budget > 0)
 		ctx->turn_cost_limit = ctx->usage_cost + budget;
 	if (fyai_cmd_arg_bool(call, "include_partial_messages")) {
-		srv.partial = true;
+		srv->partial = true;
 		ctx->text_observe = sdk_text;
-		ctx->text_observe_data = &srv;
+		ctx->text_observe_data = srv;
 	}
+	return 0;
+out:
+	return -1;
+}
 
-	while (!srv.failed) {
+/* Serve the inputs of the client until the channel closes. */
+static int sdk_cmd_serve(struct sdk_server *srv)
+{
+	struct fyai_ctx *ctx = srv->ctx;
+	struct fyai_event_loop *el = fyai_ctx_loop(ctx);
+	struct sdk_input *in;
+	int rc;
+
+	while (!srv->failed) {
 		/* An edit that the user finished in a tile applies between
 		 * turns, as it does in a local session. */
 		if (ctx->config_edit)
@@ -3608,30 +3635,30 @@ int fyai_cmd_claude_sdk(struct fyai_cmd_call *call, fy_generic *result)
 		/* An async command holds the inputs behind it. */
 		if (ctx->cmd_call) {
 			if (fyai_cmd_session_step(ctx)) {
-				sdk_respond(&srv, fy_value(fyai_ctx_transient_gb(
-					ctx), srv.command_id), fy_invalid, NULL);
-				free(srv.command_id);
-				srv.command_id = NULL;
+				sdk_respond(srv, fy_value(fyai_ctx_transient_gb(
+					ctx), srv->command_id), fy_invalid, NULL);
+				free(srv->command_id);
+				srv->command_id = NULL;
 				continue;
 			}
-			if (jsonrpc_conn_closed(srv.conn))
+			if (jsonrpc_conn_closed(srv->conn))
 				break;
 			rc = fyai_event_loop_step(el, -1);
 			fyai_error_check(ctx, rc >= 0, out,
 					 "claude-sdk: the event loop stopped");
 			continue;
 		}
-		if (srv.head) {
-			in = srv.head;
-			srv.head = in->next;
-			if (!srv.head)
-				srv.tail = &srv.head;
+		if (srv->head) {
+			in = srv->head;
+			srv->head = in->next;
+			if (!srv->head)
+				srv->tail = &srv->head;
 			if (in->command_id)
-				sdk_model_command_run(&srv, in);
+				sdk_model_command_run(srv, in);
 			else if (sdk_is_clear(in->text))
-				sdk_clear(&srv);
+				sdk_clear(srv);
 			else
-				sdk_turn(&srv, in);
+				sdk_turn(srv, in);
 			free(in->command_id);
 			free(in->text);
 			sdk_images_free(in->images);
@@ -3639,21 +3666,29 @@ int fyai_cmd_claude_sdk(struct fyai_cmd_call *call, fy_generic *result)
 			free(in);
 			continue;
 		}
-		if (jsonrpc_conn_closed(srv.conn))
+		if (jsonrpc_conn_closed(srv->conn))
 			break;
 		rc = fyai_event_loop_step(el, -1);
 		fyai_error_check(ctx, rc >= 0, out,
 				 "claude-sdk: the event loop stopped");
 	}
-	while (jsonrpc_conn_has_output(srv.conn))
+	while (jsonrpc_conn_has_output(srv->conn))
 		if (fyai_event_loop_step(el, 1000) <= 0)
 			break;
-	ctx->cfg->exit_status = srv.last_error || srv.failed ? 1 : 0;
-	rc = 0;
-	goto done;
+	ctx->cfg->exit_status = srv->last_error || srv->failed ? 1 : 0;
+	return 0;
 out:
-	rc = -1;
-done:
+	return -1;
+}
+
+/* Release what the session took: the observers, the queues and the channel. */
+static void sdk_cmd_cleanup(struct fyai_ctx *ctx, struct sdk_server *srv)
+{
+	struct sdk_input *in;
+	struct sdk_pending *p;
+	struct sdk_decision *d;
+	struct sdk_tunnel *t;
+
 	if (ctx->config_edit) {
 		fyai_config_edit_cancel(ctx->config_edit);
 		fyai_config_edit_destroy(ctx->config_edit);
@@ -3669,41 +3704,54 @@ done:
 	ctx->tool_gate = NULL;
 	ctx->tool_gate_data = NULL;
 	/* The servers of the SDK reach it through this frame: stop them first. */
-	if (srv.tunnels)
+	if (srv->tunnels)
 		fyai_mcp_cleanup(ctx);
-	for (t = srv.tunnels; t; t = t->next)
+	for (t = srv->tunnels; t; t = t->next)
 		t->conn = NULL;
 	fyai_cmd_session_cancel(ctx);
-	free(srv.command_id);
-	while ((in = srv.head)) {
-		srv.head = in->next;
+	free(srv->command_id);
+	while ((in = srv->head)) {
+		srv->head = in->next;
 		free(in->command_id);
 		free(in->text);
 		sdk_images_free(in->images);
 		free(in->origin_json);
 		free(in);
 	}
-	while ((p = srv.pending)) {
-		srv.pending = p->next;
+	while ((p = srv->pending)) {
+		srv->pending = p->next;
 		sdk_pending_free(p);
 	}
-	fyai_uimodel_unsubscribe(ctx, sdk_model_store, &srv);
-	fyai_uimodel_text_unsubscribe(ctx, sdk_model_text, &srv);
-	free(srv.reported_branch);
-	free(srv.session_id);
-	while ((d = srv.decisions)) {
-		srv.decisions = d->next;
+	fyai_uimodel_unsubscribe(ctx, sdk_model_store, srv);
+	fyai_uimodel_text_unsubscribe(ctx, sdk_model_text, srv);
+	free(srv->reported_branch);
+	free(srv->session_id);
+	while ((d = srv->decisions)) {
+		srv->decisions = d->next;
 		sdk_decision_free(d);
 	}
-	while ((t = srv.tunnels)) {
-		srv.tunnels = t->next;
+	while ((t = srv->tunnels)) {
+		srv->tunnels = t->next;
 		free(t);
 	}
-	sdk_hooks_free(&srv);
-	sdk_rules_free(&srv.allow);
-	sdk_rules_free(&srv.deny);
-	free(srv.init_id);
-	free(srv.result_text);
-	jsonrpc_conn_destroy(srv.conn);
-	return rc;
+	sdk_hooks_free(srv);
+	sdk_rules_free(&srv->allow);
+	sdk_rules_free(&srv->deny);
+	free(srv->init_id);
+	free(srv->result_text);
+	jsonrpc_conn_destroy(srv->conn);
+}
+
+int fyai_cmd_claude_sdk(struct fyai_cmd_call *call, fy_generic *result)
+{
+	struct fyai_ctx *ctx = call->ctx;
+	struct sdk_server srv;
+	int rc;
+
+	(void)result;
+	memset(&srv, 0, sizeof(srv));
+	rc = sdk_cmd_setup(call, &srv) || sdk_cmd_channel(&srv) ||
+	     sdk_cmd_tools(call, &srv) || sdk_cmd_serve(&srv);
+	sdk_cmd_cleanup(ctx, &srv);
+	return rc ? -1 : 0;
 }
