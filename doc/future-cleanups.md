@@ -803,12 +803,10 @@ is a series. Check an item again before work on it.
     and `fyai_auth_models` through `auth_http_request` (`fyai_auth.c`), not
     the login flow, which was on the loop already. `auth logout` and `list
     models` are now async commands that run a request on the loop
-    (`fyai_auth_logout_submit()`, `fyai_auth_models_submit()`). Open:
-    `fyai_auth_models_submit()` still calls `fyai_auth_resolve()`, which can
-    refresh the token with `fyai_auth_refresh()` and its stepped loop.
-
-### Large files and functions
-
+    (`fyai_auth_logout_submit()`, `fyai_auth_models_submit()`). No loop
+    callback steps the loop for a token. `fyai_auth_resolve()` never waits,
+    and a due token is renewed on the loop by the request that needs it
+    (`doc/credential-sources-plan.md`).
 15. Done. `src/fyai_tools.c` was 9585 lines. It is now 2619 lines, the
     dispatch of tool calls, the tool implementations and the glue. The seams
     moved to `src/fyai_tool_job.c` (2340 lines, the job lifecycle and the
@@ -842,10 +840,12 @@ is a series. Check an item again before work on it.
     `macos-transport-isolation-sdd.md`, `web-fetch-plan.md`). They may be
     plans, not errors.
 19. Timing in tests (S). The sleep of `fyai_event_test.c` is removed. The
-    watchdog sleeps in that file test a timer and stay. These sites poll with
-    a sleep and need a wake source: `tests/fyai_shell_test.c` (a process that
-    exits, a process that reads), `shell_tty.sh`, `transport_bootstrap.sh`
-    and `retry_interrupt.sh`.
+    watchdog sleeps in that file test a timer and stay. `shell_tty.sh` waits
+    on a FIFO and `fyai_shell_test.c` on a pidfd (Linux), as wake sources.
+    Open, with no portable wake source: `reads_stdin_is_seen` polls the
+    state of a process that is no child, and `transport_bootstrap.sh` and
+    `retry_interrupt.sh` poll a file that a running program writes
+    (`tail --pid` is not on macOS).
 
 The agent found no hand-built JSON outside `fyai_mock.c`, no second transcript
 renderer, and no event source registered with a discarded handle. Whether each
