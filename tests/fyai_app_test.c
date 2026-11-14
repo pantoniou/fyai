@@ -36,6 +36,7 @@ FYAI_TEST_ENTRY(app, arena_release_order, app_arena_release_order)
 FYAI_TEST_ENTRY(app, transient_follows_arena, app_transient_follows_arena)
 FYAI_TEST_ENTRY(app, transient_stacks_on_slot, app_transient_stacks_on_slot)
 FYAI_TEST_ENTRY(app, transient_tells_its_release, app_transient_tells_its_release)
+FYAI_TEST_ENTRY(app, wires_transport, app_wires_transport)
 FYAI_TEST_ENTRY(app, wires_link, app_wires_link)
 FYAI_TEST_ENTRY(app, wires_cred, app_wires_cred)
 FYAI_TEST_ENTRY(app, cred_holds_login_state, app_cred_holds_login_state)
@@ -120,6 +121,19 @@ static enum fyai_event_action timer_cb(const struct fyai_event *ev)
 }
 
 /* The loop component reports into the diagnostics of the app and runs timers. */
+int app_wires_transport(void)
+{
+	struct fyai_app app;
+
+	FYAI_TCHECK(!fyai_app_init(&app));
+	FYAI_TCHECK(app.transport.loop == &app.loop && app.transport.cred == &app.cred);
+	FYAI_TCHECK(app.transport.role == FYAI_TRANSPORT_NONE && !app.transport.client);
+	FYAI_TCHECK(app.transport.ctl == -1 && app.transport.envfd == -1);
+	fyai_app_cleanup(&app);
+	printf("ok - the transport component starts with no client\n");
+	return 0;
+}
+
 int app_wires_link(void)
 {
 	struct fyai_app app;

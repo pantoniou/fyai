@@ -52,6 +52,7 @@ __attribute__((unused)) static void mock_cred(void)
 	if (ctx.cred)
 		return;
 	ctx.cred = calloc(1, sizeof(*ctx.cred));
+	fyai_test_transport_of(&ctx);
 	fyai_cred_init(ctx.cred, &loop);
 	fyai_cred_bind(ctx.cred, &ctx);
 }

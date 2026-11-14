@@ -94,6 +94,7 @@ static struct fyai_ctx test_ctx = { .cfg = &test_cfg, .loop = &test_loop };
 static void __attribute__((constructor)) test_link_setup(void)
 {
 	fyai_test_link_of(&test_ctx);
+	fyai_test_transport_of(&test_ctx);
 }
 
 /* Outer bound for any wait in this file. */

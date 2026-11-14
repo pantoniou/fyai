@@ -53,6 +53,7 @@ static struct fyai_ctx test_ctx = { .cfg = &test_cfg, .loop = &test_loop };
 static void __attribute__((constructor)) test_link_setup(void)
 {
 	fyai_test_link_of(&test_ctx);
+	fyai_test_transport_of(&test_ctx);
 }
 
 struct rig {
@@ -97,7 +98,7 @@ static void rig_open(struct rig *r, int port)
 
 static void rig_close(struct rig *r)
 {
-	test_ctx.transport.client = NULL;
+	test_ctx.transport->client = NULL;
 	fyai_tclient_close(r->client);
 	free((char *)test_cfg.api_url);
 	test_cfg.api_url = NULL;
@@ -442,7 +443,7 @@ static bool xf_finished(void *ud)
 
 static void xf_run(struct rig *r, struct xf *f, const char *profile)
 {
-	test_ctx.transport.client = r->client;
+	test_ctx.transport->client = r->client;
 	fyai_xfer_set_endpoint(&test_ctx, NULL, profile);
 	fyai_xfer_set_body(&test_ctx, "{}");
 	f->x = fyai_xfer_submit(&test_ctx, xf_write, f, xf_done, f);
@@ -551,12 +552,12 @@ static enum fyai_transport_role attach_role(const char *owner)
 	else
 		unsetenv(FYAI_TRANSPORT_OWNER_ENV);
 	FYAI_TCHECK(!fyai_transport_attach(&test_ctx));
-	FYAI_TCHECK(test_ctx.transport.client);
-	role = test_ctx.transport.role;
+	FYAI_TCHECK(test_ctx.transport->client);
+	role = test_ctx.transport->role;
 	fyai_transport_detach(&test_ctx);
 	/* A detached transport has no client and no role. */
-	FYAI_TCHECK(!test_ctx.transport.client);
-	FYAI_TCHECK(test_ctx.transport.role == FYAI_TRANSPORT_NONE);
+	FYAI_TCHECK(!test_ctx.transport->client);
+	FYAI_TCHECK(test_ctx.transport->role == FYAI_TRANSPORT_NONE);
 	close(sv[0]);
 	close(sv[1]);
 	return role;
@@ -568,7 +569,7 @@ void transport_client_role_follows_attach(void)
 
 	test_cfg.no_auth = true;
 	snprintf(self, sizeof(self), "%ld", (long)getpid());
-	FYAI_TCHECK(test_ctx.transport.role == FYAI_TRANSPORT_NONE);
+	FYAI_TCHECK(test_ctx.transport->role == FYAI_TRANSPORT_NONE);
 	FYAI_TCHECK(attach_role(self) == FYAI_TRANSPORT_OWNER);
 	FYAI_TCHECK(attach_role("0") == FYAI_TRANSPORT_SUPERVISOR);
 	/* The owner names another process, or none. */

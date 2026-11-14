@@ -23,7 +23,8 @@ int fork_disown_drops_parent_state(void)
 {
 	struct fyai_cfg cfg = { 0 };
 	struct fyai_loop loop;
-	struct fyai_ctx ctx = { .cfg = &cfg, .loop = &loop, .link = &(struct fyai_link){ .loop = &loop } };
+	struct fyai_transport_state tstate = {};
+	struct fyai_ctx ctx = { .cfg = &cfg, .loop = &loop, .link = &(struct fyai_link){ .loop = &loop }, .transport = &tstate };
 	char parent;
 	size_t i;
 
@@ -33,7 +34,7 @@ int fork_disown_drops_parent_state(void)
 	ctx.cmd_call = (struct fyai_cmd_call *)&parent;
 	ctx.catalog_update = (struct fyai_catalog_update_request *)&parent;
 	ctx.acp_rpc = (struct jsonrpc_conn *)&parent;
-	ctx.transport.src = (struct fyai_event_source *)&parent;
+	ctx.transport->src = (struct fyai_event_source *)&parent;
 	for (i = 0; i < ARRAY_SIZE(loop.signal_src); i++)
 		loop.signal_src[i] = (struct fyai_event_source *)&parent;
 
@@ -43,7 +44,7 @@ int fork_disown_drops_parent_state(void)
 	FYAI_TCHECK(!ctx.cmd_call);
 	FYAI_TCHECK(!ctx.catalog_update);
 	FYAI_TCHECK(!ctx.acp_rpc);
-	FYAI_TCHECK(!ctx.transport.src);
+	FYAI_TCHECK(!ctx.transport->src);
 	for (i = 0; i < ARRAY_SIZE(loop.signal_src); i++)
 		FYAI_TCHECK(!loop.signal_src[i]);
 	FYAI_TCHECK(loop.dump_fd == -1);
