@@ -7,6 +7,8 @@
 
 #define FYAI_MODULE FYAIEM_CONFIG
 
+#include <errno.h>
+#include <fcntl.h>
 #include <signal.h>
 #include <stdio.h>
 #include <string.h>
@@ -27,6 +29,8 @@ FYAI_TEST_ENTRY(app, cfg_without_sink_is_muted, app_cfg_without_sink_is_muted)
 FYAI_TEST_ENTRY(app, wires_loop, app_wires_loop)
 FYAI_TEST_ENTRY(app, loop_tells_an_interrupt, app_loop_tells_an_interrupt)
 FYAI_TEST_ENTRY(app, cleanup_releases_loop, app_cleanup_releases_loop)
+FYAI_TEST_ENTRY(app, release_keeps_dump, app_release_keeps_dump)
+FYAI_TEST_ENTRY(app, other_loop_keeps_handlers, app_other_loop_keeps_handlers)
 
 /* The configuration reports into the sink that the app owns. */
 int app_wires_diag(void)
@@ -42,9 +46,12 @@ int app_wires_diag(void)
 
 	fyai_cfg_error(&app.cfg, "raised by the configuration");
 	FYAI_TCHECK(fyai_diag_got_error(&app.diag));
-	fyai_error(&ctx, "raised by the context");
 	fyai_diag_reset(&app.diag);
 	FYAI_TCHECK(!fyai_diag_got_error(&app.diag));
+	/* An error after the first is demoted, so a warning shows the sink. */
+	fyai_warning(&ctx, "raised by the context");
+	FYAI_TCHECK(fyai_diag_pending(&app.diag));
+	fyai_diag_reset(&app.diag);
 
 	fyai_app_cleanup(&app);
 	FYAI_TCHECK(!app.cfg.diag);
@@ -72,6 +79,7 @@ int app_cleanup_twice(void)
 int app_cfg_without_sink_is_muted(void)
 {
 	struct fyai_cfg cfg = { 0 };
+	struct fyai_ctx ctx = { 0 };
 	struct fyai_diag *diag;
 
 	diag = fyai_cfg_diag(&cfg);
@@ -80,6 +88,17 @@ int app_cfg_without_sink_is_muted(void)
 	FYAI_TCHECK(!fyai_diag_got_error(diag));
 	FYAI_TCHECK(!fyai_diag_pending(diag));
 	FYAI_TCHECK(!fyai_cfg_diag(NULL));
+
+	/* The muted sink is shared, so nobody may turn it on. */
+	fyai_diag_enable(diag, FYAIET_NOTICE, true);
+	fyai_diag_set_source(diag, true);
+	fyai_cfg_notice(&cfg, "still nothing");
+	FYAI_TCHECK(!fyai_diag_pending(diag));
+	FYAI_TCHECK(!fyai_diag_source(diag));
+
+	/* A context reaches the same sink as its configuration. */
+	ctx.cfg = &cfg;
+	FYAI_TCHECK(fyai_ctx_diag(&ctx) == diag);
 	printf("ok - a configuration with no sink reports nothing\n");
 	return 0;
 }
@@ -155,5 +174,58 @@ int app_cleanup_releases_loop(void)
 	FYAI_TCHECK(!app.loop.event_loop_pool);
 	FYAI_TCHECK(!app.loop.event_source_pool);
 	printf("ok - the release of the app destroys the loop\n");
+	return 0;
+}
+
+/*
+ * The release that the run does destroys what stands on the loop, and drops
+ * the hook that names the run. The dump output stays for a late report.
+ */
+int app_release_keeps_dump(void)
+{
+	struct fyai_app app;
+	int fd;
+
+	FYAI_TCHECK(!fyai_app_init(&app));
+	fd = dup(STDERR_FILENO);
+	FYAI_TCHECK(fd >= 0);
+	app.loop.dump_fd = fd;
+	app.loop.on_interrupt = interrupt_hook;
+	app.loop.on_interrupt_data = &interrupt_told;
+	FYAI_TCHECK(fyai_loop_get(&app.loop));
+
+	fyai_loop_release(&app.loop);
+	FYAI_TCHECK(!app.loop.el);
+	FYAI_TCHECK(!app.loop.on_interrupt && !app.loop.on_interrupt_data);
+	FYAI_TCHECK(app.loop.dump_fd == fd);
+	FYAI_TCHECK(fcntl(fd, F_GETFD) >= 0);
+
+	fyai_app_cleanup(&app);
+	FYAI_TCHECK(app.loop.dump_fd == -1);
+	FYAI_TCHECK(fcntl(fd, F_GETFD) < 0 && errno == EBADF);
+	printf("ok - the release keeps the dump output until the app ends\n");
+	return 0;
+}
+
+/* The handlers belong to the loop that installed them. */
+int app_other_loop_keeps_handlers(void)
+{
+	struct fyai_app app;
+	struct fyai_loop other;
+
+	FYAI_TCHECK(!fyai_app_init(&app));
+	fyai_loop_init(&other, &app.diag);
+	FYAI_TCHECK(fyai_loop_get(&app.loop));
+	FYAI_TCHECK(!fyai_event_interrupt_open(&app.loop, 5000));
+
+	/* Another loop closes its handlers: the ones of the app stay. */
+	fyai_event_interrupt_close(&other);
+	kill(getpid(), SIGINT);
+	FYAI_TCHECK(app.loop.interrupt_pending);
+	FYAI_TCHECK(!other.interrupt_pending);
+
+	fyai_event_interrupt_ack(&app.loop);
+	fyai_app_cleanup(&app);
+	printf("ok - a loop does not remove the handlers of another\n");
 	return 0;
 }
