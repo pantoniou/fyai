@@ -385,22 +385,10 @@ int fyai_config_sandbox_select(struct fyai_cfg *cfg, const char *name)
 	return 0;
 }
 
-/*
- * Overlay the keys present in @root onto @cfg. Absent keys leave the
- * existing value untouched, so each layer only overrides what it sets.
- *
- * Returns 0 on success, -1 on a malformed value (e.g. a raw secret).
- */
-int fyai_config_apply(struct fyai_cfg *cfg, fy_generic root)
+/* Overlay the stored reference of the API key. */
+static void config_apply_api_key(struct fyai_cfg *cfg, fy_generic root)
 {
-	const struct fyai_grammar *grammar;
-	fy_generic v, tbv, shell, retry, secret_ref, zoom_rows, preview_width;
-	fy_generic rtype, rname, media;
-
-	if (fy_is_invalid(root))
-		return 0;
-
-	cfg->config_generation++;
+	fy_generic secret_ref, rtype, rname;
 
 	secret_ref = fy_get(root, "api_key");
 	if (fy_is_mapping(secret_ref)) {
@@ -424,9 +412,13 @@ int fyai_config_apply(struct fyai_cfg *cfg, fy_generic root)
 			(void)resolve_secret(cfg, &cfg->api_key, secret_ref);
 		}
 	}
+}
 
-	if (config_validate_api(cfg, root))
-		return -1;
+
+/* Overlay the model and the way to authenticate. */
+static int config_apply_model_auth(struct fyai_cfg *cfg, fy_generic root)
+{
+	fy_generic v;
 
 	v = fy_get(root, "model");
 	if (!fy_is_invalid(v)) {
@@ -449,6 +441,13 @@ int fyai_config_apply(struct fyai_cfg *cfg, fy_generic root)
 		fyai_cfg_error(cfg, "auth must be auto, api-key, or chatgpt");
 		return -1;
 	}
+	return 0;
+}
+
+
+/* Overlay the request defaults. */
+static void config_apply_request(struct fyai_cfg *cfg, fy_generic root)
+{
 	cfg->system_prompt = fy_get(root, "system_prompt", cfg->system_prompt);
 	cfg->parallel_tool_calls_prompt =
 		fy_get(root, "parallel_tool_calls_prompt",
@@ -464,6 +463,14 @@ int fyai_config_apply(struct fyai_cfg *cfg, fy_generic root)
 				cfg->max_tool_iterations);
 	cfg->max_tokens = fy_get(root, "max_tokens",
 				cfg->max_tokens);
+}
+
+
+/* Overlay the retry, shell and read limits. */
+static void config_apply_shell(struct fyai_cfg *cfg, fy_generic root)
+{
+	fy_generic shell, retry;
+
 	retry = fy_get(root, "retry");
 	cfg->retry_max_attempts = fy_get(retry, "max_attempts",
 				cfg->retry_max_attempts);
@@ -498,6 +505,14 @@ int fyai_config_apply(struct fyai_cfg *cfg, fy_generic root)
 	cfg->shell_login = apply_bool(shell, "login", cfg->shell_login);
 	cfg->shell_tty_rows = fy_get(shell, "tty_rows", cfg->shell_tty_rows);
 	cfg->shell_tty_cols = fy_get(shell, "tty_cols", cfg->shell_tty_cols);
+}
+
+
+/* Overlay the media and catalogue update settings. */
+static void config_apply_media(struct fyai_cfg *cfg, fy_generic root)
+{
+	fy_generic media;
+
 	media = fy_get(root, "media");
 	cfg->media_max_bytes = fy_get(media, "max_bytes", cfg->media_max_bytes);
 	cfg->media_max_per_message = fy_get(media, "max_per_message",
@@ -514,6 +529,12 @@ int fyai_config_apply(struct fyai_cfg *cfg, fy_generic root)
 				"timeout_ms", cfg->catalog_update_timeout_ms);
 	cfg->catalog_update_credentials = fy_get(fy_get(root, "catalog_update"),
 				"credentials", cfg->catalog_update_credentials);
+}
+
+
+/* Overlay the agent limits. */
+static void config_apply_agent(struct fyai_cfg *cfg, fy_generic root)
+{
 	cfg->agent_timeout_ms = fy_get(fy_get(root, "agent"), "timeout_ms",
 				cfg->agent_timeout_ms);
 	cfg->agent_max_timeout_ms = fy_get(fy_get(root, "agent"),
@@ -534,6 +555,13 @@ int fyai_config_apply(struct fyai_cfg *cfg, fy_generic root)
 		fy_get(fy_get(root, "agent"), "spawn", cfg->agent_spawn));
 	cfg->top_logprobs = fy_get(root, "top_logprobs",
 				cfg->top_logprobs);
+}
+
+
+/* Overlay the switches of the tools and the model access. */
+static void config_apply_flags(struct fyai_cfg *cfg, fy_generic root)
+{
+	fy_generic v;
 
 	cfg->enable_tools = apply_bool(root, "tools",
 				cfg->enable_tools);
@@ -548,6 +576,14 @@ int fyai_config_apply(struct fyai_cfg *cfg, fy_generic root)
 		cfg->model_access = -1;
 	else if (fyai_model_access_parse(v) >= 0)
 		cfg->model_access = fyai_model_access_parse(v);
+}
+
+
+/* Overlay the sandbox profile and its policy. */
+static int config_apply_sandbox(struct fyai_cfg *cfg, fy_generic root)
+{
+	fy_generic v;
+
 	/* The profile that sandbox_profile names confines the tools; `none` confines nothing. */
 	/* A stored configuration can still hold the removed key: ignore it, so that
 	 * `config delete sandbox` can run. */
@@ -594,6 +630,14 @@ int fyai_config_apply(struct fyai_cfg *cfg, fy_generic root)
 		cfg->sandbox = fy_invalid;
 		cfg->enable_sandbox = false;
 	}
+	return 0;
+}
+
+
+/* Overlay the MCP group. */
+static void config_apply_mcp(struct fyai_cfg *cfg, fy_generic root)
+{
+	fy_generic v;
 
 	/* MCP server group: nested mapping; read enabled, endpoint, timeout,
 	 * auth_token indirection, protocol_version, servers mapping. */
@@ -636,6 +680,13 @@ int fyai_config_apply(struct fyai_cfg *cfg, fy_generic root)
 		cfg->mcp_startup_wait = apply_bool(root, "mcp/startup_wait",
 			cfg->mcp_startup_wait);
 	}
+}
+
+
+/* Overlay the wire switches and the logging. */
+static void config_apply_switches(struct fyai_cfg *cfg, fy_generic root)
+{
+	fy_generic v;
 
 	cfg->logprobs = apply_bool(root, "logprobs", cfg->logprobs);
 	cfg->token_extents = apply_bool(root, "token_extents",
@@ -661,6 +712,14 @@ int fyai_config_apply(struct fyai_cfg *cfg, fy_generic root)
 		cfg->transport_logging = apply_bool(v, "transport",
 						    cfg->transport_logging);
 	}
+}
+
+
+/* Overlay the branch policy, the reasoning and the API grammar. */
+static int config_apply_branch(struct fyai_cfg *cfg, fy_generic root)
+{
+	const struct fyai_grammar *grammar;
+	fy_generic v;
 
 	v = fy_get(root, "branch");
 	if (!fy_is_invalid(v)) {
@@ -701,6 +760,186 @@ int fyai_config_apply(struct fyai_cfg *cfg, fy_generic root)
 	grammar = fyai_grammar_find(fy_castp(&v, ""));
 	if (grammar)
 		cfg->api_mode = grammar->mode;
+	return 0;
+}
+
+
+/* Overlay the text, theme and branch view of the display group @v. */
+static void config_apply_display_text(struct fyai_cfg *cfg, fy_generic v)
+{
+	fy_generic tbv, preview_width;
+
+	cfg->markdown_mode = fy_get(v, "markdown_mode",
+				    cfg->markdown_mode);
+	cfg->markdown_update_interval_ms =
+		fy_get(v, "markdown_update_interval_ms",
+		       cfg->markdown_update_interval_ms);
+	cfg->color = fy_get(v, "color", cfg->color);
+	cfg->theme = fy_get(v, "theme", cfg->theme);
+	cfg->theme_ground = fy_gb_intern_string(cfg->gb,
+		fy_get(v, "theme_ground", cfg->theme_ground));
+	/*
+	 * Intern the separators: they are read back only at render time
+	 * (well after this doc may be freed), so a raw fy_get pointer to a
+	 * short inline string would dangle (see CLAUDE.md fy_castp note).
+	 */
+	cfg->turn_separator = fy_gb_intern_string(cfg->gb,
+		fy_get(v, "turn_separator", cfg->turn_separator));
+	cfg->tool_separator = fy_gb_intern_string(cfg->gb,
+		fy_get(v, "tool_separator", cfg->tool_separator));
+	cfg->section_separator = fy_gb_intern_string(cfg->gb,
+		fy_get(v, "section_separator", cfg->section_separator));
+	cfg->tool_group_fence = fy_get(v, "tool_group_fence",
+				       cfg->tool_group_fence);
+	cfg->user_card_fence = fy_get(v, "user_card_fence",
+				      cfg->user_card_fence);
+	cfg->prompt_marker = fy_gb_intern_string(cfg->gb,
+		fy_get(v, "prompt", cfg->prompt_marker));
+	cfg->prompt_busy = fy_gb_intern_string(cfg->gb,
+		fy_get(v, "prompt_busy", cfg->prompt_busy));
+	cfg->prompt_top = fy_gb_intern_string(cfg->gb,
+		fy_get(v, "prompt_top", cfg->prompt_top));
+	cfg->prompt_bottom = fy_gb_intern_string(cfg->gb,
+		fy_get(v, "prompt_bottom", cfg->prompt_bottom));
+	cfg->branch_view = fy_gb_intern_string(cfg->gb,
+		fy_get(v, "branch_view", cfg->branch_view));
+	cfg->branch_preview = fy_gb_intern_string(cfg->gb,
+		fy_get(v, "branch_preview", cfg->branch_preview));
+	cfg->branch_preview_size = (int)fy_get(v, "branch_preview_size",
+					       (long long)cfg->branch_preview_size);
+	preview_width = fy_get(v, "branch_preview_width", fy_invalid);
+	if (fy_generic_is_int(preview_width))
+		cfg->branch_preview_width = (int)fy_number(preview_width, 0);
+	else if (fy_equal(preview_width, "half"))
+		cfg->branch_preview_width = -50;
+	else if (fy_equal(preview_width, "quarter"))
+		cfg->branch_preview_width = -25;
+	else if (fy_is_string(preview_width))
+		cfg->branch_preview_width =
+			-(int)strtol(fy_castp(&preview_width, ""), NULL, 10);
+	cfg->diagram_theme = fy_gb_intern_string(cfg->gb,
+		fy_get(v, "diagram_theme", cfg->diagram_theme));
+	cfg->diagram_charset = fy_gb_intern_string(cfg->gb,
+		fy_get(v, "diagram_charset", cfg->diagram_charset));
+	cfg->diagram_fit = fy_gb_intern_string(cfg->gb,
+		fy_get(v, "diagram_fit", cfg->diagram_fit));
+	/* Table-border override (int, so no string-lifetime concern). */
+	tbv = fy_get(v, "table_border");
+	if (fy_equal(tbv, "grid"))
+		cfg->table_border = 1;
+	else if (fy_equal(tbv, "none"))
+		cfg->table_border = 2;
+	else if (fy_equal(tbv, "theme"))
+		cfg->table_border = 0;
+	cfg->tool_preview_lines = fy_get(v, "tool_preview_lines",
+					cfg->tool_preview_lines);
+	cfg->tool_history_lines = fy_get(v, "tool_history_lines",
+					 cfg->tool_history_lines);
+}
+
+/* Overlay the work pane of the display group @v. */
+static void config_apply_display_work(struct fyai_cfg *cfg, fy_generic v)
+{
+	fy_generic zoom_rows;
+
+	cfg->session_margin = fy_gb_intern_string(cfg->gb,
+		fy_get(v, "session_margin", cfg->session_margin));
+	/* Intern work-pane strings beyond the document lifetime. */
+	cfg->work_layout = fy_gb_intern_string(cfg->gb,
+		fy_get(v, "work_layout", cfg->work_layout));
+	cfg->work_position = fy_gb_intern_string(cfg->gb,
+		fy_get(v, "work_position", cfg->work_position));
+	cfg->editor_mode = fy_gb_intern_string(cfg->gb,
+		fy_get(v, "editor", cfg->editor_mode));
+	cfg->completion_mode = fy_gb_intern_string(cfg->gb,
+		fy_get(v, "completion", cfg->completion_mode));
+	cfg->chord_timeout_ms = (int)fy_get(v, "chord_timeout_ms",
+					    (long long)cfg->chord_timeout_ms);
+	cfg->command_output = fy_gb_intern_string(cfg->gb,
+		fy_get(v, "command_output", cfg->command_output));
+	cfg->notice_output = fy_gb_intern_string(cfg->gb,
+		fy_get(v, "notice_output", cfg->notice_output));
+	cfg->command_bg = fy_gb_intern_string(cfg->gb,
+		fy_get(v, "command_bg", cfg->command_bg));
+	cfg->command_bg_mix = (int)fy_get(v, "command_bg_mix",
+					  (long long)cfg->command_bg_mix);
+	cfg->tool_display = fy_gb_intern_string(cfg->gb,
+		fy_get(v, "tool_display", cfg->tool_display));
+	cfg->inline_terminal_rows = fy_get(v, "inline_terminal_rows",
+					   cfg->inline_terminal_rows);
+	cfg->focus_bg = fy_gb_intern_string(cfg->gb,
+		fy_get(v, "focus_bg", cfg->focus_bg));
+	cfg->focus_mark = fy_gb_intern_string(cfg->gb,
+		fy_get(v, "focus_mark", cfg->focus_mark));
+	cfg->focus_bg_mix = (int)fy_get(v, "focus_bg_mix",
+					(long long)cfg->focus_bg_mix);
+	cfg->work_columns = fy_get(v, "work_columns",
+				   cfg->work_columns);
+	cfg->work_panels = fy_gb_intern_string(cfg->gb,
+		fy_get(v, "work_panels", cfg->work_panels));
+	cfg->page_layout = fy_gb_intern_string(cfg->gb,
+		fy_get(v, "page_layout", cfg->page_layout));
+	cfg->work_panel_cols = fy_get(v, "work_panel_cols",
+				      cfg->work_panel_cols);
+	cfg->work_panel_rows = fy_get(v, "work_panel_rows",
+				      cfg->work_panel_rows);
+	cfg->work_min_tile_cols = fy_get(v, "work_min_tile_cols",
+					 cfg->work_min_tile_cols);
+	cfg->work_history_rows = fy_get(v, "work_history_rows",
+					cfg->work_history_rows);
+	cfg->work_open_delay_ms = fy_get(v, "work_open_delay_ms",
+					cfg->work_open_delay_ms);
+	cfg->work_max_rows = fy_get(v, "work_max_rows",
+				    cfg->work_max_rows);
+	zoom_rows = fy_get(v, "work_zoom_rows", fy_invalid);
+	if (fy_generic_is_int(zoom_rows)) {
+		cfg->work_zoom_fixed_rows = fy_number(zoom_rows, 0);
+		cfg->work_zoom_rows = DEFAULT_WORK_ZOOM_ROWS;
+	} else if (fy_is_string(zoom_rows)) {
+		cfg->work_zoom_rows = fy_gb_intern_string(cfg->gb,
+					 fy_castp(&zoom_rows, "full"));
+		cfg->work_zoom_fixed_rows = 0;
+	}
+	cfg->work_frame = fy_gb_intern_string(cfg->gb,
+		fy_get(v, "work_frame", cfg->work_frame));
+	cfg->work_cap = apply_bool(v, "work_cap", cfg->work_cap);
+	cfg->tile_frame = fy_gb_intern_string(cfg->gb,
+		fy_get(v, "tile_frame", cfg->tile_frame));
+	cfg->tile_sep = fy_gb_intern_string(cfg->gb,
+		fy_get(v, "tile_sep", cfg->tile_sep));
+	cfg->work_controls = fy_gb_intern_string(cfg->gb,
+		fy_get(v, "work_controls", cfg->work_controls));
+}
+
+/* Overlay the page, the update intervals and the switches of the display group @v. */
+static void config_apply_display_misc(struct fyai_cfg *cfg, fy_generic v)
+{
+	cfg->page_path = fy_gb_intern_string(cfg->gb,
+		fy_get(v, "page", cfg->page_path));
+	cfg->screen = fy_gb_intern_string(cfg->gb,
+		fy_get(v, "screen", cfg->screen));
+	cfg->recap_exchanges = fy_get(v, "recap_exchanges",
+				      cfg->recap_exchanges);
+	cfg->tool_update_interval_ms =
+		fy_get(v, "tool_update_interval_ms",
+		       cfg->tool_update_interval_ms);
+	cfg->idle_poll_ms = fy_get(v, "idle_poll_ms",
+				   cfg->idle_poll_ms);
+	cfg->tool_detail = fy_get(v, "tool_detail", cfg->tool_detail);
+	cfg->markdown = apply_bool(v, "markdown", cfg->markdown);
+	cfg->stream = apply_bool(v, "stream", cfg->stream);
+	cfg->thinking = apply_bool(v, "thinking", cfg->thinking);
+	cfg->transcript_system = apply_bool(v, "transcript_system",
+					    cfg->transcript_system);
+	cfg->pretty = apply_bool(v, "pretty", cfg->pretty);
+	cfg->cache_info = apply_bool(v, "cache_info", cfg->cache_info);
+	cfg->stats = apply_bool(v, "stats", cfg->stats);
+}
+
+/* Overlay the display group. */
+static int config_apply_display(struct fyai_cfg *cfg, fy_generic root)
+{
+	fy_generic v;
 
 	/* Stylistic options live in the display: group (the only form). */
 	v = fy_get(root, "display");
@@ -716,160 +955,47 @@ int fyai_config_apply(struct fyai_cfg *cfg, fy_generic root)
 		    CONFIG_VALIDATE_ENUM(cfg, v, "tool_detail",
 					 "none", "brief", "default", "full"))
 			return -1;
-		cfg->markdown_mode = fy_get(v, "markdown_mode",
-					    cfg->markdown_mode);
-		cfg->markdown_update_interval_ms =
-			fy_get(v, "markdown_update_interval_ms",
-			       cfg->markdown_update_interval_ms);
-		cfg->color = fy_get(v, "color", cfg->color);
-		cfg->theme = fy_get(v, "theme", cfg->theme);
-		cfg->theme_ground = fy_gb_intern_string(cfg->gb,
-			fy_get(v, "theme_ground", cfg->theme_ground));
-		/*
-		 * Intern the separators: they are read back only at render time
-		 * (well after this doc may be freed), so a raw fy_get pointer to a
-		 * short inline string would dangle (see CLAUDE.md fy_castp note).
-		 */
-		cfg->turn_separator = fy_gb_intern_string(cfg->gb,
-			fy_get(v, "turn_separator", cfg->turn_separator));
-		cfg->tool_separator = fy_gb_intern_string(cfg->gb,
-			fy_get(v, "tool_separator", cfg->tool_separator));
-		cfg->section_separator = fy_gb_intern_string(cfg->gb,
-			fy_get(v, "section_separator", cfg->section_separator));
-		cfg->tool_group_fence = fy_get(v, "tool_group_fence",
-					       cfg->tool_group_fence);
-		cfg->user_card_fence = fy_get(v, "user_card_fence",
-					      cfg->user_card_fence);
-		cfg->prompt_marker = fy_gb_intern_string(cfg->gb,
-			fy_get(v, "prompt", cfg->prompt_marker));
-		cfg->prompt_busy = fy_gb_intern_string(cfg->gb,
-			fy_get(v, "prompt_busy", cfg->prompt_busy));
-		cfg->prompt_top = fy_gb_intern_string(cfg->gb,
-			fy_get(v, "prompt_top", cfg->prompt_top));
-		cfg->prompt_bottom = fy_gb_intern_string(cfg->gb,
-			fy_get(v, "prompt_bottom", cfg->prompt_bottom));
-		cfg->branch_view = fy_gb_intern_string(cfg->gb,
-			fy_get(v, "branch_view", cfg->branch_view));
-		cfg->branch_preview = fy_gb_intern_string(cfg->gb,
-			fy_get(v, "branch_preview", cfg->branch_preview));
-		cfg->branch_preview_size = (int)fy_get(v, "branch_preview_size",
-						       (long long)cfg->branch_preview_size);
-		preview_width = fy_get(v, "branch_preview_width", fy_invalid);
-		if (fy_generic_is_int(preview_width))
-			cfg->branch_preview_width = (int)fy_number(preview_width, 0);
-		else if (fy_equal(preview_width, "half"))
-			cfg->branch_preview_width = -50;
-		else if (fy_equal(preview_width, "quarter"))
-			cfg->branch_preview_width = -25;
-		else if (fy_is_string(preview_width))
-			cfg->branch_preview_width =
-				-(int)strtol(fy_castp(&preview_width, ""), NULL, 10);
-		cfg->diagram_theme = fy_gb_intern_string(cfg->gb,
-			fy_get(v, "diagram_theme", cfg->diagram_theme));
-		cfg->diagram_charset = fy_gb_intern_string(cfg->gb,
-			fy_get(v, "diagram_charset", cfg->diagram_charset));
-		cfg->diagram_fit = fy_gb_intern_string(cfg->gb,
-			fy_get(v, "diagram_fit", cfg->diagram_fit));
-		/* Table-border override (int, so no string-lifetime concern). */
-		tbv = fy_get(v, "table_border");
-		if (fy_equal(tbv, "grid"))
-			cfg->table_border = 1;
-		else if (fy_equal(tbv, "none"))
-			cfg->table_border = 2;
-		else if (fy_equal(tbv, "theme"))
-			cfg->table_border = 0;
-		cfg->tool_preview_lines = fy_get(v, "tool_preview_lines",
-						cfg->tool_preview_lines);
-		cfg->tool_history_lines = fy_get(v, "tool_history_lines",
-						 cfg->tool_history_lines);
-		cfg->session_margin = fy_gb_intern_string(cfg->gb,
-			fy_get(v, "session_margin", cfg->session_margin));
-		/* Intern work-pane strings beyond the document lifetime. */
-		cfg->work_layout = fy_gb_intern_string(cfg->gb,
-			fy_get(v, "work_layout", cfg->work_layout));
-		cfg->work_position = fy_gb_intern_string(cfg->gb,
-			fy_get(v, "work_position", cfg->work_position));
-		cfg->editor_mode = fy_gb_intern_string(cfg->gb,
-			fy_get(v, "editor", cfg->editor_mode));
-		cfg->completion_mode = fy_gb_intern_string(cfg->gb,
-			fy_get(v, "completion", cfg->completion_mode));
-		cfg->chord_timeout_ms = (int)fy_get(v, "chord_timeout_ms",
-						    (long long)cfg->chord_timeout_ms);
-		cfg->command_output = fy_gb_intern_string(cfg->gb,
-			fy_get(v, "command_output", cfg->command_output));
-		cfg->notice_output = fy_gb_intern_string(cfg->gb,
-			fy_get(v, "notice_output", cfg->notice_output));
-		cfg->command_bg = fy_gb_intern_string(cfg->gb,
-			fy_get(v, "command_bg", cfg->command_bg));
-		cfg->command_bg_mix = (int)fy_get(v, "command_bg_mix",
-						  (long long)cfg->command_bg_mix);
-		cfg->tool_display = fy_gb_intern_string(cfg->gb,
-			fy_get(v, "tool_display", cfg->tool_display));
-		cfg->inline_terminal_rows = fy_get(v, "inline_terminal_rows",
-						   cfg->inline_terminal_rows);
-		cfg->focus_bg = fy_gb_intern_string(cfg->gb,
-			fy_get(v, "focus_bg", cfg->focus_bg));
-		cfg->focus_mark = fy_gb_intern_string(cfg->gb,
-			fy_get(v, "focus_mark", cfg->focus_mark));
-		cfg->focus_bg_mix = (int)fy_get(v, "focus_bg_mix",
-						(long long)cfg->focus_bg_mix);
-		cfg->work_columns = fy_get(v, "work_columns",
-					   cfg->work_columns);
-		cfg->work_panels = fy_gb_intern_string(cfg->gb,
-			fy_get(v, "work_panels", cfg->work_panels));
-		cfg->page_layout = fy_gb_intern_string(cfg->gb,
-			fy_get(v, "page_layout", cfg->page_layout));
-		cfg->work_panel_cols = fy_get(v, "work_panel_cols",
-					      cfg->work_panel_cols);
-		cfg->work_panel_rows = fy_get(v, "work_panel_rows",
-					      cfg->work_panel_rows);
-		cfg->work_min_tile_cols = fy_get(v, "work_min_tile_cols",
-						 cfg->work_min_tile_cols);
-		cfg->work_history_rows = fy_get(v, "work_history_rows",
-						cfg->work_history_rows);
-		cfg->work_open_delay_ms = fy_get(v, "work_open_delay_ms",
-						cfg->work_open_delay_ms);
-		cfg->work_max_rows = fy_get(v, "work_max_rows",
-					    cfg->work_max_rows);
-		zoom_rows = fy_get(v, "work_zoom_rows", fy_invalid);
-		if (fy_generic_is_int(zoom_rows)) {
-			cfg->work_zoom_fixed_rows = fy_number(zoom_rows, 0);
-			cfg->work_zoom_rows = DEFAULT_WORK_ZOOM_ROWS;
-		} else if (fy_is_string(zoom_rows)) {
-			cfg->work_zoom_rows = fy_gb_intern_string(cfg->gb,
-						 fy_castp(&zoom_rows, "full"));
-			cfg->work_zoom_fixed_rows = 0;
-		}
-		cfg->work_frame = fy_gb_intern_string(cfg->gb,
-			fy_get(v, "work_frame", cfg->work_frame));
-		cfg->work_cap = apply_bool(v, "work_cap", cfg->work_cap);
-		cfg->tile_frame = fy_gb_intern_string(cfg->gb,
-			fy_get(v, "tile_frame", cfg->tile_frame));
-		cfg->tile_sep = fy_gb_intern_string(cfg->gb,
-			fy_get(v, "tile_sep", cfg->tile_sep));
-		cfg->work_controls = fy_gb_intern_string(cfg->gb,
-			fy_get(v, "work_controls", cfg->work_controls));
-		cfg->page_path = fy_gb_intern_string(cfg->gb,
-			fy_get(v, "page", cfg->page_path));
-		cfg->screen = fy_gb_intern_string(cfg->gb,
-			fy_get(v, "screen", cfg->screen));
-		cfg->recap_exchanges = fy_get(v, "recap_exchanges",
-					      cfg->recap_exchanges);
-		cfg->tool_update_interval_ms =
-			fy_get(v, "tool_update_interval_ms",
-			       cfg->tool_update_interval_ms);
-		cfg->idle_poll_ms = fy_get(v, "idle_poll_ms",
-					   cfg->idle_poll_ms);
-		cfg->tool_detail = fy_get(v, "tool_detail", cfg->tool_detail);
-		cfg->markdown = apply_bool(v, "markdown", cfg->markdown);
-		cfg->stream = apply_bool(v, "stream", cfg->stream);
-		cfg->thinking = apply_bool(v, "thinking", cfg->thinking);
-		cfg->transcript_system = apply_bool(v, "transcript_system",
-						    cfg->transcript_system);
-		cfg->pretty = apply_bool(v, "pretty", cfg->pretty);
-		cfg->cache_info = apply_bool(v, "cache_info", cfg->cache_info);
-		cfg->stats = apply_bool(v, "stats", cfg->stats);
+		config_apply_display_text(cfg, v);
+		config_apply_display_work(cfg, v);
+		config_apply_display_misc(cfg, v);
 	}
+
+	return 0;
+}
+
+
+/*
+ * Overlay the keys present in @root onto @cfg. Absent keys leave the
+ * existing value untouched, so each layer only overrides what it sets.
+ *
+ * Returns 0 on success, -1 on a malformed value (e.g. a raw secret).
+ */
+int fyai_config_apply(struct fyai_cfg *cfg, fy_generic root)
+{
+	if (fy_is_invalid(root))
+		return 0;
+
+	cfg->config_generation++;
+
+	config_apply_api_key(cfg, root);
+
+	if (config_validate_api(cfg, root))
+		return -1;
+	if (config_apply_model_auth(cfg, root))
+		return -1;
+	config_apply_request(cfg, root);
+	config_apply_shell(cfg, root);
+	config_apply_media(cfg, root);
+	config_apply_agent(cfg, root);
+	config_apply_flags(cfg, root);
+	if (config_apply_sandbox(cfg, root))
+		return -1;
+	config_apply_mcp(cfg, root);
+	config_apply_switches(cfg, root);
+	if (config_apply_branch(cfg, root))
+		return -1;
+	if (config_apply_display(cfg, root))
+		return -1;
 
 	return 0;
 }
