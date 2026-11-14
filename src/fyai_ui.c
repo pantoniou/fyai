@@ -177,9 +177,9 @@ struct fyai_ui {
 	off_t capture_out;
 	off_t capture_err;
 	struct fyai_buf pane_out;	/* what a pane captured */
-	/* The span of a command that ends: its capture, the oracle of the
-	 * rows the renderer makes from the log store, and how it is placed. */
-	struct fyai_buf pane_oracle;
+	/* The span of a command that ends: its capture, which a mirror places,
+	 * and how it is placed. */
+	struct fyai_buf pane_span_out;
 	enum fyai_error_type pane_level;
 	enum ui_pane_span pane_span;
 	bool pane_show_output, pane_command;
@@ -3731,7 +3731,7 @@ void fyai_ui_close(struct fyai_ctx *ctx)
 	free(ui->pane_grid.data);
 	free(ui->stream_rows.data);
 	free(ui->pane_out.data);
-	free(ui->pane_oracle.data);
+	free(ui->pane_span_out.data);
 	free(ui->open_row.data);
 	free(ui->pane_kept);
 	ui_preview_clear(ui);
@@ -3879,10 +3879,6 @@ static void ui_notice_to_transcript(struct fyai_ui *ui,
 	fyai_flow_emitted(flow, FYAI_FLOW_NOTICE, true);
 }
 
-static void ui_log_check(struct fyai_ui *ui, const char *title,
-			 enum fyai_error_type level, const char *rows,
-			 size_t len);
-
 /*
  * Place the output @out of a command: in the transcript, above the status, in
  * the popup of the log, or in a notice band. @command: the output of a slash
@@ -3942,8 +3938,8 @@ static void ui_pane_place(struct fyai_ui *ui, const char *title, bool error,
 
 /*
  * End the span of a command. Its output enters the log store, and the
- * renderer of the model shows the entry through fyai_ui_log_show(). What the
- * span captured is the oracle of what that renderer made.
+ * renderer of the model shows the entry through fyai_ui_log_show(). A mirror
+ * writes no entry, so it places what the span captured.
  */
 static void ui_pane_end(struct fyai_ctx *ctx, const char *title, bool error,
 			bool show_output, bool command)
@@ -3982,8 +3978,8 @@ static void ui_pane_end(struct fyai_ctx *ctx, const char *title, bool error,
 	spool_capture(&ui->out, ui->capture_out, &out);
 	spool_capture(&ui->err, ui->capture_err, &out);
 	ui->capture = false;
-	free(ui->pane_oracle.data);
-	ui->pane_oracle = out;
+	free(ui->pane_span_out.data);
+	ui->pane_span_out = out;
 	ui->pane_level = level;
 	ui->pane_show_output = show_output;
 	ui->pane_command = command;
@@ -3995,33 +3991,9 @@ static void ui_pane_end(struct fyai_ctx *ctx, const char *title, bool error,
 	 * store, so its capture is its output. */
 	if (!shown && fyai_uimodel_mirrored(ctx))
 		ui_pane_place(ui, title, error, level, show_output, command,
-			      &ui->pane_oracle);
-	else if (!shown && ui->pane_oracle.len)
-		ui_log_check(ui, title, level, "", 0);
-	free(ui->pane_oracle.data);
-	memset(&ui->pane_oracle, 0, sizeof(ui->pane_oracle));
-}
-
-/* Compare the rows that the renderer made from the log store with the
- * capture of the span, with the title and the level of each. */
-static void ui_log_check(struct fyai_ui *ui, const char *title,
-			 enum fyai_error_type level, const char *rows,
-			 size_t len)
-{
-	char *model = NULL, *oracle = NULL;
-
-	if (asprintf(&model, "<%s %d>%.*s", title ? title : "", (int)level,
-		     (int)len, rows) < 0)
-		model = NULL;
-	if (asprintf(&oracle, "<%s %d>%.*s", title ? title : "",
-		     (int)ui->pane_level, (int)ui->pane_oracle.len,
-		     ui->pane_oracle.data ? ui->pane_oracle.data : "") < 0)
-		oracle = NULL;
-	if (model && oracle)
-		(void)fyai_uimodel_check(ui->ctx, FYAI_UI_LOG, "output", model,
-					 oracle);
-	free(model);
-	free(oracle);
+			      &ui->pane_span_out);
+	free(ui->pane_span_out.data);
+	memset(&ui->pane_span_out, 0, sizeof(ui->pane_span_out));
 }
 
 void fyai_ui_pane_capture(struct fyai_ctx *ctx)
@@ -4070,7 +4042,6 @@ void fyai_ui_log_show(struct fyai_ctx *ctx, const char *title, bool error,
 		ui->pane_span = UI_SPAN_PLACED;
 		show_output = ui->pane_show_output;
 		command = ui->pane_command;
-		ui_log_check(ui, title, level, rows, len);
 	}
 	if (!len)
 		return;
