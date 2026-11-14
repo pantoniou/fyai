@@ -235,10 +235,6 @@ The following rules keep this true:
   turns, the builder still holds them. The client makes the builder again from
   the turns that remain when the dropped turns outnumber them (more than 64).
   The cost of this is constant for each dropped turn.
-- `fyai_host_malloc_tune()` fixes the limit above which a block is mapped. A C
-  library that adapts the limit keeps each later large block, such as the body
-  of a request to the provider, in its heap. The resident set then follows the
-  peak and not the use.
 
 The benches `tests/bench/remote_soak.sh` and `tests/bench/remote_client_soak.sh`
 measure this. The first runs one worker through the SDK protocol and reports the

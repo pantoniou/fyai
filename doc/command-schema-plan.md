@@ -416,23 +416,16 @@ and `args` strings go away for each command that is ported.
 
 ## Migration
 
-The registry runs in parallel with the old tables.
+The migration is finished. The registry is the only dispatch: the verb table
+(`fyai_find_verb()`), the slash table and the hand-written `configure()` and
+slash `run()` functions are gone, and `fyai help` and `/help` list the
+registry alone. `union fyai_cmd_args` stays as the argument structures that
+the backends read (`src/commands.h`).
 
-1. Dispatch looks up the registry first, then `fyai_find_verb()` or
-   `fyai_slash_cmds[]`. A command in the registry hides the old entry with
-   the same name.
-2. `fyai help` and `/help` list both sets during the migration; an old
-   entry keeps its old help.
-3. A ported command deletes its `configure()`, its `union fyai_cmd_args`
-   member, and its slash `run()` in the same patch. The handler calls the
-   existing backend function.
-4. When the old tables are empty, remove them, `union fyai_cmd_args`, and
-   the fallbacks.
-
-The first commands are `branch` (a group with subcommands and refs),
-`checkout` (a surface difference), `model` (catalogue completion), `config`
-(path and value completion), `history` (a stream), and `auth login` (async).
-Together they test every part of the engine.
+The first commands that were ported are `branch` (a group with subcommands and
+refs), `checkout` (a surface difference), `model` (catalogue completion),
+`config` (path and value completion), `history` (a stream), and `auth login`
+(async). Together they tested every part of the engine.
 
 ## Source layout
 
