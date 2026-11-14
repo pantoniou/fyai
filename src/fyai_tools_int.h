@@ -384,6 +384,12 @@ void fyai_surface_retire_zoom(struct fyai_ctx *ctx,
 void fyai_shell_session_exited(struct fyai_shell_session *sess,
 			       int exit_code, int signal);
 void fyai_shell_sessions_abandon(struct fyai_ctx *ctx);
+void fyai_shell_session_close(struct fyai_shell_session *sess, bool force);
+void fyai_shell_session_dismiss(struct fyai_shell_session *sess);
+void fyai_shell_session_reply(const char *data, size_t len, void *user);
+
+/* fyai_tools_focus.c */
+bool fyai_tools_focus(struct fyai_ctx *ctx, struct fytim_surface *sf);
 fy_generic fyai_shell_output_tool(struct fyai_ctx *ctx, fy_generic args,
 				  bool *okp);
 fy_generic fyai_shell_input_tool(struct fyai_ctx *ctx, fy_generic args,
