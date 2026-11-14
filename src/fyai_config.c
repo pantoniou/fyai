@@ -4072,26 +4072,24 @@ int fyai_config_select_resume(struct fyai_cfg *cfg)
 	return 0;
 }
 
-int fyai_config_setup(struct fyai_cfg *cfg, int argc, char *argv[])
-{
-	struct fy_generic_builder_cfg gb_cfg;
+/* The state that the steps of the setup share. */
+struct config_setup {
+	struct fyai_cfg *cfg;
+	int argc;
+	char **argv;
+	int arg_index;
 	struct config_cli_options cli;
-	fy_generic doc, session, key;
-	int rc, arg_index;
-	char *def_arena_dir = NULL;
-	const char *verb = NULL;
-	bool stdin_prompt;
-	char *prompt = NULL;
-	int ret = -1;
-	char **help_argv = NULL;
+	char **help_argv;
 	char *remote_argv[4];
+	int ret;
+};
+
+/* Make the builder and the diagnostics, and read the reload state. */
+static int config_setup_init(struct config_setup *s)
+{
+	struct fyai_cfg *cfg = s->cfg;
+	struct fy_generic_builder_cfg gb_cfg;
 	const char *version;
-	int i;
-
-	if (!cfg)
-		return -1;
-
-	memset(cfg, 0, sizeof(*cfg));
 
 	memset(&gb_cfg, 0, sizeof(gb_cfg));
 	gb_cfg.flags = FYGBCF_SCOPE_LEADER | FYGBCF_DEDUP_ENABLED;
@@ -4124,23 +4122,34 @@ int fyai_config_setup(struct fyai_cfg *cfg, int argc, char *argv[])
 	 * command. A command line that still has the form of an SDK asks for
 	 * the version, or could not be given the command.
 	 */
-	if (fyai_claude_sdk_argv(argc, argv)) {
-		version = fyai_claude_sdk_version(argc, argv);
+	if (fyai_claude_sdk_argv(s->argc, s->argv)) {
+		version = fyai_claude_sdk_version(s->argc, s->argv);
 		fyai_cfg_error_check(cfg, version, err_out,
 				     "cannot make the arguments of claude-sdk");
 		printf("%s\n", version);
-		ret = 1;
-		goto out;
+		s->ret = 1;
+		return 1;
 	}
+	return 0;
+err_out:
+	s->ret = -1;
+	return -1;
+}
 
-	rc = config_parse_cli_options(cfg, argc, argv, &cli);
+/* Parse the global options, and the arguments of --remote and -h. */
+static int config_setup_args(struct config_setup *s)
+{
+	struct fyai_cfg *cfg = s->cfg;
+	int rc, i;
+
+	rc = config_parse_cli_options(cfg, s->argc, s->argv, &s->cli);
 	if (rc > 0) {
-		ret = rc;
-		goto out;
+		s->ret = rc;
+		return 1;
 	}
 	if (rc < 0)
 		goto err_out;
-	arg_index = cli.arg_index;
+	s->arg_index = s->cli.arg_index;
 
 	/*
 	 * --remote keeps its own options and gives every other word to the
@@ -4149,25 +4158,25 @@ int fyai_config_setup(struct fyai_cfg *cfg, int argc, char *argv[])
 	 */
 	if (cfg->remote) {
 		cfg->remote_args = fy_seq_empty;
-		for (i = 1; i < argc; i++) {
-			if (i < arg_index && cli.remote_own[i])
+		for (i = 1; i < s->argc; i++) {
+			if (i < s->arg_index && s->cli.remote_own[i])
 				continue;
 			cfg->remote_args = fy_append(cfg->gb, cfg->remote_args,
-						     fy_value(cfg->gb, argv[i]));
-			if (i < arg_index)
+						     fy_value(cfg->gb, s->argv[i]));
+			if (i < s->arg_index)
 				cfg->remote_globals++;
 		}
 		fyai_cfg_error_check(cfg, fy_is_sequence(cfg->remote_args), err_out,
 				     "cannot keep the command line of --remote");
-		cfg->remote_words = arg_index < argc;
-		remote_argv[0] = argv[0];
-		remote_argv[1] = (char *)"remote";
-		remote_argv[2] = (char *)"run";
-		remote_argv[3] = NULL;
-		argv = remote_argv;
-		argc = 3;
-		arg_index = 1;
-		cli.help = false;
+		cfg->remote_words = s->arg_index < s->argc;
+		s->remote_argv[0] = s->argv[0];
+		s->remote_argv[1] = (char *)"remote";
+		s->remote_argv[2] = (char *)"run";
+		s->remote_argv[3] = NULL;
+		s->argv = s->remote_argv;
+		s->argc = 3;
+		s->arg_index = 1;
+		s->cli.help = false;
 	} else if (cfg->project && chdir(cfg->project)) {
 		fyai_cfg_error(cfg, "--project '%s': %s", cfg->project, strerror(errno));
 		goto err_out;
@@ -4178,18 +4187,31 @@ int fyai_config_setup(struct fyai_cfg *cfg, int argc, char *argv[])
 	 * registry copies the words it parses, so the vector lives only for
 	 * this call.
 	 */
-	if (cli.help) {
-		help_argv = calloc((size_t)(argc - arg_index) + 2,
-				   sizeof(*help_argv));
-		fyai_cfg_error_check(cfg, help_argv, err_out,
+	if (s->cli.help) {
+		s->help_argv = calloc((size_t)(s->argc - s->arg_index) + 2,
+				   sizeof(*s->help_argv));
+		fyai_cfg_error_check(cfg, s->help_argv, err_out,
 				     "cannot make the arguments of help");
-		help_argv[0] = (char *)"help";
-		for (i = arg_index; i < argc; i++)
-			help_argv[1 + i - arg_index] = argv[i];
-		argc = 1 + argc - arg_index;
-		argv = help_argv;
-		arg_index = 0;
+		s->help_argv[0] = (char *)"help";
+		for (i = s->arg_index; i < s->argc; i++)
+			s->help_argv[1 + i - s->arg_index] = s->argv[i];
+		s->argc = 1 + s->argc - s->arg_index;
+		s->argv = s->help_argv;
+		s->arg_index = 0;
 	}
+	return 0;
+err_out:
+	s->ret = -1;
+	return -1;
+}
+
+/* Load the configuration and fold in the reload state and --set. */
+static int config_setup_load(struct config_setup *s)
+{
+	struct fyai_cfg *cfg = s->cfg;
+	fy_generic doc, session, key;
+	char *def_arena_dir = NULL;
+	int rc;
 
 	/*
 	 * $FYAI_BRANCH backs --branch and must be settled before the config is
@@ -4204,11 +4226,11 @@ int fyai_config_setup(struct fyai_cfg *cfg, int argc, char *argv[])
 	 * resume verb selects a branch for the same reason, before the
 	 * configuration of that branch is read.
 	 */
-	if (arg_index < argc && fyai_cmd_is_verb(argv[arg_index]) &&
-	    fyai_cmd_early(cfg, argc - arg_index, argv + arg_index))
+	if (s->arg_index < s->argc && fyai_cmd_is_verb(s->argv[s->arg_index]) &&
+	    fyai_cmd_early(cfg, s->argc - s->arg_index, s->argv + s->arg_index))
 		goto err_out;
 
-	rc = fyai_config_load(cfg, cli.config, cli.env);
+	rc = fyai_config_load(cfg, s->cli.config, s->cli.env);
 	if (rc)
 		goto err_out;
 	if (fy_is_mapping(cfg->reload_state)) {
@@ -4254,8 +4276,8 @@ int fyai_config_setup(struct fyai_cfg *cfg, int argc, char *argv[])
 		goto err_out;
 	/* Command-line secrets have absolute precedence over configuration
 	 * intent, including a pending --set api_key operation. */
-	if (cli.api_key) {
-		cfg->api_key = cli.api_key;
+	if (s->cli.api_key) {
+		cfg->api_key = s->cli.api_key;
 		cfg->api_key_ref = "mem:cli";
 		cfg->api_key_explicit = true;
 		cfg->api_key_auto = false;
@@ -4276,15 +4298,28 @@ int fyai_config_setup(struct fyai_cfg *cfg, int argc, char *argv[])
 		free(def_arena_dir);
 		def_arena_dir = NULL;
 	}
+	return 0;
+err_out:
+	s->ret = -1;
+	return -1;
+}
+
+/* Dispatch a verb, a config run or a prompt. */
+static int config_setup_dispatch(struct config_setup *s)
+{
+	struct fyai_cfg *cfg = s->cfg;
+	const char *verb = NULL;
+	bool stdin_prompt;
+	char *prompt = NULL;
 
 	/*
 	 * A known verb at optind dispatches; otherwise it's a prompt. A command
 	 * of the registry hides a table verb of the same name.
 	 */
-	verb = arg_index < argc && fyai_cmd_is_verb(argv[arg_index]) ?
-	       argv[arg_index] : NULL;
+	verb = s->arg_index < s->argc && fyai_cmd_is_verb(s->argv[s->arg_index]) ?
+	       s->argv[s->arg_index] : NULL;
 
-	if (!verb && arg_index >= argc && !cfg->interactive &&
+	if (!verb && s->arg_index >= s->argc && !cfg->interactive &&
 	    config_has_command_ops(cfg)) {
 		/*
 		 * A bare --set/--get/--delete run (no verb, no prompt, and not
@@ -4295,23 +4330,23 @@ int fyai_config_setup(struct fyai_cfg *cfg, int argc, char *argv[])
 		 * those still run in fyai_run either way.
 		 */
 		cfg->cmd.run = FYAI_RUN_CONFIG;
-		ret = 0;
+		s->ret = 0;
 	} else if (verb) {
-		argv += arg_index;
-		argc -= arg_index;
+		s->argv += s->arg_index;
+		s->argc -= s->arg_index;
 		/* The flags of a registry command come from its definition,
 		 * and the gate below reads them. */
-		if (fyai_cmd_configure(cfg, argc, argv))
+		if (fyai_cmd_configure(cfg, s->argc, s->argv))
 			goto err_out;
-		ret = 0;
+		s->ret = 0;
 	} else {
-		stdin_prompt = (!cfg->interactive && arg_index >= argc &&
+		stdin_prompt = (!cfg->interactive && s->arg_index >= s->argc &&
 				!terminal_is_tty(STDIN_FILENO)) ||
-			       (arg_index < argc && argc - arg_index == 1 &&
-				!strcmp(argv[arg_index], "-"));
+			       (s->arg_index < s->argc && s->argc - s->arg_index == 1 &&
+				!strcmp(s->argv[s->arg_index], "-"));
 
 		/* No prompt and a terminal on stdin: drop into interactive mode. */
-		if (arg_index >= argc && !stdin_prompt)
+		if (s->arg_index >= s->argc && !stdin_prompt)
 			cfg->interactive = true;
 
 		/*
@@ -4331,11 +4366,11 @@ int fyai_config_setup(struct fyai_cfg *cfg, int argc, char *argv[])
 				fyai_cfg_error(cfg, "failed to read prompt from stdin");
 				goto err_out;
 			}
-		} else if (arg_index < argc) {
-			prompt = join_args(argc - arg_index, argv + arg_index);
+		} else if (s->arg_index < s->argc) {
+			prompt = join_args(s->argc - s->arg_index, s->argv + s->arg_index);
 			if (!prompt) {
 				fyai_cfg_error(cfg, "Out of memory");
-				goto err_out;;
+				goto err_out;
 			}
 		}
 		/*
@@ -4352,8 +4387,29 @@ int fyai_config_setup(struct fyai_cfg *cfg, int argc, char *argv[])
 		prompt = NULL;
 
 		cfg->cmd.run = FYAI_RUN_PROMPT;
-		ret = 0;
+		s->ret = 0;
 	}
+	return 0;
+err_out:
+	s->ret = -1;
+	return -1;
+}
+
+int fyai_config_setup(struct fyai_cfg *cfg, int argc, char *argv[])
+{
+	struct config_setup s = { .cfg = cfg, .argc = argc, .argv = argv,
+				  .ret = -1 };
+	int rc;
+
+	if (!cfg)
+		return -1;
+
+	memset(cfg, 0, sizeof(*cfg));
+
+	rc = config_setup_init(&s) || config_setup_args(&s) ||
+	     config_setup_load(&s) || config_setup_dispatch(&s);
+	if (rc)
+		goto out;
 
 	/*
 	 * Features with no Messages-API mapping yet: extended thinking (the
@@ -4365,20 +4421,20 @@ int fyai_config_setup(struct fyai_cfg *cfg, int argc, char *argv[])
 	 */
 	/* Resolving the model parses the catalogue: only a run that reads it
 	 * pays for that. */
-	if (fyai_cfg_needs_model(cfg) && fyai_config_resolve_model(cfg))
-		goto err_out;
-	if (fyai_cfg_makes_requests(cfg) && fyai_config_grammar_gate(cfg))
-		goto err_out;
+	if (fyai_cfg_needs_model(cfg) && fyai_config_resolve_model(cfg)) {
+		s.ret = -1;
+		goto out;
+	}
+	if (fyai_cfg_makes_requests(cfg) && fyai_config_grammar_gate(cfg)) {
+		s.ret = -1;
+		goto out;
+	}
 
-	free(help_argv);
-	return ret;
+	free(s.help_argv);
+	return s.ret;
 
 out:
-	free(help_argv);
+	free(s.help_argv);
 	fyai_config_cleanup(cfg);
-	return ret;
-
-err_out:
-	ret = -1;
-	goto out;
+	return s.ret;
 }
