@@ -2,7 +2,7 @@
 
 Status: design, and the first three steps are done and the fourth has begun:
 `struct fyai_app` exists and holds `diag`, `loop`, `arena`, `transient`,
-`cred`, `link`, `transport`, `mcp`, `waitq`, `askq`, `scope`, `tty`, `skills`, `toolspec`, `bstate`, `usage`, `turn` and `cfg`. The counts come from a script over
+`cred`, `link`, `transport`, `mcp`, `waitq`, `askq`, `scope`, `tty`, `skills`, `toolspec`, `bstate`, `usage`, `turn`, `jobs`, `astate` and `cfg`. The counts come from a script over
 `src/*.c` that counts `ctx->FIELD` per file; check a row against the code
 before a change. The order of the work is near the end.
 
@@ -289,9 +289,13 @@ Each step builds, passes both suites, and lands as its own patch series
 8. `turn` is done: `struct fyai_turnstate` (`ctx->turn`) holds the last message,
    the observers, the tool gate and its rounds, the stop reason, the schema of
    the answer, the cost limit, the chain state, the token extents and the
-   attachments that wait. A view context copies it. `jobs` and `agents` remain:
-   the wide components, with the callbacks of the display and of the
-   observers. They change the most call sites.
+   attachments that wait. A view context copies it. `jobs` and `agents` are done
+   too: `struct fyai_jobs` (`ctx->jobs`) holds the live tool jobs, the side
+   questions, the background sub-agents, the monitors, the terminal sessions
+   and the control channel of a tool child; `struct fyai_agent_state`
+   (`ctx->astate`) holds the registry of the sub-agents, the execution and
+   parent numbers and the spawn state. Their reads of the display fields stay
+   direct until the display components of step 9 exist.
 9. `sink`, `uimodel`, `ui`: this part ends in the second context of the TUI
    split.
 
