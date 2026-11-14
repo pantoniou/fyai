@@ -15,10 +15,14 @@
 #define FYAI_CRED_H
 
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 #include <time.h>
 
 struct fyai_ctx;
+struct fyai_loop;
+struct fyai_event_source;
+struct fyai_auth_refresh_request;
 struct curl_slist;
 
 /*
@@ -32,6 +36,32 @@ struct fyai_cred_waiter {
 	struct fyai_cred_waiter *next;
 	bool queued;
 };
+
+/* A secret that the process was given in memory, "mem:NAME". */
+struct fyai_cred_mem {
+	char *name;
+	char *value;
+};
+
+/*
+ * The one refresh of the login in this process, its waiters, and the secrets
+ * kept in memory. The component depends on the loop for its timer; @ctx is
+ * the context that the refresh runs the login for, set by fyai_cred_bind().
+ */
+struct fyai_cred {
+	struct fyai_loop *loop;			/* dependency: the timer */
+	struct fyai_ctx *ctx;			/* the login the refresh serves */
+	struct fyai_event_source *timer;	/* the scheduled refresh */
+	time_t scheduled;			/* when the timer fires, or 0 */
+	struct fyai_auth_refresh_request *refresh;
+	struct fyai_cred_waiter *head;
+	struct fyai_cred_waiter *tail;
+	struct fyai_cred_mem *mem;
+	size_t nmem;
+};
+
+void fyai_cred_init(struct fyai_cred *cred, struct fyai_loop *loop);
+void fyai_cred_bind(struct fyai_cred *cred, struct fyai_ctx *ctx);
 
 /*
  * Make the credential of @source usable before a request reads it. Returns 0

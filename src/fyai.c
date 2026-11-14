@@ -2737,6 +2737,8 @@ int fyai_setup(struct fyai_ctx *ctx, struct fyai_app *app)
 	ctx->loop = &app->loop;
 	ctx->arena = &app->arena;
 	ctx->transient = &app->transient;
+	ctx->cred = &app->cred;
+	fyai_cred_bind(ctx->cred, ctx);
 	ctx->transient->on_release = fyai_transient_released;
 	ctx->transient->on_release_data = ctx;
 	/* A wait that stands on the loop looks at an interrupt when it comes. */

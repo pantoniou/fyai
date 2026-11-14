@@ -17,28 +17,11 @@
 #include "fyai_auth.h"
 #include "fyai_cred.h"
 #include "fyai_event.h"
+#include "fyai_loop.h"
 #include "fyai_secret.h"
 #include "fyai_transport_server.h"
 
 #define FYAI_MODULE FYAIEM_UNKNOWN
-
-/* A secret that the process was given in memory, "mem:NAME". */
-struct fyai_cred_mem {
-	char *name;
-	char *value;
-};
-
-/* The one refresh of the login in this process, and who waits for it. */
-struct fyai_cred {
-	struct fyai_ctx *ctx;
-	struct fyai_event_source *timer;	/* the scheduled refresh */
-	time_t scheduled;			/* when the timer fires, or 0 */
-	struct fyai_auth_refresh_request *refresh;
-	struct fyai_cred_waiter *head;
-	struct fyai_cred_waiter *tail;
-	struct fyai_cred_mem *mem;
-	size_t nmem;
-};
 
 struct fyai_cred_ops {
 	const char *name;
@@ -55,16 +38,22 @@ uint64_t fyai_cred_tag(const char *secret)
 
 static struct fyai_cred *cred_get(struct fyai_ctx *ctx)
 {
-	if (!ctx->cred) {
-		ctx->cred = calloc(1, sizeof(*ctx->cred));
-		if (ctx->cred)
-			ctx->cred->ctx = ctx;
-	}
 	fyai_error_check(ctx, ctx->cred, err_out,
-			 "could not allocate the credential state");
+			 "the credential component is not set up");
 	return ctx->cred;
 err_out:
 	return NULL;
+}
+
+void fyai_cred_init(struct fyai_cred *cred, struct fyai_loop *loop)
+{
+	memset(cred, 0, sizeof(*cred));
+	cred->loop = loop;
+}
+
+void fyai_cred_bind(struct fyai_cred *cred, struct fyai_ctx *ctx)
+{
+	cred->ctx = ctx;
 }
 
 bool fyai_cred_refresh_pending(const struct fyai_ctx *ctx)
@@ -111,7 +100,7 @@ static void cred_arm(struct fyai_ctx *ctx, time_t at)
 		return;
 	if (at < now + CRED_SCHEDULE_MIN_S)
 		return;
-	el = fyai_ctx_loop(ctx);
+	el = cred->loop ? fyai_loop_get(cred->loop) : NULL;
 	if (!el)
 		return;
 	ms = (fyai_event_ms_t)(at - now) * 1000;
@@ -551,8 +540,9 @@ void fyai_cred_release(struct fyai_ctx *ctx)
 		free(cred->mem[i].name);
 	}
 	free(cred->mem);
-	free(cred);
-	ctx->cred = NULL;
+	cred->mem = NULL;
+	cred->nmem = 0;
+	cred->scheduled = 0;
 }
 
 void fyai_cred_abandon(struct fyai_ctx *ctx)
