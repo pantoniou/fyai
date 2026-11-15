@@ -18,6 +18,7 @@
 #include "fyai_app.h"
 #include "fyai_diag.h"
 #include "fyai_event.h"
+#include "fyai_event_priv.h"
 #include "fyai_arena.h"
 #include "fyai_loop.h"
 #include "fyai_transient.h"
@@ -49,6 +50,7 @@ FYAI_TEST_ENTRY(app, wires_usage, app_wires_usage)
 FYAI_TEST_ENTRY(app, wires_turn, app_wires_turn)
 FYAI_TEST_ENTRY(app, wires_jobs, app_wires_jobs)
 FYAI_TEST_ENTRY(app, wires_astate, app_wires_astate)
+FYAI_TEST_ENTRY(app, signal_owner_follows_handlers, app_signal_owner_follows_handlers)
 FYAI_TEST_ENTRY(app, wires_front, app_wires_front)
 FYAI_TEST_ENTRY(app, wires_link, app_wires_link)
 FYAI_TEST_ENTRY(app, wires_cred, app_wires_cred)
@@ -305,6 +307,34 @@ int app_wires_astate(void)
 	FYAI_TCHECK(fy_is_invalid(app.astate.spawn));
 	fyai_app_cleanup(&app);
 	printf("ok - the sub-agent identity starts empty\n");
+	return 0;
+}
+
+/* The one pointer that the handlers read stays while a handler is installed. */
+int app_signal_owner_follows_handlers(void)
+{
+	struct fyai_app app;
+	int fd;
+
+	FYAI_TCHECK(!fyai_app_init(&app));
+	FYAI_TCHECK(!fyai_event_signal_owner());
+	fd = dup(STDERR_FILENO);
+	FYAI_TCHECK(fd >= 0);
+	FYAI_TCHECK(fyai_loop_get(&app.loop));
+	FYAI_TCHECK(!fyai_event_interrupt_open(&app.loop, 5000));
+	FYAI_TCHECK(!fyai_event_dump_open(&app.loop, SIGUSR2, fd));
+	FYAI_TCHECK(fyai_event_signal_owner() == &app.loop);
+
+	/* The dump still needs the owner. */
+	fyai_event_interrupt_close(&app.loop);
+	FYAI_TCHECK(fyai_event_signal_owner() == &app.loop);
+	fyai_event_dump_close(&app.loop);
+	FYAI_TCHECK(!fyai_event_signal_owner());
+
+	signal(SIGUSR2, SIG_DFL);
+	close(fd);
+	fyai_app_cleanup(&app);
+	printf("ok - the owner of the handlers goes with the last handler\n");
 	return 0;
 }
 

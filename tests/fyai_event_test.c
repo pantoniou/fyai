@@ -1495,7 +1495,7 @@ static void test_state_dump_while_stuck(void)
 	buf[len] = '\0';
 	FYAI_TCHECK(strstr(buf, "fyai event loop dump"));
 
-	fyai_event_dump_close();
+	fyai_event_dump_close(fyai_test_loop_of(&test_ctx));
 	signal(SIGUSR2, SIG_DFL);
 	close(p[0]);
 	close(p[1]);
