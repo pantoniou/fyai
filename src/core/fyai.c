@@ -98,6 +98,28 @@ static bool fyai_waitq_owner_live_hook(void *data, int kind, const char *owner)
 	return fyai_event_session_live(data, owner);
 }
 
+/* Put the questions of a background ask to the user through this run. */
+static int fyai_askq_open_hook(void *data, fy_generic questions,
+			       void (*done)(void *user,
+					    const struct fyai_ask_reply *replies,
+					    size_t n), void *user)
+{
+	return fyai_ask_open(data, questions, NULL, done, user);
+}
+
+static void fyai_askq_close_hook(void *data, void *user)
+{
+	fyai_ask_close(data, user);
+}
+
+/* Tell the questions how to reach the user: through this run. */
+void fyai_askq_bind(struct fyai_ctx *ctx)
+{
+	ctx->askq->hook_data = ctx;
+	ctx->askq->open = fyai_askq_open_hook;
+	ctx->askq->close = fyai_askq_close_hook;
+}
+
 /* Tell the queue of events whom to wake and whom to ask: the run is both. */
 void fyai_waitq_bind(struct fyai_ctx *ctx)
 {
@@ -2543,7 +2565,7 @@ void fyai_cleanup(struct fyai_ctx *ctx)
 	/* A session cannot outlive the invocation that opened it, and neither
 	 * can a wait: there is no daemon for either to be handed to. */
 	fyai_shell_sessions_release(ctx, false);
-	fyai_asks_release(ctx);
+	fyai_asks_release(ctx->askq);
 	fyai_waits_release(ctx->waitq);
 	fyai_waiters_release(ctx);
 	fyai_tool_gate_relays_drop(ctx);
@@ -2795,6 +2817,7 @@ int fyai_setup(struct fyai_ctx *ctx, struct fyai_app *app)
 	ctx->jobs = &app->jobs;
 	ctx->front = &app->front;
 	ctx->astate = &app->astate;
+	fyai_askq_bind(ctx);
 	ctx->usage = &app->usage;
 	ctx->scope = &app->scope;
 	ctx->tty = &app->tty;
@@ -3005,7 +3028,7 @@ void fyai_background_reset(struct fyai_ctx *ctx)
 		return;
 	fyai_agent_background_close(ctx);
 	fyai_monitor_close(ctx);
-	fyai_asks_release(ctx);
+	fyai_asks_release(ctx->askq);
 	fyai_waits_release(ctx->waitq);
 	fyai_events_release(ctx->waitq);
 }

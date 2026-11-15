@@ -490,7 +490,7 @@ static bool fyai_wait_for_alive(struct fyai_ctx *ctx,
 	case FYAI_WAIT_FOR_MONITOR:
 		return fyai_monitor_running(ctx, it->name);
 	case FYAI_WAIT_FOR_QUESTION:
-		return fyai_asks_exists(ctx, it->name);
+		return fyai_asks_exists(ctx->askq, it->name);
 	case FYAI_WAIT_FOR_PARENT_ASK:
 		return fyai_agents_parent_ask_pending(ctx, it->name);
 	case FYAI_WAIT_FOR_AGENT_MESSAGE:
@@ -521,7 +521,7 @@ static enum fyai_wait_for_kind fyai_wait_for_resolve(struct fyai_ctx *ctx,
 	    fyai_event_pending_prefix(ctx->waitq, fy_sprintfa("[wait '%s' fired",
 						       target)))
 		return FYAI_WAIT_FOR_WAIT;
-	if (fyai_asks_exists(ctx, target) ||
+	if (fyai_asks_exists(ctx->askq, target) ||
 	    fyai_event_pending_prefix(ctx->waitq, fy_sprintfa("[question '%s' ",
 						       target)))
 		return FYAI_WAIT_FOR_QUESTION;

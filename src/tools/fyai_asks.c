@@ -18,16 +18,16 @@
  */
 struct fyai_ask_pending {
 	struct fyai_ask_pending *next;
-	struct fyai_ctx *ctx;
+	struct fyai_askq *q;
 	const char *name;
 	struct fy_generic_builder *gb;
 	fy_generic questions;
 };
 
-/* The context that this object stands on. */
-static inline struct fyai_ctx *fyai_ask_pending_ctx(const struct fyai_ask_pending *o)
+/* The queue that this question stands on. */
+static inline struct fyai_askq *fyai_ask_pending_askq(const struct fyai_ask_pending *o)
 {
-	return o->ctx;
+	return o->q;
 }
 
 static bool asks_name_valid(const char *name)
@@ -42,11 +42,11 @@ static bool asks_name_valid(const char *name)
 	return true;
 }
 
-static struct fyai_ask_pending *asks_find(struct fyai_ctx *ctx, const char *name)
+static struct fyai_ask_pending *asks_find(struct fyai_askq *q, const char *name)
 {
 	struct fyai_ask_pending *p;
 
-	for (p = ctx->askq->asks; p; p = p->next)
+	for (p = q->asks; p; p = p->next)
 		if (!strcmp(p->name, name))
 			return p;
 	return NULL;
@@ -60,12 +60,12 @@ static void asks_free(struct fyai_ask_pending *p)
 	free(p);
 }
 
-/* Take @p off the list of the context. */
-static void asks_unlink(struct fyai_ctx *ctx, struct fyai_ask_pending *p)
+/* Take @p off the list of the queue. */
+static void asks_unlink(struct fyai_askq *q, struct fyai_ask_pending *p)
 {
 	struct fyai_ask_pending **pp;
 
-	for (pp = &ctx->askq->asks; *pp; pp = &(*pp)->next) {
+	for (pp = &q->asks; *pp; pp = &(*pp)->next) {
 		if (*pp != p)
 			continue;
 		*pp = p->next;
@@ -73,13 +73,13 @@ static void asks_unlink(struct fyai_ctx *ctx, struct fyai_ask_pending *p)
 	}
 }
 
-/* Whether @p is still a question of the context. */
-static bool asks_live(struct fyai_ctx *ctx, const struct fyai_ask_pending *p)
+/* Whether @p is still a question of the queue. */
+static bool asks_live(struct fyai_askq *q, const struct fyai_ask_pending *p)
 {
-	struct fyai_ask_pending *q;
+	struct fyai_ask_pending *it;
 
-	for (q = ctx->askq->asks; q; q = q->next)
-		if (q == p)
+	for (it = q->asks; it; it = it->next)
+		if (it == p)
 			return true;
 	return false;
 }
@@ -108,23 +108,22 @@ static void asks_done(void *user, const struct fyai_ask_reply *replies,
 		      size_t n)
 {
 	struct fyai_ask_pending *p = user;
-	struct fyai_ctx *ctx = fyai_ask_pending_ctx(p);
+	struct fyai_askq *q = fyai_ask_pending_askq(p);
 	char *text;
 
-	if (!asks_live(ctx, p))
+	if (!asks_live(q, p))
 		return;
 	text = asks_report(p, replies, n);
-	asks_unlink(ctx, p);
+	asks_unlink(q, p);
 	if (!text) {
-		fyai_error(ctx, "ask_user: cannot report the answers of '%s'",
+		fyai_diag_type(q->diag, FYAIET_ERROR, "ask_user: cannot report the answers of '%s'",
 			   p->name);
 		text = strdup(fy_sprintfa("[question '%s' declined]", p->name));
 	}
 	asks_free(p);
 	if (!text)
 		return;
-	(void)fyai_event_inject(ctx->waitq, text);
-	fyai_waiters_kick(ctx);
+	(void)fyai_event_inject(q->waitq, text);
 }
 
 bool fyai_asks_background(fy_generic args)
@@ -136,14 +135,14 @@ bool fyai_asks_background(fy_generic args)
 }
 
 /* Write a name for a question that was given none, unused by any open one. */
-static void asks_default_name(struct fyai_ctx *ctx, char *buf, size_t size)
+static void asks_default_name(struct fyai_askq *q, char *buf, size_t size)
 {
 	do
-		snprintf(buf, size, "ask-%u", ++ctx->askq->seq);
-	while (asks_find(ctx, buf));
+		snprintf(buf, size, "ask-%u", ++q->seq);
+	while (asks_find(q, buf));
 }
 
-fy_generic fyai_asks_start(struct fyai_ctx *ctx,
+fy_generic fyai_asks_start(struct fyai_askq *q,
 			   struct fy_generic_builder *gb, const char *name,
 			   fy_generic questions)
 {
@@ -155,35 +154,35 @@ fy_generic fyai_asks_start(struct fyai_ctx *ctx,
 	int rc;
 
 	if (!name || !*name) {
-		asks_default_name(ctx, made, sizeof(made));
+		asks_default_name(q, made, sizeof(made));
 		name = made;
 	}
 	if (!asks_name_valid(name))
 		return fy_stringf(gb, "tool error: '%s' is not a usable "
 				  "question name; use letters, digits, "
 				  "'-' or '_'", name);
-	if (asks_find(ctx, name))
+	if (asks_find(q, name))
 		return fy_stringf(gb, "tool error: a question named '%s' "
 				  "is already open; use another name", name);
 	p = calloc(1, sizeof(*p));
-	fyai_error_check(ctx, p, err_out, "ask_user: cannot keep question '%s'",
+	fyai_diag_check(q->diag, p, err_out, "ask_user: cannot keep question '%s'",
 			 name);
-	p->ctx = ctx;
-	p->name = fyai_ctx_keep_str(ctx, name);
-	fyai_error_check(ctx, p->name, err_free,
+	p->q = q;
+	p->name = fy_gb_intern_string(q->cfg->gb, name);
+	fyai_diag_check(q->diag, p->name, err_free,
 			 "ask_user: cannot keep the name of question '%s'", name);
 	p->gb = fy_generic_builder_create(&cfg);
-	fyai_error_check(ctx, p->gb, err_free,
+	fyai_diag_check(q->diag, p->gb, err_free,
 			 "ask_user: cannot create the builder of question '%s'",
 			 name);
 	p->questions = fy_gb_internalize(p->gb, questions);
-	fyai_error_check(ctx, fy_is_valid(p->questions), err_free,
+	fyai_diag_check(q->diag, fy_is_valid(p->questions), err_free,
 			 "ask_user: cannot keep the questions of '%s'", name);
-	p->next = ctx->askq->asks;
-	ctx->askq->asks = p;
-	rc = fyai_ask_open(ctx, p->questions, NULL, asks_done, p);
+	p->next = q->asks;
+	q->asks = p;
+	rc = q->open ? q->open(q->hook_data, p->questions, asks_done, p) : -1;
 	if (rc) {
-		asks_unlink(ctx, p);
+		asks_unlink(q, p);
 		asks_free(p);
 		return fy_value(gb, "tool error: the questions could not be asked");
 	}
@@ -198,71 +197,76 @@ err_out:
 	return fy_invalid;
 }
 
-bool fyai_asks_exists(struct fyai_ctx *ctx, const char *name)
+bool fyai_asks_exists(struct fyai_askq *q, const char *name)
 {
-	return asks_find(ctx, name) != NULL;
+	return asks_find(q, name) != NULL;
 }
 
-bool fyai_asks_cancel(struct fyai_ctx *ctx, const char *name)
+bool fyai_asks_cancel(struct fyai_askq *q, const char *name)
 {
-	struct fyai_ask_pending *p = asks_find(ctx, name);
+	struct fyai_ask_pending *p = asks_find(q, name);
 
 	if (!p)
 		return false;
-	fyai_ask_close(ctx, p);
-	asks_unlink(ctx, p);
+	if (q->close)
+		q->close(q->hook_data, p);
+	asks_unlink(q, p);
 	asks_free(p);
-	fyai_waiters_kick(ctx);
+	fyai_waitq_kick(q->waitq);
 	return true;
 }
 
-fy_generic fyai_asks_rows(struct fyai_ctx *ctx, struct fy_generic_builder *gb)
+fy_generic fyai_asks_rows(struct fyai_askq *q, struct fy_generic_builder *gb)
 {
 	struct fyai_ask_pending *p;
-	fy_generic rows, headers, q;
+	fy_generic rows, headers, item;
 
 	rows = fy_sequence(gb);
-	for (p = ctx->askq->asks; p; p = p->next) {
+	for (p = q->asks; p; p = p->next) {
 		headers = fy_sequence(gb);
-		fy_foreach(q, p->questions)
+		fy_foreach(item, p->questions)
 			headers = fy_append(gb, headers,
-					    fy_get(q, "header", fy_invalid));
+					    fy_get(item, "header", fy_invalid));
 		rows = fy_append(gb, rows, fy_mapping(gb, "name", p->name,
 						      "headers", headers));
 	}
 	return rows;
 }
 
-void fyai_asks_release(struct fyai_ctx *ctx)
+void fyai_asks_release(struct fyai_askq *q)
 {
 	struct fyai_ask_pending *p, *next;
 
-	if (!ctx)
+	if (!q)
 		return;
-	for (p = ctx->askq->asks; p; p = next) {
+	for (p = q->asks; p; p = next) {
 		next = p->next;
-		fyai_ask_close(ctx, p);
+		if (q->close)
+			q->close(q->hook_data, p);
 		asks_free(p);
 	}
-	ctx->askq->asks = NULL;
+	q->asks = NULL;
 }
 
 /* The questions of the parent stay with the parent's user interface. */
-void fyai_asks_abandon(struct fyai_ctx *ctx)
+void fyai_asks_abandon(struct fyai_askq *q)
 {
 	struct fyai_ask_pending *p, *next;
 
-	if (!ctx)
+	if (!q)
 		return;
-	for (p = ctx->askq->asks; p; p = next) {
+	for (p = q->asks; p; p = next) {
 		next = p->next;
 		asks_free(p);
 	}
-	ctx->askq->asks = NULL;
+	q->asks = NULL;
 }
 
-void fyai_askq_init(struct fyai_askq *q, struct fyai_diag *diag)
+void fyai_askq_init(struct fyai_askq *q, struct fyai_diag *diag,
+		    struct fyai_waitq *waitq, struct fyai_cfg *cfg)
 {
 	memset(q, 0, sizeof(*q));
 	q->diag = diag;
+	q->waitq = waitq;
+	q->cfg = cfg;
 }

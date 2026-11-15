@@ -24,6 +24,12 @@ void fyai_waitq_init(struct fyai_waitq *q, struct fyai_loop *loop,
 	q->events_tail = &q->events;
 }
 
+void fyai_waitq_kick(struct fyai_waitq *q)
+{
+	if (q->kick)
+		q->kick(q->hook_data);
+}
+
 /*
  * Events queued for the model in arrival order. A wait event names its
  * owner: the event reaches the model turns after the poll that queued it,
@@ -73,8 +79,7 @@ static int fyai_event_inject_queue(struct fyai_waitq *q, char *text,
 		q->events_tail = &q->events;
 	*q->events_tail = ev;
 	q->events_tail = &ev->next;
-	if (q->kick)
-		q->kick(q->hook_data);
+	fyai_waitq_kick(q);
 	return 0;
 
 err_event:

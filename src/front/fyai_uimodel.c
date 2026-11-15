@@ -530,7 +530,7 @@ void fyai_uimodel_view_detach(struct fyai_ctx *view,
 	view->front->uitranscript = NULL;
 	view->front->uidraw = NULL;
 	view->askq = &own->askq;
-	fyai_askq_init(&own->askq, fyai_cfg_diag(view->cfg));
+	fyai_askq_init(&own->askq, fyai_cfg_diag(view->cfg), view->waitq, view->cfg);
 	own->bstate = *view->bstate;
 	view->bstate = &own->bstate;
 	own->turn = *view->turn;

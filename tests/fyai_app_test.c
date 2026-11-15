@@ -19,6 +19,7 @@
 #include "fyai_diag.h"
 #include "fyai_event.h"
 #include "fyai_event_priv.h"
+#include "fyai_asks.h"
 #include "fyai_arena.h"
 #include "fyai_loop.h"
 #include "fyai_transient.h"
@@ -53,6 +54,7 @@ FYAI_TEST_ENTRY(app, wires_astate, app_wires_astate)
 FYAI_TEST_ENTRY(app, signal_owner_follows_handlers, app_signal_owner_follows_handlers)
 FYAI_TEST_ENTRY(app, abandon_forgets_parent_state, app_abandon_forgets_parent_state)
 FYAI_TEST_ENTRY(app, waitq_stands_alone, app_waitq_stands_alone)
+FYAI_TEST_ENTRY(app, askq_stands_alone, app_askq_stands_alone)
 FYAI_TEST_ENTRY(app, wires_front, app_wires_front)
 FYAI_TEST_ENTRY(app, wires_link, app_wires_link)
 FYAI_TEST_ENTRY(app, wires_cred, app_wires_cred)
@@ -447,6 +449,70 @@ int app_waitq_stands_alone(void)
 	fyai_event_input_clear(&input);
 	fyai_events_release(&q);
 	printf("ok - the event queue works through its hooks alone\n");
+	return 0;
+}
+
+static int askq_opened, askq_closed;
+static void (*askq_done)(void *user, const struct fyai_ask_reply *replies, size_t n);
+static void *askq_user;
+
+static int askq_open(void *data, fy_generic questions,
+		     void (*done)(void *user, const struct fyai_ask_reply *replies,
+				  size_t n), void *user)
+{
+	(void)data;
+	(void)questions;
+	askq_opened++;
+	askq_done = done;
+	askq_user = user;
+	return 0;
+}
+
+static void askq_close(void *data, void *user)
+{
+	(void)data;
+	(void)user;
+	askq_closed++;
+}
+
+/* The background questions work through their hooks and the event queue alone. */
+int app_askq_stands_alone(void)
+{
+	struct fy_generic_builder_cfg gbcfg = { .flags = FYGBCF_SCOPE_LEADER };
+	struct fyai_cfg cfg = { 0 };
+	struct fyai_waitq wq;
+	struct fyai_askq q;
+	fy_generic questions, out;
+	char *text;
+
+	cfg.gb = fy_generic_builder_create(&gbcfg);
+	FYAI_TCHECK(cfg.gb);
+	fyai_waitq_init(&wq, NULL, NULL);
+	fyai_askq_init(&q, NULL, &wq, &cfg);
+	q.open = askq_open;
+	q.close = askq_close;
+	questions = fy_sequence(cfg.gb, fy_mapping(cfg.gb, "header", "h",
+						   "question", "q?"));
+
+	out = fyai_asks_start(&q, cfg.gb, "first", questions);
+	FYAI_TCHECK(fy_is_string(out) && askq_opened == 1);
+	FYAI_TCHECK(fyai_asks_exists(&q, "first"));
+	/* The renderer settles it with no answer: the model is told. */
+	askq_done(askq_user, NULL, 0);
+	FYAI_TCHECK(!fyai_asks_exists(&q, "first"));
+	text = fyai_event_peek_prefix(&wq, "[question 'first' declined]");
+	FYAI_TCHECK(text);
+	free(text);
+
+	out = fyai_asks_start(&q, cfg.gb, "second", questions);
+	FYAI_TCHECK(fy_is_string(out) && askq_opened == 2);
+	FYAI_TCHECK(fyai_asks_cancel(&q, "second") && askq_closed == 1);
+	FYAI_TCHECK(!fyai_asks_exists(&q, "second"));
+
+	fyai_asks_release(&q);
+	fyai_events_release(&wq);
+	fy_generic_builder_destroy(cfg.gb);
+	printf("ok - the background questions work through their hooks alone\n");
 	return 0;
 }
 

@@ -917,6 +917,8 @@ void fyai_tool_gate_relays_drop(struct fyai_ctx *ctx);
 void fyai_background_reset(struct fyai_ctx *ctx);
 /* Give the queue of events the hooks of this run (wake the waiters, ask liveness). */
 void fyai_waitq_bind(struct fyai_ctx *ctx);
+/* Give the background questions their way to the user (this run). */
+void fyai_askq_bind(struct fyai_ctx *ctx);
 fy_generic fyai_turn_append_event(struct fyai_ctx *ctx, fy_generic turn,
 				  const struct fyai_event_input *input);
 

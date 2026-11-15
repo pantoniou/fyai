@@ -368,7 +368,7 @@ static fy_generic list_live(struct fyai_ctx *ctx, struct fy_generic_builder *gb,
 	if (!strcmp(what, "daemons"))
 		return fyai_scope_rows(ctx->scope, gb);
 	if (!strcmp(what, "questions"))
-		return fy_concat(gb, fyai_asks_rows(ctx, gb),
+		return fy_concat(gb, fyai_asks_rows(ctx->askq, gb),
 				 fyai_agents_parent_ask_rows(ctx, gb));
 	if (!strcmp(what, "messages"))
 		return fyai_agents_message_rows(ctx, gb);

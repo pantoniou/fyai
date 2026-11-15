@@ -52,6 +52,8 @@ void fyai_waitq_init(struct fyai_waitq *q, struct fyai_loop *loop,
 		     struct fyai_diag *diag);
 /* A forked child forgets the named waits of its parent and what they queued. */
 void fyai_waitq_abandon(struct fyai_waitq *q);
+/* Wake the waiters that hold a call, if the run said how. */
+void fyai_waitq_kick(struct fyai_waitq *q);
 
 /* Queue owned @text for the event-loop owner to submit between turns. */
 int fyai_event_inject(struct fyai_waitq *q, char *text);

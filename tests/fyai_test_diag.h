@@ -156,7 +156,7 @@ static inline struct fyai_askq *fyai_test_askq_of(struct fyai_ctx *ctx)
 		ctx->askq = calloc(1, sizeof(*ctx->askq));
 		if (!ctx->askq)
 			return NULL;
-		fyai_askq_init(ctx->askq, fyai_cfg_diag(ctx->cfg));
+		fyai_askq_init(ctx->askq, fyai_cfg_diag(ctx->cfg), ctx->waitq, ctx->cfg);
 	}
 	return ctx->askq;
 }

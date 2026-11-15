@@ -1493,7 +1493,7 @@ fy_generic fyai_ask_user_from(struct fyai_ctx *ctx, fy_generic args,
 	    fyai_ui_ask_available(ctx) && fyai_asks_background(args)) {
 		gname = fy_get(args, "name", fy_invalid);
 		name = fy_castp(&gname, "");
-		result = fyai_asks_start(ctx, ctx->transient->gb, name,
+		result = fyai_asks_start(ctx->askq, ctx->transient->gb, name,
 					 questions);
 		if (fy_is_invalid(result))
 			return fy_value(ctx->transient->gb, "tool error: "
@@ -2260,7 +2260,7 @@ static fy_generic fyai_cancel_tool(struct fyai_ctx *ctx, fy_generic args,
 	is_monitor = (!*kind || !strcmp(kind, "monitor")) &&
 		     fyai_monitor_running(ctx, name);
 	is_question = (!*kind || !strcmp(kind, "question")) &&
-		      (fyai_asks_exists(ctx, name) ||
+		      (fyai_asks_exists(ctx->askq, name) ||
 		       fyai_agents_parent_ask_pending(ctx, name));
 	is_message = (!*kind || !strcmp(kind, "message")) &&
 		     fyai_agents_message_pending(ctx, name);
@@ -2280,7 +2280,7 @@ static fy_generic fyai_cancel_tool(struct fyai_ctx *ctx, fy_generic args,
 	if (is_shell)
 		return fyai_shell_close_tool(ctx,
 			fy_mapping(gb, "name", name, "force", true), okp);
-	if (is_question && fyai_asks_cancel(ctx, name)) {
+	if (is_question && fyai_asks_cancel(ctx->askq, name)) {
 		*okp = true;
 		return fy_stringf(gb, "[question '%s' cancelled]", name);
 	}
@@ -2379,7 +2379,7 @@ void fyai_ctx_fork_disown(struct fyai_ctx *ctx)
 	fyai_shell_sessions_abandon(ctx);	/* named shells of the parent */
 	fyai_tool_jobs_abandon(ctx);		/* its running tool children */
 	fyai_waitq_abandon(ctx->waitq);		/* its named waits and their events */
-	fyai_asks_abandon(ctx);			/* and its pending questions */
+	fyai_asks_abandon(ctx->askq);			/* and its pending questions */
 	fyai_ask_abandon(ctx);			/* the questions the parent put */
 	fyai_uilog_release(ctx);		/* the span of its command */
 	fyai_uiwork_release(ctx);		/* the bands of the parent */
@@ -2528,7 +2528,7 @@ static fy_generic fyai_list_tool(struct fyai_ctx *ctx, fy_generic args, bool *ok
 				  fyai_scope_rows(ctx->scope, gb));
 	if (all || !strcmp(kind, "questions"))
 		result = fy_assoc(gb, result, "questions",
-				  fy_concat(gb, fyai_asks_rows(ctx, gb),
+				  fy_concat(gb, fyai_asks_rows(ctx->askq, gb),
 					fyai_agents_parent_ask_rows(ctx, gb)));
 	if (all || !strcmp(kind, "messages"))
 		result = fy_assoc(gb, result, "messages",

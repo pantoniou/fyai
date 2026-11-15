@@ -24,22 +24,22 @@ bool fyai_asks_background(fy_generic args);
  * model, or a "tool error:" text, built in @gb. Returns fy_invalid after it
  * reported why it cannot ask.
  */
-fy_generic fyai_asks_start(struct fyai_ctx *ctx, struct fy_generic_builder *gb,
+fy_generic fyai_asks_start(struct fyai_askq *q, struct fy_generic_builder *gb,
 			   const char *name, fy_generic questions);
 
 /* Whether a question named @name waits for the user. */
-bool fyai_asks_exists(struct fyai_ctx *ctx, const char *name);
+bool fyai_asks_exists(struct fyai_askq *q, const char *name);
 
 /* Take the question @name back; false when no such question waits. */
-bool fyai_asks_cancel(struct fyai_ctx *ctx, const char *name);
+bool fyai_asks_cancel(struct fyai_askq *q, const char *name);
 
 /* The questions that wait, as rows of name and the headers they carry. */
-fy_generic fyai_asks_rows(struct fyai_ctx *ctx, struct fy_generic_builder *gb);
+fy_generic fyai_asks_rows(struct fyai_askq *q, struct fy_generic_builder *gb);
 
 /* Drop every question at the end of the invocation. */
-void fyai_asks_release(struct fyai_ctx *ctx);
+void fyai_asks_release(struct fyai_askq *q);
 
 /* Drop the questions of the parent in a forked child, without ending them. */
-void fyai_asks_abandon(struct fyai_ctx *ctx);
+void fyai_asks_abandon(struct fyai_askq *q);
 
 #endif
