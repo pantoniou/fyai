@@ -161,18 +161,21 @@ without its directory. Put a new file in the directory of the component that
 owns it.
 
 - `core/`: the entry point, the engine and what every component uses: the
-  configuration, the diagnostics, the turn, the import and export, small
-  helpers.
+  configuration, the diagnostics, the turn, attachments, the table renderer
+  and small helpers.
 - `loop/`: the event loop, its timers and signals, the waits.
-- `store/`: the arena, branches, merge, the project, the blob store.
+- `store/`: the arena, branches, merge, the project, the blob store and the
+  import of a conversation.
 - `auth/`: the credentials, the login, the secret stores, OAuth.
 - `provider/`: the model connection, the transfers, the grammars and the
   catalogue.
-- `net/`: sockets, the HTTP server, WebSocket and JSON-RPC.
+- `net/`: sockets, the HTTP server, WebSocket, JSON-RPC and the binary frames
+  between processes.
 - `transport/`: the credential transport. `remote/`: `fyai serve`, the remote
   client, ACP and the Claude SDK.
 - `mcp/`: the MCP client.
-- `tools/`: the tools, the jobs, the sub-agents, the skills, the questions.
+- `tools/`: the tools (patch, todo, settings, structured output), the jobs,
+  the sub-agents, the skills, the questions.
 - `sandbox/`: confinement, the filesystem views, the exchange scope.
   `host/`: the operating system primitives.
 - `front/`: the sink, the UI, the page, the work pane, Markdown and the
@@ -313,7 +316,7 @@ owns it.
   (`doc/claude-sdk-compat.md`).
 - `src/loop/fyai_event*.c`: the portable event loop and signal handling.
 - `src/loop/fyai_event_dump.c`: SIGUSR2 event-loop diagnostics.
-- `src/front/fyai_render.c`: generic-to-Markdown table rendering.
+- `src/core/fyai_render.c`: generic-to-Markdown table rendering.
 - `src/core/fyai_diag.c`: collected diagnostics.
 - `src/core/utils.c`: HTTP buffers, file helpers, and generic serialization.
 - `src/tools/fyai_shell_capture.c`: shell capture on the event loop, and the child
@@ -382,7 +385,7 @@ owns it.
   the clipboard helper (`doc/media.md`). `fyai_image.*` is something else:
   the prebuilt embedded YAML images.
 - `src/tools/fyai_skill.c`: branch-stored skills and the `skill` tool.
-- `src/core/fyai_settings.c`: the `settings` tool, which reads, selects and
+- `src/tools/fyai_settings.c`: the `settings` tool, which reads, selects and
   exports the configuration by the `x-fyai-model` access of each key, and
   the catalogue. Its exports go to a private `mkdtemp()` directory that
   `fyai_settings_release()` removes at cleanup and
@@ -1883,7 +1886,7 @@ currency and percent formatting that `renderopts` does not express.
 
 Export is deliberately outside the sink. `fyai_export_view()` serializes
 canonical messages to a `FILE *` in the `format: 1` textual grammar that
-`src/core/fyai_import.c` reads back, and it must keep working when a conversation
+`src/store/fyai_import.c` reads back, and it must keep working when a conversation
 has no stored `display_outputs`.
 
 ### Interactive rules

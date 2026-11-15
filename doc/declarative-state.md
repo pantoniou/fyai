@@ -330,7 +330,7 @@ change a `read` key.
 ## The tool `settings`
 
 One tool, defined in `data/tools.yaml`. Its entry is in
-`src/core/fyai_settings.c`, with `FYAI_TOOL_PARENT` (it reads and changes the
+`src/tools/fyai_settings.c`, with `FYAI_TOOL_PARENT` (it reads and changes the
 state of the parent) and `FYAI_TOOL_EFFECT_NONE`. Its `describe` function
 leaves the tool out when `model_access` is `none`; a later phase also
 removes the actions that `model_access` does not allow from the

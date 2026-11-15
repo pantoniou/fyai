@@ -546,7 +546,7 @@ set(FYAI_SOURCES
     src/store/fyai_ignore.c
     src/sandbox/fyai_view_fs.c
     src/store/fyai_manifest.c
-    src/core/fyai_wire.c
+    src/net/fyai_wire.c
     src/store/fyai_project.c
     src/store/fyai_project_diff.c
     src/store/fyai_project_capture.c
@@ -562,8 +562,8 @@ set(FYAI_SOURCES
     ${FYAI_EVENT_SOURCES}
     src/core/fyai_crash.c
     src/front/fyai_display.c
-    src/core/fyai_import.c
-    src/core/fyai_foreign_import.c
+    src/store/fyai_import.c
+    src/store/fyai_foreign_import.c
     src/front/fyai_flow.c
     src/front/fyai_output.c
     src/core/fyai.c
@@ -585,13 +585,13 @@ set(FYAI_SOURCES
     src/remote/fyai_remote_http.c
     src/remote/fyai_remote_relay.c
     src/remote/fyai_claude_sdk.c
-    src/core/fyai_structured.c
-    src/core/fyai_settings.c
+    src/tools/fyai_structured.c
+    src/tools/fyai_settings.c
     src/tools/fyai_agents.c
     src/tools/fyai_ask.c
     src/loop/fyai_event_fmt.c
     src/tools/fyai_asks.c
-    src/core/fyai_todo.c
+    src/tools/fyai_todo.c
     src/tools/fyai_skill.c
     src/core/fyai_media.c
     src/store/fyai_branch.c
@@ -601,7 +601,7 @@ set(FYAI_SOURCES
     src/core/fyai_log.c
     src/front/fyai_markdown.c
     src/front/fyai_chrome.c
-    src/core/fyai_marker.c
+    src/front/fyai_marker.c
     src/front/fyai_ui.c
     src/front/fyai_workpane.c
     src/front/fyai_page.c
@@ -611,14 +611,14 @@ set(FYAI_SOURCES
     src/auth/fyai_mcp_oauth.c
     src/mcp/fyai_mcp_import.c
     src/net/fyai_jsonrpc.c
-    src/core/fyai_patch.c
+    src/tools/fyai_patch.c
     src/core/fyai_prof.c
     src/provider/fyai_grammar.c
     src/provider/fyai_grammar_chat.c
     src/provider/fyai_grammar_messages.c
     src/provider/fyai_grammar_responses.c
     src/provider/fyai_provider.c
-    src/front/fyai_render.c
+    src/core/fyai_render.c
     src/sandbox/fyai_sandbox.c
     src/sandbox/fyai_sandbox_linux.c
     src/sandbox/fyai_sandbox_macos.c
@@ -655,7 +655,7 @@ set(FYAI_SOURCES
     src/front/fyai_cast.c
     src/front/fyai_ptydrv.c
     src/front/fyai_ptyscr.c
-    src/tools/fyai_builtin.c
+    src/core/fyai_builtin.c
     src/tools/fyai_tool_template.c
     src/core/fyai_turn.c
     src/provider/fyai_reqcache.c

@@ -293,7 +293,7 @@ changes. Each check has a positive control.
 ## 11. Implementation plan
 
 1. Probe of section 10.
-2. A channel backend for the transport (`src/fyai_transport_chan_backend.h`):
+2. A channel backend for the transport (`src/transport/fyai_transport_chan_backend.h`):
    the socket backend of Linux and a Mach backend for macOS, selected as the
    other platform backends are. The registry, the frame format, and the
    control protocol stay in the portable files.

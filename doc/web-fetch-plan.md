@@ -14,7 +14,7 @@ network access in the sandbox.
 ## Tool
 
 `web_fetch` is a local tool: a normal entry in `data/tools.yaml` with its
-`struct fyai_tool_def`, defined in a new `src/fyai_web.c`. It is not hosted
+`struct fyai_tool_def`, defined in a new `src/tools/fyai_web.c`. It is not hosted
 and does not replace `web_search`; when both are offered, the description of
 `web_fetch` says that it reads a known URL.
 
@@ -56,7 +56,7 @@ renderer.
 - `text/*`, `application/json`, `application/xml`, `application/yaml`,
   `application/javascript`, and `+json`/`+xml` types are accepted. The type
   list is `web_fetch/types`.
-- HTML is reduced to text with a small extractor in `src/fyai_web.c`: drop
+- HTML is reduced to text with a small extractor in `src/tools/fyai_web.c`: drop
   `script`, `style`, `noscript`, and `template`; keep headings, lists, links
   (`[text](url)`), preformatted blocks, and tables as rows. It reads a
   bounded window and keeps no DOM. A page with no readable text returns the
