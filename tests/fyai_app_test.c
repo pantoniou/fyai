@@ -52,6 +52,7 @@ FYAI_TEST_ENTRY(app, wires_jobs, app_wires_jobs)
 FYAI_TEST_ENTRY(app, wires_astate, app_wires_astate)
 FYAI_TEST_ENTRY(app, signal_owner_follows_handlers, app_signal_owner_follows_handlers)
 FYAI_TEST_ENTRY(app, abandon_forgets_parent_state, app_abandon_forgets_parent_state)
+FYAI_TEST_ENTRY(app, waitq_stands_alone, app_waitq_stands_alone)
 FYAI_TEST_ENTRY(app, wires_front, app_wires_front)
 FYAI_TEST_ENTRY(app, wires_link, app_wires_link)
 FYAI_TEST_ENTRY(app, wires_cred, app_wires_cred)
@@ -394,6 +395,58 @@ int app_abandon_forgets_parent_state(void)
 
 	fyai_app_cleanup(&app);
 	printf("ok - each component forgets what describes its parent\n");
+	return 0;
+}
+
+static int waitq_kicks, waitq_live;
+
+static void waitq_kick(void *data)
+{
+	(void)data;
+	waitq_kicks++;
+}
+
+static bool waitq_owner(void *data, int kind, const char *owner)
+{
+	(void)data;
+	(void)kind;
+	(void)owner;
+	return waitq_live;
+}
+
+/* The queue of events works with its hooks alone: no context stands behind it. */
+int app_waitq_stands_alone(void)
+{
+	struct fyai_waitq q;
+	struct fyai_event_input input;
+	char *text;
+
+	fyai_waitq_init(&q, NULL, NULL);
+	q.kick = waitq_kick;
+	q.owner_live = waitq_owner;
+
+	FYAI_TCHECK(!fyai_event_inject(&q, strdup("[wait 'a' fired]")));
+	FYAI_TCHECK(waitq_kicks == 1 && fyai_event_queued(&q));
+	FYAI_TCHECK(fyai_event_pending_prefix(&q, "[wait 'a'"));
+	text = fyai_event_peek_prefix(&q, "[wait 'a'");
+	FYAI_TCHECK(text && !fyai_event_queued(&q));
+	free(text);
+	fyai_events_purge_seen(&q);
+	FYAI_TCHECK(!q.events);
+
+	/* A stale owner is dropped, a live one is delivered. */
+	waitq_live = false;
+	FYAI_TCHECK(!fyai_event_inject_owned(&q, strdup("[agent 'x' done]"),
+					     FYAI_EVENT_OWNER_AGENT, strdup("x")));
+	FYAI_TCHECK(!fyai_event_take_live_input(&q, &input));
+	waitq_live = true;
+	FYAI_TCHECK(!fyai_event_inject_owned(&q, strdup("[agent 'y' done]"),
+					     FYAI_EVENT_OWNER_AGENT, strdup("y")));
+	FYAI_TCHECK(fyai_event_take_live_input(&q, &input));
+	FYAI_TCHECK(!strcmp(input.text, "[agent 'y' done]"));
+	fyai_event_input_clear(&input);
+	fyai_events_release(&q);
+	printf("ok - the event queue works through its hooks alone\n");
 	return 0;
 }
 

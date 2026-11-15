@@ -26,11 +26,12 @@ static void wait_ctx_setup(void)
 	free(wait_ctx.askq);
 	memset(&wait_ctx, 0, sizeof(wait_ctx));
 	fyai_test_attach(&wait_ctx);
+	fyai_waitq_bind(&wait_ctx);
 }
 
 static void wait_ctx_teardown(void)
 {
-	fyai_events_release(&wait_ctx);
+	fyai_events_release(wait_ctx.waitq);
 }
 
 /*
@@ -43,14 +44,14 @@ int event_wait_stale_agent_dropped(void)
 	int rc;
 
 	wait_ctx_setup();
-	rc = fyai_event_inject_owned(&wait_ctx,
+	rc = fyai_event_inject_owned(wait_ctx.waitq,
 			strdup("[agent 'greeter' is waiting for input]"),
 			FYAI_EVENT_OWNER_AGENT, strdup("main/agent:greeter"));
 	FYAI_TCHECK(!rc);
-	FYAI_TCHECK(fyai_event_queued(&wait_ctx));
-	event = fyai_event_take_live(&wait_ctx);
+	FYAI_TCHECK(fyai_event_queued(wait_ctx.waitq));
+	event = fyai_event_take_live(wait_ctx.waitq);
 	FYAI_TCHECK(!event);
-	FYAI_TCHECK(!fyai_event_queued(&wait_ctx));
+	FYAI_TCHECK(!fyai_event_queued(wait_ctx.waitq));
 	wait_ctx_teardown();
 	printf("ok - a stale sub-agent wait is dropped\n");
 	return 0;
@@ -63,13 +64,13 @@ int event_wait_stale_session_dropped(void)
 	int rc;
 
 	wait_ctx_setup();
-	rc = fyai_event_inject_owned(&wait_ctx,
+	rc = fyai_event_inject_owned(wait_ctx.waitq,
 			strdup("[shell 'asker' is waiting for input]"),
 			FYAI_EVENT_OWNER_SESSION, strdup("asker"));
 	FYAI_TCHECK(!rc);
-	event = fyai_event_take_live(&wait_ctx);
+	event = fyai_event_take_live(wait_ctx.waitq);
 	FYAI_TCHECK(!event);
-	FYAI_TCHECK(!fyai_event_queued(&wait_ctx));
+	FYAI_TCHECK(!fyai_event_queued(wait_ctx.waitq));
 	wait_ctx_teardown();
 	printf("ok - a stale session wait is dropped\n");
 	return 0;
@@ -82,13 +83,13 @@ int event_wait_unowned_delivered(void)
 	int rc;
 
 	wait_ctx_setup();
-	rc = fyai_event_inject(&wait_ctx, strdup("wait 'later' fired"));
+	rc = fyai_event_inject(wait_ctx.waitq, strdup("wait 'later' fired"));
 	FYAI_TCHECK(!rc);
-	event = fyai_event_take_live(&wait_ctx);
+	event = fyai_event_take_live(wait_ctx.waitq);
 	FYAI_TCHECK(event);
 	FYAI_TCHECK(!strcmp(event, "wait 'later' fired"));
 	free(event);
-	FYAI_TCHECK(!fyai_event_queued(&wait_ctx));
+	FYAI_TCHECK(!fyai_event_queued(wait_ctx.waitq));
 	wait_ctx_teardown();
 	printf("ok - an unowned event is delivered\n");
 	return 0;
@@ -104,19 +105,19 @@ int event_wait_drop_owner(void)
 	int rc;
 
 	wait_ctx_setup();
-	rc = fyai_event_inject_owned(&wait_ctx,
+	rc = fyai_event_inject_owned(wait_ctx.waitq,
 			strdup("[agent 'greeter' is waiting for input]"),
 			FYAI_EVENT_OWNER_AGENT, strdup("main/agent:greeter"));
 	FYAI_TCHECK(!rc);
-	rc = fyai_event_inject(&wait_ctx, strdup("wait 'later' fired"));
+	rc = fyai_event_inject(wait_ctx.waitq, strdup("wait 'later' fired"));
 	FYAI_TCHECK(!rc);
-	fyai_events_drop_agent(&wait_ctx, "main/agent:greeter");
-	FYAI_TCHECK(fyai_event_queued(&wait_ctx));
-	event = fyai_event_take_live(&wait_ctx);
+	fyai_events_drop_agent(wait_ctx.waitq, "main/agent:greeter");
+	FYAI_TCHECK(fyai_event_queued(wait_ctx.waitq));
+	event = fyai_event_take_live(wait_ctx.waitq);
 	FYAI_TCHECK(event);
 	FYAI_TCHECK(!strcmp(event, "wait 'later' fired"));
 	free(event);
-	FYAI_TCHECK(!fyai_event_queued(&wait_ctx));
+	FYAI_TCHECK(!fyai_event_queued(wait_ctx.waitq));
 	wait_ctx_teardown();
 	printf("ok - settling an owner purges its waits\n");
 	return 0;
@@ -131,16 +132,16 @@ int event_wait_peek_seen(void)
 	char *first, *second;
 
 	wait_ctx_setup();
-	FYAI_TCHECK(!fyai_event_inject(&wait_ctx, strdup("[monitor 'm'] line")));
-	first = fyai_event_peek_prefix(&wait_ctx, "[monitor 'm'");
-	second = fyai_event_peek_prefix(&wait_ctx, "[monitor 'm'");
+	FYAI_TCHECK(!fyai_event_inject(wait_ctx.waitq, strdup("[monitor 'm'] line")));
+	first = fyai_event_peek_prefix(wait_ctx.waitq, "[monitor 'm'");
+	second = fyai_event_peek_prefix(wait_ctx.waitq, "[monitor 'm'");
 	FYAI_TCHECK(first && second && !strcmp(first, second));
 	free(first);
 	free(second);
-	FYAI_TCHECK(!fyai_event_peek_prefix(&wait_ctx, "[agent 'm' "));
-	FYAI_TCHECK(!fyai_event_queued(&wait_ctx));
-	FYAI_TCHECK(!fyai_event_take_live(&wait_ctx));
-	fyai_events_purge_seen(&wait_ctx);
+	FYAI_TCHECK(!fyai_event_peek_prefix(wait_ctx.waitq, "[agent 'm' "));
+	FYAI_TCHECK(!fyai_event_queued(wait_ctx.waitq));
+	FYAI_TCHECK(!fyai_event_take_live(wait_ctx.waitq));
+	fyai_events_purge_seen(wait_ctx.waitq);
 	FYAI_TCHECK(!wait_ctx.waitq->events);
 	wait_ctx_teardown();
 	printf("ok - waiters read an event without taking it\n");
@@ -151,11 +152,11 @@ int event_wait_peek_seen(void)
 int event_wait_background_reset(void)
 {
 	wait_ctx_setup();
-	FYAI_TCHECK(!fyai_event_inject(&wait_ctx, strdup("[wait 'w' fired]")));
-	FYAI_TCHECK(fyai_event_queued(&wait_ctx));
+	FYAI_TCHECK(!fyai_event_inject(wait_ctx.waitq, strdup("[wait 'w' fired]")));
+	FYAI_TCHECK(fyai_event_queued(wait_ctx.waitq));
 	fyai_background_reset(&wait_ctx);
-	FYAI_TCHECK(!fyai_event_queued(&wait_ctx));
-	FYAI_TCHECK(!fyai_event_take_live(&wait_ctx));
+	FYAI_TCHECK(!fyai_event_queued(wait_ctx.waitq));
+	FYAI_TCHECK(!fyai_event_take_live(wait_ctx.waitq));
 	wait_ctx_teardown();
 	printf("ok - a conversation change drops queued events\n");
 	return 0;

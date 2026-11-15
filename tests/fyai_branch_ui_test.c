@@ -79,7 +79,7 @@ int branch_ui_agent_message_receipt(void)
 	report = fy_castp(&waited, (const char *)NULL);
 	FYAI_TCHECK(ok && report && strstr(report, "'steer1' queued]"));
 	FYAI_TCHECK(!fyai_agents_message_pending(&root, "steer1"));
-	FYAI_TCHECK(fyai_event_take_live_input(&child, &input));
+	FYAI_TCHECK(fyai_event_take_live_input(child.waitq, &input));
 	FYAI_TCHECK(!strcmp(input.text, "change course"));
 	FYAI_TCHECK(!strcmp(input.from, "main"));
 	FYAI_TCHECK(!strcmp(input.message_id, "main:steer1"));
@@ -90,7 +90,7 @@ int branch_ui_agent_message_receipt(void)
 	waited = fyai_wait_tool(&child, params, &ok);
 	report = fy_castp(&waited, (const char *)NULL);
 	FYAI_TCHECK(ok && report && strstr(report, "'reply1' queued]"));
-	FYAI_TCHECK(fyai_event_take_live_input(&root, &input));
+	FYAI_TCHECK(fyai_event_take_live_input(root.waitq, &input));
 	FYAI_TCHECK(!strcmp(input.from, "main/agent:worker"));
 	FYAI_TCHECK(!strcmp(input.reply_to, "main:steer1"));
 	fyai_event_input_clear(&input);

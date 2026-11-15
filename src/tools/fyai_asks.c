@@ -123,7 +123,7 @@ static void asks_done(void *user, const struct fyai_ask_reply *replies,
 	asks_free(p);
 	if (!text)
 		return;
-	(void)fyai_event_inject(ctx, text);
+	(void)fyai_event_inject(ctx->waitq, text);
 	fyai_waiters_kick(ctx);
 }
 

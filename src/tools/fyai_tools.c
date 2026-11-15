@@ -2256,7 +2256,7 @@ static fy_generic fyai_cancel_tool(struct fyai_ctx *ctx, fy_generic args,
 	is_shell = fyai_shell_session_find(ctx, name) &&
 		   (!*kind || !strcmp(kind, "shell"));
 	is_wait = (!*kind || !strcmp(kind, "wait")) &&
-		  fyai_wait_exists(ctx, name);
+		  fyai_wait_exists(ctx->waitq, name);
 	is_monitor = (!*kind || !strcmp(kind, "monitor")) &&
 		     fyai_monitor_running(ctx, name);
 	is_question = (!*kind || !strcmp(kind, "question")) &&
@@ -2293,12 +2293,12 @@ static fy_generic fyai_cancel_tool(struct fyai_ctx *ctx, fy_generic args,
 		return fy_stringf(gb, "[agent_message '%s' receipt cancelled; "
 				  "the message may still be queued]", name);
 	}
-	if (is_wait && fyai_wait_cancel(ctx, name)) {
+	if (is_wait && fyai_wait_cancel(ctx->waitq, name)) {
 		*okp = true;
 		return fy_stringf(gb, "[wait '%s' cancelled]", name);
 	}
 	/* A daemon of the scope, by its label or its pid, when nothing else has the name. */
-	if ((!*kind || !strcmp(kind, "daemon")) && fyai_scope_stop(ctx, name)) {
+	if ((!*kind || !strcmp(kind, "daemon")) && fyai_scope_stop(ctx->scope, name)) {
 		*okp = true;
 		return fy_stringf(gb, "[daemon '%s' was asked to stop; it is "
 				  "ended after %lld ms if it stays]", name,
@@ -2378,7 +2378,7 @@ void fyai_ctx_fork_disown(struct fyai_ctx *ctx)
 	fyai_uimodel_abandon(ctx);		/* the renderers of the parent */
 	fyai_shell_sessions_abandon(ctx);	/* named shells of the parent */
 	fyai_tool_jobs_abandon(ctx);		/* its running tool children */
-	fyai_waits_abandon(ctx);		/* its named waits */
+	fyai_waitq_abandon(ctx->waitq);		/* its named waits and their events */
 	fyai_asks_abandon(ctx);			/* and its pending questions */
 	fyai_ask_abandon(ctx);			/* the questions the parent put */
 	fyai_uilog_release(ctx);		/* the span of its command */
@@ -2387,13 +2387,11 @@ void fyai_ctx_fork_disown(struct fyai_ctx *ctx)
 	fyai_waiters_abandon(ctx);		/* and the waits that hold a call */
 	fyai_agent_background_abandon(ctx);	/* its background sub-agents */
 	fyai_monitor_abandon(ctx);		/* and its monitors */
-	fyai_events_release(ctx);		/* and what they queued for it */
 	fyai_request_cache_release(ctx);	/* its conversation text */
 	fyai_patch_display_clear(ctx);		/* patches it resolved */
 	fyai_output_cleanup(ctx);		/* the document it has open */
 	fyai_diag_reset(fyai_ctx_diag(ctx));	/* what the parent has not drained yet */
 	fyai_session_btw_abandon(ctx);		/* its side questions */
-	fyai_orphan_abandon(ctx);		/* and the processes that the scope keeps */
 	fyai_skill_dirs_abandon(ctx);		/* the skills it wrote out */
 	fyai_settings_abandon(ctx);		/* and the exports */
 	fyai_diag_trace_tap(NULL, NULL);	/* the recording of the parent */
@@ -2477,27 +2475,6 @@ static fy_generic fyai_list_views(struct fyai_ctx *ctx, struct fy_generic_builde
 	return rows;
 }
 
-/* The processes of the scope: the ones its holder holds, and the ones that it tracks. */
-fy_generic fyai_scope_rows(struct fyai_ctx *ctx, struct fy_generic_builder *gb)
-{
-	pid_t pids[64];
-	char name[32], label[64];
-	size_t n, i;
-	fy_generic rows;
-
-	rows = fyai_orphan_rows(ctx, gb);
-	n = fyai_cover_members(&ctx->scope->cover, pids, ARRAY_SIZE(pids));
-	for (i = 0; i < n; i++) {
-		fyai_orphan_name(pids[i], name, sizeof(name));
-		fyai_orphan_label(pids[i], label, sizeof(label));
-		rows = fy_append(gb, rows, fy_mapping(gb, "pid", (long long)pids[i],
-						      "name", fy_value(gb, name),
-						      "label", fy_value(gb, label),
-						      "held", "scope"));
-	}
-	return rows;
-}
-
 /* The named terminal sessions of this run that still have a program. */
 static fy_generic fyai_list_shells(struct fyai_ctx *ctx, struct fy_generic_builder *gb)
 {
@@ -2542,13 +2519,13 @@ static fy_generic fyai_list_tool(struct fyai_ctx *ctx, fy_generic args, bool *ok
 	if (all || !strcmp(kind, "shells"))
 		result = fy_assoc(gb, result, "shells", fyai_list_shells(ctx, gb));
 	if (all || !strcmp(kind, "waits"))
-		result = fy_assoc(gb, result, "waits", fyai_waits_rows(ctx, gb));
+		result = fy_assoc(gb, result, "waits", fyai_waits_rows(ctx->waitq, gb));
 	if (all || !strcmp(kind, "monitors"))
 		result = fy_assoc(gb, result, "monitors",
 				  fyai_monitors_rows(ctx, gb));
 	if (all || !strcmp(kind, "daemons"))
 		result = fy_assoc(gb, result, "daemons",
-				  fyai_scope_rows(ctx, gb));
+				  fyai_scope_rows(ctx->scope, gb));
 	if (all || !strcmp(kind, "questions"))
 		result = fy_assoc(gb, result, "questions",
 				  fy_concat(gb, fyai_asks_rows(ctx, gb),

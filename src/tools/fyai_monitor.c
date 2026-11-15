@@ -81,7 +81,7 @@ static void monitor_unlink(struct fyai_monitor_run *run)
 static void monitor_free(struct fyai_monitor_run *run)
 {
 	fyai_tool_job_group_destroy(run->group);
-	fyai_scope_unpin(fyai_monitor_run_ctx(run), &run->pin);
+	fyai_scope_unpin(fyai_monitor_run_ctx(run)->scope, &run->pin);
 	free(run->partial);
 	free(run);
 }
@@ -107,7 +107,7 @@ static void monitor_event(struct fyai_monitor_run *run, const char *fmt, ...)
 	int rc;
 
 	va_start(ap, fmt);
-	rc = fyai_event_vinjectf(fyai_monitor_run_ctx(run), fmt, ap);
+	rc = fyai_event_vinjectf(fyai_monitor_run_ctx(run)->waitq, fmt, ap);
 	va_end(ap);
 	if (rc)
 		fyai_warning(fyai_monitor_run_ctx(run), "an event of the monitor '%s' was lost",
@@ -338,7 +338,7 @@ static fy_generic monitor_start(struct fyai_ctx *ctx, fy_generic args,
 	run->next = ctx->jobs->monitors;
 	ctx->jobs->monitors = run;
 	/* The command runs until the monitor ends, past the exchange that started it. */
-	fyai_scope_pin(ctx, &run->pin);
+	fyai_scope_pin(ctx->scope, &run->pin);
 	rc = fyai_tool_job_group_add(run->group, call);
 	fyai_error_check(ctx, !rc, err_linked,
 			 "monitor: could not add the command");

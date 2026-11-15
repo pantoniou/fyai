@@ -497,7 +497,7 @@ static enum fyai_event_action fyai_agent_wait_poll(const struct fyai_event *ev)
 			     who);
 		return FYAIEA_CONTINUE;
 	}
-	if (fyai_event_inject_owned(fyai_tool_job_ctx(job), text,
+	if (fyai_event_inject_owned(fyai_tool_job_ctx(job)->waitq, text,
 					  FYAI_EVENT_OWNER_AGENT, owner)) {
 		fyai_warning(fyai_tool_job_ctx(job),
 			     "the sub-agent '%s' asked for input, which was lost",

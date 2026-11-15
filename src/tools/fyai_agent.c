@@ -797,12 +797,12 @@ static int agent_run_turn(struct fyai_ctx *ctx, struct agent_run *r)
 
 	r->turn = fyai_run_turn(ctx, ctx->turn->last_message);
 	while (fy_is_valid(r->turn) && !ctx->loop->terminate_pending &&
-	       fyai_event_queued(ctx)) {
+	       fyai_event_queued(ctx->waitq)) {
 		/*
 		 * A wait whose owner settled since the poll is dropped.
 		 * The queue may then be empty, so the loop re-checks.
 		 */
-		if (!fyai_event_take_live_input(ctx, &input))
+		if (!fyai_event_take_live_input(ctx->waitq, &input))
 			break;
 
 		ctx->turn->last_message = r->turn;
@@ -931,7 +931,7 @@ bool fyai_agent_background_requested(fy_generic args)
 static void agent_bg_free(struct fyai_agent_bg_run *run)
 {
 	fyai_tool_job_group_destroy(run->group);
-	fyai_scope_unpin(fyai_agent_bg_run_ctx(run), &run->pin);
+	fyai_scope_unpin(fyai_agent_bg_run_ctx(run)->scope, &run->pin);
 	free(run);
 }
 
@@ -953,11 +953,11 @@ static void agent_bg_finish(void *userdata)
 	rc = fyai_tool_job_group_collect(run->group, 0, &result, &ok);
 	report = fy_is_string(result) ? fy_castp(&result, "") : "";
 	if (rc || !ok)
-		rc = fyai_event_injectf(ctx, "[agent '%s' failed: %s]",
+		rc = fyai_event_injectf(ctx->waitq, "[agent '%s' failed: %s]",
 					run->name, *report ? report :
 					"no reason was recorded");
 	else
-		rc = fyai_event_injectf(ctx, "[agent '%s' finished]\n%s",
+		rc = fyai_event_injectf(ctx->waitq, "[agent '%s' finished]\n%s",
 					run->name, report);
 	fyai_error_check(ctx, !rc, release,
 			 "the report of the sub-agent '%s' was lost", run->name);
@@ -1026,7 +1026,7 @@ fy_generic fyai_agent_background(struct fyai_ctx *ctx, fy_generic args,
 	run->next = ctx->jobs->agent_bg;
 	ctx->jobs->agent_bg = run;
 	/* Its tools join the scope for as long as it runs. */
-	fyai_scope_pin(ctx, &run->pin);
+	fyai_scope_pin(ctx->scope, &run->pin);
 	*okp = true;
 	return fy_stringf(gb, "[agent '%s' started in the background]\n"
 			  "It does not hold your turn. Keep working; its "

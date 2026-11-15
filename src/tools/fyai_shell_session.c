@@ -540,7 +540,7 @@ fyai_shell_session_create(struct fyai_ctx *ctx, const char *name,
 	/* The program of the session outlives the exchange that started it.
 	 * The program of a mirror is in the scope of its worker. */
 	if (!remote) {
-		fyai_scope_pin(ctx, &sess->pin);
+		fyai_scope_pin(ctx->scope, &sess->pin);
 	}
 	fyai_shell_session_idle_arm(sess);
 	return sess;
@@ -756,7 +756,7 @@ static void fyai_shell_session_input_wanted(struct fyai_shell_session *sess)
 	 * and the session may have ended by then. A stale report names a
 	 * session with no live owner and is dropped instead of submitted.
 	 */
-	if (fyai_event_inject_owned(fyai_shell_session_ctx(sess), text, FYAI_EVENT_OWNER_SESSION,
+	if (fyai_event_inject_owned(fyai_shell_session_ctx(sess)->waitq, text, FYAI_EVENT_OWNER_SESSION,
 				    strdup(sess->name))) {
 		fyai_warning(fyai_shell_session_ctx(sess),
 			     "the shell '%s' asked for input, which was lost",
@@ -1057,7 +1057,7 @@ void fyai_shell_session_exited(struct fyai_shell_session *sess,
 	sess->wants_input = false;
 	fyai_tools_work_update(fyai_shell_session_ctx(sess));
 	/* The program has gone, so the session no longer needs the scope. */
-	fyai_scope_unpin(fyai_shell_session_ctx(sess), &sess->pin);
+	fyai_scope_unpin(fyai_shell_session_ctx(sess)->scope, &sess->pin);
 	fyai_shell_session_display_finish(sess);
 	if (sess->idle) {
 		fyai_event_source_remove(sess->idle);
@@ -1072,7 +1072,7 @@ void fyai_shell_session_exited(struct fyai_shell_session *sess,
 	 * The exited program answers no question: drop the wait reports it
 	 * queued, or a later turn asks the model about a program that ended.
 	 */
-	fyai_events_drop_session(fyai_shell_session_ctx(sess), sess->name);
+	fyai_events_drop_session(fyai_shell_session_ctx(sess)->waitq, sess->name);
 	fyai_shell_session_notify_exit(sess, exit_code, signal);
 	fyai_waiters_kick(fyai_shell_session_ctx(sess));
 }
@@ -1126,7 +1126,7 @@ static void fyai_shell_session_destroy(struct fyai_shell_session *sess)
 	if (sess->model_text)
 		fyai_uimodel_text_close(fyai_shell_session_ctx(sess), sess->model_text);
 	fyai_terminal_view_destroy(sess->view);
-	fyai_scope_unpin(fyai_shell_session_ctx(sess), &sess->pin);
+	fyai_scope_unpin(fyai_shell_session_ctx(sess)->scope, &sess->pin);
 	free(sess->name);
 	free(sess->command);
 	free(sess->branch);
@@ -1170,7 +1170,7 @@ static void fyai_shell_session_release_one(struct fyai_shell_session *sess,
 	 * The session answers no question after this: drop the wait reports
 	 * it queued with it.
 	 */
-	fyai_events_drop_session(fyai_shell_session_ctx(sess), sess->name);
+	fyai_events_drop_session(fyai_shell_session_ctx(sess)->waitq, sess->name);
 	if (job) {
 		job->session = NULL;
 		sess->job = NULL;
@@ -1668,7 +1668,7 @@ int fyai_tools_kill(struct fyai_ctx *ctx, const char *name,
 			*actionp = "stopping agent";
 			return 0;
 		}
-		if (fyai_scope_stop(ctx, name)) {
+		if (fyai_scope_stop(ctx->scope, name)) {
 			*actionp = "stopping daemon";
 			return 0;
 		}

@@ -84,6 +84,28 @@ static enum fyai_event_action fyai_signal_cb(const struct fyai_event *ev)
 	return FYAIEA_CONTINUE;
 }
 
+/* A queued event wakes the waiters that hold a call. */
+static void fyai_waitq_kick_hook(void *data)
+{
+	fyai_waiters_kick(data);
+}
+
+/* Whether the job or session that a queued event names is still there. */
+static bool fyai_waitq_owner_live_hook(void *data, int kind, const char *owner)
+{
+	if (kind == FYAI_EVENT_OWNER_AGENT)
+		return fyai_event_agent_live(data, owner);
+	return fyai_event_session_live(data, owner);
+}
+
+/* Tell the queue of events whom to wake and whom to ask: the run is both. */
+void fyai_waitq_bind(struct fyai_ctx *ctx)
+{
+	ctx->waitq->hook_data = ctx;
+	ctx->waitq->kick = fyai_waitq_kick_hook;
+	ctx->waitq->owner_live = fyai_waitq_owner_live_hook;
+}
+
 static void fyai_loop_interrupt_hook(void *data)
 {
 	fyai_waiters_kick(data);
@@ -1498,7 +1520,7 @@ static int fyai_turn_run_take_pending_user(struct fyai_turn_run *run)
 	if (!run->accept_pending_user)
 		return 0;
 	/* A stale event is dropped here, so a live one is taken before output ends. */
-	have_event = fyai_event_take_live_input(ctx, &event);
+	have_event = fyai_event_take_live_input(ctx->waitq, &event);
 	head = fyai_ui_peek_line(ctx);
 	if (!have_event && !fyai_interactive_is_user_line(head))
 		return 0;
@@ -1512,7 +1534,7 @@ static int fyai_turn_run_take_pending_user(struct fyai_turn_run *run)
 		fyai_event_input_clear(&event);
 		fyai_error_check(ctx, fy_is_valid(run->turn), err,
 				 "could not append the pending event");
-		have_event = fyai_event_take_live_input(ctx, &event);
+		have_event = fyai_event_take_live_input(ctx->waitq, &event);
 	}
 	while (fyai_interactive_is_user_line(head = fyai_ui_peek_line(ctx))) {
 		line = fyai_ui_take_line(ctx);
@@ -2334,7 +2356,7 @@ fyai_turn_run_submit(struct fyai_ctx *ctx, fy_generic turn)
 	run->turn = turn;
 	run->turn_in = turn;
 	run->settled = turn;
-	fyai_scope_exchange(ctx, true);
+	fyai_scope_exchange(ctx->scope, true);
 	run->previous = fy_get(turn, "previous", fy_null);
 	run->tool_calls = fy_null;
 	run->result = fy_invalid;
@@ -2430,7 +2452,7 @@ static void fyai_turn_run_destroy(struct fyai_turn_run *run)
 	fyai_turn_run_diff_end(run);
 	fyai_diag_tracef("turn", "end, %s, %d rounds",
 			 fyai_turn_run_state_name(run->state), run->iteration);
-	fyai_scope_exchange(fyai_turn_run_ctx(run), false);
+	fyai_scope_exchange(fyai_turn_run_ctx(run)->scope, false);
 	free(run);
 }
 
@@ -2513,7 +2535,7 @@ void fyai_cleanup(struct fyai_ctx *ctx)
 	cfg = ctx->cfg;
 
 	fyai_cover_release(&ctx->scope->cover);
-	fyai_orphan_release(ctx);
+	fyai_orphan_release(ctx->scope);
 	/* The holder gives what is left in the scope its time before the process ends. */
 	fyai_cover_drain(&ctx->scope->cover);
 
@@ -2522,13 +2544,13 @@ void fyai_cleanup(struct fyai_ctx *ctx)
 	 * can a wait: there is no daemon for either to be handed to. */
 	fyai_shell_sessions_release(ctx, false);
 	fyai_asks_release(ctx);
-	fyai_waits_release(ctx);
+	fyai_waits_release(ctx->waitq);
 	fyai_waiters_release(ctx);
 	fyai_tool_gate_relays_drop(ctx);
 	fyai_agent_background_close(ctx);
 	fyai_monitor_close(ctx);
 	fyai_tool_diff_cleanup(ctx);
-	fyai_events_release(ctx);
+	fyai_events_release(ctx->waitq);
 	fyai_terminal_winch_close(ctx);
 	fyai_event_interrupt_close(ctx->loop);
 	fyai_output_cleanup(ctx);
@@ -2766,6 +2788,7 @@ int fyai_setup(struct fyai_ctx *ctx, struct fyai_app *app)
 	ctx->transport = &app->transport;
 	ctx->mcp = &app->mcp;
 	ctx->waitq = &app->waitq;
+	fyai_waitq_bind(ctx);
 	ctx->askq = &app->askq;
 	ctx->bstate = &app->bstate;
 	ctx->turn = &app->turn;
@@ -2976,257 +2999,6 @@ err:
 	return -1;
 }
 
-/*
- * Events queued for the model in arrival order. A wait event names its
- * owner: the event reaches the model turns after the poll that queued it,
- * and the condition that produced it may be gone by then. The owner pairs
- * the event with the liveness of the job or session it came from: a stale
- * wait is dropped instead of starting a turn for a program that has ended.
- */
-struct fyai_pending_event {
-	struct fyai_pending_event *next;
-	char *text;
-	char *from, *message_id, *reply_to;
-	long long execution;
-	char *owner;
-	enum fyai_event_owner_kind owner_kind;
-	bool seen;		/* a waiter has it: the turn loop leaves it */
-};
-
-/* The context takes @text and @owner; both are freed on every path. */
-static int fyai_event_inject_queue(struct fyai_ctx *ctx, char *text,
-				   enum fyai_event_owner_kind owner_kind,
-				   char *owner, const char *from,
-				   long long execution,
-				   const char *message_id,
-				   const char *reply_to)
-{
-	struct fyai_pending_event *ev;
-
-	if (!ctx || !text) {
-		free(text);
-		free(owner);
-		return -1;
-	}
-	ev = calloc(1, sizeof(*ev));
-	fyai_error_check(ctx, ev, err, "could not queue event");
-	ev->text = text;
-	if (from) {
-		ev->from = strdup(from);
-		ev->message_id = strdup(message_id ? message_id : "");
-		ev->reply_to = strdup(reply_to ? reply_to : "");
-		fyai_error_check(ctx, ev->from && ev->message_id && ev->reply_to,
-				 err_event, "could not copy event sender metadata");
-		ev->execution = execution;
-	}
-	ev->owner_kind = owner_kind;
-	ev->owner = owner;
-	if (!ctx->waitq->events_tail)
-		ctx->waitq->events_tail = &ctx->waitq->events;
-	*ctx->waitq->events_tail = ev;
-	ctx->waitq->events_tail = &ev->next;
-	fyai_waiters_kick(ctx);
-	return 0;
-
-err_event:
-	free(ev->from);
-	free(ev->message_id);
-	free(ev->reply_to);
-	free(ev);
-err:
-	free(text);
-	free(owner);
-	return -1;
-}
-
-int fyai_event_inject(struct fyai_ctx *ctx, char *text)
-{
-	return fyai_event_inject_queue(ctx, text, FYAI_EVENT_OWNER_NONE,
-				       NULL, NULL, 0, NULL, NULL);
-}
-
-int fyai_event_inject_agent(struct fyai_ctx *ctx, const char *text,
-			    const char *from, long long execution,
-			    const char *message_id, const char *reply_to)
-{
-	char *copy = text ? strdup(text) : NULL;
-
-	return fyai_event_inject_queue(ctx, copy, FYAI_EVENT_OWNER_NONE,
-		NULL, from, execution, message_id, reply_to);
-}
-
-int fyai_event_vinjectf(struct fyai_ctx *ctx, const char *fmt, va_list ap)
-{
-	char *text;
-	int rc;
-
-	rc = vasprintf(&text, fmt, ap);
-	fyai_error_check(ctx, rc >= 0, err, "could not format an event");
-	return fyai_event_inject(ctx, text);
-err:
-	return -1;
-}
-
-int fyai_event_injectf(struct fyai_ctx *ctx, const char *fmt, ...)
-{
-	va_list ap;
-	int rc;
-
-	va_start(ap, fmt);
-	rc = fyai_event_vinjectf(ctx, fmt, ap);
-	va_end(ap);
-	return rc;
-}
-
-/* Queue owned @text for the loop owner; the caller gives away @owner. */
-int fyai_event_inject_owned(struct fyai_ctx *ctx, char *text,
-			    enum fyai_event_owner_kind owner_kind,
-			    char *owner)
-{
-	return fyai_event_inject_queue(ctx, text, owner_kind, owner,
-		NULL, 0, NULL, NULL);
-}
-
-void fyai_event_input_clear(struct fyai_event_input *input)
-{
-	if (!input)
-		return;
-	free(input->text);
-	free(input->from);
-	free(input->message_id);
-	free(input->reply_to);
-	memset(input, 0, sizeof(*input));
-}
-
-static void fyai_pending_event_free(struct fyai_pending_event *ev)
-{
-	if (!ev)
-		return;
-	free(ev->text);
-	free(ev->from);
-	free(ev->message_id);
-	free(ev->reply_to);
-	free(ev->owner);
-	free(ev);
-}
-
-char *fyai_event_take(struct fyai_ctx *ctx)
-{
-	struct fyai_pending_event *ev;
-	char *text;
-
-	if (!ctx || !ctx->waitq->events)
-		return NULL;
-	ev = ctx->waitq->events;
-	ctx->waitq->events = ev->next;
-	if (!ctx->waitq->events)
-		ctx->waitq->events_tail = &ctx->waitq->events;
-	text = ev->text;
-	ev->text = NULL;
-	fyai_pending_event_free(ev);
-	return text;
-}
-
-bool fyai_event_queued(const struct fyai_ctx *ctx)
-{
-	const struct fyai_pending_event *ev;
-
-	for (ev = ctx ? ctx->waitq->events : NULL; ev; ev = ev->next)
-		if (!ev->seen)
-			return true;
-	return false;
-}
-
-/*
- * Whether a queued wait event still names a live owner. Unowned events
- * (waits, agent control input) are not wait reports and are always
- * delivered. A wait whose owner settled is dropped with a trace record.
- */
-static bool fyai_event_owner_live(struct fyai_ctx *ctx,
-				  const struct fyai_pending_event *ev)
-{
-	if (!ev || ev->owner_kind == FYAI_EVENT_OWNER_NONE)
-		return true;
-	if (ev->owner_kind == FYAI_EVENT_OWNER_AGENT)
-		return fyai_event_agent_live(ctx, ev->owner);
-	return fyai_event_session_live(ctx, ev->owner);
-}
-
-bool fyai_event_pending_prefix(struct fyai_ctx *ctx, const char *prefix)
-{
-	const struct fyai_pending_event *ev;
-	size_t len = strlen(prefix);
-
-	for (ev = ctx ? ctx->waitq->events : NULL; ev; ev = ev->next)
-		if (!strncmp(ev->text, prefix, len) &&
-		    fyai_event_owner_live(ctx, ev))
-			return true;
-	return false;
-}
-
-char *fyai_event_peek_prefix(struct fyai_ctx *ctx, const char *prefix)
-{
-	struct fyai_pending_event *ev;
-	size_t len = strlen(prefix);
-	char *text;
-
-	for (ev = ctx ? ctx->waitq->events : NULL; ev; ev = ev->next) {
-		if (strncmp(ev->text, prefix, len) ||
-		    !fyai_event_owner_live(ctx, ev))
-			continue;
-		text = strdup(ev->text);
-		if (text)
-			ev->seen = true;
-		return text;
-	}
-	return NULL;
-}
-
-void fyai_events_purge_seen(struct fyai_ctx *ctx)
-{
-	struct fyai_pending_event **link, *ev;
-
-	if (!ctx)
-		return;
-	link = &ctx->waitq->events;
-	while ((ev = *link)) {
-		if (!ev->seen) {
-			link = &ev->next;
-			continue;
-		}
-		*link = ev->next;
-		if (!*link)
-			ctx->waitq->events_tail = link;
-		fyai_pending_event_free(ev);
-	}
-}
-
-/* Drop every queued wait event owned by @name of @kind. */
-static void fyai_events_drop_owner(struct fyai_ctx *ctx,
-				   enum fyai_event_owner_kind kind,
-				   const char *name)
-{
-	struct fyai_pending_event **link, *ev;
-
-	if (!ctx || kind == FYAI_EVENT_OWNER_NONE || !name || !*name)
-		return;
-	link = &ctx->waitq->events;
-	while ((ev = *link) != NULL) {
-		if (ev->owner_kind != kind || !ev->owner ||
-		    strcmp(ev->owner, name)) {
-			link = &ev->next;
-			continue;
-		}
-		*link = ev->next;
-		if (!*link)
-			ctx->waitq->events_tail = link;
-		fyai_diag_tracef("event", "dropped stale %s wait from '%s'",
-				 kind == FYAI_EVENT_OWNER_AGENT ?
-				 "agent" : "session", name);
-		fyai_pending_event_free(ev);
-	}
-}
-
 void fyai_background_reset(struct fyai_ctx *ctx)
 {
 	if (!ctx)
@@ -3234,84 +3006,8 @@ void fyai_background_reset(struct fyai_ctx *ctx)
 	fyai_agent_background_close(ctx);
 	fyai_monitor_close(ctx);
 	fyai_asks_release(ctx);
-	fyai_waits_release(ctx);
-	fyai_events_release(ctx);
-}
-
-void fyai_events_release(struct fyai_ctx *ctx)
-{
-	char *text;
-
-	while ((text = fyai_event_take(ctx)))
-		free(text);
-}
-
-/* Drop the queued wait events of the sub-agent on @branch. */
-void fyai_events_drop_agent(struct fyai_ctx *ctx, const char *branch)
-{
-	fyai_events_drop_owner(ctx, FYAI_EVENT_OWNER_AGENT, branch);
-}
-
-/* Drop the queued wait events of the shell session @name. */
-void fyai_events_drop_session(struct fyai_ctx *ctx, const char *name)
-{
-	fyai_events_drop_owner(ctx, FYAI_EVENT_OWNER_SESSION, name);
-}
-
-/*
- * Take the oldest queued event whose owner is still live, dropping stale
- * wait events in front of it. A wait event names a job or session that may
- * have settled in the gap between the poll that queued it and this turn:
- * starting a turn for it would ask the model to answer a program that has
- * ended. Each drop is traced; delivery of an unowned event never changes.
- */
-bool fyai_event_take_live_input(struct fyai_ctx *ctx,
-				struct fyai_event_input *input)
-{
-	struct fyai_pending_event **link, *ev;
-
-	memset(input, 0, sizeof(*input));
-	if (!ctx)
-		return false;
-	link = &ctx->waitq->events;
-	while ((ev = *link)) {
-		if (ev->seen) {
-			link = &ev->next;
-			continue;
-		}
-		*link = ev->next;
-		if (!*link)
-			ctx->waitq->events_tail = link;
-		if (fyai_event_owner_live(ctx, ev)) {
-			input->text = ev->text;
-			input->from = ev->from;
-			input->message_id = ev->message_id;
-			input->reply_to = ev->reply_to;
-			input->execution = ev->execution;
-			ev->text = ev->from = ev->message_id = ev->reply_to = NULL;
-			fyai_pending_event_free(ev);
-			return true;
-		}
-		fyai_diag_tracef("event", "dropped stale %s wait from '%s'",
-				 ev->owner_kind == FYAI_EVENT_OWNER_AGENT ?
-				 "agent" : "session",
-				 ev->owner ? ev->owner : "?");
-		fyai_pending_event_free(ev);
-	}
-	return false;
-}
-
-char *fyai_event_take_live(struct fyai_ctx *ctx)
-{
-	struct fyai_event_input input;
-	char *text;
-
-	if (!fyai_event_take_live_input(ctx, &input))
-		return NULL;
-	text = input.text;
-	input.text = NULL;
-	fyai_event_input_clear(&input);
-	return text;
+	fyai_waits_release(ctx->waitq);
+	fyai_events_release(ctx->waitq);
 }
 
 int fyai_prompt_batch(struct fyai_ctx *ctx)
@@ -4034,7 +3730,7 @@ static int fyai_prompt_interactive_async(struct fyai_ctx *ctx)
 
 		/* Submit events only between turns. */
 		if (!run && gated && !ctx->front->config_edit && !ctx->front->cmd_call &&
-		    fyai_event_queued(ctx)) {
+		    fyai_event_queued(ctx->waitq)) {
 			/*
 			 * A wait whose owner settled since the poll is
 			 * dropped, not submitted: answering it would ask
@@ -4042,7 +3738,7 @@ static int fyai_prompt_interactive_async(struct fyai_ctx *ctx)
 			 */
 			struct fyai_event_input event;
 
-			if (!fyai_event_take_live_input(ctx, &event))
+			if (!fyai_event_take_live_input(ctx->waitq, &event))
 				continue;
 
 			rc = fyai_interactive_submit_event(ctx, &event,

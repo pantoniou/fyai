@@ -623,6 +623,7 @@ set(FYAI_SOURCES
     src/sandbox/fyai_sandbox_linux.c
     src/sandbox/fyai_sandbox_macos.c
     src/sandbox/fyai_sandbox_none.c
+    src/sandbox/fyai_scope.c
     src/sandbox/fyai_cover_linux.c
     src/sandbox/fyai_cover_none.c
     src/sandbox/fyai_orphan_linux.c
@@ -637,6 +638,8 @@ set(FYAI_SOURCES
     src/provider/fyai_stream.c
     src/front/fyai_term.c
     src/loop/fyai_wait.c
+    src/loop/fyai_waitq.c
+    src/loop/fyai_waitq.c
     src/front/fyai_terminal.c
     src/front/fyai_terminal_session.c
     src/front/fyai_terminal_view.c

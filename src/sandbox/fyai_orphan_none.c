@@ -49,15 +49,15 @@ fy_generic fyai_orphan_note(struct fy_generic_builder *gb, const char *until)
 	return fy_invalid;
 }
 
-void fyai_orphan_track(struct fyai_ctx *ctx, fy_generic detached)
+void fyai_orphan_track(struct fyai_scope *scope, fy_generic detached)
 {
-	(void)ctx;
+	(void)scope;
 	(void)detached;
 }
 
-fy_generic fyai_orphan_rows(const struct fyai_ctx *ctx, struct fy_generic_builder *gb)
+fy_generic fyai_orphan_rows(const struct fyai_scope *scope, struct fy_generic_builder *gb)
 {
-	(void)ctx;
+	(void)scope;
 	return fy_sequence(gb);
 }
 
@@ -75,32 +75,32 @@ void fyai_orphan_label(pid_t pid, char *label, size_t size)
 		label[0] = '\0';
 }
 
-size_t fyai_scope_stop(struct fyai_ctx *ctx, const char *which)
+size_t fyai_scope_stop(struct fyai_scope *scope, const char *which)
 {
-	(void)ctx;
+	(void)scope;
 	(void)which;
 	return 0;
 }
 
-size_t fyai_orphan_count(const struct fyai_ctx *ctx)
+size_t fyai_orphan_count(const struct fyai_scope *scope)
 {
-	(void)ctx;
+	(void)scope;
 	return 0;
 }
 
-void fyai_orphan_sweep(struct fyai_ctx *ctx)
+void fyai_orphan_sweep(struct fyai_scope *scope)
 {
-	(void)ctx;
+	(void)scope;
 }
 
-void fyai_orphan_release(struct fyai_ctx *ctx)
+void fyai_orphan_release(struct fyai_scope *scope)
 {
-	(void)ctx;
+	(void)scope;
 }
 
-void fyai_orphan_abandon(struct fyai_ctx *ctx)
+void fyai_orphan_abandon(struct fyai_scope *scope)
 {
-	(void)ctx;
+	(void)scope;
 }
 
 #endif /* !FYAI_HOST_BACKEND_LINUX */

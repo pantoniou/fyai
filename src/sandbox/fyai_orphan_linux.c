@@ -259,13 +259,13 @@ static int orphan_signal(int pidfd, int sig)
 }
 
 /* Keep @pid by a descriptor, if it is the process that started at @start. */
-static void orphan_add(struct fyai_ctx *ctx, pid_t pid,
+static void orphan_add(struct fyai_scope *scope, pid_t pid,
 		       unsigned long long start)
 {
 	struct fyai_orphan *o;
 	int fd;
 
-	for (o = ctx->scope->orphans; o; o = o->next)
+	for (o = scope->orphans; o; o = o->next)
 		if (o->pid == pid)
 			return;
 	fd = orphan_pidfd_open(pid);
@@ -279,16 +279,16 @@ static void orphan_add(struct fyai_ctx *ctx, pid_t pid,
 	o = calloc(1, sizeof(*o));
 	if (!o) {
 		close(fd);
-		fyai_error(ctx, "could not keep a process that a tool left");
+		fyai_diag_type(scope->diag, FYAIET_ERROR, "could not keep a process that a tool left");
 		return;
 	}
 	o->pidfd = fd;
 	o->pid = pid;
-	o->next = ctx->scope->orphans;
-	ctx->scope->orphans = o;
+	o->next = scope->orphans;
+	scope->orphans = o;
 }
 
-void fyai_orphan_track(struct fyai_ctx *ctx, fy_generic detached)
+void fyai_orphan_track(struct fyai_scope *scope, fy_generic detached)
 {
 	fy_generic item;
 
@@ -299,17 +299,17 @@ void fyai_orphan_track(struct fyai_ctx *ctx, fy_generic detached)
 		long long start = fy_get(item, "start", 0LL);
 
 		if (pid > 1 && start > 0)
-			orphan_add(ctx, (pid_t)pid, (unsigned long long)start);
+			orphan_add(scope, (pid_t)pid, (unsigned long long)start);
 	}
 }
 
-fy_generic fyai_orphan_rows(const struct fyai_ctx *ctx, struct fy_generic_builder *gb)
+fy_generic fyai_orphan_rows(const struct fyai_scope *scope, struct fy_generic_builder *gb)
 {
 	const struct fyai_orphan *o;
 	fy_generic rows = fy_sequence(gb);
 	char name[32], label[64];
 
-	for (o = ctx->scope->orphans; o; o = o->next) {
+	for (o = scope->orphans; o; o = o->next) {
 		fyai_orphan_name(o->pid, name, sizeof(name));
 		fyai_orphan_label(o->pid, label, sizeof(label));
 		rows = fy_append(gb, rows, fy_mapping(gb, "pid", (long long)o->pid,
@@ -320,12 +320,12 @@ fy_generic fyai_orphan_rows(const struct fyai_ctx *ctx, struct fy_generic_builde
 	return rows;
 }
 
-size_t fyai_orphan_count(const struct fyai_ctx *ctx)
+size_t fyai_orphan_count(const struct fyai_scope *scope)
 {
 	const struct fyai_orphan *o;
 	size_t n = 0;
 
-	for (o = ctx->scope->orphans; o; o = o->next)
+	for (o = scope->orphans; o; o = o->next)
 		n++;
 	return n;
 }
@@ -394,7 +394,7 @@ static bool orphan_matches(pid_t pid, const char *which)
 	return *label && !strcmp(label, which);
 }
 
-size_t fyai_scope_stop(struct fyai_ctx *ctx, const char *which)
+size_t fyai_scope_stop(struct fyai_scope *scope, const char *which)
 {
 	struct fyai_orphan *o;
 	struct orphan_stop *s;
@@ -412,14 +412,14 @@ size_t fyai_scope_stop(struct fyai_ctx *ctx, const char *which)
 		return 0;
 	}
 	/* What the invocation tracks, and what the holder of the scope holds. */
-	for (o = ctx->scope->orphans; o && n < ARRAY_SIZE(members) * 2; o = o->next) {
+	for (o = scope->orphans; o && n < ARRAY_SIZE(members) * 2; o = o->next) {
 		if (!orphan_matches(o->pid, which))
 			continue;
 		fd = orphan_pidfd_open(o->pid);
 		if (fd >= 0)
 			s->pidfds[n++] = fd;
 	}
-	nmembers = fyai_cover_members(&ctx->scope->cover, members, ARRAY_SIZE(members));
+	nmembers = fyai_cover_members(&scope->cover, members, ARRAY_SIZE(members));
 	for (i = 0; i < nmembers && n < ARRAY_SIZE(members) * 2; i++) {
 		if (!orphan_matches(members[i], which))
 			continue;
@@ -434,8 +434,8 @@ size_t fyai_scope_stop(struct fyai_ctx *ctx, const char *which)
 	}
 	for (i = 0; i < n; i++)
 		(void)orphan_signal(s->pidfds[i], SIGTERM);
-	el = fyai_ctx_loop(ctx);
-	if (el && !fyai_event_add_timer(el, (int)ctx->cfg->sandbox_grace_ms, 0,
+	el = fyai_loop_get(scope->loop);
+	if (el && !fyai_event_add_timer(el, (int)scope->cfg->sandbox_grace_ms, 0,
 					orphan_stop_cb, s, &s->timer)) {
 		s->next = orphan_stops;
 		orphan_stops = s;
@@ -458,21 +458,21 @@ static void orphan_stops_drop(void)
 	}
 }
 
-static void orphan_end_all(struct fyai_ctx *ctx, int sig)
+static void orphan_end_all(struct fyai_scope *scope, int sig)
 {
 	struct fyai_orphan *o;
 
-	for (o = ctx->scope->orphans; o; o = o->next)
+	for (o = scope->orphans; o; o = o->next)
 		(void)orphan_signal(o->pidfd, sig);
 }
 
 /* Whether a tracked process still runs. A pidfd is readable once its process ends. */
-static bool orphan_alive(const struct fyai_ctx *ctx)
+static bool orphan_alive(const struct fyai_scope *scope)
 {
 	const struct fyai_orphan *o;
 	struct pollfd pfd;
 
-	for (o = ctx->scope->orphans; o; o = o->next) {
+	for (o = scope->orphans; o; o = o->next) {
 		pfd.fd = o->pidfd;
 		pfd.events = POLLIN;
 		pfd.revents = 0;
@@ -482,18 +482,18 @@ static bool orphan_alive(const struct fyai_ctx *ctx)
 	return false;
 }
 
-static void orphan_drop_all(struct fyai_ctx *ctx)
+static void orphan_drop_all(struct fyai_scope *scope)
 {
 	struct fyai_orphan *o;
 
-	while ((o = ctx->scope->orphans)) {
-		ctx->scope->orphans = o->next;
+	while ((o = scope->orphans)) {
+		scope->orphans = o->next;
 		orphan_free(o);
 	}
 }
 
 /* Add the processes below the roots, so that what a daemon started stops too. */
-static void orphan_add_tree(struct fyai_ctx *ctx)
+static void orphan_add_tree(struct fyai_scope *scope)
 {
 	struct fyai_orphan *o, *head, *scanned = NULL;
 	pid_t kids[256];
@@ -501,13 +501,13 @@ static void orphan_add_tree(struct fyai_ctx *ctx)
 	int walked = 0;
 
 	/* Each pass reads the processes that the one before added. */
-	while (ctx->scope->orphans != scanned && walked < ORPHAN_WALK_MAX) {
-		head = ctx->scope->orphans;
+	while (scope->orphans != scanned && walked < ORPHAN_WALK_MAX) {
+		head = scope->orphans;
 		for (o = head; o != scanned; o = o->next) {
 			walked++;
 			n = orphan_children_of(o->pid, kids, ARRAY_SIZE(kids));
 			for (i = 0; i < n; i++)
-				orphan_add(ctx, kids[i], 0);
+				orphan_add(scope, kids[i], 0);
 		}
 		scanned = head;
 	}
@@ -515,62 +515,62 @@ static void orphan_add_tree(struct fyai_ctx *ctx)
 
 static enum fyai_event_action orphan_kill_cb(const struct fyai_event *ev)
 {
-	struct fyai_ctx *ctx = ev->userdata;
+	struct fyai_scope *scope = ev->userdata;
 
-	ctx->scope->orphan_kill = NULL;
-	orphan_end_all(ctx, SIGKILL);
-	orphan_drop_all(ctx);
+	scope->orphan_kill = NULL;
+	orphan_end_all(scope, SIGKILL);
+	orphan_drop_all(scope);
 	return FYAIEA_STOP;
 }
 
-void fyai_orphan_sweep(struct fyai_ctx *ctx)
+void fyai_orphan_sweep(struct fyai_scope *scope)
 {
 	struct fyai_event_loop *el;
 	int rc;
 
-	if (!ctx->scope->orphans)
+	if (!scope->orphans)
 		return;
 	/* The tree is read before the signal: a parent that ends hides its children. */
-	orphan_add_tree(ctx);
-	orphan_end_all(ctx, SIGTERM);
-	el = fyai_ctx_loop(ctx);
-	if (el && !ctx->scope->orphan_kill) {
-		rc = fyai_event_add_timer(el, (int)ctx->cfg->sandbox_grace_ms, 0, orphan_kill_cb,
-					  ctx, &ctx->scope->orphan_kill);
+	orphan_add_tree(scope);
+	orphan_end_all(scope, SIGTERM);
+	el = fyai_loop_get(scope->loop);
+	if (el && !scope->orphan_kill) {
+		rc = fyai_event_add_timer(el, (int)scope->cfg->sandbox_grace_ms, 0, orphan_kill_cb,
+					  scope, &scope->orphan_kill);
 		if (!rc)
 			return;
 	}
 	/* No loop to wait on: end them now. */
-	orphan_end_all(ctx, SIGKILL);
-	orphan_drop_all(ctx);
+	orphan_end_all(scope, SIGKILL);
+	orphan_drop_all(scope);
 }
 
-void fyai_orphan_release(struct fyai_ctx *ctx)
+void fyai_orphan_release(struct fyai_scope *scope)
 {
 	int left;
 
 	orphan_stops_drop();
-	if (ctx->scope->orphan_kill) {
-		fyai_event_source_remove(ctx->scope->orphan_kill);
-		ctx->scope->orphan_kill = NULL;
+	if (scope->orphan_kill) {
+		fyai_event_source_remove(scope->orphan_kill);
+		scope->orphan_kill = NULL;
 	}
-	if (ctx->scope->orphans) {
+	if (scope->orphans) {
 		/* The invocation ends: give the processes the grace time that a sweep gives. */
-		orphan_add_tree(ctx);
-		orphan_end_all(ctx, SIGTERM);
-		for (left = (int)ctx->cfg->sandbox_grace_ms; left > 0 && orphan_alive(ctx); left -= 20)
+		orphan_add_tree(scope);
+		orphan_end_all(scope, SIGTERM);
+		for (left = (int)scope->cfg->sandbox_grace_ms; left > 0 && orphan_alive(scope); left -= 20)
 			(void)poll(NULL, 0, 20);
-		orphan_end_all(ctx, SIGKILL);
+		orphan_end_all(scope, SIGKILL);
 	}
-	orphan_drop_all(ctx);
+	orphan_drop_all(scope);
 }
 
-void fyai_orphan_abandon(struct fyai_ctx *ctx)
+void fyai_orphan_abandon(struct fyai_scope *scope)
 {
 	/* A forked child does not own the stops of its parent: forget them. */
 	orphan_stops = NULL;
-	orphan_drop_all(ctx);
-	ctx->scope->orphan_kill = NULL;
+	orphan_drop_all(scope);
+	scope->orphan_kill = NULL;
 }
 
 #endif /* FYAI_HOST_BACKEND_LINUX */

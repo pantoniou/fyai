@@ -37,7 +37,7 @@
 
 struct fyai_wait {
 	struct fyai_wait *next;
-	struct fyai_ctx *ctx;
+	struct fyai_waitq *q;
 	char *name;
 	char *reason;
 	struct fyai_event_source *timer;
@@ -45,10 +45,10 @@ struct fyai_wait {
 	bool fired;
 };
 
-/* The context that this object stands on. */
-static inline struct fyai_ctx *fyai_wait_ctx(const struct fyai_wait *o)
+/* The queue that this wait stands on. */
+static inline struct fyai_waitq *fyai_wait_waitq(const struct fyai_wait *o)
 {
-	return o->ctx;
+	return o->q;
 }
 
 /*
@@ -192,11 +192,11 @@ static bool fyai_wait_name_valid(const char *name)
 	return true;
 }
 
-static struct fyai_wait *fyai_wait_find(struct fyai_ctx *ctx, const char *name)
+static struct fyai_wait *fyai_wait_find(struct fyai_waitq *q, const char *name)
 {
 	struct fyai_wait *w;
 
-	for (w = ctx->waitq->waits; w; w = w->next)
+	for (w = q->waits; w; w = w->next)
 		if (!strcmp(w->name, name))
 			return w;
 	return NULL;
@@ -235,16 +235,16 @@ static enum fyai_event_action fyai_wait_fired(const struct fyai_event *ev)
 		fyai_event_source_remove(w->timer);
 		w->timer = NULL;
 	}
-	(void)fyai_event_inject(fyai_wait_ctx(w), fyai_wait_fired_text(w));
+	(void)fyai_event_inject(fyai_wait_waitq(w), fyai_wait_fired_text(w));
 	return FYAIEA_CONTINUE;
 }
 
 /* Drop the waits that have fired: their event is queued already. */
-static void fyai_waits_reap(struct fyai_ctx *ctx)
+static void fyai_waits_reap(struct fyai_waitq *q)
 {
 	struct fyai_wait **pp, *w;
 
-	for (pp = &ctx->waitq->waits; *pp; ) {
+	for (pp = &q->waits; *pp; ) {
 		if (!(*pp)->fired) {
 			pp = &(*pp)->next;
 			continue;
@@ -255,37 +255,38 @@ static void fyai_waits_reap(struct fyai_ctx *ctx)
 	}
 }
 
-bool fyai_wait_exists(struct fyai_ctx *ctx, const char *name)
+bool fyai_wait_exists(struct fyai_waitq *q, const char *name)
 {
-	fyai_waits_reap(ctx);
-	return fyai_wait_find(ctx, name) != NULL;
+	fyai_waits_reap(q);
+	return fyai_wait_find(q, name) != NULL;
 }
 
-bool fyai_wait_cancel(struct fyai_ctx *ctx, const char *name)
+bool fyai_wait_cancel(struct fyai_waitq *q, const char *name)
 {
 	struct fyai_wait **pp, *w;
 
-	fyai_waits_reap(ctx);
-	for (pp = &ctx->waitq->waits; (w = *pp); pp = &w->next) {
+	fyai_waits_reap(q);
+	for (pp = &q->waits; (w = *pp); pp = &w->next) {
 		if (strcmp(w->name, name))
 			continue;
 		*pp = w->next;
 		fyai_wait_free(w);
-		fyai_waiters_kick(ctx);
+		if (q->kick)
+			q->kick(q->hook_data);
 		return true;
 	}
 	return false;
 }
 
-fy_generic fyai_waits_rows(struct fyai_ctx *ctx, struct fy_generic_builder *gb)
+fy_generic fyai_waits_rows(struct fyai_waitq *q, struct fy_generic_builder *gb)
 {
 	const struct fyai_wait *w;
 	fy_generic rows, row;
 	int64_t left;
 
 	rows = fy_sequence(gb);
-	fyai_waits_reap(ctx);
-	for (w = ctx->waitq->waits; w; w = w->next) {
+	fyai_waits_reap(q);
+	for (w = q->waits; w; w = w->next) {
 		left = w->due_ms - fyai_event_now_ms();
 		row = fy_mapping(gb, "name", w->name,
 				 "remaining_seconds", (long long)(left > 0 ? (left + 999) / 1000 : 0));
@@ -296,36 +297,36 @@ fy_generic fyai_waits_rows(struct fyai_ctx *ctx, struct fy_generic_builder *gb)
 	return rows;
 }
 
-void fyai_waits_release(struct fyai_ctx *ctx)
+void fyai_waits_release(struct fyai_waitq *q)
 {
 	struct fyai_wait *w, *next;
 
-	if (!ctx)
+	if (!q)
 		return;
-	for (w = ctx->waitq->waits; w; w = next) {
+	for (w = q->waits; w; w = next) {
 		next = w->next;
 		fyai_wait_free(w);
 	}
-	ctx->waitq->waits = NULL;
+	q->waits = NULL;
 }
 
 /* Drop inherited wait records without removing the parent's timers. */
-void fyai_waits_abandon(struct fyai_ctx *ctx)
+void fyai_waits_abandon(struct fyai_waitq *q)
 {
 	struct fyai_wait *w, *next;
 
-	if (!ctx)
+	if (!q)
 		return;
-	for (w = ctx->waitq->waits; w; w = next) {
+	for (w = q->waits; w; w = next) {
 		next = w->next;
 		w->timer = NULL;
 		fyai_wait_free(w);
 	}
-	ctx->waitq->waits = NULL;
+	q->waits = NULL;
 }
 
 /* Start a wait that does not hold the turn. */
-static char *fyai_wait_start(struct fyai_ctx *ctx, const char *name,
+static char *fyai_wait_start(struct fyai_waitq *q, const char *name,
 			     const char *reason, double seconds)
 {
 	struct fyai_event_loop *el;
@@ -337,29 +338,29 @@ static char *fyai_wait_start(struct fyai_ctx *ctx, const char *name,
 		return strdup(fy_sprintfa("tool error: '%s' is not a usable "
 					  "wait name; use letters, digits, "
 					  "'-' or '_'", name));
-	if (fyai_wait_find(ctx, name))
+	if (fyai_wait_find(q, name))
 		return strdup(fy_sprintfa("tool error: a wait named '%s' is "
 					  "already open; use another name",
 					  name));
 
-	el = fyai_ctx_loop(ctx);
+	el = fyai_loop_get(q->loop);
 	assert(el);
 
 	w = calloc(1, sizeof(*w));
-	fyai_error_check(ctx, w, out, "wait: could not allocate wait");
-	w->ctx = ctx;
+	fyai_diag_check(q->diag, w, out, "wait: could not allocate wait");
+	w->q = q;
 	w->name = strdup(name);
 	w->reason = reason ? strdup(reason) : NULL;
-	fyai_error_check(ctx, w->name && (!reason || w->reason), out_free,
+	fyai_diag_check(q->diag, w->name && (!reason || w->reason), out_free,
 			 "wait: could not allocate wait fields");
 	ms = (int64_t)(seconds * 1000.0);
 	if (ms < 1)
 		ms = 1;
 	w->due_ms = fyai_event_now_ms() + ms;
 	rc = fyai_event_add_timer(el, ms, 0, fyai_wait_fired, w, &w->timer);
-	fyai_error_check(ctx, !rc, out_free, "wait: could not arm timer");
-	w->next = ctx->waitq->waits;
-	ctx->waitq->waits = w;
+	fyai_diag_check(q->diag, !rc, out_free, "wait: could not arm timer");
+	w->next = q->waits;
+	q->waits = w;
 	return strdup(fy_sprintfa("[wait '%s' started: %.3g seconds]\nIt does "
 				  "not hold your turn. Keep working; you are "
 				  "told when it fires.", name, seconds));
@@ -439,33 +440,33 @@ static char *fyai_wait_for_check(struct fyai_ctx *ctx,
 	switch (it->kind) {
 	case FYAI_WAIT_FOR_AGENT:
 		/* An end and a request for input both start this way. */
-		return fyai_event_peek_prefix(ctx,
+		return fyai_event_peek_prefix(ctx->waitq,
 				fy_sprintfa("[agent '%s' ", it->name));
 	case FYAI_WAIT_FOR_SHELL:
 		text = fyai_shell_session_ended_text(ctx, it->name, &known);
 		if (text)
 			return text;
-		return fyai_event_peek_prefix(ctx,
+		return fyai_event_peek_prefix(ctx->waitq,
 				fy_sprintfa("[shell '%s' is waiting", it->name));
 	case FYAI_WAIT_FOR_WAIT:
-		return fyai_event_peek_prefix(ctx,
+		return fyai_event_peek_prefix(ctx->waitq,
 				fy_sprintfa("[wait '%s' fired", it->name));
 	case FYAI_WAIT_FOR_MONITOR:
-		text = fyai_event_peek_prefix(ctx,
+		text = fyai_event_peek_prefix(ctx->waitq,
 				fy_sprintfa("[monitor '%s'", it->name));
 		if (text)
 			return text;
 		/* A command in the background reports its end as a shell. */
-		return fyai_event_peek_prefix(ctx,
+		return fyai_event_peek_prefix(ctx->waitq,
 				fy_sprintfa("[shell '%s' ended", it->name));
 	case FYAI_WAIT_FOR_QUESTION:
-		return fyai_event_peek_prefix(ctx,
+		return fyai_event_peek_prefix(ctx->waitq,
 				fy_sprintfa("[question '%s' ", it->name));
 	case FYAI_WAIT_FOR_PARENT_ASK:
-		return fyai_event_peek_prefix(ctx,
+		return fyai_event_peek_prefix(ctx->waitq,
 				fy_sprintfa("[ask_parent '%s' ", it->name));
 	case FYAI_WAIT_FOR_AGENT_MESSAGE:
-		return fyai_event_peek_prefix(ctx,
+		return fyai_event_peek_prefix(ctx->waitq,
 				fy_sprintfa("[agent_message '%s' ", it->name));
 	default:
 		return NULL;
@@ -485,7 +486,7 @@ static bool fyai_wait_for_alive(struct fyai_ctx *ctx,
 		(void)fyai_shell_session_ended_text(ctx, it->name, &known);
 		return known;
 	case FYAI_WAIT_FOR_WAIT:
-		return fyai_wait_exists(ctx, it->name);
+		return fyai_wait_exists(ctx->waitq, it->name);
 	case FYAI_WAIT_FOR_MONITOR:
 		return fyai_monitor_running(ctx, it->name);
 	case FYAI_WAIT_FOR_QUESTION:
@@ -506,30 +507,30 @@ static enum fyai_wait_for_kind fyai_wait_for_resolve(struct fyai_ctx *ctx,
 	bool known;
 
 	if (fyai_agent_background_running(ctx, target) ||
-	    fyai_event_pending_prefix(ctx, fy_sprintfa("[agent '%s' ", target)))
+	    fyai_event_pending_prefix(ctx->waitq, fy_sprintfa("[agent '%s' ", target)))
 		return FYAI_WAIT_FOR_AGENT;
 	if (fyai_monitor_running(ctx, target) ||
-	    fyai_event_pending_prefix(ctx, fy_sprintfa("[monitor '%s'", target)) ||
-	    fyai_event_pending_prefix(ctx, fy_sprintfa("[shell '%s' ended",
+	    fyai_event_pending_prefix(ctx->waitq, fy_sprintfa("[monitor '%s'", target)) ||
+	    fyai_event_pending_prefix(ctx->waitq, fy_sprintfa("[shell '%s' ended",
 						       target)))
 		return FYAI_WAIT_FOR_MONITOR;
 	free(fyai_shell_session_ended_text(ctx, target, &known));
 	if (known)
 		return FYAI_WAIT_FOR_SHELL;
-	if (fyai_wait_exists(ctx, target) ||
-	    fyai_event_pending_prefix(ctx, fy_sprintfa("[wait '%s' fired",
+	if (fyai_wait_exists(ctx->waitq, target) ||
+	    fyai_event_pending_prefix(ctx->waitq, fy_sprintfa("[wait '%s' fired",
 						       target)))
 		return FYAI_WAIT_FOR_WAIT;
 	if (fyai_asks_exists(ctx, target) ||
-	    fyai_event_pending_prefix(ctx, fy_sprintfa("[question '%s' ",
+	    fyai_event_pending_prefix(ctx->waitq, fy_sprintfa("[question '%s' ",
 						       target)))
 		return FYAI_WAIT_FOR_QUESTION;
 	if (fyai_agents_parent_ask_pending(ctx, target) ||
-	    fyai_event_pending_prefix(ctx, fy_sprintfa("[ask_parent '%s' ",
+	    fyai_event_pending_prefix(ctx->waitq, fy_sprintfa("[ask_parent '%s' ",
 						       target)))
 		return FYAI_WAIT_FOR_PARENT_ASK;
 	if (fyai_agents_message_pending(ctx, target) ||
-	    fyai_event_pending_prefix(ctx, fy_sprintfa("[agent_message '%s' ",
+	    fyai_event_pending_prefix(ctx->waitq, fy_sprintfa("[agent_message '%s' ",
 						       target)))
 		return FYAI_WAIT_FOR_AGENT_MESSAGE;
 	return FYAI_WAIT_FOR_NONE;
@@ -588,7 +589,7 @@ static void fyai_waiter_poll_sleep(struct fyai_waiter *w)
 				   "seconds]", w->seconds);
 		w->ok = false;
 	} else if (w->kind == FYAI_WAITER_SLEEP_EVENT &&
-		   fyai_event_pending_prefix(ctx, "[")) {
+		   fyai_event_pending_prefix(ctx->waitq, "[")) {
 		text = "[wait ended early: an event arrived]";
 	} else if (fyai_event_now_ms() >= w->deadline) {
 		text = fy_sprintfa("[waited %.3g seconds]", w->seconds);
@@ -650,7 +651,7 @@ static void fyai_waiters_purge(void *userdata)
 	struct fyai_ctx *ctx = userdata;
 
 	if (!fyai_waiters_active(ctx))
-		fyai_events_purge_seen(ctx);
+		fyai_events_purge_seen(ctx->waitq);
 }
 
 /*
@@ -890,7 +891,7 @@ struct fyai_waiter *fyai_waiter_start(struct fyai_ctx *ctx, fy_generic args,
 			w->items[i].name);
 		if (original && strcmp(original, w->items[i].name) &&
 		    (fyai_agent_background_running(ctx, original) ||
-		     fyai_event_pending_prefix(ctx,
+		     fyai_event_pending_prefix(ctx->waitq,
 			fy_sprintfa("[agent '%s' ", original)))) {
 			copy = strdup(original);
 			if (!copy) {
@@ -1071,7 +1072,7 @@ fy_generic fyai_wait_tool(struct fyai_ctx *ctx, fy_generic args, bool *okp)
 
 	name = fy_get(args, "name", "");
 	if (!fy_str_empty(name)) {
-		out = fyai_wait_start(ctx, name, reason_text, seconds);
+		out = fyai_wait_start(ctx->waitq, name, reason_text, seconds);
 		*okp = out && strncmp(out, "tool error:", 11);
 		return fyai_tool_take_text(ctx, out);
 	}
@@ -1158,11 +1159,9 @@ const struct fyai_tool_def fyai_wait_defs[] = {
 const size_t fyai_wait_defs_count = sizeof(fyai_wait_defs) /
 				    sizeof(fyai_wait_defs[0]);
 
-void fyai_waitq_init(struct fyai_waitq *q, struct fyai_loop *loop,
-		     struct fyai_diag *diag)
+
+void fyai_waitq_abandon(struct fyai_waitq *q)
 {
-	memset(q, 0, sizeof(*q));
-	q->loop = loop;
-	q->diag = diag;
-	q->events_tail = &q->events;
+	fyai_waits_abandon(q);
+	fyai_events_release(q);
 }

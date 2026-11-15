@@ -195,7 +195,7 @@ static void fyai_tool_job_settle(struct fyai_tool_job *job)
 		 * reports it queued, or a later turn asks the model about
 		 * an agent that ended.
 		 */
-		fyai_events_drop_agent(fyai_tool_job_ctx(job), job->branch);
+		fyai_events_drop_agent(fyai_tool_job_ctx(job)->waitq, job->branch);
 	}
 	if (job->stream.active) {
 		/*
@@ -658,7 +658,7 @@ void fyai_tool_job_discard(struct fyai_tool_job *job)
 	 * queued wait reports here: the branch answers no question after this.
 	 */
 	if (job->agent && job->branch)
-		fyai_events_drop_agent(fyai_tool_job_ctx(job), job->branch);
+		fyai_events_drop_agent(fyai_tool_job_ctx(job)->waitq, job->branch);
 	fyai_tool_job_close_channel(job);
 	fyai_tool_job_drop(&job->deadline);
 	fyai_tool_job_drop(&job->hang_deadline);
@@ -794,49 +794,6 @@ fyai_tool_job_band_delay(const struct fyai_event *ev)
 	if (job->phase != FYAI_JOB_DONE)
 		fyai_tool_job_band_open(job);
 	return FYAIEA_CONTINUE;
-}
-
-/* End the scope when no exchange runs and no object keeps it. */
-static void fyai_scope_settle(struct fyai_ctx *ctx)
-{
-	if (ctx->scope->open || ctx->scope->pins > 0 ||
-	    ctx->cfg->sandbox_scope_kind == FYAI_SCOPE_SESSION)
-		return;
-	/* A process that did not start the holder does not end it. */
-	if (ctx->scope->cover.owner) {
-		fyai_diag_tracef("scope", "end, holder %ld", (long)ctx->scope->cover.holder);
-		fyai_cover_release(&ctx->scope->cover);
-	}
-	if (fyai_orphan_count(ctx))
-		fyai_diag_tracef("scope", "stop %zu tracked daemons",
-				 fyai_orphan_count(ctx));
-	fyai_orphan_sweep(ctx);
-}
-
-void fyai_scope_exchange(struct fyai_ctx *ctx, bool begin)
-{
-	ctx->scope->open = begin;
-	if (!begin)
-		fyai_scope_settle(ctx);
-}
-
-void fyai_scope_pin(struct fyai_ctx *ctx, struct fyai_scope_pin *pin)
-{
-	if (pin->held)
-		return;
-	pin->held = true;
-	ctx->scope->pins++;
-}
-
-void fyai_scope_unpin(struct fyai_ctx *ctx, struct fyai_scope_pin *pin)
-{
-	if (!pin->held)
-		return;
-	pin->held = false;
-	/* A forked child resets the count and drops the objects of its parent. */
-	if (ctx->scope->pins > 0)
-		ctx->scope->pins--;
-	fyai_scope_settle(ctx);
 }
 
 /*
@@ -1459,7 +1416,7 @@ static fy_generic fyai_tool_job_serve(struct jsonrpc_conn *conn,
 	}
 	if (!strcmp(method, "shell/exit")) {
 		/* What the program left is tracked before the session lets go of the scope. */
-		fyai_orphan_track(fyai_tool_job_ctx(job), fy_get(params, "detached", fy_invalid));
+		fyai_orphan_track(fyai_tool_job_ctx(job)->scope, fy_get(params, "detached", fy_invalid));
 		if (job->session)
 			fyai_shell_session_exited(job->session,
 				(int)fy_get(params, "exit_code", 0LL),
@@ -1508,9 +1465,9 @@ static void fyai_tool_job_run_done(struct jsonrpc_request *req, void *userdata)
 		job->display = fy_get(r, "display", fy_invalid);
 		job->diag = fy_get(r, "diag", fy_invalid);
 		/* The scope keeps what the call left running. */
-		fyai_orphan_track(fyai_tool_job_ctx(job), fy_get(r, "detached", fy_invalid));
+		fyai_orphan_track(fyai_tool_job_ctx(job)->scope, fy_get(r, "detached", fy_invalid));
 		if (fyai_tool_job_ctx(job)->cfg->sandbox_scope_kind == FYAI_SCOPE_CALL)
-			fyai_orphan_sweep(fyai_tool_job_ctx(job));
+			fyai_orphan_sweep(fyai_tool_job_ctx(job)->scope);
 		/*
 		 * The reply is in the transient builder, which the turn
 		 * releases when it ends. A retained call is collected later,

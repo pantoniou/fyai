@@ -248,6 +248,19 @@ struct fyai_diag *fyai_cfg_diag(struct fyai_cfg *cfg);
 		} \
 	} while (0)
 
+/*
+ * The same over the sink of a component: a component holds the sink as a
+ * dependency, and no context stands behind it.
+ */
+#define fyai_diag_check(_diag, _cond, _label, _fmt, ...) \
+	do { \
+		if (!(_cond)) { \
+			fyai_diag_type((_diag), FYAIET_ERROR, (_fmt) , \
+				       ## __VA_ARGS__); \
+			goto _label; \
+		} \
+	} while (0)
+
 /* Configuration-scoped: option parsing and the verb argument hooks, which run
  * before there is a context to report into. */
 #define fyai_cfg_error(_cfg, _fmt, ...) \

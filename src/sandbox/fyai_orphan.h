@@ -7,7 +7,7 @@
 #include <sys/types.h>
 #include <libfyaml/libfyaml-generic.h>
 
-struct fyai_ctx;
+struct fyai_scope;
 struct fy_generic_builder;
 
 /*
@@ -42,10 +42,10 @@ fy_generic fyai_orphan_note(struct fy_generic_builder *gb, const char *until);
 void fyai_orphan_namespaced(void);
 
 /* Keep @detached, the sequence that fyai_orphan_children() made, for the scope. */
-void fyai_orphan_track(struct fyai_ctx *ctx, fy_generic detached);
+void fyai_orphan_track(struct fyai_scope *scope, fy_generic detached);
 
 /* A row {pid, name, kept: "tracked"} for each process that the scope keeps. */
-fy_generic fyai_orphan_rows(const struct fyai_ctx *ctx, struct fy_generic_builder *gb);
+fy_generic fyai_orphan_rows(const struct fyai_scope *scope, struct fy_generic_builder *gb);
 
 /* The name that the kernel keeps for @pid, into @name of @size bytes. */
 void fyai_orphan_name(pid_t pid, char *name, size_t size);
@@ -62,18 +62,18 @@ void fyai_orphan_label(pid_t pid, char *label, size_t size);
  * the invocation tracks and at what the holder of the scope holds. Returns how many
  * processes it signalled.
  */
-size_t fyai_scope_stop(struct fyai_ctx *ctx, const char *which);
+size_t fyai_scope_stop(struct fyai_scope *scope, const char *which);
 
 /* How many processes the scope keeps. */
-size_t fyai_orphan_count(const struct fyai_ctx *ctx);
+size_t fyai_orphan_count(const struct fyai_scope *scope);
 
 /* The scope ends: stop what it keeps, and end what does not stop. */
-void fyai_orphan_sweep(struct fyai_ctx *ctx);
+void fyai_orphan_sweep(struct fyai_scope *scope);
 
 /* The invocation ends: end every process now. */
-void fyai_orphan_release(struct fyai_ctx *ctx);
+void fyai_orphan_release(struct fyai_scope *scope);
 
 /* A forked child does not own the processes of its parent: forget them. */
-void fyai_orphan_abandon(struct fyai_ctx *ctx);
+void fyai_orphan_abandon(struct fyai_scope *scope);
 
 #endif

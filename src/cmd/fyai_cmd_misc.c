@@ -362,11 +362,11 @@ static fy_generic list_live(struct fyai_ctx *ctx, struct fy_generic_builder *gb,
 	bool shells;
 
 	if (!strcmp(what, "waits"))
-		return fyai_waits_rows(ctx, gb);
+		return fyai_waits_rows(ctx->waitq, gb);
 	if (!strcmp(what, "monitors"))
 		return fyai_monitors_rows(ctx, gb);
 	if (!strcmp(what, "daemons"))
-		return fyai_scope_rows(ctx, gb);
+		return fyai_scope_rows(ctx->scope, gb);
 	if (!strcmp(what, "questions"))
 		return fy_concat(gb, fyai_asks_rows(ctx, gb),
 				 fyai_agents_parent_ask_rows(ctx, gb));

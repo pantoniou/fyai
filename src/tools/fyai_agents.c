@@ -715,7 +715,7 @@ static enum agents_served agents_serve_own_control(struct fyai_ctx *ctx,
 		/* The queue owns the text it is given. */
 		copy = strdup(text);
 		fyai_error_check(ctx, copy, err_out, "cannot queue the agent input");
-		rc = fyai_event_inject(ctx, copy);
+		rc = fyai_event_inject(ctx->waitq, copy);
 		if (rc)
 			return AGENTS_SERVED_FAIL;
 	} else {
@@ -850,14 +850,14 @@ static enum agents_served agents_serve_message(struct fyai_ctx *ctx,
 	}
 	ask = *reply ? agents_parent_ask_reply(a, reply) : NULL;
 	if (ask) {
-		rc = fyai_event_inject_agent(ctx,
+		rc = fyai_event_inject_agent(ctx->waitq,
 			fy_sprintfa("[ask_parent '%s' answered]\n%s",
 				ask->name, text), from, sender_execution,
 			fy_sprintfa("%s:%s", from, msg), reply);
 		if (!rc)
 			agents_parent_ask_remove(a, ask);
 	} else {
-		rc = fyai_event_inject_agent(ctx,
+		rc = fyai_event_inject_agent(ctx->waitq,
 			ask_parent ? fy_sprintfa("[ask_parent '%s' asks]\n%s",
 				msg, text) : text,
 			from, sender_execution,
@@ -870,7 +870,7 @@ static enum agents_served agents_serve_message(struct fyai_ctx *ctx,
 			wait_name = fyai_agent_background_original_name(ctx, leaf);
 			if (!wait_name)
 				wait_name = leaf;
-			(void)fyai_event_injectf(ctx,
+			(void)fyai_event_injectf(ctx->waitq,
 				"[agent '%s' is waiting for input: ask_parent '%s']",
 				wait_name, msg);
 		}
@@ -1435,12 +1435,12 @@ static void agents_message_done(struct jsonrpc_request *request, void *userdata)
 	ack->state = cancelled ? AGENT_ACK_CANCELLED : AGENT_ACK_SETTLED;
 	ack->request = NULL;
 	if (!ack->ask_parent && !agent_message_ack_ctx(ack)->astate->registry->closing && !cancelled)
-		fyai_event_injectf(agent_message_ack_ctx(ack), "[agent_message '%s' %s]", ack->name,
+		fyai_event_injectf(agent_message_ack_ctx(ack)->waitq, "[agent_message '%s' %s]", ack->name,
 			queued ? "queued" : "not queued");
 	if (ack->ask_parent && !queued && !agent_message_ack_ctx(ack)->astate->registry->closing) {
 		ask = agents_parent_ask_find(agent_message_ack_ctx(ack)->astate->registry, ack->name);
 		if (ask) {
-			fyai_event_injectf(agent_message_ack_ctx(ack),
+			fyai_event_injectf(agent_message_ack_ctx(ack)->waitq,
 				"[ask_parent '%s' not queued]%s%s", ack->name,
 				*reason ? "\n" : "", reason);
 			agents_parent_ask_remove(agent_message_ack_ctx(ack)->astate->registry, ask);
@@ -1453,7 +1453,7 @@ static void agents_message_settle(struct agent_message_ack *ack, bool queued)
 {
 	ack->state = AGENT_ACK_SETTLED;
 	if (!agent_message_ack_ctx(ack)->astate->registry->closing)
-		fyai_event_injectf(agent_message_ack_ctx(ack), "[agent_message '%s' %s]",
+		fyai_event_injectf(agent_message_ack_ctx(ack)->waitq, "[agent_message '%s' %s]",
 			ack->name, queued ? "queued" : "not queued");
 }
 

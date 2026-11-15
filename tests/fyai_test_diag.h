@@ -168,7 +168,7 @@ static inline struct fyai_scope *fyai_test_scope_of(struct fyai_ctx *ctx)
 		ctx->scope = calloc(1, sizeof(*ctx->scope));
 		if (!ctx->scope)
 			return NULL;
-		fyai_scope_state_init(ctx->scope, ctx->loop, fyai_cfg_diag(ctx->cfg));
+		fyai_scope_state_init(ctx->scope, ctx->loop, fyai_cfg_diag(ctx->cfg), ctx->cfg);
 	}
 	return ctx->scope;
 }

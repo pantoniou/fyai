@@ -258,29 +258,6 @@ struct fyai_fsview;
 /* Merge configured tool policy with mandatory native view confinement. */
 int fyai_tools_confine_native_view(struct fyai_ctx *ctx, const struct fyai_fsview *view);
 
-/*
- * The scope of an exchange (doc/exchange-scope.md). fyai_scope_exchange() says
- * that an exchange begins or ends: the processes of its tools end with it
- * unless an object keeps the scope. A terminal session, a monitor and a
- * background sub-agent pin the scope from the time they start until they go.
- */
-void fyai_scope_exchange(struct fyai_ctx *ctx, bool begin);
-
-/*
- * A pin handle owns the one count that its object adds to the scope. A zeroed
- * handle holds nothing. Pinning a held handle and unpinning a free one change
- * nothing, so every pair is balanced by the handle and not by a clamp.
- */
-struct fyai_scope_pin {
-	bool held;
-};
-
-void fyai_scope_pin(struct fyai_ctx *ctx, struct fyai_scope_pin *pin);
-void fyai_scope_unpin(struct fyai_ctx *ctx, struct fyai_scope_pin *pin);
-
-/* The processes of the scope as rows of pid, name and how the scope holds them. */
-fy_generic fyai_scope_rows(struct fyai_ctx *ctx, struct fy_generic_builder *gb);
-
 /* Told that a program the user runs through fyai ended: its exit code, or
  * the signal that ended it. */
 typedef void (*fyai_tools_exit_fn)(void *userdata, int exit_code, int signal);

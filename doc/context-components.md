@@ -211,6 +211,19 @@ and to `turn`).
 `waits` and `asks` hang off `loop` and `diag` alone. `sink`, `uimodel` and
 `ui` sit beside `jobs` and depend on `loop` and `diag`.
 
+## Moving a method to its component
+
+Rule 3 moves one component at a time, in dependency order. A method of a
+component is a function that reads or changes only the state of that
+component. It takes `struct fyai_X *`, and reaches anything else through a
+dependency pointer of `X` (the loop, the diagnostics, the configuration). A
+function that composes several components, such as a tool, stays on `ctx`: it
+is not a method. A method that must call up, as the queue of events wakes the
+waiters that hold a call, calls a hook (a function pointer and its data) that
+the run sets, as `fyai_waitq_bind()` does. `fyai_diag_check()` reports a
+failure into the sink that a component holds. Done: the event queue and the
+named waits (`waitq`), and the orphans and the pins of the scope (`scope`).
+
 ## Order of work
 
 Each step builds, passes both suites, and lands as its own patch series

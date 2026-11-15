@@ -7,6 +7,7 @@
 #include <libfyaml/libfyaml-generic.h>
 
 struct fyai_ctx;
+struct fyai_waitq;
 
 /* The `time` tool: what the clock says now. */
 fy_generic fyai_time_tool(struct fyai_ctx *ctx, bool *okp);
@@ -17,10 +18,10 @@ char *fyai_time_now_text(void);
 fy_generic fyai_wait_tool(struct fyai_ctx *ctx, fy_generic args, bool *okp);
 
 /* Cancel the pending wait @name; false when no such wait is pending. */
-bool fyai_wait_cancel(struct fyai_ctx *ctx, const char *name);
+bool fyai_wait_cancel(struct fyai_waitq *q, const char *name);
 
 /* True when a named wait @name is pending. */
-bool fyai_wait_exists(struct fyai_ctx *ctx, const char *name);
+bool fyai_wait_exists(struct fyai_waitq *q, const char *name);
 
 /*
  * A wait for an event (`for`) that holds a tool call. Waiters run beside each
@@ -66,12 +67,12 @@ void fyai_waiters_abandon(struct fyai_ctx *ctx);
  * The pending waits of this run, as rows of name, reason and the seconds that
  * remain. A wait belongs to the run that made it: a child has none of its parent.
  */
-fy_generic fyai_waits_rows(struct fyai_ctx *ctx, struct fy_generic_builder *gb);
+fy_generic fyai_waits_rows(struct fyai_waitq *q, struct fy_generic_builder *gb);
 
 /* Drop every wait. They live for one invocation, as a session does. */
-void fyai_waits_release(struct fyai_ctx *ctx);
+void fyai_waits_release(struct fyai_waitq *q);
 
 /* Drop the waits of the parent in a forked child, without ending them. */
-void fyai_waits_abandon(struct fyai_ctx *ctx);
+void fyai_waits_abandon(struct fyai_waitq *q);
 
 #endif

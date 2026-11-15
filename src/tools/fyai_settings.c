@@ -1308,7 +1308,7 @@ static void settings_proposal_event(struct fyai_ctx *ctx,
 	const char *json;
 
 	json = emit_json_string(gb, result);
-	if (!json || fyai_event_injectf(ctx, "[config '%s' %s]\n%s", id,
+	if (!json || fyai_event_injectf(ctx->waitq, "[config '%s' %s]\n%s", id,
 					fy_get(result, "status", "decided"),
 					json))
 		fyai_warning(ctx, "the model is not told that proposal '%s' "
