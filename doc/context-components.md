@@ -7,13 +7,18 @@ them. `struct fyai_app` holds `diag`, `loop`, `arena`, `transient`, `cred`,
 embeds the context. The context holds the configuration, one pointer for each
 component, and three values that no component owns (`tools`, `acp_rpc`,
 `acp_agent_message_id`). `fyai_ctx_fork_disown()` calls the `abandon()` of each
-component. What remains is rule 3, a function that takes its component and
-not the context, and the split of `front` into the sink, the UI model and the
-UI; both follow the TUI split. Until a function moves, `ctx` is the bundle of
-dependencies that rule 2 allows, and no component reads a field of another
-through it. The counts in the tables come from a script over `src/*/*.c` that
-counts `ctx->FIELD` per file, as the design was made; check a row against the
-code before a change. The order of the work is near the end.
+component. Rule 3 is done for the functions that read or change one component:
+the event queue and named waits, the orphans and pins, the background
+questions, the curl plumbing, the control channel of the transport, the login
+and the credential sources, and the MCP client take their component. The
+functions that remain on `ctx` compose several components (the model transfer,
+the tools and their jobs, the branch and storage layer, the sub-agents, the
+turn and the display); `ctx` is the bundle of dependency pointers that rule 2
+allows for them, and the split of `front` into the sink, the UI model and the
+UI, with the TUI split, is what removes it from the display code. The
+counts in the tables come from a script over `src/*/*.c` that counts
+`ctx->FIELD` per file, as the design was made; check a row against the code
+before a change. The order of the work is near the end.
 
 ## Problem
 
