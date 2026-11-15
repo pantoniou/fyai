@@ -455,7 +455,7 @@ int fyai_term_verb(struct fyai_ctx *ctx)
 	t.surface = fyai_ui_surface_open(ctx, t.rows, t.cols);
 	/* One program fills the window; its height follows the terminal. */
 	if (t.surface)
-		(void)fyai_workpane_register(ctx->front->workpane, t.surface,
+		(void)fyai_workpane_register(ctx->screen->workpane, t.surface,
 					     FYAI_WORKPANE_TILE_SHELL, &t,
 					     &term_tile_ops,
 					     FYAI_WORKPANE_FILL, 0);

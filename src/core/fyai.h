@@ -19,7 +19,9 @@
 #include "fyai_branch_state.h"
 #include "fyai_agent_state.h"
 #include "fyai_jobs.h"
-#include "fyai_front.h"
+#include "fyai_out.h"
+#include "fyai_screen.h"
+#include "fyai_uistores.h"
 #include "fyai_link.h"
 #include "fyai_turnstate.h"
 #include "fyai_usage.h"
@@ -746,8 +748,10 @@ struct fyai_ctx {
 
 	/* The event loop component, owned by struct fyai_app (src/loop/fyai_loop.h). */
 	struct fyai_loop *loop;
-	/* The front end component, owned by struct fyai_app. */
-	struct fyai_front *front;
+	/* The output, the UI model and the screen, owned by struct fyai_app. */
+	struct fyai_out *out;
+	struct fyai_uistores *uistores;
+	struct fyai_screen *screen;
 	/* The sub-agent identity component, owned by struct fyai_app. */
 	struct fyai_agent_state *astate;
 	fy_generic tools;

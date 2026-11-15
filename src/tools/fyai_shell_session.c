@@ -271,7 +271,7 @@ static void fyai_shell_session_head_paint(void *owner)
  */
 int fyai_inline_sep(struct fyai_ctx *ctx)
 {
-	struct fyai_flow *flow = fyai_sink_flow(ctx->front->sink);
+	struct fyai_flow *flow = fyai_sink_flow(ctx->out->sink);
 	struct fyai_flow_sep sep;
 
 	if (!flow)
@@ -505,13 +505,13 @@ fyai_shell_session_create(struct fyai_ctx *ctx, const char *name,
 	if (sess->surface) {
 		/* A user program accepts what the pane grants; a model
 		 * session keeps the height it asked for. */
-		(void)fyai_workpane_register(ctx->front->workpane, sess->surface,
+		(void)fyai_workpane_register(ctx->screen->workpane, sess->surface,
 					     FYAI_WORKPANE_TILE_SHELL, sess,
 					     &fyai_shell_session_tile_ops,
 					     user_owned ? FYAI_WORKPANE_FILL :
 							  rows,
 					     user_owned ? 0 : rows);
-		fyai_workpane_tile_set_ladder(ctx->front->workpane, sess->surface,
+		fyai_workpane_tile_set_ladder(ctx->screen->workpane, sess->surface,
 					      &fyai_tile_ladder);
 		(void)fyai_chrome_update(ctx, sess->surface,
 			&(struct fyai_chrome_spec){
@@ -600,7 +600,7 @@ local:
 	if (sess->model_text)
 		fyai_tools_work_update(fyai_shell_session_ctx(sess));
 	(void)fyai_ui_surface_resize(sess->surface, rows, cols);
-	fyai_workpane_grid_resized(fyai_shell_session_ctx(sess)->front->workpane, sess->surface, rows,
+	fyai_workpane_grid_resized(fyai_shell_session_ctx(sess)->screen->workpane, sess->surface, rows,
 				   cols);
 }
 
@@ -693,7 +693,7 @@ void fyai_shell_session_resized(struct fyai_shell_session *sess,
 	}
 	(void)fyai_ui_surface_resize(sess->surface, rows, cols);
 	/* An acknowledgement records the grid; it schedules no new request. */
-	fyai_workpane_grid_resized(fyai_shell_session_ctx(sess)->front->workpane, sess->surface, rows,
+	fyai_workpane_grid_resized(fyai_shell_session_ctx(sess)->screen->workpane, sess->surface, rows,
 				   cols);
 	/* Publish the complete resized grid before the next frame. */
 	(void)fyai_ui_surface_publish(sess->surface, sess->view);
@@ -939,11 +939,11 @@ void fyai_surface_retire_zoom(struct fyai_ctx *ctx,
 {
 	if (!ctx || !surface)
 		return;
-	fyai_workpane_tile_set_selectable(ctx->front->workpane, surface, false);
-	if (fyai_workpane_focused(ctx->front->workpane) == surface)
-		fyai_workpane_clear_focus(ctx->front->workpane);
-	if (fyai_workpane_zoomed(ctx->front->workpane) == surface)
-		fyai_workpane_clear_zoom(ctx->front->workpane);
+	fyai_workpane_tile_set_selectable(ctx->screen->workpane, surface, false);
+	if (fyai_workpane_focused(ctx->screen->workpane) == surface)
+		fyai_workpane_clear_focus(ctx->screen->workpane);
+	if (fyai_workpane_zoomed(ctx->screen->workpane) == surface)
+		fyai_workpane_clear_zoom(ctx->screen->workpane);
 }
 
 /*
@@ -1018,7 +1018,7 @@ static void fyai_shell_session_display_finish(struct fyai_shell_session *sess)
 	/* The tile keeps the focus it had: Escape closes it there, which the
 	 * hint of the status row says. */
 	if (sess->keep_tile) {
-		if (fyai_workpane_focused(fyai_shell_session_ctx(sess)->front->workpane) == sess->surface)
+		if (fyai_workpane_focused(fyai_shell_session_ctx(sess)->screen->workpane) == sess->surface)
 			fyai_chrome_focus(fyai_shell_session_ctx(sess), sess->surface, true);
 		fyai_ui_wake(fyai_shell_session_ctx(sess));
 		return;
@@ -1609,7 +1609,7 @@ fy_generic fyai_tools_sessions_data(struct fyai_ctx *ctx,
 			"kind", "shell",
 			"state", sess->stop != FYAI_SESSION_STOP_NONE ?
 				"stopping" :
-				fyai_workpane_focused(ctx->front->workpane) ==
+				fyai_workpane_focused(ctx->screen->workpane) ==
 					sess->surface ? "focused" :
 				"running"));
 	}
@@ -1622,7 +1622,7 @@ fy_generic fyai_tools_sessions_data(struct fyai_ctx *ctx,
 			"kind", job->btw ? "btw" : "agent",
 			"state", job->btw_panel ? "finished" :
 				job->terminating ? "stopping" :
-				fyai_workpane_focused(ctx->front->workpane) ==
+				fyai_workpane_focused(ctx->screen->workpane) ==
 					job->surface ? "focused" :
 				job->wants_input ? "waiting" : "running"));
 	}

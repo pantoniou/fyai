@@ -38,7 +38,7 @@ int session_compact_chatgpt_auth(void)
 		.chatgpt_auth = true,
 	};
 	struct fyai_turnstate turn = {};
-	struct fyai_ctx ctx = { .cfg = &cfg, .turn = &turn, .front = &(struct fyai_front){} };
+	struct fyai_ctx ctx = { .cfg = &cfg, .turn = &turn, .out = &(struct fyai_out){}, .uistores = &(struct fyai_uistores){}, .screen = &(struct fyai_screen){} };
 
 	if (!fyai_session_compact_v2(&cfg))
 		return 1;

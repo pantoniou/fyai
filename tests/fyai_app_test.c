@@ -55,7 +55,7 @@ FYAI_TEST_ENTRY(app, signal_owner_follows_handlers, app_signal_owner_follows_han
 FYAI_TEST_ENTRY(app, abandon_forgets_parent_state, app_abandon_forgets_parent_state)
 FYAI_TEST_ENTRY(app, waitq_stands_alone, app_waitq_stands_alone)
 FYAI_TEST_ENTRY(app, askq_stands_alone, app_askq_stands_alone)
-FYAI_TEST_ENTRY(app, wires_front, app_wires_front)
+FYAI_TEST_ENTRY(app, wires_display, app_wires_display)
 FYAI_TEST_ENTRY(app, wires_link, app_wires_link)
 FYAI_TEST_ENTRY(app, wires_cred, app_wires_cred)
 FYAI_TEST_ENTRY(app, cred_holds_login_state, app_cred_holds_login_state)
@@ -386,10 +386,10 @@ int app_abandon_forgets_parent_state(void)
 	fyai_mcp_state_abandon(&app.mcp);
 	FYAI_TCHECK(!app.mcp.conns && fy_is_invalid(app.mcp.tools));
 
-	app.front.ui = (struct fyai_ui *)&parent;
-	app.front.cmd_call = (struct fyai_cmd_call *)&parent;
-	fyai_front_abandon(&app.front);
-	FYAI_TCHECK(!app.front.ui && !app.front.cmd_call);
+	app.screen.ui = (struct fyai_ui *)&parent;
+	app.screen.cmd_call = (struct fyai_cmd_call *)&parent;
+	fyai_screen_abandon(&app.screen);
+	FYAI_TCHECK(!app.screen.ui && !app.screen.cmd_call);
 
 	app.transport.src = (struct fyai_event_source *)&parent;
 	fyai_transport_state_abandon(&app.transport);
@@ -516,17 +516,19 @@ int app_askq_stands_alone(void)
 	return 0;
 }
 
-int app_wires_front(void)
+int app_wires_display(void)
 {
 	struct fyai_app app;
 
 	FYAI_TCHECK(!fyai_app_init(&app));
-	FYAI_TCHECK(app.front.loop == &app.loop && app.front.diag == &app.diag);
-	FYAI_TCHECK(!app.front.sink && !app.front.ui && !app.front.uimodel);
-	FYAI_TCHECK(!app.front.workpane && !app.front.browser && !app.front.cmd_call);
-	FYAI_TCHECK(!app.front.display_output && !app.front.uimodel_detached);
+	FYAI_TCHECK(app.out.loop == &app.loop && app.out.diag == &app.diag);
+	FYAI_TCHECK(app.uistores.loop == &app.loop && app.uistores.diag == &app.diag);
+	FYAI_TCHECK(app.screen.loop == &app.loop && app.screen.diag == &app.diag);
+	FYAI_TCHECK(!app.out.sink && !app.screen.ui && !app.uistores.uimodel);
+	FYAI_TCHECK(!app.screen.workpane && !app.screen.browser && !app.screen.cmd_call);
+	FYAI_TCHECK(!app.out.display_output && !app.uistores.uimodel_detached);
 	fyai_app_cleanup(&app);
-	printf("ok - the front end starts with no display\n");
+	printf("ok - the output, the UI model and the screen start with no display\n");
 	return 0;
 }
 

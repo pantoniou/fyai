@@ -270,7 +270,7 @@ static int frames_display(struct fyai_ctx *ctx, fy_generic config)
 			 "cannot take the display settings of the server");
 	if (cfg->markdown)
 		fyai_markdown_load_style(cfg);
-	fyai_flow_reset(&ctx->front->sink->flow, cfg);
+	fyai_flow_reset(&ctx->out->sink->flow, cfg);
 	return 0;
 err:
 	return -1;
@@ -278,7 +278,7 @@ err:
 
 int fyai_sink_frames_present(struct fyai_ctx *ctx, fy_generic frame)
 {
-	struct fyai_sink *s = ctx->front->sink;
+	struct fyai_sink *s = ctx->out->sink;
 	struct fyai_sink_doc doc = { .kind = FYAI_SINK_DOC_ASSISTANT };
 	fy_generic data = fy_get(frame, "data", fy_invalid);
 	const char *op, *kind, *text;

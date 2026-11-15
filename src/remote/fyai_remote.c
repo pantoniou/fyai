@@ -249,7 +249,7 @@ static void remote_run_output(struct remote_client *client, fy_generic frame)
 	}
 	if (!strcmp(subtype, "stderr")) {
 		if (fy_is_string(data))
-			(void)fyai_sink_write(remote_client_ctx(client)->front->sink, FYAI_SINK_DIAG,
+			(void)fyai_sink_write(remote_client_ctx(client)->out->sink, FYAI_SINK_DIAG,
 					      fy_castp(&data, ""), fy_len(data));
 		return;
 	}
@@ -974,7 +974,7 @@ static int remote_command_run(struct remote_client *client)
 	}
 	fyai_event_source_remove(client->input);
 	client->input = NULL;
-	fyai_sink_flush(ctx->front->sink);
+	fyai_sink_flush(ctx->out->sink);
 	fyai_error_check(ctx, client->phase == REMOTE_ENDED, err, "the server ended the command "
 			 "without its exit status");
 	cfg->exit_status = client->status;

@@ -84,7 +84,7 @@ const char *fyai_ui_store_name(enum fyai_ui_store store)
 /* The model of @ctx, or NULL when it has none. */
 static struct fyai_uimodel *uimodel(struct fyai_ctx *ctx)
 {
-	return ctx ? ctx->front->uimodel : NULL;
+	return ctx ? ctx->uistores->uimodel : NULL;
 }
 
 struct fy_generic_builder *fyai_uimodel_builder_new(struct fyai_ctx *ctx)
@@ -105,13 +105,13 @@ int fyai_uimodel_create(struct fyai_ctx *ctx)
 	struct fyai_uimodel *m;
 	int i;
 
-	if (!ctx || ctx->front->uimodel || ctx->front->uimodel_detached)
+	if (!ctx || ctx->uistores->uimodel || ctx->uistores->uimodel_detached)
 		return 0;
 	m = calloc(1, sizeof(*m));
 	fyai_error_check(ctx, m, err, "cannot make the UI model");
 	for (i = 0; i < FYAI_UI_STORE_COUNT; i++)
 		m->store[i].root = fy_invalid;
-	ctx->front->uimodel = m;
+	ctx->uistores->uimodel = m;
 	m->scratch = fyai_uimodel_builder_new(ctx);
 	if (!m->scratch)
 		goto err;
@@ -521,21 +521,25 @@ int fyai_uimodel_intent(struct fyai_ctx *ctx, const char *subtype,
 void fyai_uimodel_view_detach(struct fyai_ctx *view,
 			      struct fyai_view_own *own)
 {
-	own->front = *view->front;
-	view->front = &own->front;
-	view->front->ui = NULL;
-	view->front->uimodel = NULL;
-	view->front->uilog = NULL;
-	view->front->uiwork = NULL;
-	view->front->uitranscript = NULL;
-	view->front->uidraw = NULL;
+	own->out = *view->out;
+	view->out = &own->out;
+	own->uistores = *view->uistores;
+	view->uistores = &own->uistores;
+	own->screen = *view->screen;
+	view->screen = &own->screen;
+	view->screen->ui = NULL;
+	view->uistores->uimodel = NULL;
+	view->uistores->uilog = NULL;
+	view->uistores->uiwork = NULL;
+	view->uistores->uitranscript = NULL;
+	view->uistores->uidraw = NULL;
 	view->askq = &own->askq;
 	fyai_askq_init(&own->askq, fyai_cfg_diag(view->cfg), view->waitq, view->cfg);
 	own->bstate = *view->bstate;
 	view->bstate = &own->bstate;
 	own->turn = *view->turn;
 	view->turn = &own->turn;
-	view->front->uimodel_detached = true;
+	view->uistores->uimodel_detached = true;
 }
 
 void fyai_uimodel_release(struct fyai_ctx *ctx)
@@ -554,7 +558,7 @@ void fyai_uimodel_release(struct fyai_ctx *ctx)
 	while (m->texts)
 		fyai_uimodel_text_close(ctx, m->texts->id);
 	free(m);
-	ctx->front->uimodel = NULL;
+	ctx->uistores->uimodel = NULL;
 }
 
 void fyai_uimodel_abandon(struct fyai_ctx *ctx)

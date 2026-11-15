@@ -287,7 +287,7 @@ int fyai_cmd_skill_export(struct fyai_cmd_call *call, fy_generic *result)
 		fyai_error_check(fyai_cmd_call_ctx(call), fy_is_string(text), err,
 				 "skill '%s' has no file '%s'", name, file);
 		/* The file as it stands, for another program to read. */
-		(void)fyai_sink_write(fyai_cmd_call_ctx(call)->front->sink, FYAI_SINK_MACHINE,
+		(void)fyai_sink_write(fyai_cmd_call_ctx(call)->out->sink, FYAI_SINK_MACHINE,
 				      fy_castp(&text, ""), fy_len(text));
 		*result = fy_null;
 		return 0;

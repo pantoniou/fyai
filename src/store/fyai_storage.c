@@ -707,7 +707,7 @@ static int storage_bootstrap_ask(struct fyai_ctx *ctx)
 
 	fyai_report(ctx, "No fyai project at %s\nCreate one? [y/N] ",
 		    cfg->arena_dir);
-	fyai_sink_flush(ctx->front->sink);
+	fyai_sink_flush(ctx->out->sink);
 	answer[0] = '\0';
 	if (!storage_read_line(answer, sizeof(answer)) ||
 	    (answer[0] != 'y' && answer[0] != 'Y'))

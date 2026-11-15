@@ -201,7 +201,9 @@ struct fyai_view_own {
 	struct fyai_askq askq;
 	struct fyai_branch_state bstate;
 	struct fyai_turnstate turn;
-	struct fyai_front front;
+	struct fyai_out out;
+	struct fyai_uistores uistores;
+	struct fyai_screen screen;
 };
 
 /*

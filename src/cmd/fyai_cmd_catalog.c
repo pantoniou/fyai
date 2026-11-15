@@ -161,10 +161,10 @@ int fyai_cmd_catalog_edit(struct fyai_cmd_call *call, fy_generic *result)
 	(void)result;
 	if (call->surface == FYAI_CMD_CLI)
 		return fyai_catalog_edit(ctx);
-	fyai_error_check(ctx, !ctx->front->config_edit, err,
+	fyai_error_check(ctx, !ctx->screen->config_edit, err,
 			 "an editor is already active");
-	ctx->front->config_edit = fyai_catalog_edit_submit(ctx);
-	return ctx->front->config_edit ? 0 : -1;
+	ctx->screen->config_edit = fyai_catalog_edit_submit(ctx);
+	return ctx->screen->config_edit ? 0 : -1;
 err:
 	return -1;
 }
@@ -195,11 +195,11 @@ int fyai_cmd_catalog_update(struct fyai_cmd_call *call, fy_generic *result)
 	}
 	if (call->surface == FYAI_CMD_CLI)
 		return fyai_catalog_update(ctx, providers, n, curated);
-	fyai_error_check(ctx, !ctx->front->catalog_update, err,
+	fyai_error_check(ctx, !ctx->screen->catalog_update, err,
 			 "catalog: an update is already running");
-	ctx->front->catalog_update = fyai_catalog_update_submit(ctx, providers, n,
+	ctx->screen->catalog_update = fyai_catalog_update_submit(ctx, providers, n,
 							 curated);
-	return ctx->front->catalog_update ? 0 : -1;
+	return ctx->screen->catalog_update ? 0 : -1;
 err:
 	return -1;
 }

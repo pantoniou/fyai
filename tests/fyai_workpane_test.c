@@ -95,11 +95,13 @@ static struct fyai_workpane_manager *wpt_open(const char *policy, int fixed)
 	memset(&wpt_cfg, 0, sizeof(wpt_cfg));
 	wpt_cfg.work_zoom_rows = policy;
 	wpt_cfg.work_zoom_fixed_rows = fixed;
-	fyai_test_front_of(&wpt_ctx);
-	wpt_ctx.front->workpane = NULL;
+	fyai_test_out_of(&wpt_ctx);
+	fyai_test_uistores_of(&wpt_ctx);
+	fyai_test_screen_of(&wpt_ctx);
+	wpt_ctx.screen->workpane = NULL;
 	wm = fyai_workpane_create(&wpt_ctx, NULL);
 	FYAI_TCHECK(wm != NULL);
-	wpt_ctx.front->workpane = wm;
+	wpt_ctx.screen->workpane = wm;
 	fyai_workpane_terminal_resize(wm, 40, 100);
 	return wm;
 }
@@ -107,7 +109,7 @@ static struct fyai_workpane_manager *wpt_open(const char *policy, int fixed)
 static void wpt_close(struct fyai_workpane_manager *wm)
 {
 	fyai_workpane_destroy(wm);
-	wpt_ctx.front->workpane = NULL;
+	wpt_ctx.screen->workpane = NULL;
 }
 
 /* A shell that fills the pane and a sub-agent that keeps its own height. */

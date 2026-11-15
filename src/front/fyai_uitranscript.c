@@ -25,14 +25,14 @@ struct fyai_uitranscript {
 
 static struct fyai_uitranscript *uitranscript(struct fyai_ctx *ctx)
 {
-	if (!ctx || ctx->front->uimodel_detached)
+	if (!ctx || ctx->uistores->uimodel_detached)
 		return NULL;
-	if (!ctx->front->uitranscript) {
-		ctx->front->uitranscript = calloc(1, sizeof(*ctx->front->uitranscript));
-		fyai_error_check(ctx, ctx->front->uitranscript, err,
+	if (!ctx->uistores->uitranscript) {
+		ctx->uistores->uitranscript = calloc(1, sizeof(*ctx->uistores->uitranscript));
+		fyai_error_check(ctx, ctx->uistores->uitranscript, err,
 				 "cannot keep the live document of the display");
 	}
-	return ctx->front->uitranscript;
+	return ctx->uistores->uitranscript;
 err:
 	return NULL;
 }
@@ -40,7 +40,7 @@ err:
 /* Write the member "live" of the transcript store. */
 static void uitranscript_publish(struct fyai_ctx *ctx)
 {
-	struct fyai_uitranscript *t = ctx->front->uitranscript;
+	struct fyai_uitranscript *t = ctx->uistores->uitranscript;
 	struct fy_generic_builder *gb = fyai_uimodel_begin(ctx);
 	fy_generic recorded;
 
@@ -93,7 +93,7 @@ err:
 void fyai_uitranscript_append(struct fyai_ctx *ctx, const char *text,
 			      size_t len, bool present)
 {
-	struct fyai_uitranscript *t = ctx ? ctx->front->uitranscript : NULL;
+	struct fyai_uitranscript *t = ctx ? ctx->uistores->uitranscript : NULL;
 	fy_generic recorded;
 
 	if (!t || !t->source || !len)
@@ -121,7 +121,7 @@ void fyai_uitranscript_append(struct fyai_ctx *ctx, const char *text,
 
 void fyai_uitranscript_pause(struct fyai_ctx *ctx, bool paused)
 {
-	struct fyai_uitranscript *t = ctx ? ctx->front->uitranscript : NULL;
+	struct fyai_uitranscript *t = ctx ? ctx->uistores->uitranscript : NULL;
 
 	if (!t || !t->source || t->paused == paused)
 		return;
@@ -131,7 +131,7 @@ void fyai_uitranscript_pause(struct fyai_ctx *ctx, bool paused)
 
 void fyai_uitranscript_fragment(struct fyai_ctx *ctx, fy_generic fragment)
 {
-	struct fyai_uitranscript *t = ctx ? ctx->front->uitranscript : NULL;
+	struct fyai_uitranscript *t = ctx ? ctx->uistores->uitranscript : NULL;
 	fy_generic fragments;
 
 	if (!t || !t->source)
@@ -147,7 +147,7 @@ void fyai_uitranscript_fragment(struct fyai_ctx *ctx, fy_generic fragment)
 
 void fyai_uitranscript_end(struct fyai_ctx *ctx, const char *state)
 {
-	struct fyai_uitranscript *t = ctx ? ctx->front->uitranscript : NULL;
+	struct fyai_uitranscript *t = ctx ? ctx->uistores->uitranscript : NULL;
 	struct fy_generic_builder *gb;
 
 	if (!t || !t->source)
@@ -164,7 +164,7 @@ void fyai_uitranscript_end(struct fyai_ctx *ctx, const char *state)
 
 void fyai_uitranscript_release(struct fyai_ctx *ctx)
 {
-	struct fyai_uitranscript *t = ctx ? ctx->front->uitranscript : NULL;
+	struct fyai_uitranscript *t = ctx ? ctx->uistores->uitranscript : NULL;
 
 	if (!t)
 		return;
@@ -172,5 +172,5 @@ void fyai_uitranscript_release(struct fyai_ctx *ctx)
 		fyai_uimodel_text_close(ctx, t->source);
 	fy_generic_builder_destroy(t->gb);
 	free(t);
-	ctx->front->uitranscript = NULL;
+	ctx->uistores->uitranscript = NULL;
 }

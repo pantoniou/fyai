@@ -55,14 +55,14 @@ struct fyai_uidraw {
 
 static struct fyai_uidraw *uidraw(struct fyai_ctx *ctx)
 {
-	if (!ctx || ctx->front->uimodel_detached)
+	if (!ctx || ctx->uistores->uimodel_detached)
 		return NULL;
-	if (!ctx->front->uidraw) {
-		ctx->front->uidraw = calloc(1, sizeof(*ctx->front->uidraw));
-		fyai_error_check(ctx, ctx->front->uidraw, err,
+	if (!ctx->uistores->uidraw) {
+		ctx->uistores->uidraw = calloc(1, sizeof(*ctx->uistores->uidraw));
+		fyai_error_check(ctx, ctx->uistores->uidraw, err,
 				 "cannot keep the renderer of the UI model");
 	}
-	return ctx->front->uidraw;
+	return ctx->uistores->uidraw;
 err:
 	return NULL;
 }
@@ -113,13 +113,13 @@ static void uidraw_live_feed(struct fyai_ctx *ctx, struct fyai_uidraw *d,
 		if (end <= from || start >= len)
 			continue;
 		if (start > from && !rc) {
-			rc = fyai_sink_doc_append(ctx->front->sink, text + from,
+			rc = fyai_sink_doc_append(ctx->out->sink, text + from,
 						  start - from);
 		}
 		from = end < len ? end : len;
 	}
 	if (from < len && !rc) {
-		rc = fyai_sink_doc_append(ctx->front->sink, text + from, len - from);
+		rc = fyai_sink_doc_append(ctx->out->sink, text + from, len - from);
 	}
 	d->live_shown = len;
 	uidraw_warn_check(ctx, !rc, "the live document");
@@ -134,9 +134,9 @@ static void uidraw_live_end(struct fyai_ctx *ctx, struct fyai_uidraw *d,
 	int rc = 0;
 
 	if (!strcmp(state, "discarded"))
-		fyai_sink_doc_discard(ctx->front->sink);
+		fyai_sink_doc_discard(ctx->out->sink);
 	else
-		rc = fyai_sink_doc_end(ctx->front->sink, !strcmp(state, "aborted"));
+		rc = fyai_sink_doc_end(ctx->out->sink, !strcmp(state, "aborted"));
 	uidraw_warn_check(ctx, !rc, "the end of the live document");
 	/* A mirror draws a card whole when its document ends: the line was
 	 * typed in the process that owns the model. */
@@ -181,7 +181,7 @@ static void uidraw_transcript(struct fyai_ctx *ctx, struct fyai_uidraw *d,
 		d->live_paused = false;
 		snprintf(d->live_tag, sizeof(d->live_tag), "%s",
 			 fy_get(live, "tag", "assistant"));
-		rc = fyai_sink_doc_begin(ctx->front->sink,
+		rc = fyai_sink_doc_begin(ctx->out->sink,
 					 uidraw_doc_kind(d->live_tag));
 		uidraw_warn_check(ctx, !rc, "the live document");
 	}
@@ -189,8 +189,8 @@ static void uidraw_transcript(struct fyai_ctx *ctx, struct fyai_uidraw *d,
 	if (paused == d->live_paused)
 		return;
 	d->live_paused = paused;
-	rc = paused ? fyai_sink_doc_pause(ctx->front->sink) :
-		      fyai_sink_doc_resume(ctx->front->sink);
+	rc = paused ? fyai_sink_doc_pause(ctx->out->sink) :
+		      fyai_sink_doc_resume(ctx->out->sink);
 	uidraw_warn_check(ctx, !rc, "the live document");
 }
 
@@ -216,7 +216,7 @@ static int uidraw_log_part(struct fyai_ctx *ctx, fy_generic part)
 		fyai_diag_format_item(fp, fy_get(part, "item", fy_invalid),
 				      fyai_diag_source(fyai_ctx_diag(ctx)), false);
 		rc = fclose(fp);
-		rc = rc ? -1 : fyai_sink_write(ctx->front->sink, FYAI_SINK_NOTICE,
+		rc = rc ? -1 : fyai_sink_write(ctx->out->sink, FYAI_SINK_NOTICE,
 					       item, len);
 		free(item);
 		return rc;
@@ -225,12 +225,12 @@ static int uidraw_log_part(struct fyai_ctx *ctx, fy_generic part)
 	if (fy_is_invalid(text)) {
 		text = fy_get(part, "text", fy_invalid);
 		str = fy_castp(&text, "");
-		return fyai_sink_write(ctx->front->sink, stream, str, strlen(str));
+		return fyai_sink_write(ctx->out->sink, stream, str, strlen(str));
 	}
 	str = fy_castp(&text, "");
 	if (fy_get(part, "source", false))
-		return fyai_sink_markdown_source(ctx->front->sink, stream, str);
-	return fyai_sink_markdown(ctx->front->sink, stream, str);
+		return fyai_sink_markdown_source(ctx->out->sink, stream, str);
+	return fyai_sink_markdown(ctx->out->sink, stream, str);
 err:
 	return -1;
 }
@@ -275,7 +275,7 @@ static void uidraw_log(struct fyai_ctx *ctx, struct fyai_uidraw *d,
 
 bool fyai_uidraw_bands(struct fyai_ctx *ctx)
 {
-	return ctx && !ctx->front->uimodel_detached && fyai_ui_active(ctx) &&
+	return ctx && !ctx->uistores->uimodel_detached && fyai_ui_active(ctx) &&
 	       !fyai_uimodel_mirrored(ctx);
 }
 
@@ -284,17 +284,17 @@ static bool uidraw_sink_begin(struct fyai_ctx *ctx)
 {
 	bool saved;
 
-	if (!ctx->front->sink)
+	if (!ctx->out->sink)
 		return false;
-	saved = ctx->front->sink->drawing;
-	ctx->front->sink->drawing = true;
+	saved = ctx->out->sink->drawing;
+	ctx->out->sink->drawing = true;
 	return saved;
 }
 
 static void uidraw_sink_end(struct fyai_ctx *ctx, bool saved)
 {
-	if (ctx->front->sink)
-		ctx->front->sink->drawing = saved;
+	if (ctx->out->sink)
+		ctx->out->sink->drawing = saved;
 }
 
 static void uidraw_band_free(struct uidraw_band *b)
@@ -415,7 +415,7 @@ static void uidraw_band_end(struct fyai_ctx *ctx, struct uidraw_band *b,
 
 	fyai_fenced_stream_finish(&b->stream);
 	if (!strcmp(state, "closed"))
-		fyai_sink_band_close(ctx->front->sink, fy_get(item, "ok", true),
+		fyai_sink_band_close(ctx->out->sink, fy_get(item, "ok", true),
 				     fy_get(item, "cause", (const char *)NULL));
 	else if (!strcmp(state, "committed"))
 		fyai_sink_band_commit(b->band);
@@ -503,7 +503,7 @@ static int uidraw_bands_draw(struct fyai_ctx *ctx, struct fyai_uidraw *d,
 			b->shared = fy_get(item, "shared", false);
 			b->title = *title ? strdup(title) : NULL;
 			b->command = *command ? strdup(command) : NULL;
-			b->band = fyai_sink_band_open(ctx->front->sink, b->shared,
+			b->band = fyai_sink_band_open(ctx->out->sink, b->shared,
 						      b->title, b->command);
 			if (!b->band) {
 				uidraw_band_free(b);
@@ -565,7 +565,7 @@ static void uidraw_work(struct fyai_ctx *ctx, struct fyai_uidraw *d,
 int fyai_uidraw_band_cols(struct fyai_ctx *ctx,
 			  const struct fyai_sink_band *shadow)
 {
-	struct fyai_uidraw *d = ctx ? ctx->front->uidraw : NULL;
+	struct fyai_uidraw *d = ctx ? ctx->uistores->uidraw : NULL;
 	long long id = fyai_uiwork_band_id(ctx, shadow);
 	struct uidraw_band *b;
 
@@ -577,7 +577,7 @@ int fyai_uidraw_band_cols(struct fyai_ctx *ctx,
 
 void fyai_uidraw_bands_release(struct fyai_ctx *ctx)
 {
-	struct fyai_uidraw *d = ctx ? ctx->front->uidraw : NULL;
+	struct fyai_uidraw *d = ctx ? ctx->uistores->uidraw : NULL;
 	struct uidraw_band *b;
 	bool saved;
 
@@ -599,7 +599,7 @@ void fyai_uidraw_store(struct fyai_ctx *ctx, enum fyai_ui_store store,
 {
 	struct fyai_uidraw *d = uidraw(ctx);
 
-	if (!d || ctx->front->uidraw_off)
+	if (!d || ctx->uistores->uidraw_off)
 		return;
 	switch (store) {
 	case FYAI_UI_TRANSCRIPT:
@@ -645,7 +645,7 @@ err:
 
 void fyai_uidraw_finish(struct fyai_ctx *ctx)
 {
-	struct fyai_uidraw *d = ctx ? ctx->front->uidraw : NULL;
+	struct fyai_uidraw *d = ctx ? ctx->uistores->uidraw : NULL;
 
 	if (d && d->live_source)
 		uidraw_live_end(ctx, d, "aborted");
@@ -654,7 +654,7 @@ void fyai_uidraw_finish(struct fyai_ctx *ctx)
 
 void fyai_uidraw_release(struct fyai_ctx *ctx)
 {
-	struct fyai_uidraw *d = ctx ? ctx->front->uidraw : NULL;
+	struct fyai_uidraw *d = ctx ? ctx->uistores->uidraw : NULL;
 
 	if (!d)
 		return;
@@ -664,12 +664,12 @@ void fyai_uidraw_release(struct fyai_ctx *ctx)
 	free(d->echoed);
 	free(d->card.data);
 	free(d);
-	ctx->front->uidraw = NULL;
+	ctx->uistores->uidraw = NULL;
 }
 
 void fyai_uidraw_abandon(struct fyai_ctx *ctx)
 {
-	struct fyai_uidraw *d = ctx ? ctx->front->uidraw : NULL;
+	struct fyai_uidraw *d = ctx ? ctx->uistores->uidraw : NULL;
 	struct uidraw_band *b;
 
 	/* The bands are the display of the parent: forget them. */

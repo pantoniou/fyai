@@ -268,15 +268,37 @@ static inline struct fyai_agent_state *fyai_test_astate_of(struct fyai_ctx *ctx)
 	return ctx->astate;
 }
 
-static inline struct fyai_front *fyai_test_front_of(struct fyai_ctx *ctx)
+static inline struct fyai_out *fyai_test_out_of(struct fyai_ctx *ctx)
 {
-	if (!ctx->front) {
-		ctx->front = calloc(1, sizeof(*ctx->front));
-		if (!ctx->front)
+	if (!ctx->out) {
+		ctx->out = calloc(1, sizeof(*ctx->out));
+		if (!ctx->out)
 			return NULL;
-		fyai_front_init(ctx->front, ctx->loop, fyai_cfg_diag(ctx->cfg));
+		fyai_out_init(ctx->out, ctx->loop, fyai_cfg_diag(ctx->cfg));
 	}
-	return ctx->front;
+	return ctx->out;
+}
+
+static inline struct fyai_uistores *fyai_test_uistores_of(struct fyai_ctx *ctx)
+{
+	if (!ctx->uistores) {
+		ctx->uistores = calloc(1, sizeof(*ctx->uistores));
+		if (!ctx->uistores)
+			return NULL;
+		fyai_uistores_init(ctx->uistores, ctx->loop, fyai_cfg_diag(ctx->cfg));
+	}
+	return ctx->uistores;
+}
+
+static inline struct fyai_screen *fyai_test_screen_of(struct fyai_ctx *ctx)
+{
+	if (!ctx->screen) {
+		ctx->screen = calloc(1, sizeof(*ctx->screen));
+		if (!ctx->screen)
+			return NULL;
+		fyai_screen_init(ctx->screen, ctx->loop, fyai_cfg_diag(ctx->cfg));
+	}
+	return ctx->screen;
 }
 
 /*
@@ -298,7 +320,9 @@ static inline void fyai_test_attach(struct fyai_ctx *ctx)
 	fyai_test_turn_of(ctx);
 	fyai_test_jobs_of(ctx);
 	fyai_test_astate_of(ctx);
-	fyai_test_front_of(ctx);
+	fyai_test_out_of(ctx);
+	fyai_test_uistores_of(ctx);
+	fyai_test_screen_of(ctx);
 }
 
 #endif

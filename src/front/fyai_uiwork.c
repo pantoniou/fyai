@@ -54,14 +54,14 @@ struct fyai_uiwork {
 
 static struct fyai_uiwork *uiwork(struct fyai_ctx *ctx)
 {
-	if (!ctx || ctx->front->uimodel_detached)
+	if (!ctx || ctx->uistores->uimodel_detached)
 		return NULL;
-	if (!ctx->front->uiwork) {
-		ctx->front->uiwork = calloc(1, sizeof(*ctx->front->uiwork));
-		fyai_error_check(ctx, ctx->front->uiwork, err,
+	if (!ctx->uistores->uiwork) {
+		ctx->uistores->uiwork = calloc(1, sizeof(*ctx->uistores->uiwork));
+		fyai_error_check(ctx, ctx->uistores->uiwork, err,
 				 "cannot keep the bands of the display");
 	}
-	return ctx->front->uiwork;
+	return ctx->uistores->uiwork;
 err:
 	return NULL;
 }
@@ -111,7 +111,7 @@ static void uiwork_free(struct fyai_ctx *ctx, struct uiwork_band *b)
 static void uiwork_publish(struct fyai_ctx *ctx)
 {
 	struct fy_generic_builder *gb = fyai_uimodel_begin(ctx);
-	struct fyai_uiwork *w = ctx->front->uiwork;
+	struct fyai_uiwork *w = ctx->uistores->uiwork;
 	struct uiwork_band *b;
 	fy_generic bands = fy_seq_empty, item;
 	size_t len;
@@ -195,7 +195,7 @@ void fyai_uiwork_band_paint(struct fyai_ctx *ctx, struct fyai_sink_band *band,
 			    const char *title, const char *command,
 			    const char *body, size_t len)
 {
-	struct fyai_uiwork *w = ctx ? ctx->front->uiwork : NULL;
+	struct fyai_uiwork *w = ctx ? ctx->uistores->uiwork : NULL;
 	struct uiwork_band **bp, *b;
 
 	if (!w || !band || !(bp = uiwork_find(w, band)))
@@ -217,7 +217,7 @@ void fyai_uiwork_band_source(struct fyai_ctx *ctx, struct fyai_sink_band *band,
 			     const char *language, size_t lines, bool indent,
 			     const char *data, size_t len)
 {
-	struct fyai_uiwork *w = ctx ? ctx->front->uiwork : NULL;
+	struct fyai_uiwork *w = ctx ? ctx->uistores->uiwork : NULL;
 	struct uiwork_band **bp, *b;
 
 	if (!w || !band || !(bp = uiwork_find(w, band)))
@@ -249,7 +249,7 @@ void fyai_uiwork_band_source(struct fyai_ctx *ctx, struct fyai_sink_band *band,
 void fyai_uiwork_band_view(struct fyai_ctx *ctx, struct fyai_sink_band *band,
 			   fy_generic view)
 {
-	struct fyai_uiwork *w = ctx ? ctx->front->uiwork : NULL;
+	struct fyai_uiwork *w = ctx ? ctx->uistores->uiwork : NULL;
 	struct uiwork_band **bp, *b;
 	struct fy_generic_builder *gb;
 
@@ -274,7 +274,7 @@ err:
 void fyai_uiwork_band_end(struct fyai_ctx *ctx, struct fyai_sink_band *band,
 			  enum fyai_uiwork_end end, bool ok, const char *cause)
 {
-	struct fyai_uiwork *w = ctx ? ctx->front->uiwork : NULL;
+	struct fyai_uiwork *w = ctx ? ctx->uistores->uiwork : NULL;
 	struct uiwork_band **bp, *b;
 
 	if (!w || !(bp = uiwork_find(w, band)))
@@ -295,7 +295,7 @@ void fyai_uiwork_band_end(struct fyai_ctx *ctx, struct fyai_sink_band *band,
 long long fyai_uiwork_band_id(struct fyai_ctx *ctx,
 			      const struct fyai_sink_band *band)
 {
-	struct fyai_uiwork *w = ctx ? ctx->front->uiwork : NULL;
+	struct fyai_uiwork *w = ctx ? ctx->uistores->uiwork : NULL;
 	struct uiwork_band *b;
 
 	for (b = w ? w->bands : NULL; b; b = b->next)
@@ -306,7 +306,7 @@ long long fyai_uiwork_band_id(struct fyai_ctx *ctx,
 
 void fyai_uiwork_release(struct fyai_ctx *ctx)
 {
-	struct fyai_uiwork *w = ctx ? ctx->front->uiwork : NULL;
+	struct fyai_uiwork *w = ctx ? ctx->uistores->uiwork : NULL;
 	struct uiwork_band *b;
 
 	if (!w)
@@ -316,5 +316,5 @@ void fyai_uiwork_release(struct fyai_ctx *ctx)
 		uiwork_free(ctx, b);
 	}
 	free(w);
-	ctx->front->uiwork = NULL;
+	ctx->uistores->uiwork = NULL;
 }

@@ -111,12 +111,28 @@ void fyai_agent_state_init(struct fyai_agent_state *as,
 	as->spawn = fy_invalid;
 }
 
-void fyai_front_init(struct fyai_front *front, struct fyai_loop *loop,
-		     struct fyai_diag *diag)
+void fyai_out_init(struct fyai_out *out, struct fyai_loop *loop,
+		   struct fyai_diag *diag)
 {
-	memset(front, 0, sizeof(*front));
-	front->loop = loop;
-	front->diag = diag;
+	memset(out, 0, sizeof(*out));
+	out->loop = loop;
+	out->diag = diag;
+}
+
+void fyai_uistores_init(struct fyai_uistores *stores, struct fyai_loop *loop,
+			struct fyai_diag *diag)
+{
+	memset(stores, 0, sizeof(*stores));
+	stores->loop = loop;
+	stores->diag = diag;
+}
+
+void fyai_screen_init(struct fyai_screen *screen, struct fyai_loop *loop,
+		      struct fyai_diag *diag)
+{
+	memset(screen, 0, sizeof(*screen));
+	screen->loop = loop;
+	screen->diag = diag;
 }
 
 int fyai_app_init(struct fyai_app *app)
@@ -145,7 +161,9 @@ int fyai_app_init(struct fyai_app *app)
 	fyai_turnstate_init(&app->turn, &app->diag);
 	fyai_jobs_init(&app->jobs, &app->loop, &app->diag);
 	fyai_agent_state_init(&app->astate, &app->bstate, &app->diag);
-	fyai_front_init(&app->front, &app->loop, &app->diag);
+	fyai_out_init(&app->out, &app->loop, &app->diag);
+	fyai_uistores_init(&app->uistores, &app->loop, &app->diag);
+	fyai_screen_init(&app->screen, &app->loop, &app->diag);
 	fyai_link_init(&app->link, &app->loop, &app->cred, &app->diag);
 	fyai_arena_init(&app->arena);
 	fyai_transient_init(&app->transient);
@@ -266,12 +284,22 @@ void fyai_jobs_abandon(struct fyai_jobs *jobs)
 	jobs->stream = NULL;
 }
 
-void fyai_front_abandon(struct fyai_front *front)
+void fyai_out_abandon(struct fyai_out *out)
 {
-	front->ui = NULL;
-	front->workpane = NULL;
-	front->browser = NULL;
-	front->cmd_call = NULL;
-	front->catalog_update = NULL;
-	front->config_edit = NULL;
+	(void)out;	/* the sink and the document are released with the objects */
+}
+
+void fyai_uistores_abandon(struct fyai_uistores *stores)
+{
+	(void)stores;	/* the stores and the renderers are released with the objects */
+}
+
+void fyai_screen_abandon(struct fyai_screen *screen)
+{
+	screen->ui = NULL;
+	screen->workpane = NULL;
+	screen->browser = NULL;
+	screen->cmd_call = NULL;
+	screen->catalog_update = NULL;
+	screen->config_edit = NULL;
 }

@@ -201,7 +201,7 @@ owns it.
   credential refresh, the model connection, the transport client, the MCP
   client, the waits, the questions, the tool scope, the terminal, the skill
   files, the tool specification, the branch cursor, the usage totals, the turn
-  state, the tool jobs, the sub-agent identity, the front end and the
+  state, the tool jobs, the sub-agent identity, the output, the UI model, the screen and the
   configuration. The context of the invocation is a member of the app
   (`app->ctx`).
 - A component finds its context through an accessor, not through a field that
@@ -244,10 +244,15 @@ owns it.
   terminal sessions, monitors, background runs) and `struct fyai_agent_state`
   (the registry and the identity of a sub-agent). `ctx->jobs` and `ctx->astate`
   point at the ones in the app.
-- `src/front/fyai_front.h`: `struct fyai_front`, everything that presents the run and
-  takes input: the sink, the UI, the UI model, the transcript document, the work
-  pane, the browser and the command in flight. `ctx->front` points at the one in
-  the app.
+- `src/front/fyai_out.h`, `fyai_uistores.h`, `fyai_screen.h`: the display in
+  three components. `struct fyai_out` holds the sink and the open transcript
+  document, which is all that the engine says to the user. `struct fyai_uistores`
+  holds the UI model and its stores, the bands, the live document, the span of a
+  command and the renderer. `struct fyai_screen` holds the terminal UI, the work
+  pane, the browser, the command in flight and the editor and catalogue update
+  requests. `ctx->out`, `ctx->uistores` and `ctx->screen` point at the ones in the
+  app. Only `out` is for the engine to use; the other two are the part that the
+  TUI split moves.
 - `src/auth/fyai_cred.c`: `struct fyai_cred`, the shared refresh of the login and
   the secrets in memory. `ctx->cred` points at the one in the app; it stands
   on the loop of the app for its timer.

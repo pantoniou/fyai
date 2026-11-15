@@ -413,7 +413,7 @@ int auth_recorded_usage(void)
 	struct fy_generic_builder *gb = fy_generic_builder_create(&gbcfg);
 	struct fyai_branch_state bstate = {};
 	struct fyai_turnstate turn = { .last_message = fy_invalid };
-	struct fyai_ctx ctx = { .turn = &turn, .bstate = &bstate, .front = &(struct fyai_front){} };
+	struct fyai_ctx ctx = { .turn = &turn, .bstate = &bstate, .out = &(struct fyai_out){}, .uistores = &(struct fyai_uistores){}, .screen = &(struct fyai_screen){} };
 	fy_generic result, usage, meta, prev;
 
 	FYAI_TCHECK(gb != NULL);
@@ -445,14 +445,16 @@ static void manual_input_record(struct fyai_cmd_call *call, const char *line)
 
 int auth_manual_input(void)
 {
-	struct fyai_front front = {};
-	struct fyai_ctx ctx = { .front = &front };
+	struct fyai_out fout = {};
+	struct fyai_uistores uistores = {};
+	struct fyai_screen screen = {};
+	struct fyai_ctx ctx = { .out = &fout, .uistores = &uistores, .screen = &screen };
 	struct fyai_cmd_call call = { .input = manual_input_record };
 	int inputs = 0;
 
 	call.priv = &inputs;
 	FYAI_TCHECK(!fyai_cmd_session_input(&ctx, "sensitive-callback"));
-	ctx.front->cmd_call = &call;
+	ctx.screen->cmd_call = &call;
 	FYAI_TCHECK(fyai_cmd_session_input(&ctx, "sensitive-callback"));
 	FYAI_TCHECK(inputs == 1);
 	call.done = true;

@@ -3,7 +3,7 @@
 Status: the components exist and `struct fyai_ctx` is a set of pointers to
 them. `struct fyai_app` holds `diag`, `loop`, `arena`, `transient`, `cred`,
 `link`, `transport`, `mcp`, `waitq`, `askq`, `scope`, `tty`, `skills`,
-`toolspec`, `bstate`, `usage`, `turn`, `jobs`, `astate`, `front` and `cfg`, and
+`toolspec`, `bstate`, `usage`, `turn`, `jobs`, `astate`, `out`, `uistores`, `screen` and `cfg`, and
 embeds the context. The context holds the configuration, one pointer for each
 component, and three values that no component owns (`tools`, `acp_rpc`,
 `acp_agent_message_id`). `fyai_ctx_fork_disown()` calls the `abandon()` of each
@@ -14,8 +14,7 @@ and the credential sources, and the MCP client take their component. The
 functions that remain on `ctx` compose several components (the model transfer,
 the tools and their jobs, the branch and storage layer, the sub-agents, the
 turn and the display); `ctx` is the bundle of dependency pointers that rule 2
-allows for them, and the split of `front` into the sink, the UI model and the
-UI, with the TUI split, is what removes it from the display code. The
+allows for them, and the TUI split is what removes it from the display code. The
 counts in the tables come from a script over `src/*/*.c` that counts
 `ctx->FIELD` per file, as the design was made; check a row against the code
 before a change. The order of the work is near the end.
@@ -332,13 +331,18 @@ Each step builds, passes both suites, and lands as its own patch series
    (`ctx->astate`) holds the registry of the sub-agents, the execution and
    parent numbers and the spawn state. Their reads of the display fields stay
    direct until the display components of step 9 exist.
-9. `sink`, `uimodel`, `ui`: grouped as `struct fyai_front` (`ctx->front`): the
-   sink, the UI, the model that renderers read and its stores, the open
-   transcript document, the work pane, the browser, the command in flight and
-   the requests of the editor and the catalogue update. A view context copies
-   it and clears the UI. The members are still the objects that they were;
-   splitting them into three components, and into the second context of the
-   TUI split, is the next change.
+9. `sink`, `uimodel`, `ui`: done as three components. `struct fyai_out`
+   (`ctx->out`) holds the sink and the open transcript document: it is what the
+   engine says to the user, and about 80 of the 208 reads of the sink are outside
+   `src/front/`. `struct fyai_uistores` (`ctx->uistores`) holds the UI model,
+   the bands, the live document, the span of a command and the renderer, which
+   only `src/front/` reads. `struct fyai_screen` (`ctx->screen`) holds the
+   terminal UI, the work pane, the browser, the command in flight and the
+   editor and catalogue update requests; the engine reads the work pane in the
+   tools and the requests in the commands and the remote code. A view context
+   copies all three and clears the UI and the model. The TUI split cuts at
+   these three: the engine keeps `out`, and the other two move to the thread
+   of the display.
 
 After step 8 `struct fyai_ctx` is the composition root of rule 4, the list of
 `fyai_ctx_fork_disown()` is a loop over `abandon()`, and the reset functions

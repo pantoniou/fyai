@@ -85,7 +85,7 @@ static void fyai_tile_owner(struct fyai_ctx *ctx, struct fytim_surface *sf,
 
 	*sessp = NULL;
 	*jobp = NULL;
-	owner = fyai_workpane_tile_owner(ctx ? ctx->front->workpane : NULL, sf, &kind);
+	owner = fyai_workpane_tile_owner(ctx ? ctx->screen->workpane : NULL, sf, &kind);
 	if (!owner)
 		return;
 	if (kind == FYAI_WORKPANE_TILE_SHELL)
@@ -154,15 +154,15 @@ static void fyai_tools_zoom_keys(void *user, const char *data, size_t len)
 
 	if (fyai_agents_keys(ctx, data, len))
 		return;
-	if (fyai_browser_surface(ctx, fyai_workpane_focused(ctx->front->workpane))) {
+	if (fyai_browser_surface(ctx, fyai_workpane_focused(ctx->screen->workpane))) {
 		(void)fyai_browser_keys(ctx, data, len);
 		return;
 	}
 	/* A tile of a remote session: its program is in the worker. */
-	if (fyai_uimodel_keys(ctx, fyai_workpane_focused(ctx->front->workpane), data,
+	if (fyai_uimodel_keys(ctx, fyai_workpane_focused(ctx->screen->workpane), data,
 			      len))
 		return;
-	fyai_tile_owner(ctx, fyai_workpane_focused(ctx->front->workpane), &sess,
+	fyai_tile_owner(ctx, fyai_workpane_focused(ctx->screen->workpane), &sess,
 			&job);
 	if (!sess && !job) {
 		/* Return focus after the program exits. */
@@ -343,9 +343,9 @@ bool fyai_tools_focus(struct fyai_ctx *ctx, struct fytim_surface *sf)
 {
 	if (!ctx || !sf)
 		return false;
-	fyai_workpane_set_keys_router(ctx->front->workpane, fyai_tools_zoom_keys, ctx);
-	fyai_workpane_set_focus(ctx->front->workpane, sf);
-	return fyai_workpane_focused(ctx->front->workpane) == sf;
+	fyai_workpane_set_keys_router(ctx->screen->workpane, fyai_tools_zoom_keys, ctx);
+	fyai_workpane_set_focus(ctx->screen->workpane, sf);
+	return fyai_workpane_focused(ctx->screen->workpane) == sf;
 }
 
 /* Give the named live tile keyboard focus and the full work pane. */
@@ -411,8 +411,8 @@ void fyai_tools_unzoom(struct fyai_ctx *ctx)
 	if (!ctx)
 		return;
 	fyai_agents_detach(ctx);
-	fyai_workpane_clear_focus(ctx->front->workpane);
-	fyai_workpane_clear_zoom(ctx->front->workpane);
+	fyai_workpane_clear_focus(ctx->screen->workpane);
+	fyai_workpane_clear_zoom(ctx->screen->workpane);
 }
 
 void fyai_tools_config_changed(struct fyai_ctx *ctx)
@@ -445,13 +445,13 @@ bool fyai_tools_focus_tile(struct fyai_ctx *ctx, struct fytim_surface *sf)
 	if (!ctx || !sf)
 		return false;
 	/* Only visible tiles may receive keyboard focus. */
-	n = fyai_workpane_screen_order(ctx->front->workpane, tiles,
+	n = fyai_workpane_screen_order(ctx->screen->workpane, tiles,
 				       FYAI_WORKPANE_TILES_MAX);
 	for (i = 0; i < n && tiles[i] != sf; i++)
 		;
 	if (i == n)
 		return false;
-	if (fyai_workpane_focused(ctx->front->workpane) == sf)
+	if (fyai_workpane_focused(ctx->screen->workpane) == sf)
 		return true;
 	return fyai_tools_focus(ctx, sf);
 }
@@ -460,7 +460,7 @@ void fyai_tools_focus_prompt(struct fyai_ctx *ctx)
 {
 	/* Preserve zoom and attachment state while returning focus. */
 	if (ctx)
-		fyai_workpane_clear_focus(ctx->front->workpane);
+		fyai_workpane_clear_focus(ctx->screen->workpane);
 }
 
 /* What Ctrl-T can give the keys to: a block of the transcript or a tile,
@@ -523,7 +523,7 @@ static int fyai_focus_targets(struct fyai_ctx *ctx,
 			out[i].col = 0;
 		}
 	}
-	ntiles = fyai_workpane_screen_order(ctx->front->workpane, tiles,
+	ntiles = fyai_workpane_screen_order(ctx->screen->workpane, tiles,
 					    FYAI_WORKPANE_TILES_MAX);
 	for (i = 0; i < ntiles && n < max; i++, n++) {
 		out[n].key = 0;
@@ -622,7 +622,7 @@ void fyai_tools_keys_to_prompt(struct fyai_ctx *ctx)
 {
 	if (fyai_ui_inline_focused(ctx))
 		(void)fyai_inline_focus(ctx, 0);
-	else if (fyai_agents_surface(ctx, fyai_workpane_focused(ctx->front->workpane)))
+	else if (fyai_agents_surface(ctx, fyai_workpane_focused(ctx->screen->workpane)))
 		fyai_agents_detach(ctx);
 	else
 		fyai_tools_unzoom(ctx);
@@ -642,11 +642,11 @@ bool fyai_tools_focus_next(struct fyai_ctx *ctx)
 
 	if (!ctx)
 		return false;
-	fyai_workpane_set_keys_router(ctx->front->workpane, fyai_tools_zoom_keys, ctx);
-	if (fyai_workpane_zoomed(ctx->front->workpane))
-		return fyai_workpane_focus_next(ctx->front->workpane);
+	fyai_workpane_set_keys_router(ctx->screen->workpane, fyai_tools_zoom_keys, ctx);
+	if (fyai_workpane_zoomed(ctx->screen->workpane))
+		return fyai_workpane_focus_next(ctx->screen->workpane);
 	cur = fyai_ui_inline_focused(ctx);
-	focused = fyai_workpane_focused(ctx->front->workpane);
+	focused = fyai_workpane_focused(ctx->screen->workpane);
 	n = fyai_focus_targets(ctx, targets, 2 * FYAI_WORKPANE_TILES_MAX);
 	for (i = 0; i < n; i++)
 		if ((cur && targets[i].key == cur) ||
@@ -658,7 +658,7 @@ bool fyai_tools_focus_next(struct fyai_ctx *ctx)
 		if (!cur && !focused)
 			return false;
 		(void)fyai_inline_focus(ctx, 0);
-		fyai_workpane_clear_focus(ctx->front->workpane);
+		fyai_workpane_clear_focus(ctx->screen->workpane);
 		return true;
 	}
 	if (targets[i].key)

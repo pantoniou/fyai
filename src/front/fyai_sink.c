@@ -1012,7 +1012,7 @@ static const struct fyai_workpane_tile_ops sink_term_band_ops = {
 /* The renderer of the UI model draws the bands of the producers. */
 static bool sink_term_shadowing(const struct fyai_sink *s)
 {
-	return !s->drawing && s == fyai_sink_ctx(s)->front->sink && fyai_uidraw_bands(fyai_sink_ctx(s));
+	return !s->drawing && s == fyai_sink_ctx(s)->out->sink && fyai_uidraw_bands(fyai_sink_ctx(s));
 }
 
 /* A process with no display has bands when a client reads its model. */
@@ -1075,7 +1075,7 @@ static struct fyai_sink_band *sink_term_band_open(struct fyai_sink *s,
 		return NULL;
 	}
 	b->kind = SINK_BAND_TILE;
-	fyai_workpane_band_set_ops(fyai_sink_ctx(s)->front->workpane, b->wb,
+	fyai_workpane_band_set_ops(fyai_sink_ctx(s)->screen->workpane, b->wb,
 				   &sink_term_band_ops, b);
 	return b;
 }
@@ -1182,7 +1182,7 @@ static void sink_term_band_repaint(void *owner)
 
 static void sink_term_band_free(struct fyai_sink_band *b)
 {
-	struct sink_term *t = sink_term_state(fyai_sink_band_ctx(b)->front->sink);
+	struct sink_term *t = sink_term_state(fyai_sink_band_ctx(b)->out->sink);
 	struct fyai_sink_band **pp;
 
 	for (pp = t ? &t->inline_bands : NULL;
@@ -1654,7 +1654,7 @@ void fyai_sink_destroy(struct fyai_sink *s)
 	if (!s)
 		return;
 	/* The bands of the display go with the sink that holds them. */
-	if (fyai_sink_ctx(s) && s == fyai_sink_ctx(s)->front->sink) {
+	if (fyai_sink_ctx(s) && s == fyai_sink_ctx(s)->out->sink) {
 		fyai_uidraw_bands_release(fyai_sink_ctx(s));
 		fyai_uiwork_release(fyai_sink_ctx(s));
 	}
@@ -1738,12 +1738,12 @@ struct fyai_sink_band *fyai_sink_band_open(struct fyai_sink *s, bool shared,
 		return NULL;
 	/* The band of a producer is a shadow while the renderer of the UI
 	 * model draws the bands from the work store. */
-	s->band_shadow = !s->drawing && s == fyai_sink_ctx(s)->front->sink &&
+	s->band_shadow = !s->drawing && s == fyai_sink_ctx(s)->out->sink &&
 			 fyai_uidraw_bands(fyai_sink_ctx(s));
 	b = s->ops->band_open(s, shared, title, command);
 	s->band_shadow = false;
 	/* The work store takes the bands of the display at their input. */
-	if (b && s == fyai_sink_ctx(s)->front->sink && !s->drawing)
+	if (b && s == fyai_sink_ctx(s)->out->sink && !s->drawing)
 		fyai_uiwork_band_open(fyai_sink_ctx(s), b, shared, title, command);
 	return b;
 }
@@ -1754,14 +1754,14 @@ void fyai_sink_band_paint(struct fyai_sink_band *b, const char *title,
 {
 	if (b && fyai_sink_band_ctx(b))
 		fyai_uiwork_band_paint(fyai_sink_band_ctx(b), b, title, command, body, len);
-	if (b && fyai_sink_band_ctx(b) && fyai_sink_band_ctx(b)->front->sink && fyai_sink_band_ctx(b)->front->sink->ops->band_paint)
-		fyai_sink_band_ctx(b)->front->sink->ops->band_paint(b, title, command, body, len,
+	if (b && fyai_sink_band_ctx(b) && fyai_sink_band_ctx(b)->out->sink && fyai_sink_band_ctx(b)->out->sink->ops->band_paint)
+		fyai_sink_band_ctx(b)->out->sink->ops->band_paint(b, title, command, body, len,
 					      margin);
 }
 
 void fyai_sink_band_close(struct fyai_sink *s, bool ok, const char *cause)
 {
-	if (s && s == fyai_sink_ctx(s)->front->sink && !s->drawing)
+	if (s && s == fyai_sink_ctx(s)->out->sink && !s->drawing)
 		fyai_uiwork_band_end(fyai_sink_ctx(s), NULL, FYAI_UIWORK_CLOSED, ok,
 				     cause);
 	if (s && s->ops->band_close)
@@ -1794,8 +1794,8 @@ void fyai_sink_band_commit(struct fyai_sink_band *b)
 	if (b && fyai_sink_band_ctx(b))
 		fyai_uiwork_band_end(fyai_sink_band_ctx(b), b, FYAI_UIWORK_COMMITTED, true,
 				     NULL);
-	if (b && fyai_sink_band_ctx(b) && fyai_sink_band_ctx(b)->front->sink && fyai_sink_band_ctx(b)->front->sink->ops->band_commit)
-		fyai_sink_band_ctx(b)->front->sink->ops->band_commit(b);
+	if (b && fyai_sink_band_ctx(b) && fyai_sink_band_ctx(b)->out->sink && fyai_sink_band_ctx(b)->out->sink->ops->band_commit)
+		fyai_sink_band_ctx(b)->out->sink->ops->band_commit(b);
 }
 
 void fyai_sink_band_destroy(struct fyai_sink_band *b)
@@ -1803,8 +1803,8 @@ void fyai_sink_band_destroy(struct fyai_sink_band *b)
 	if (b && fyai_sink_band_ctx(b))
 		fyai_uiwork_band_end(fyai_sink_band_ctx(b), b, FYAI_UIWORK_DESTROYED, true,
 				     NULL);
-	if (b && fyai_sink_band_ctx(b) && fyai_sink_band_ctx(b)->front->sink && fyai_sink_band_ctx(b)->front->sink->ops->band_destroy)
-		fyai_sink_band_ctx(b)->front->sink->ops->band_destroy(b);
+	if (b && fyai_sink_band_ctx(b) && fyai_sink_band_ctx(b)->out->sink && fyai_sink_band_ctx(b)->out->sink->ops->band_destroy)
+		fyai_sink_band_ctx(b)->out->sink->ops->band_destroy(b);
 }
 
 void fyai_sink_bands_reflow(struct fyai_sink *s)
@@ -1902,7 +1902,7 @@ int fyai_result(struct fyai_ctx *ctx, const char *fmt, ...)
 	va_end(ap);
 	if (len < 0)
 		return -1;
-	rc = fyai_sink_write(ctx ? ctx->front->sink : NULL, FYAI_SINK_NOTICE, text,
+	rc = fyai_sink_write(ctx ? ctx->out->sink : NULL, FYAI_SINK_NOTICE, text,
 			     (size_t)len);
 	free(text);
 	return rc;
@@ -1910,7 +1910,7 @@ int fyai_result(struct fyai_ctx *ctx, const char *fmt, ...)
 
 int fyai_result_md(struct fyai_ctx *ctx, const char *md)
 {
-	return fyai_sink_markdown(ctx ? ctx->front->sink : NULL, FYAI_SINK_NOTICE, md);
+	return fyai_sink_markdown(ctx ? ctx->out->sink : NULL, FYAI_SINK_NOTICE, md);
 }
 
 int fyai_report(struct fyai_ctx *ctx, const char *fmt, ...)
@@ -1925,7 +1925,7 @@ int fyai_report(struct fyai_ctx *ctx, const char *fmt, ...)
 	va_end(ap);
 	if (len < 0)
 		return -1;
-	rc = fyai_sink_write(ctx ? ctx->front->sink : NULL, FYAI_SINK_STATUS, text,
+	rc = fyai_sink_write(ctx ? ctx->out->sink : NULL, FYAI_SINK_STATUS, text,
 			     (size_t)len);
 	free(text);
 	return rc;

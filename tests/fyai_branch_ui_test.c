@@ -46,8 +46,8 @@ int branch_ui_agent_message_receipt(void)
 	struct fy_generic_builder *gb = fy_generic_builder_create(&gbcfg);
 	struct fyai_cfg cfg = { .gb = gb, .agent_max_live_agents = 2 };
 	struct fyai_loop loop = { .dump_fd = -1 };
-	struct fyai_ctx root = { .cfg = &cfg, .transient = &(struct fyai_transient){}, .loop = &loop, .link = &(struct fyai_link){ .loop = &loop }, .waitq = &(struct fyai_waitq){}, .front = &(struct fyai_front){}, .jobs = &(struct fyai_jobs){}, .astate = &(struct fyai_agent_state){}, .askq = &(struct fyai_askq){}, .arena = &(struct fyai_arena){ .gb = gb }, .bstate = &(struct fyai_branch_state){} };
-	struct fyai_ctx child = { .cfg = &cfg, .transient = &(struct fyai_transient){}, .loop = &loop, .link = &(struct fyai_link){ .loop = &loop }, .waitq = &(struct fyai_waitq){}, .front = &(struct fyai_front){}, .jobs = &(struct fyai_jobs){}, .askq = &(struct fyai_askq){},
+	struct fyai_ctx root = { .cfg = &cfg, .transient = &(struct fyai_transient){}, .loop = &loop, .link = &(struct fyai_link){ .loop = &loop }, .waitq = &(struct fyai_waitq){}, .out = &(struct fyai_out){}, .uistores = &(struct fyai_uistores){}, .screen = &(struct fyai_screen){}, .jobs = &(struct fyai_jobs){}, .astate = &(struct fyai_agent_state){}, .askq = &(struct fyai_askq){}, .arena = &(struct fyai_arena){ .gb = gb }, .bstate = &(struct fyai_branch_state){} };
+	struct fyai_ctx child = { .cfg = &cfg, .transient = &(struct fyai_transient){}, .loop = &loop, .link = &(struct fyai_link){ .loop = &loop }, .waitq = &(struct fyai_waitq){}, .out = &(struct fyai_out){}, .uistores = &(struct fyai_uistores){}, .screen = &(struct fyai_screen){}, .jobs = &(struct fyai_jobs){}, .askq = &(struct fyai_askq){},
 		.astate = &(struct fyai_agent_state){ .execution = 1 }, .bstate = &(struct fyai_branch_state){ .agent_branch = "main/agent:worker" }, .arena = &(struct fyai_arena){ .gb = gb } };
 	struct fyai_event_input input;
 	struct jsonrpc_conn *to_child, *to_root;
@@ -144,7 +144,7 @@ int branch_ui_subscription_activity(void)
 	struct fyai_cfg cfg = { .gb = gb };
 	struct fyai_loop loop = { .dump_fd = -1 };
 	struct fyai_ctx ctx = {
-		.cfg = &cfg, .transient = &(struct fyai_transient){}, .astate = &(struct fyai_agent_state){ .execution = 1 }, .loop = &loop, .link = &(struct fyai_link){ .loop = &loop }, .waitq = &(struct fyai_waitq){}, .front = &(struct fyai_front){}, .jobs = &(struct fyai_jobs){}, .askq = &(struct fyai_askq){},
+		.cfg = &cfg, .transient = &(struct fyai_transient){}, .astate = &(struct fyai_agent_state){ .execution = 1 }, .loop = &loop, .link = &(struct fyai_link){ .loop = &loop }, .waitq = &(struct fyai_waitq){}, .out = &(struct fyai_out){}, .uistores = &(struct fyai_uistores){}, .screen = &(struct fyai_screen){}, .jobs = &(struct fyai_jobs){}, .askq = &(struct fyai_askq){},
 		.bstate = &(struct fyai_branch_state){ .agent_branch = "main/agent:worker" }, .arena = &(struct fyai_arena){ .gb = gb } };
 	struct activity_capture capture = {};
 	struct jsonrpc_conn *sender, *receiver;
@@ -236,7 +236,7 @@ int branch_ui_admission_release(void)
 	struct fy_generic_builder *gb = fy_generic_builder_create(&gbcfg);
 	struct fyai_cfg cfg = { .gb = gb, .agent_max_live_agents = 1 };
 	struct fyai_loop loop = { .dump_fd = -1 };
-	struct fyai_ctx ctx = { .cfg = &cfg, .transient = &(struct fyai_transient){}, .loop = &loop, .link = &(struct fyai_link){ .loop = &loop }, .waitq = &(struct fyai_waitq){}, .front = &(struct fyai_front){}, .jobs = &(struct fyai_jobs){}, .astate = &(struct fyai_agent_state){}, .askq = &(struct fyai_askq){}, .arena = &(struct fyai_arena){ .gb = gb }, .bstate = &(struct fyai_branch_state){} };
+	struct fyai_ctx ctx = { .cfg = &cfg, .transient = &(struct fyai_transient){}, .loop = &loop, .link = &(struct fyai_link){ .loop = &loop }, .waitq = &(struct fyai_waitq){}, .out = &(struct fyai_out){}, .uistores = &(struct fyai_uistores){}, .screen = &(struct fyai_screen){}, .jobs = &(struct fyai_jobs){}, .astate = &(struct fyai_agent_state){}, .askq = &(struct fyai_askq){}, .arena = &(struct fyai_arena){ .gb = gb }, .bstate = &(struct fyai_branch_state){} };
 	fy_generic params, result = fy_invalid, error = fy_invalid;
 	long long execution;
 	bool handled;
@@ -290,7 +290,7 @@ int branch_ui_tile_identity(void)
 	struct fy_generic_builder *gb = fy_generic_builder_create(&gbcfg);
 	struct fyai_cfg cfg = { .gb = gb, .agent_max_live_agents = 2 };
 	struct fyai_loop loop = { .dump_fd = -1 };
-	struct fyai_ctx ctx = { .cfg = &cfg, .transient = &(struct fyai_transient){}, .loop = &loop, .link = &(struct fyai_link){ .loop = &loop }, .waitq = &(struct fyai_waitq){}, .front = &(struct fyai_front){}, .jobs = &(struct fyai_jobs){}, .astate = &(struct fyai_agent_state){}, .askq = &(struct fyai_askq){}, .arena = &(struct fyai_arena){ .gb = gb }, .bstate = &(struct fyai_branch_state){} };
+	struct fyai_ctx ctx = { .cfg = &cfg, .transient = &(struct fyai_transient){}, .loop = &loop, .link = &(struct fyai_link){ .loop = &loop }, .waitq = &(struct fyai_waitq){}, .out = &(struct fyai_out){}, .uistores = &(struct fyai_uistores){}, .screen = &(struct fyai_screen){}, .jobs = &(struct fyai_jobs){}, .astate = &(struct fyai_agent_state){}, .askq = &(struct fyai_askq){}, .arena = &(struct fyai_arena){ .gb = gb }, .bstate = &(struct fyai_branch_state){} };
 	fy_generic params, result = fy_invalid, error = fy_invalid;
 	long long execution, id, started;
 	const char *model;
@@ -352,7 +352,7 @@ int branch_ui_unknown_state(void)
 	struct fy_generic_builder *gb = fy_generic_builder_create(&gbcfg);
 	struct fyai_cfg cfg = { .gb = gb, .agent_max_live_agents = 2 };
 	struct fyai_loop loop = { .dump_fd = -1 };
-	struct fyai_ctx ctx = { .cfg = &cfg, .transient = &(struct fyai_transient){}, .loop = &loop, .link = &(struct fyai_link){ .loop = &loop }, .waitq = &(struct fyai_waitq){}, .front = &(struct fyai_front){}, .jobs = &(struct fyai_jobs){}, .astate = &(struct fyai_agent_state){}, .askq = &(struct fyai_askq){}, .arena = &(struct fyai_arena){ .gb = gb }, .bstate = &(struct fyai_branch_state){} };
+	struct fyai_ctx ctx = { .cfg = &cfg, .transient = &(struct fyai_transient){}, .loop = &loop, .link = &(struct fyai_link){ .loop = &loop }, .waitq = &(struct fyai_waitq){}, .out = &(struct fyai_out){}, .uistores = &(struct fyai_uistores){}, .screen = &(struct fyai_screen){}, .jobs = &(struct fyai_jobs){}, .astate = &(struct fyai_agent_state){}, .askq = &(struct fyai_askq){}, .arena = &(struct fyai_arena){ .gb = gb }, .bstate = &(struct fyai_branch_state){} };
 	fy_generic params, result = fy_invalid, error = fy_invalid;
 	long long execution;
 	int rc;

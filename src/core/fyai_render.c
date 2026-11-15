@@ -457,11 +457,11 @@ int fyai_generic_to_markdown(struct fyai_ctx *ctx, fy_generic renderopts,
 	/* With Markdown off a table is written as its source, as a result
 	 * string is. */
 	if (fy_get(renderopts, "raw", false))
-		rc = fyai_sink_write(ctx->front->sink, FYAI_SINK_NOTICE, md, strlen(md));
+		rc = fyai_sink_write(ctx->out->sink, FYAI_SINK_NOTICE, md, strlen(md));
 	else if (!ctx->cfg->markdown)
-		rc = fyai_sink_markdown_source(ctx->front->sink, FYAI_SINK_NOTICE, md);
+		rc = fyai_sink_markdown_source(ctx->out->sink, FYAI_SINK_NOTICE, md);
 	else
-		rc = fyai_sink_markdown(ctx->front->sink, FYAI_SINK_NOTICE, md);
+		rc = fyai_sink_markdown(ctx->out->sink, FYAI_SINK_NOTICE, md);
 	free(md);
 	return rc;
 }

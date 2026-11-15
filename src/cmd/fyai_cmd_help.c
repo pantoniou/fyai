@@ -736,7 +736,7 @@ int fyai_cmd_help(struct fyai_cmd_call *call, fy_generic *result)
 		fyai_error_check(fyai_cmd_call_ctx(call), !rc, err_free,
 				 "help: cannot build the reference");
 		/* A document for a file, written as it stands. */
-		(void)fyai_sink_write(fyai_cmd_call_ctx(call)->front->sink, FYAI_SINK_MACHINE,
+		(void)fyai_sink_write(fyai_cmd_call_ctx(call)->out->sink, FYAI_SINK_MACHINE,
 				      out.data, out.len);
 		free(out.data);
 		return 0;
