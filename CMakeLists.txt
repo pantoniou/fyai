@@ -1053,6 +1053,11 @@ int main(void) { return 0; }
         COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/tests/sink-only.sh
                 ${CMAKE_CURRENT_SOURCE_DIR})
 
+    # An object reads the context that it stands on through its accessor.
+    add_test(NAME fyai/ctx_accessor
+        COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/tests/ctx-accessor.sh
+                ${CMAKE_CURRENT_SOURCE_DIR})
+
     # Static checks over the case scripts: comments inside a continued
     # statement silently drop driver variables, and a misspelled AFTER
     # step fails only after the session budget. Catch both at build time.
