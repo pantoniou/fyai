@@ -132,7 +132,8 @@ static inline struct fyai_mcp *fyai_test_mcp_of(struct fyai_ctx *ctx)
 		ctx->mcp = calloc(1, sizeof(*ctx->mcp));
 		if (!ctx->mcp)
 			return NULL;
-		fyai_mcp_state_init(ctx->mcp, ctx->loop, ctx->cred, ctx->transient);
+		fyai_mcp_state_init(ctx->mcp, ctx->loop, ctx->cred, ctx->transient, ctx->cfg,
+			    ctx->arena, ctx->link, fyai_cfg_diag(ctx->cfg));
 	}
 	return ctx->mcp;
 }

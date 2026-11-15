@@ -314,56 +314,56 @@ int fyai_tool_job_group_collect(struct fyai_tool_job_group *group,
 				size_t index, fy_generic *result, bool *okp);
 void fyai_tool_job_group_destroy(struct fyai_tool_job_group *group);
 
-int fyai_mcp_refresh(struct fyai_ctx *ctx);
+int fyai_mcp_refresh(struct fyai_mcp *mc);
 /* Fire concurrent server startup without waiting; observe fyai_mcp_settled()
  * then call fyai_mcp_publish_tools(). fyai_mcp_refresh() is the sync wrapper. */
-int fyai_mcp_start(struct fyai_ctx *ctx);
-bool fyai_mcp_settled(struct fyai_ctx *ctx);
+int fyai_mcp_start(struct fyai_mcp *mc);
+bool fyai_mcp_settled(struct fyai_mcp *mc);
 /*
  * Start server @name of @config for this invocation, beside the servers of
  * the configuration. Its tools are published as theirs are.
  */
-int fyai_mcp_add(struct fyai_ctx *ctx, const char *name, fy_generic config);
+int fyai_mcp_add(struct fyai_mcp *mc, const char *name, fy_generic config);
 /*
  * Start server @name whose frames the caller carries: @send takes each
  * frame, and the caller gives each frame of the server to
  * jsonrpc_conn_tunnel_receive() on *@connp. The connection lives until MCP
  * stops.
  */
-int fyai_mcp_add_tunnel(struct fyai_ctx *ctx, const char *name,
+int fyai_mcp_add_tunnel(struct fyai_mcp *mc, const char *name,
 			int (*send)(void *userdata, fy_generic frame),
 			void *userdata, struct jsonrpc_conn **connp);
 /* True when MCP is on: by the configuration, or by an added server. */
-bool fyai_mcp_enabled(const struct fyai_ctx *ctx);
+bool fyai_mcp_enabled(const struct fyai_mcp *mc);
 void fyai_mcp_publish_tools(struct fyai_ctx *ctx);
 /*
  * The live MCP connections: server, state, transport, auth, tools, expiry,
  * endpoint, and last error, in @gb. An empty sequence with none.
  */
-fy_generic fyai_mcp_status_data(struct fyai_ctx *ctx,
+fy_generic fyai_mcp_status_data(struct fyai_mcp *mc,
 				struct fy_generic_builder *gb);
-int fyai_mcp_login(struct fyai_ctx *ctx, const char *name);
-int fyai_mcp_logout(struct fyai_ctx *ctx, const char *name);
-fy_generic fyai_mcp_tools(struct fyai_ctx *ctx);
-bool fyai_mcp_deferred(struct fyai_ctx *ctx);
-bool fyai_mcp_tool_active(struct fyai_ctx *ctx, const char *name);
+int fyai_mcp_login(struct fyai_mcp *mc, const char *name);
+int fyai_mcp_logout(struct fyai_mcp *mc, const char *name);
+fy_generic fyai_mcp_tools(struct fyai_mcp *mc);
+bool fyai_mcp_deferred(struct fyai_mcp *mc);
+bool fyai_mcp_tool_active(struct fyai_mcp *mc, const char *name);
 bool fyai_mcp_tool_name(const char *name);
 struct fyai_mcp_call_request *
-fyai_mcp_call_submit(struct fyai_ctx *ctx, const char *name,
+fyai_mcp_call_submit(struct fyai_mcp *mc, const char *name,
 		     fy_generic args, fyai_mcp_call_complete_fn complete,
 		     void *userdata);
 struct fyai_mcp_call_request *
-fyai_mcp_resource_submit(struct fyai_ctx *ctx, fy_generic args,
+fyai_mcp_resource_submit(struct fyai_mcp *mc, fy_generic args,
 			 fyai_mcp_call_complete_fn complete, void *userdata);
 void fyai_mcp_call_cancel(struct fyai_mcp_call_request *request);
 bool fyai_mcp_call_done(const struct fyai_mcp_call_request *request);
 fy_generic fyai_mcp_call_collect(struct fyai_mcp_call_request *request,
 				 bool *okp);
 void fyai_mcp_call_destroy(struct fyai_mcp_call_request *request);
-void fyai_mcp_cleanup(struct fyai_ctx *ctx);
-int fyai_mcp_stop(struct fyai_ctx *ctx);
-bool fyai_mcp_stop_done(const struct fyai_ctx *ctx);
-void fyai_mcp_stop_finish(struct fyai_ctx *ctx);
+void fyai_mcp_cleanup(struct fyai_mcp *mc);
+int fyai_mcp_stop(struct fyai_mcp *mc);
+bool fyai_mcp_stop_done(const struct fyai_mcp *mc);
+void fyai_mcp_stop_finish(struct fyai_mcp *mc);
 
 /*
  * Move a malloc'd result into the transient builder and free it. A NULL text

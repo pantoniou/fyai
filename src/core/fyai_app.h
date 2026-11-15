@@ -91,6 +91,11 @@ void fyai_app_cleanup(struct fyai_app *app);
  * is. A component of the program that is not a member of the app keeps a
  * pointer of its own and gives it through an accessor of its own.
  */
+static inline struct fyai_ctx *fyai_mcp_state_ctx(struct fyai_mcp *mcp)
+{
+	return &container_of(mcp, struct fyai_app, mcp)->ctx;
+}
+
 static inline struct fyai_ctx *fyai_cred_ctx(struct fyai_cred *cred)
 {
 	return &container_of(cred, struct fyai_app, cred)->ctx;

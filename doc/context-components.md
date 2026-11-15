@@ -226,7 +226,10 @@ named waits (`waitq`), the orphans and the pins of the scope (`scope`), the
 background questions (`askq`, which reaches the user through hooks), the curl
 multi plumbing of the connection (`link`), and the control channel of the
 credential transport (`transport`), and the login (`cred`: the store, the
-refresh, the login and logout requests, and the sources). A function that composes components, such
+refresh, the login and logout requests, and the sources). The MCP client (`mcp`: the connections, the discovery of tools, the status and the
+calls) takes `struct fyai_mcp`; a function that must reach an older function
+on `ctx` finds it with `fyai_mcp_state_ctx()`, as `fyai_cred_ctx()` does for
+the login. A function that composes components, such
 as `fyai_auth_resolve()`, `fyai_auth_login()`, `fyai_xfer_submit()`, `fyai_transport_ensure()` and `fyai_transport_attach()`,
 stays on `ctx`.
 

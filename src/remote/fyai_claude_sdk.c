@@ -2048,13 +2048,13 @@ static int sdk_mcp_start(struct sdk_server *srv, const char *config)
 			fyai_error_check(ctx, t->name, err,
 					 "claude-sdk: cannot keep MCP server "
 					 "'%s'", nm);
-			rc = fyai_mcp_add_tunnel(ctx, nm, sdk_mcp_send, t,
+			rc = fyai_mcp_add_tunnel(ctx->mcp, nm, sdk_mcp_send, t,
 						 &t->conn);
 		} else if (!strcmp(type, "http")) {
 			fconf = fy_mapping(gb,
 				"transport", "streamable-http",
 				"endpoint", fy_get(server, "url", ""));
-			rc = fyai_mcp_add(ctx, nm, fconf);
+			rc = fyai_mcp_add(ctx->mcp, nm, fconf);
 		} else {
 			fconf = fy_mapping(gb,
 				"command", fy_get(server, "command", ""),
@@ -2062,12 +2062,12 @@ static int sdk_mcp_start(struct sdk_server *srv, const char *config)
 			if (fy_is_mapping(fy_get(server, "env", fy_invalid)))
 				fconf = fy_assoc(gb, fconf, "env",
 						 fy_get(server, "env", fy_invalid));
-			rc = fyai_mcp_add(ctx, nm, fconf);
+			rc = fyai_mcp_add(ctx->mcp, nm, fconf);
 		}
 		if (rc)		/* the MCP client says why */
 			goto err;
 	}
-	while (!fyai_mcp_settled(ctx) && !srv->failed) {
+	while (!fyai_mcp_settled(ctx->mcp) && !srv->failed) {
 		rc = fyai_event_loop_step(el, -1);
 		fyai_error_check(ctx, rc >= 0, err,
 				 "claude-sdk: the event loop stopped");
@@ -2091,7 +2091,7 @@ static fy_generic sdk_mcp_status(struct sdk_server *srv,
 	const char *state;
 
 	out = fy_seq_empty;
-	rows = fyai_mcp_status_data(sdk_server_ctx(srv), gb);
+	rows = fyai_mcp_status_data((sdk_server_ctx(srv))->mcp, gb);
 	fy_foreach(row, rows) {
 		state = fy_get(row, "state", "");
 		out = fy_append(gb, out, fy_mapping(gb,
@@ -3003,7 +3003,7 @@ static void sdk_send_init(struct sdk_server *srv)
 		names = fy_append(gb, names,
 				  sdk_tool_view(gb, name, fy_invalid, &input));
 	}
-	fy_foreach(tool, fyai_mcp_tools(ctx))
+	fy_foreach(tool, fyai_mcp_tools(ctx->mcp))
 		names = fy_append(gb, names,
 			fy_get(fy_get(tool, "function", fy_invalid), "name", ""));
 	sdk_send(srv, fy_mapping(gb,
@@ -3571,7 +3571,7 @@ static int sdk_cmd_tools(struct fyai_cmd_call *call, struct sdk_server *srv)
 			goto out;
 	}
 	names = fy_seq_empty;
-	fy_foreach(tool, fyai_mcp_tools(ctx))
+	fy_foreach(tool, fyai_mcp_tools(ctx->mcp))
 		names = fy_append(ctx->cfg->gb, names,
 			fy_get(fy_get(tool, "function", fy_invalid), "name", ""));
 	allowed = sdk_tools_allowed(ctx->cfg->gb,
@@ -3705,7 +3705,7 @@ static void sdk_cmd_cleanup(struct fyai_ctx *ctx, struct sdk_server *srv)
 	ctx->turn->gate_data = NULL;
 	/* The servers of the SDK reach it through this frame: stop them first. */
 	if (srv->tunnels)
-		fyai_mcp_cleanup(ctx);
+		fyai_mcp_cleanup(ctx->mcp);
 	for (t = srv->tunnels; t; t = t->next)
 		t->conn = NULL;
 	fyai_cmd_session_cancel(ctx);

@@ -12,7 +12,11 @@
 #include <libfyaml.h>
 #include <libfyaml/libfyaml-generic.h>
 
+struct fyai_arena;
+struct fyai_cfg;
 struct fyai_cred;
+struct fyai_diag;
+struct fyai_link;
 struct fyai_loop;
 struct fyai_mcp_ctx;
 struct fyai_transient;
@@ -30,6 +34,10 @@ struct fyai_mcp {
 	struct fyai_loop *loop;
 	struct fyai_cred *cred;
 	struct fyai_transient *transient;
+	struct fyai_cfg *cfg;
+	struct fyai_arena *arena;
+	struct fyai_link *link;
+	struct fyai_diag *diag;
 
 	struct fyai_mcp_ctx *conns;	/* the connections, newest first */
 	fy_generic tools;
@@ -41,7 +49,9 @@ struct fyai_mcp {
 };
 
 void fyai_mcp_state_init(struct fyai_mcp *mcp, struct fyai_loop *loop,
-			 struct fyai_cred *cred, struct fyai_transient *transient);
+			 struct fyai_cred *cred, struct fyai_transient *transient,
+			 struct fyai_cfg *cfg, struct fyai_arena *arena,
+			 struct fyai_link *link, struct fyai_diag *diag);
 /* The connections to the servers belong to the parent. */
 void fyai_mcp_state_abandon(struct fyai_mcp *mcp);
 

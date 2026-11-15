@@ -163,7 +163,7 @@ bool fyai_grammar_compact_url(const struct fyai_cfg *cfg, char *out,
 bool fyai_grammar_tools_wanted(struct fyai_ctx *ctx)
 {
 	return ctx->cfg->enable_tools || ctx->cfg->enable_builtin_shell ||
-	       fyai_mcp_enabled(ctx);
+	       fyai_mcp_enabled(ctx->mcp);
 }
 
 bool fyai_grammar_reasoning_set(const struct fyai_cfg *cfg)

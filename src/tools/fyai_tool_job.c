@@ -2155,9 +2155,9 @@ static void fyai_tool_job_group_dispatch(struct fyai_tool_job_group *group)
 				fy_is_valid(args) &&
 				fyai_skill_tool_allowed(fyai_tool_job_group_ctx(group), name) ?
 				(!strcmp(name, "mcp_resource") ?
-				 fyai_mcp_resource_submit(fyai_tool_job_group_ctx(group), args,
+				 fyai_mcp_resource_submit((fyai_tool_job_group_ctx(group))->mcp, args,
 					fyai_tool_job_group_mcp_complete, group) :
-				 fyai_mcp_call_submit(fyai_tool_job_group_ctx(group), name, args,
+				 fyai_mcp_call_submit((fyai_tool_job_group_ctx(group))->mcp, name, args,
 					fyai_tool_job_group_mcp_complete, group)) :
 				NULL;
 			if (entry->mcp_request) {

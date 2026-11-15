@@ -2615,7 +2615,7 @@ void fyai_cleanup(struct fyai_ctx *ctx)
 		free(ctx->jobs->stream);
 		ctx->jobs->stream = NULL;
 	}
-	fyai_mcp_cleanup(ctx);
+	fyai_mcp_cleanup(ctx->mcp);
 	fyai_ui_close(ctx);
 
 	fyai_auth_drain(ctx->cred);
@@ -2646,8 +2646,8 @@ void fyai_cleanup(struct fyai_ctx *ctx)
 static int fyai_mcp_bringup(struct fyai_ctx *ctx)
 {
 	if (ctx->cfg->mcp_enabled)
-		return fyai_mcp_refresh(ctx);
-	fyai_mcp_cleanup(ctx);
+		return fyai_mcp_refresh(ctx->mcp);
+	fyai_mcp_cleanup(ctx->mcp);
 	ctx->mcp->tools = fy_invalid;
 	ctx->mcp->active_tools = fy_invalid;
 	return 0;
@@ -2740,11 +2740,11 @@ int fyai_request_state_apply(struct fyai_ctx *ctx)
 	curl_easy_setopt(ctx->link->curl, CURLOPT_HTTPHEADER, ctx->link->headers);
 
 	if (cfg->enable_tools || cfg->enable_builtin_shell ||
-	    fyai_mcp_enabled(ctx) || cfg->web_search) {
+	    fyai_mcp_enabled(ctx->mcp) || cfg->web_search) {
 
 		ctx->tools = fyai_grammar_make_tools(ctx);
 		/* MCP discovery and resources remain available in an MCP-only run. */
-		if (fyai_mcp_enabled(ctx) && !cfg->enable_tools &&
+		if (fyai_mcp_enabled(ctx->mcp) && !cfg->enable_tools &&
 		    !cfg->enable_builtin_shell) {
 			native = make_tools_filtered(ctx);
 
@@ -2759,15 +2759,15 @@ int fyai_request_state_apply(struct fyai_ctx *ctx)
 			}
 		}
 
-		if (fyai_mcp_enabled(ctx)) {
+		if (fyai_mcp_enabled(ctx->mcp)) {
 			converted = fy_seq_empty;
-			mt = fyai_mcp_tools(ctx);
+			mt = fyai_mcp_tools(ctx->mcp);
 			fy_foreach(tool, mt) {
 				fn = fy_get(tool, "function");
 				name = fy_get(fn, "name", "");
 				if (!fyai_skill_tool_allowed(ctx, name) ||
-				    (fyai_mcp_deferred(ctx) &&
-				     !fyai_mcp_tool_active(ctx, name)))
+				    (fyai_mcp_deferred(ctx->mcp) &&
+				     !fyai_mcp_tool_active(ctx->mcp, name)))
 					continue;
 				converted = fy_append(ctx->arena->gb, converted,
 						fyai_grammar_tool_def(ctx, tool));
@@ -3697,10 +3697,10 @@ static int fyai_prompt_interactive_async(struct fyai_ctx *ctx)
 		goto out;
 	}
 	if (cfg->mcp_enabled) {
-		rc = fyai_mcp_start(ctx);
+		rc = fyai_mcp_start(ctx->mcp);
 		fyai_error_check(ctx, !rc, out, "could not start MCP servers");
 	} else {
-		fyai_mcp_cleanup(ctx);
+		fyai_mcp_cleanup(ctx->mcp);
 		ctx->mcp->tools = fy_invalid;
 	}
 	state = FYAIAS_RUNNING;
@@ -3738,7 +3738,7 @@ static int fyai_prompt_interactive_async(struct fyai_ctx *ctx)
 		/* Apply MCP tools before the first turn when startup_wait is set. */
 		if (!run && !gated &&
 		    (!cfg->mcp_enabled || !cfg->mcp_startup_wait ||
-		     fyai_mcp_settled(ctx))) {
+		     fyai_mcp_settled(ctx->mcp))) {
 			rc = fyai_interactive_mcp_gate(ctx);
 			fyai_error_check(ctx, !rc, out,
 					 "could not apply MCP tools");
@@ -3826,15 +3826,15 @@ out:
 	fyai_cmd_session_cancel(ctx);
 	/* Reclaim the active turn's builder or a lingering idle scratch one. */
 	fyai_cleanup_transient_builder(ctx);
-	if (!fyai_mcp_stop(ctx)) {
-		while (!fyai_mcp_stop_done(ctx)) {
+	if (!fyai_mcp_stop(ctx->mcp)) {
+		while (!fyai_mcp_stop_done(ctx->mcp)) {
 			step_rc = fyai_event_loop_step(el, -1);
 			if (step_rc < 0) {
 				rc = step_rc;
 				break;
 			}
 		}
-		fyai_mcp_stop_finish(ctx);
+		fyai_mcp_stop_finish(ctx->mcp);
 	}
 	/* A fullscreen session gives the terminal its screen back as it was,
 	 * and prints nothing there: the conversation is stored. A live session

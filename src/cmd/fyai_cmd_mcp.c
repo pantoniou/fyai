@@ -36,7 +36,7 @@ int fyai_cmd_mcp_status(struct fyai_cmd_call *call, fy_generic *result)
 
 	/* The live connections, when the session has started them. */
 	if (fyai_cmd_call_ctx(call)->mcp->conns) {
-		*result = fyai_mcp_status_data(fyai_cmd_call_ctx(call), gb);
+		*result = fyai_mcp_status_data((fyai_cmd_call_ctx(call))->mcp, gb);
 		call->renderopts = fy_mapping(gb,
 			"title", "MCP endpoints",
 			"keys", fy_sequence(gb, "server", "state", "transport",
@@ -87,8 +87,8 @@ int fyai_cmd_mcp_login(struct fyai_cmd_call *call, fy_generic *result)
 	bool login;
 
 	login = fy_equal(fy_get(call->def, "command", fy_invalid), "login");
-	if (login ? fyai_mcp_login(fyai_cmd_call_ctx(call), name) :
-		    fyai_mcp_logout(fyai_cmd_call_ctx(call), name))
+	if (login ? fyai_mcp_login((fyai_cmd_call_ctx(call))->mcp, name) :
+		    fyai_mcp_logout((fyai_cmd_call_ctx(call))->mcp, name))
 		return -1;
 	*result = fy_mapping(call->gb, "server", name, "login", login);
 	return 0;
