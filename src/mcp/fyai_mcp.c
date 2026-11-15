@@ -1822,7 +1822,7 @@ static int mcp_oauth_discovery_submit(struct mcp_oauth_discovery *od)
 		curl_easy_setopt(od->curl, CURLOPT_POSTFIELDS, od->body);
 		curl_easy_setopt(od->curl, CURLOPT_HTTPHEADER, od->headers);
 	}
-	od->transfer = fyai_curl_submit(ctx, od->curl,
+	od->transfer = fyai_curl_submit(ctx->link, od->curl,
 					mcp_oauth_discovery_complete, od);
 	fyai_error_check(ctx, od->transfer, err_out,
 			 "could not submit OAuth discovery transfer");
@@ -3295,7 +3295,7 @@ static bool mcp_delete_session_begin(struct fyai_ctx *ctx,
 	curl_easy_setopt(mcp->curl, CURLOPT_HEADERDATA, NULL);
 	curl_easy_setopt(mcp->curl, CURLOPT_TIMEOUT,
 			 (long)(mcp->timeout < 5 ? mcp->timeout : 5));
-	mcp->del_xfer = fyai_curl_submit(ctx, mcp->curl, mcp_delete_complete,
+	mcp->del_xfer = fyai_curl_submit(ctx->link, mcp->curl, mcp_delete_complete,
 					 mcp);
 	return mcp->del_xfer != NULL;
 }

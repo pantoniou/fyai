@@ -11,7 +11,9 @@
 #include <stdint.h>
 #include <sys/types.h>
 
+struct fyai_cfg;
 struct fyai_cred;
+struct fyai_diag;
 struct fyai_event_source;
 struct fyai_loop;
 struct fyai_tclient;
@@ -36,6 +38,8 @@ struct fyai_transport_state {
 	/* Dependencies. */
 	struct fyai_loop *loop;
 	struct fyai_cred *cred;
+	struct fyai_cfg *cfg;
+	struct fyai_diag *diag;
 
 	struct fyai_tclient *client;
 	enum fyai_transport_role role;
@@ -58,7 +62,8 @@ struct fyai_transport_state {
 };
 
 void fyai_transport_state_init(struct fyai_transport_state *state,
-			       struct fyai_loop *loop, struct fyai_cred *cred);
+			       struct fyai_loop *loop, struct fyai_cred *cred,
+			       struct fyai_cfg *cfg, struct fyai_diag *diag);
 /* The source that drains the control channel is the parent's. */
 void fyai_transport_state_abandon(struct fyai_transport_state *state);
 

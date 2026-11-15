@@ -170,7 +170,7 @@ static void test_completion_is_deferred(void)
 
 	memset(&completion, 0, sizeof(completion));
 	easy = easy_create("file:///etc/hosts");
-	transfer = fyai_curl_submit(&test_ctx, easy, transfer_complete,
+	transfer = fyai_curl_submit(test_ctx.link, easy, transfer_complete,
 				    &completion);
 	FYAI_TCHECK(transfer);
 	FYAI_TCHECK(!completion.done);
@@ -197,7 +197,7 @@ static void test_cancel_is_deferred(void)
 
 	memset(&completion, 0, sizeof(completion));
 	easy = easy_create("http://127.0.0.1:1/");
-	transfer = fyai_curl_submit(&test_ctx, easy, transfer_complete,
+	transfer = fyai_curl_submit(test_ctx.link, easy, transfer_complete,
 				    &completion);
 	FYAI_TCHECK(transfer);
 
@@ -234,7 +234,7 @@ static void test_cancel_from_write_callback(void)
 				     cancel_from_write) == CURLE_OK);
 	FYAI_TCHECK(curl_easy_setopt(easy, CURLOPT_WRITEDATA, &cancel) ==
 		    CURLE_OK);
-	transfer = fyai_curl_submit(&test_ctx, easy, transfer_complete,
+	transfer = fyai_curl_submit(test_ctx.link, easy, transfer_complete,
 				    &completion);
 	FYAI_TCHECK(transfer);
 	cancel.transfer = transfer;
@@ -316,8 +316,8 @@ static void test_simultaneous_transfers(void)
 		    CURLE_OK);
 	FYAI_TCHECK(curl_easy_setopt(easy_b, CURLOPT_FRESH_CONNECT, 1L) ==
 		    CURLE_OK);
-	first = fyai_curl_submit(&test_ctx, easy_a, transfer_complete, &a);
-	second = fyai_curl_submit(&test_ctx, easy_b, transfer_complete, &b);
+	first = fyai_curl_submit(test_ctx.link, easy_a, transfer_complete, &a);
+	second = fyai_curl_submit(test_ctx.link, easy_b, transfer_complete, &b);
 	FYAI_TCHECK(first);
 	FYAI_TCHECK(second);
 	FYAI_TCHECK(!a.done && !b.done);
@@ -362,7 +362,7 @@ static int curl_run(void (*testfn)(void))
 
 	testfn();
 
-	fyai_curl_cleanup(&test_ctx);
+	fyai_curl_cleanup(test_ctx.link);
 	fyai_loop_release(fyai_test_loop_of(&test_ctx));
 	curl_global_cleanup();
 	return 0;

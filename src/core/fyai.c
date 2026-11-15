@@ -2621,8 +2621,8 @@ void fyai_cleanup(struct fyai_ctx *ctx)
 	fyai_auth_drain(ctx);
 
 	/* Before the easy handle: the multi still references it. */
-	fyai_transport_detach(ctx);
-	fyai_curl_cleanup(ctx);
+	fyai_transport_detach(ctx->transport);
+	fyai_curl_cleanup(ctx->link);
 	if (ctx->link->curl) {
 		curl_easy_cleanup(ctx->link->curl);
 		ctx->link->curl = NULL;

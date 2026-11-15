@@ -249,7 +249,7 @@ static int xfer_curl_send(struct fyai_xfer *x)
 	}
 	curl_easy_setopt(ctx->link->curl, CURLOPT_WRITEFUNCTION, xfer_write);
 	curl_easy_setopt(ctx->link->curl, CURLOPT_WRITEDATA, x);
-	x->curl = fyai_curl_submit(ctx, ctx->link->curl, xfer_curl_complete, x);
+	x->curl = fyai_curl_submit(ctx->link, ctx->link->curl, xfer_curl_complete, x);
 	fyai_error_check(ctx, x->curl, err_out, "could not submit the request");
 	return 0;
 err_out:

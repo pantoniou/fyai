@@ -255,7 +255,7 @@ static int token_submit(struct fyai_mcp_oauth_refresh *r)
 	}
 	curl_easy_setopt(r->curl, CURLOPT_POSTFIELDS, r->body);
 	curl_easy_setopt(r->curl, CURLOPT_HTTPHEADER, r->headers);
-	r->transfer = fyai_curl_submit(fyai_mcp_oauth_refresh_ctx(r), r->curl, token_complete, r);
+	r->transfer = fyai_curl_submit((fyai_mcp_oauth_refresh_ctx(r))->link, r->curl, token_complete, r);
 	rc = r->transfer ? 0 : -1;
 out:
 	curl_free(e_refresh);

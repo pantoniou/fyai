@@ -65,7 +65,7 @@ struct fyai_curl_transfer {
 
 /* Per-invocation curl plumbing. */
 struct fyai_curl_state {
-	struct fyai_ctx *ctx;
+	struct fyai_link *link;
 	struct fyai_event_loop *el;
 	struct fyai_event_source *timer;
 	struct fyai_curl_sock *socks;
@@ -78,10 +78,10 @@ struct fyai_curl_state {
 	bool action_pending;
 };
 
-/* The context that this object stands on. */
-static inline struct fyai_ctx *fyai_curl_state_ctx(const struct fyai_curl_state *o)
+/* The connection that this state stands on. */
+static inline struct fyai_link *fyai_curl_state_link(const struct fyai_curl_state *o)
 {
-	return o->ctx;
+	return o->link;
 }
 
 /* One watched socket. curl_multi_assign() keeps this on the socket itself. */
@@ -203,7 +203,7 @@ static void fyai_curl_action(struct fyai_curl_state *state, curl_socket_t fd,
 	fyai_curl_cancel_pending(state);
 	if (mc != CURLM_OK) {
 		state->failed = true;
-		fyai_error(fyai_curl_state_ctx(state), "curl multi failed: %s",
+		fyai_diag_type(fyai_curl_state_link(state)->diag, FYAIET_ERROR, "curl multi failed: %s",
 			   curl_multi_strerror(mc));
 		fyai_curl_fail_all(state, CURLE_FAILED_INIT);
 		return;
@@ -323,13 +323,13 @@ static int fyai_curl_socket_cb(CURL *easy, curl_socket_t fd, int what,
 	if (sock) {
 		rc = fyai_event_fd_modify(sock->src, events);
 		if (rc)
-			fyai_error(fyai_curl_state_ctx(state), "could not change the events of "
+			fyai_diag_type(fyai_curl_state_link(state)->diag, FYAIET_ERROR, "could not change the events of "
 				   "transfer socket %d", (int)fd);
 		return rc;
 	}
 
 	sock = calloc(1, sizeof(*sock));
-	fyai_error_check(fyai_curl_state_ctx(state), sock, err_out, "out of memory");
+	fyai_diag_check(fyai_curl_state_link(state)->diag, sock, err_out, "out of memory");
 
 	sock->state = state;
 	sock->fd = fd;
@@ -337,7 +337,7 @@ static int fyai_curl_socket_cb(CURL *easy, curl_socket_t fd, int what,
 			       &sock->src);
 	if (rc) {
 		/* The transfer cannot continue without this event source. */
-		fyai_error(fyai_curl_state_ctx(state), "could not watch transfer socket %d; "
+		fyai_diag_type(fyai_curl_state_link(state)->diag, FYAIET_ERROR, "could not watch transfer socket %d; "
 			   "the request cannot make progress", (int)fd);
 		free(sock);
 		goto err_out;
@@ -365,22 +365,22 @@ static int fyai_curl_timer_cb(CURLM *multi, long timeout_ms, void *userp)
 		fyai_event_defer_cancel(state->el, fyai_curl_timeout, state);
 	if (timeout_ms < 0) {
 		rc = fyai_event_timer_disarm(state->timer);
-		fyai_error_check(fyai_curl_state_ctx(state), !rc, err_out,
+		fyai_diag_check(fyai_curl_state_link(state)->diag, !rc, err_out,
 				 "could not disarm the curl timer");
 		return 0;
 	}
 	if (!timeout_ms) {
 		rc = fyai_event_timer_disarm(state->timer);
-		fyai_error_check(fyai_curl_state_ctx(state), !rc, err_out,
+		fyai_diag_check(fyai_curl_state_link(state)->diag, !rc, err_out,
 				 "could not disarm the curl timer");
 		rc = fyai_event_defer(state->el, fyai_curl_timeout, state);
-		fyai_error_check(fyai_curl_state_ctx(state), !rc, err_out,
+		fyai_diag_check(fyai_curl_state_link(state)->diag, !rc, err_out,
 				 "could not defer the curl timeout");
 		return 0;
 	}
 
 	rc = fyai_event_timer_rearm(state->timer, timeout_ms, 0);
-	fyai_error_check(fyai_curl_state_ctx(state), !rc, err_out,
+	fyai_diag_check(fyai_curl_state_link(state)->diag, !rc, err_out,
 			 "could not arm the curl timer");
 	return 0;
 
@@ -389,34 +389,32 @@ err_out:
 }
 
 /* Build the per-invocation plumbing on first use. */
-static struct fyai_curl_state *fyai_curl_state_get(struct fyai_ctx *ctx)
+static struct fyai_curl_state *fyai_curl_state_get(struct fyai_link *link)
 {
 	struct fyai_curl_state *state;
 	int rc;
 
-	fyai_error_check(ctx, ctx->link, err_out,
-			 "the connection component is not set up");
-	state = ctx->link->curl_state;
+		state = link->curl_state;
 	if (state)
 		return state;
 
 	state = calloc(1, sizeof(*state));
-	fyai_error_check(ctx, state, err_out, "out of memory");
-	state->ctx = ctx;
+	fyai_diag_check(link->diag, state, err_out, "out of memory");
+	state->link = link;
 
-	state->el = fyai_ctx_loop(ctx);
-	fyai_error_check(ctx, state->el, err_free,
+	state->el = fyai_loop_get(link->loop);
+	fyai_diag_check(link->diag, state->el, err_free,
 			 "could not create an event loop");
 
 	state->multi = curl_multi_init();
-	fyai_error_check(ctx, state->multi, err_loop,
+	fyai_diag_check(link->diag, state->multi, err_loop,
 			 "could not create a curl multi");
 
 	/* The timer stays registered for the whole invocation, armed only when curl
 	 * asks. */
 	rc = fyai_event_add_timer(state->el, 0, 0, fyai_curl_on_timeout, state,
 				  &state->timer);
-	fyai_error_check(ctx, !rc, err_multi, "could not create the curl timer");
+	fyai_diag_check(link->diag, !rc, err_multi, "could not create the curl timer");
 	fyai_event_timer_disarm(state->timer);
 
 	curl_multi_setopt(state->multi, CURLMOPT_SOCKETFUNCTION,
@@ -426,7 +424,7 @@ static struct fyai_curl_state *fyai_curl_state_get(struct fyai_ctx *ctx)
 			  fyai_curl_timer_cb);
 	curl_multi_setopt(state->multi, CURLMOPT_TIMERDATA, state);
 
-	ctx->link->curl_state = state;
+	link->curl_state = state;
 	return state;
 
 err_multi:
@@ -438,15 +436,15 @@ err_out:
 	return NULL;
 }
 
-void fyai_curl_cleanup(struct fyai_ctx *ctx)
+void fyai_curl_cleanup(struct fyai_link *link)
 {
 	struct fyai_curl_state *state;
 	struct fyai_curl_transfer *transfer;
 
-	if (!ctx || !ctx->link || !ctx->link->curl_state)
+	if (!link || !link->curl_state)
 		return;
-	state = ctx->link->curl_state;
-	ctx->link->curl_state = NULL;
+	state = link->curl_state;
+	link->curl_state = NULL;
 
 	while (state->transfers) {
 		transfer = state->transfers;
@@ -467,24 +465,24 @@ void fyai_curl_cleanup(struct fyai_ctx *ctx)
 }
 
 struct fyai_curl_transfer *
-fyai_curl_submit(struct fyai_ctx *ctx, CURL *easy,
+fyai_curl_submit(struct fyai_link *link, CURL *easy,
 		 fyai_curl_complete_fn complete, void *userdata)
 {
 	struct fyai_curl_state *state;
 	struct fyai_curl_transfer *transfer;
 	CURLMcode mc;
 
-	state = fyai_curl_state_get(ctx);
-	fyai_error_check(ctx, state, err_out, "curl is not usable");
-	fyai_error_check(ctx, !state->failed, err_out,
+	state = fyai_curl_state_get(link);
+	fyai_diag_check(link->diag, state, err_out, "curl is not usable");
+	fyai_diag_check(link->diag, !state->failed, err_out,
 			 "curl multi is in a failed state");
-	fyai_error_check(ctx, easy, err_out, "curl transfer needs an easy handle");
+	fyai_diag_check(link->diag, easy, err_out, "curl transfer needs an easy handle");
 	transfer = fyai_curl_transfer_find(state, easy);
-	fyai_error_check(ctx, !transfer, err_out,
+	fyai_diag_check(link->diag, !transfer, err_out,
 			 "curl easy handle is already active");
 
 	transfer = calloc(1, sizeof(*transfer));
-	fyai_error_check(ctx, transfer, err_out, "out of memory");
+	fyai_diag_check(link->diag, transfer, err_out, "out of memory");
 	transfer->state = state;
 	transfer->easy = easy;
 	transfer->complete = complete;
@@ -494,7 +492,7 @@ fyai_curl_submit(struct fyai_ctx *ctx, CURL *easy,
 	state->transfers = transfer;
 
 	mc = curl_multi_add_handle(state->multi, easy);
-	fyai_error_check(ctx, mc == CURLM_OK, err_unlink,
+	fyai_diag_check(link->diag, mc == CURLM_OK, err_unlink,
 			 "curl multi failed: %s",
 			 curl_multi_strerror(mc));
 	transfer->phase = FYAI_CURL_ACTIVE;
@@ -563,9 +561,10 @@ bool fyai_http_transient(CURLcode rc, long status)
 }
 
 void fyai_link_init(struct fyai_link *link, struct fyai_loop *loop,
-		    struct fyai_cred *cred)
+		    struct fyai_cred *cred, struct fyai_diag *diag)
 {
 	memset(link, 0, sizeof(*link));
 	link->loop = loop;
 	link->cred = cred;
+	link->diag = diag;
 }

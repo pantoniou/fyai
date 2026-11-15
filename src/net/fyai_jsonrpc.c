@@ -1131,7 +1131,7 @@ static int jsonrpc_http_submit(struct jsonrpc_request *req, fy_generic params)
 	curl_easy_setopt(req->curl, CURLOPT_HEADERDATA, req);
 	curl_easy_setopt(req->curl, CURLOPT_TIMEOUT, (long)conn->timeout_s);
 	curl_easy_setopt(req->curl, CURLOPT_USERAGENT, ctx->link->user_agent);
-	req->transfer = fyai_curl_submit(ctx, req->curl, jsonrpc_http_complete,
+	req->transfer = fyai_curl_submit(ctx->link, req->curl, jsonrpc_http_complete,
 					 req);
 	fyai_error_check(ctx, req->transfer, err_out,
 			 "%s %s could not submit request", conn->name,

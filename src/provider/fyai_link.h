@@ -10,6 +10,7 @@
 #include <curl/curl.h>
 
 struct fyai_cred;
+struct fyai_diag;
 struct fyai_curl_state;
 struct fyai_loop;
 struct fyai_request_cache;
@@ -25,6 +26,7 @@ struct fyai_link {
 	/* Dependencies. */
 	struct fyai_loop *loop;
 	struct fyai_cred *cred;
+	struct fyai_diag *diag;
 
 	CURL *curl;
 	struct curl_slist *headers;
@@ -44,7 +46,7 @@ struct fyai_link {
 };
 
 void fyai_link_init(struct fyai_link *link, struct fyai_loop *loop,
-		    struct fyai_cred *cred);
+		    struct fyai_cred *cred, struct fyai_diag *diag);
 /* The child starts with no outcome; the endpoint and profile stay. */
 void fyai_link_abandon(struct fyai_link *link);
 

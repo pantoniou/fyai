@@ -28,6 +28,7 @@
 
 struct fyai_cfg;
 struct fyai_ctx;
+struct fyai_transport_state;
 
 /* Private contract between the bootstrap and the supervisor image. */
 #define FYAI_TRANSPORT_FD_ENV		"FYAI_TRANSPORT_FD"	/* agent channel */
@@ -80,8 +81,8 @@ int fyai_transport_ensure(struct fyai_ctx *ctx);
  * when the session ends. The connection is one socket that both processes hold:
  * a reader in the supervisor would take replies that the session waits for.
  */
-void fyai_transport_ctl_lend(struct fyai_ctx *ctx);
-void fyai_transport_ctl_reclaim(struct fyai_ctx *ctx);
+void fyai_transport_ctl_lend(struct fyai_transport_state *tp);
+void fyai_transport_ctl_reclaim(struct fyai_transport_state *tp);
 
 /*
  * Register a child process with the transport: give the transport its channel
@@ -93,7 +94,7 @@ void fyai_transport_ctl_reclaim(struct fyai_ctx *ctx);
  * @exec_id. The child starts with the grant of this agent and states its own
  * with fyai_transport_ensure(). Return 0 or -1, with a diagnostic.
  */
-int fyai_transport_admit_child(struct fyai_ctx *ctx, pid_t pid, int pidfd,
+int fyai_transport_admit_child(struct fyai_transport_state *tp, pid_t pid, int pidfd,
 			       int agent_fd, int ctl_fd, uint64_t *exec_id);
 
 /*
@@ -101,7 +102,7 @@ int fyai_transport_admit_child(struct fyai_ctx *ctx, pid_t pid, int pidfd,
  * child: the execution id, and the names of the profiles that the parent
  * granted it, so that the child can grant them to its own children.
  */
-fy_generic fyai_transport_spawn_state(struct fyai_ctx *ctx,
+fy_generic fyai_transport_spawn_state(struct fyai_transport_state *tp,
 				      struct fy_generic_builder *gb,
 				      uint64_t exec_id);
 
@@ -120,7 +121,7 @@ int fyai_transport_child_attach(struct fyai_ctx *ctx, fy_generic state);
  * The level in effect for this process: "none", or the level that the bootstrap
  * chose, such as "level-b". A setting of `auto` is not an answer; this is.
  */
-const char *fyai_transport_effective_level(const struct fyai_ctx *ctx);
+const char *fyai_transport_effective_level(const struct fyai_transport_state *tp);
 
 /*
  * Describe the isolation for a person. The transport is asked, because it is
@@ -136,14 +137,14 @@ const char *fyai_transport_effective_level(const struct fyai_ctx *ctx);
  * as the reply mapping `{id, profiles}` built in @gb. @exec_id 0 is the
  * caller. Return 0, or -1 with the cause reported.
  */
-int fyai_transport_describe(struct fyai_ctx *ctx, struct fy_generic_builder *gb,
+int fyai_transport_describe(struct fyai_transport_state *tp, struct fy_generic_builder *gb,
 			    uint64_t exec_id, fy_generic *out);
 /*
  * Run the command with the CLI words @words at the transport, which holds the
  * credential stores, and return its result in *@out, built in @gb. Only
  * listed commands run there, and only for the primary image.
  */
-int fyai_transport_command(struct fyai_ctx *ctx, struct fy_generic_builder *gb,
+int fyai_transport_command(struct fyai_transport_state *tp, struct fy_generic_builder *gb,
 			   const char *const *words, size_t nwords,
 			   int format, fy_generic *out);
 
@@ -153,16 +154,16 @@ int fyai_transport_command(struct fyai_ctx *ctx, struct fy_generic_builder *gb,
  * the level is fixed for this run. The isolation level is taken at startup:
  * a restart starts the transport, or ends it and clears the channels.
  */
-int fyai_transport_config_changed(struct fyai_ctx *ctx, const char **why);
+int fyai_transport_config_changed(struct fyai_transport_state *tp, const char **why);
 
 /*
  * Check that this run could start the transport: the host, the credential and
  * the endpoint. Return 0, or -1 with the cause reported. A run that already has
  * the transport passes. It changes nothing.
  */
-int fyai_transport_preflight(struct fyai_ctx *ctx);
+int fyai_transport_preflight(struct fyai_transport_state *tp);
 
-void fyai_transport_status_text(struct fyai_ctx *ctx, char *buf, size_t size);
+void fyai_transport_status_text(struct fyai_transport_state *tp, char *buf, size_t size);
 
 /*
  * True if the credential that @cfg names can be resolved: this process holds a
@@ -170,7 +171,7 @@ void fyai_transport_status_text(struct fyai_ctx *ctx, char *buf, size_t size);
  * answers yes or no, has one. The value never comes back. False if the
  * transport does not answer.
  */
-bool fyai_transport_have_credential(struct fyai_ctx *ctx, const struct fyai_cfg *cfg);
+bool fyai_transport_have_credential(struct fyai_transport_state *tp, const struct fyai_cfg *cfg);
 
 /*
  * Have the transport send the value of the named credentials into a socket,
@@ -180,26 +181,26 @@ bool fyai_transport_have_credential(struct fyai_ctx *ctx, const struct fyai_cfg 
  * until fyai_transport_env_release(). With no transport this does nothing: the
  * environment already has the credentials. Return 0, or -1 with a diagnostic.
  */
-int fyai_transport_env_grant(struct fyai_ctx *ctx, const char *const *names);
+int fyai_transport_env_grant(struct fyai_transport_state *tp, const char *const *names);
 
 /*
  * In a forked command child, move the credentials of the grant into its
  * environment and close the socket. Do nothing when there is no grant.
  */
-void fyai_transport_env_take(struct fyai_ctx *ctx);
+void fyai_transport_env_take(struct fyai_transport_state *tp);
 
 /* Close the read end of the grant. */
-void fyai_transport_env_release(struct fyai_ctx *ctx);
+void fyai_transport_env_release(struct fyai_transport_state *tp);
 
 /* Tell the transport which logs are on, after `log start` or `log stop`. */
-void fyai_transport_sync_logging(struct fyai_ctx *ctx);
+void fyai_transport_sync_logging(struct fyai_transport_state *tp);
 
 /* Close the client. The process that started the transport also ends it. */
-void fyai_transport_detach(struct fyai_ctx *ctx);
+void fyai_transport_detach(struct fyai_transport_state *tp);
 
 /* Attach and admit an exec worker to the inherited credential transport. */
 int fyai_transport_worker_attach(int sync_fd, int agent_fd, int ctl_fd);
-int fyai_transport_worker_admit(struct fyai_ctx *ctx, pid_t pid,
+int fyai_transport_worker_admit(struct fyai_transport_state *tp, pid_t pid,
 			      int agent_fd, int ctl_fd, int sync_fd);
 
 #endif

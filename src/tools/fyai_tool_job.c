@@ -451,7 +451,7 @@ static int fyai_tool_job_spawn(struct fyai_ctx *ctx,
 			close(tpc[1]);
 		}
 		/* A credential grant is for this child; it then holds no other. */
-		fyai_transport_env_take(ctx);
+		fyai_transport_env_take(ctx->transport);
 		if (setsid() < 0)
 			(void)setpgid(0, 0);	/* already a leader: still isolate */
 		fyai_ctx_loop_abandon(ctx);
@@ -528,7 +528,7 @@ static int fyai_tool_job_spawn(struct fyai_ctx *ctx,
 		/* A pidfd names the child also from inside a PID namespace of its own. */
 		if (pidfd < 0)
 			pidfd = fyai_host_pidfd_open(pid);
-		rc = fyai_transport_admit_child(ctx, pid, pidfd, tpa[1], tpc[1],
+		rc = fyai_transport_admit_child(ctx->transport, pid, pidfd, tpa[1], tpc[1],
 						&job->transport_exec);
 		if (!rc && vsync[0] >= 0) {
 			/* The agent runs only after the transport knows it. */

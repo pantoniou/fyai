@@ -235,7 +235,7 @@ int fyai_cmd_profiles(struct fyai_cmd_call *call, fy_generic *result)
 			return -1;
 		}
 	}
-	if (fyai_transport_describe(fyai_cmd_call_ctx(call), call->gb, id, &reply))
+	if (fyai_transport_describe((fyai_cmd_call_ctx(call))->transport, call->gb, id, &reply))
 		return -1;
 	*result = fy_get(reply, "profiles", fy_seq_empty);
 	return 0;

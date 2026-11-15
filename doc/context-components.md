@@ -222,8 +222,12 @@ is not a method. A method that must call up, as the queue of events wakes the
 waiters that hold a call, calls a hook (a function pointer and its data) that
 the run sets, as `fyai_waitq_bind()` does. `fyai_diag_check()` reports a
 failure into the sink that a component holds. Done: the event queue and the
-named waits (`waitq`), the orphans and the pins of the scope (`scope`), and the
-background questions (`askq`, which reaches the user through hooks).
+named waits (`waitq`), the orphans and the pins of the scope (`scope`), the
+background questions (`askq`, which reaches the user through hooks), the curl
+multi plumbing of the connection (`link`), and the control channel of the
+credential transport (`transport`). A function that composes components, such
+as `fyai_xfer_submit()`, `fyai_transport_ensure()` and `fyai_transport_attach()`,
+stays on `ctx`.
 
 ## Order of work
 

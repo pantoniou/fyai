@@ -738,7 +738,7 @@ int fyai_session_model(struct fyai_ctx *ctx, const char *name, bool live)
 		return -1;
 	session_login_ref(&tmp);
 	/* Only a live session sends the next request with it. */
-	if (live && !fyai_transport_have_credential(ctx, &tmp) &&
+	if (live && !fyai_transport_have_credential(ctx->transport, &tmp) &&
 	    !session_chatgpt_capable(cfg, &tmp)) {
 		fyai_error(ctx, "model: no API key for provider '%s' (set %s%s)",
 			   tmp.provider ? tmp.provider : "?",
@@ -823,7 +823,7 @@ int fyai_session_api(struct fyai_ctx *ctx, const char *arg, bool live)
 		return -1;
 	session_login_ref(&tmp);
 	/* Only a live session sends the next request with it. */
-	if (live && !fyai_transport_have_credential(ctx, &tmp) &&
+	if (live && !fyai_transport_have_credential(ctx->transport, &tmp) &&
 	    !session_chatgpt_capable(cfg, &tmp)) {
 		fyai_error(ctx, "api: no API key for provider '%s' (set %s%s)",
 			   tmp.provider ? tmp.provider : "?",
@@ -1131,7 +1131,7 @@ fy_generic fyai_session_status_data(struct fyai_ctx *ctx,
 
 	char iso[160];
 
-	fyai_transport_status_text(ctx, iso, sizeof(iso));
+	fyai_transport_status_text(ctx->transport, iso, sizeof(iso));
 	window = fyai_context_window(ctx);
 	fyai_context_prompt_at(ctx, ctx->turn->last_message, &p);
 	shown = session_projected_tokens(ctx, &p);
@@ -1616,7 +1616,7 @@ fy_generic fyai_session_values(struct fyai_ctx *ctx,
 	v = session_put_str(gb, v, "attached_state", state);
 	if (ctx->transport->client)
 		v = session_put(gb, v, "isolation", fy_mapping(gb,
-			"level", fyai_transport_effective_level(ctx),
+			"level", fyai_transport_effective_level(ctx->transport),
 			"alive", fyai_tclient_alive(ctx->transport->client)));
 	else
 		v = session_drop(gb, v, "isolation");

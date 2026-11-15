@@ -71,7 +71,7 @@ static int config_changed(struct fyai_cmd_call *call)
 		return 0;
 	if (fyai_config_rederive(ctx))
 		return -1;
-	rc = fyai_transport_config_changed(ctx, &why);
+	rc = fyai_transport_config_changed(ctx->transport, &why);
 	if (rc < 0) {
 		fyai_warning(ctx, "agent/transport_isolation: %s", why);
 		return 0;
@@ -1177,7 +1177,7 @@ int fyai_cmd_lockdown(struct fyai_cmd_call *call, fy_generic *result)
 	fy_generic none, policy;
 	int rc;
 
-	if (preset_idle(call) || fyai_transport_preflight(ctx))
+	if (preset_idle(call) || fyai_transport_preflight(ctx->transport))
 		return -1;
 	/* The profile is stored, so the next image of the session confines its tools too. */
 	rc = preset_set(call, "sandbox_profile", "lockdown");
@@ -1278,7 +1278,7 @@ int fyai_cmd_session_status(struct fyai_cmd_call *call, fy_generic *result)
 	struct fyai_ctx *ctx = fyai_cmd_call_ctx(call);
 	struct fyai_cfg *cfg = ctx->cfg;
 	fy_generic net = fy_get(cfg->sandbox, "network", fy_invalid);
-	const char *running = fyai_transport_effective_level(ctx), *name = fyai_view_session_name(ctx);
+	const char *running = fyai_transport_effective_level(ctx->transport), *name = fyai_view_session_name(ctx);
 	const char *stored = cfg->agent_transport_isolation ? cfg->agent_transport_isolation : "none";
 	const char *note = NULL;
 	bool want_view = preset_view_session(ctx), stored_on, running_on, view_on, restricted;

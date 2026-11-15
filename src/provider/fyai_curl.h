@@ -12,20 +12,20 @@
 
 #include <curl/curl.h>
 
-struct fyai_ctx;
+struct fyai_link;
 struct fyai_curl_transfer;
 
 typedef void (*fyai_curl_complete_fn)(struct fyai_curl_transfer *transfer,
 				      void *userdata);
 
 /*
- * Submit @easy to the context-owned curl multi handle. Completion is latched
+ * Submit @easy to the curl multi handle of @link. Completion is latched
  * before @complete is called. Completion is deferred through the event loop,
  * so @complete cannot run before this function returns. The caller owns @easy
  * and must keep it alive until the transfer is destroyed.
  */
 struct fyai_curl_transfer *
-fyai_curl_submit(struct fyai_ctx *ctx, CURL *easy,
+fyai_curl_submit(struct fyai_link *link, CURL *easy,
 		 fyai_curl_complete_fn complete, void *userdata);
 
 void fyai_curl_cancel(struct fyai_curl_transfer *transfer);
@@ -38,6 +38,6 @@ bool fyai_http_transient(CURLcode rc, long status);
 
 /* Release the invocation's curl plumbing: the multi handle with its connection
  * pool, and the loop whose sources describe curl's sockets. */
-void fyai_curl_cleanup(struct fyai_ctx *ctx);
+void fyai_curl_cleanup(struct fyai_link *link);
 
 #endif

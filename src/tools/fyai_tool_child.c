@@ -779,7 +779,7 @@ fy_generic fyai_agent_spawn_state(struct fyai_ctx *ctx,
 		"fork", fork,
 		"parent", ctx->astate->execution,
 		"transport", transport_exec ?
-			fyai_transport_spawn_state(ctx, gb, transport_exec) :
+			fyai_transport_spawn_state(ctx->transport, gb, transport_exec) :
 			fy_null,
 		"api_key", cfg->api_key_explicit && cfg->api_key ?
 			fy_value(gb, cfg->api_key) : fy_null);

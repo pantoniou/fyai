@@ -233,7 +233,7 @@ static void agent_close(struct agent *a)
 	fyai_transport_server_destroy(a->srv);
 	fyai_transport_registry_destroy(a->reg);
 	close(a->fd);
-	fyai_curl_cleanup(&test_ctx);
+	fyai_curl_cleanup(test_ctx.link);
 	fyai_loop_release(fyai_test_loop_of(&test_ctx));
 	curl_global_cleanup();
 }
@@ -592,7 +592,7 @@ int transport_server_channel_close_cancels(void)
 	FYAI_TCHECK(a.retired == 1);
 	fyai_transport_server_destroy(a.srv);
 	fyai_transport_registry_destroy(a.reg);
-	fyai_curl_cleanup(&test_ctx);
+	fyai_curl_cleanup(test_ctx.link);
 	fyai_loop_release(fyai_test_loop_of(&test_ctx));
 	curl_global_cleanup();
 	tmock_stop(&m);

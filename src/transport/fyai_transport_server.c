@@ -1016,7 +1016,7 @@ static void req_run(struct req *rq, const uint8_t *payload, size_t plen,
 		goto out;
 	}
 	req_setup_curl(rq, &r);
-	rq->xfer = fyai_curl_submit(fyai_transport_server_ctx(srv), rq->easy, req_complete_cb, rq);
+	rq->xfer = fyai_curl_submit((fyai_transport_server_ctx(srv))->link, rq->easy, req_complete_cb, rq);
 	if (!rq->xfer)
 		req_fail(rq, -1, "transfer could not be started", false);
 	goto out;

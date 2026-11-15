@@ -614,7 +614,7 @@ static int auth_fetch_start(struct auth_fetch *f, const char *url, char *body,
 		curl_easy_setopt(f->curl, CURLOPT_POSTFIELDS, body);
 	if (headers)
 		curl_easy_setopt(f->curl, CURLOPT_HTTPHEADER, headers);
-	f->transfer = fyai_curl_submit(ctx, f->curl, auth_fetch_complete, f);
+	f->transfer = fyai_curl_submit(ctx->link, f->curl, auth_fetch_complete, f);
 	fyai_error_check(ctx, f->transfer, err_out,
 			 "auth: could not submit the request");
 	return 0;
@@ -748,7 +748,7 @@ static int fyai_auth_login_http_submit(struct fyai_auth_login_request *request,
 		curl_easy_setopt(request->curl, CURLOPT_POSTFIELDS, request->body);
 		curl_easy_setopt(request->curl, CURLOPT_HTTPHEADER, request->headers);
 	}
-	request->transfer = fyai_curl_submit(fyai_auth_login_request_ctx(request), request->curl,
+	request->transfer = fyai_curl_submit((fyai_auth_login_request_ctx(request))->link, request->curl,
 					    fyai_auth_login_http_complete, request);
 	return request->transfer ? 0 : -1;
 }
@@ -1328,7 +1328,7 @@ static void fyai_auth_refresh_complete(
 		curl_easy_setopt(request->curl, CURLOPT_POSTFIELDS, request->body);
 		curl_easy_setopt(request->curl, CURLOPT_HTTPHEADER, request->headers);
 		request->refreshing = true;
-		request->transfer = fyai_curl_submit(ctx, request->curl,
+		request->transfer = fyai_curl_submit(ctx->link, request->curl,
 			fyai_auth_refresh_complete, request);
 		fyai_error_check(ctx, request->transfer, done, "could not refresh subscription tokens");
 		return;
@@ -1422,7 +1422,7 @@ fyai_auth_refresh_start_locked(struct fyai_auth_refresh_request *request)
 	curl_easy_setopt(request->curl, CURLOPT_HTTPGET, 1L);
 
 	fyai_auth_refresh_transition(request, FYAIARS_REQUEST_PENDING);
-	request->transfer = fyai_curl_submit(ctx, request->curl,
+	request->transfer = fyai_curl_submit(ctx->link, request->curl,
 					     fyai_auth_refresh_complete,
 					     request);
 	fyai_error_check(ctx, request->transfer, err_out,

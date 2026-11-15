@@ -103,7 +103,7 @@ static void rig_close(struct rig *r)
 	test_cfg.api_url = NULL;
 	fyai_transport_server_destroy(r->srv);
 	fyai_transport_registry_destroy(r->reg);
-	fyai_curl_cleanup(&test_ctx);
+	fyai_curl_cleanup(test_ctx.link);
 	fyai_loop_release(fyai_test_loop_of(&test_ctx));
 	curl_global_cleanup();
 }
@@ -553,7 +553,7 @@ static enum fyai_transport_role attach_role(const char *owner)
 	FYAI_TCHECK(!fyai_transport_attach(&test_ctx));
 	FYAI_TCHECK(test_ctx.transport->client);
 	role = test_ctx.transport->role;
-	fyai_transport_detach(&test_ctx);
+	fyai_transport_detach(test_ctx.transport);
 	/* A detached transport has no client and no role. */
 	FYAI_TCHECK(!test_ctx.transport->client);
 	FYAI_TCHECK(test_ctx.transport->role == FYAI_TRANSPORT_NONE);
@@ -577,6 +577,6 @@ void transport_client_role_follows_attach(void)
 	unsetenv(FYAI_TRANSPORT_FD_ENV);
 	unsetenv(FYAI_TRANSPORT_EXEC_ENV);
 	unsetenv(FYAI_TRANSPORT_OWNER_ENV);
-	fyai_curl_cleanup(&test_ctx);
+	fyai_curl_cleanup(test_ctx.link);
 	fyai_loop_release(fyai_test_loop_of(&test_ctx));
 }

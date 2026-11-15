@@ -47,7 +47,7 @@ static int auth_forward(struct fyai_cmd_call *call, const char *sub,
 {
 	const char *words[3] = { "auth", fyai_cmd_arg_str(call, "provider"), sub };
 
-	return fyai_transport_command(fyai_cmd_call_ctx(call), call->gb, words, 3,
+	return fyai_transport_command((fyai_cmd_call_ctx(call))->transport, call->gb, words, 3,
 				      (int)call->format, data);
 }
 

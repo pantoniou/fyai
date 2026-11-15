@@ -506,7 +506,7 @@ static int remote_spawn(struct fyai_remote_peer *peer, const char *branch,
 		remote_worker_exec(ctx, args[0], args, peer->dir, channel[1],
 				   agent[0], ctl[0], sync[0]);
 	if (ctx->transport->client) {
-		rc = fyai_transport_worker_admit(ctx, pid, agent[1], ctl[1],
+		rc = fyai_transport_worker_admit(ctx->transport, pid, agent[1], ctl[1],
 						 sync[1]);
 		fyai_error_check(ctx, !rc, out,
 				 "cannot admit a worker to the transport");

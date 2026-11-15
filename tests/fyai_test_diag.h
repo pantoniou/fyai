@@ -42,6 +42,11 @@ static inline struct fyai_link *fyai_test_link_of(struct fyai_ctx *ctx)
 {
 	if (!ctx->link)
 		ctx->link = calloc(1, sizeof(*ctx->link));
+	if (ctx->link) {
+		if (ctx->loop)
+			ctx->link->loop = ctx->loop;
+		ctx->link->diag = fyai_cfg_diag(ctx->cfg);
+	}
 	return ctx->link;
 }
 
@@ -55,7 +60,7 @@ static inline struct fyai_transport_state *fyai_test_transport_of(struct fyai_ct
 		ctx->transport = calloc(1, sizeof(*ctx->transport));
 		if (!ctx->transport)
 			return NULL;
-		fyai_transport_state_init(ctx->transport, ctx->loop, ctx->cred);
+		fyai_transport_state_init(ctx->transport, ctx->loop, ctx->cred, ctx->cfg, fyai_cfg_diag(ctx->cfg));
 	}
 	return ctx->transport;
 }
@@ -78,6 +83,7 @@ static inline struct fyai_loop *fyai_test_loop_of(struct fyai_ctx *ctx)
 	}
 	fyai_test_attach(ctx);
 	ctx->link->loop = ctx->loop;
+	ctx->link->diag = fyai_cfg_diag(ctx->cfg);
 	/* A loop that a test declared itself starts with no sink. */
 	if (!ctx->loop->diag)
 		ctx->loop->diag = fyai_cfg_diag(ctx->cfg);

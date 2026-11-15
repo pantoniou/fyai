@@ -322,27 +322,27 @@ int transport_cfg_secret_stays_at_the_transport(void)
 int transport_cfg_isolation_change_restarts(void)
 {
 	struct fyai_cfg cfg = { 0 };
-	struct fyai_transport_state tstate = {};
+	struct fyai_transport_state tstate = { .cfg = &cfg };
 	struct fyai_ctx ctx = { .cfg = &cfg, .transport = &tstate };
 	const char *why = NULL;
 
 	unsetenv("FYAI_TRANSPORT_FORCED");
 	cfg.agent_transport_isolation = "level-b";
-	FYAI_TCHECK(fyai_transport_config_changed(&ctx, &why) == 1);
+	FYAI_TCHECK(fyai_transport_config_changed(ctx.transport, &why) == 1);
 	cfg.agent_transport_isolation = "auto";
-	FYAI_TCHECK(fyai_transport_config_changed(&ctx, &why) == 1);
+	FYAI_TCHECK(fyai_transport_config_changed(ctx.transport, &why) == 1);
 	cfg.agent_transport_isolation = "none";
-	FYAI_TCHECK(fyai_transport_config_changed(&ctx, &why) == 0);
+	FYAI_TCHECK(fyai_transport_config_changed(ctx.transport, &why) == 0);
 
 	/* A transport is running: it is the `none` that restarts. */
 	ctx.transport->client = (struct fyai_tclient *)&ctx;
-	FYAI_TCHECK(fyai_transport_config_changed(&ctx, &why) == 1);
+	FYAI_TCHECK(fyai_transport_config_changed(ctx.transport, &why) == 1);
 	cfg.agent_transport_isolation = "level-b";
-	FYAI_TCHECK(fyai_transport_config_changed(&ctx, &why) == 0);
+	FYAI_TCHECK(fyai_transport_config_changed(ctx.transport, &why) == 0);
 
 	setenv("FYAI_TRANSPORT_FORCED", "1", 1);
 	cfg.agent_transport_isolation = "none";
-	FYAI_TCHECK(fyai_transport_config_changed(&ctx, &why) == -1 && why);
+	FYAI_TCHECK(fyai_transport_config_changed(ctx.transport, &why) == -1 && why);
 	unsetenv("FYAI_TRANSPORT_FORCED");
 	return 0;
 }

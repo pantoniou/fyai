@@ -431,7 +431,7 @@ static int acp_spawn_worker(struct acp_session *s, fy_generic content,
 		acp_close_fd(&agent[0]);
 		acp_close_fd(&ctl[0]);
 		acp_close_fd(&sync[0]);
-		admit_rc = fyai_transport_worker_admit(ctx, pid, agent[1], ctl[1],
+		admit_rc = fyai_transport_worker_admit(ctx->transport, pid, agent[1], ctl[1],
 						    sync[1]);
 		fyai_error_check(ctx, !admit_rc, out,
 				 "could not admit ACP worker to transport");

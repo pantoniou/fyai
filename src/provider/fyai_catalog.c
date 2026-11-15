@@ -933,12 +933,12 @@ fyai_catalog_update_submit(struct fyai_ctx *ctx, const char *const *providers,
 	/* The credentials are at the transport; only the tool child that
 	 * starts the program gets them. */
 	catalog_update_env_keep(ctx, env_names);
-	if (fyai_transport_env_grant(ctx, env_names))
+	if (fyai_transport_env_grant(ctx->transport, env_names))
 		goto err_line;
 	request->session = fyai_tools_config_program(ctx, line.data, "catalog",
 				ctx->cfg->catalog_update_credentials,
 				catalog_update_exited, request);
-	fyai_transport_env_release(ctx);
+	fyai_transport_env_release(ctx->transport);
 	if (!request->session)
 		goto err_line;	/* fyai_tools_config_program() says why */
 	free(line.data);
