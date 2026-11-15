@@ -56,7 +56,7 @@ done < <(find "$src_dir/src" -name '*.c' -print | LC_ALL=C sort)
 
 if [ "$status" -ne 0 ]; then
 	echo >&2
-	echo "Route these through src/fyai_sink.c (fyai_result(), fyai_report()," >&2
+	echo "Route these through src/front/fyai_sink.c (fyai_result(), fyai_report()," >&2
 	echo "fyai_sink_write(), fyai_sink_markdown()), or add the file to" >&2
 	echo "tests/sink-only-allow.txt with the reason it cannot be." >&2
 	exit 1

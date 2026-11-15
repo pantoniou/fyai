@@ -32,19 +32,19 @@ simulator, signing operation, or graphical application is supported.
 
 ## 2. Existing implementation and change boundary
 
-`src/fyai_sandbox.c` holds the portable part of the sandbox and calls the
+`src/sandbox/fyai_sandbox.c` holds the portable part of the sandbox and calls the
 backend of the platform through `struct fyai_sandbox_backend`
-(`src/fyai_sandbox_backend.h`). `src/fyai_sandbox_linux.c` implements Landlock,
-`src/fyai_sandbox_macos.c` implements Seatbelt, and `src/fyai_sandbox_none.c`
+(`src/sandbox/fyai_sandbox_backend.h`). `src/sandbox/fyai_sandbox_linux.c` implements Landlock,
+`src/sandbox/fyai_sandbox_macos.c` implements Seatbelt, and `src/sandbox/fyai_sandbox_none.c`
 confines nothing. The interfaces expose Landlock ABI and network capabilities.
 These ABI values cannot describe Seatbelt capabilities.
 
-`src/fyai_fsview.c` holds the shared manifest operations and calls the backend
+`src/sandbox/fyai_fsview.c` holds the shared manifest operations and calls the backend
 of the platform through `struct fyai_fsview_backend`
-(`src/fyai_fsview_backend.h`). `src/fyai_fsview_linux.c` has the namespace,
+(`src/sandbox/fyai_fsview_backend.h`). `src/sandbox/fyai_fsview_linux.c` has the namespace,
 mount, arena-descriptor, and result-capture operations, and
-`src/fyai_fsview_macos.c` has the native directory operations. A backend leaves
-a member NULL when it does not support the operation. `src/fyai_cmd_fsview.c`
+`src/sandbox/fyai_fsview_macos.c` has the native directory operations. A backend leaves
+a member NULL when it does not support the operation. `src/cmd/fyai_cmd_fsview.c`
 implements the view commands and session integration. The project capture,
 manifest, CAS, and diff modules supply the persistent data model.
 
@@ -371,7 +371,7 @@ one.
 
 ### 8.1 Implemented native sandbox
 
-`src/fyai_sandbox_macos.c` is the macOS sandbox backend. It uses `sandbox_init` in the tool child before exec. This replaces the
+`src/sandbox/fyai_sandbox_macos.c` is the macOS sandbox backend. It uses `sandbox_init` in the tool child before exec. This replaces the
 proposed sandbox-exec wrapper for the first implementation: the existing
 confinement API applies to the current process and does not own its eventual
 argument vector. No second launch path is needed. Both interfaces use the

@@ -11,7 +11,7 @@ component. What remains is rule 3, a function that takes its component and
 not the context, and the split of `front` into the sink, the UI model and the
 UI; both follow the TUI split. Until a function moves, `ctx` is the bundle of
 dependencies that rule 2 allows, and no component reads a field of another
-through it. The counts in the tables come from a script over `src/*.c` that
+through it. The counts in the tables come from a script over `src/*/*.c` that
 counts `ctx->FIELD` per file, as the design was made; check a row against the
 code before a change. The order of the work is near the end.
 
@@ -44,7 +44,7 @@ can use all of them. Three effects follow:
    dependency that points up, as `loop->on_interrupt` is.
 3. A function of a component takes the component (`struct fyai_X *`). It does
    not take `ctx`, and it reaches another component only through `X->deps`.
-4. `struct fyai_app` (`src/fyai_app.h`) is the composition root. It holds each
+4. `struct fyai_app` (`src/core/fyai_app.h`) is the composition root. It holds each
    component that more than one part of the program uses, makes them in
    dependency order, wires the pointers, and destroys them in the reverse
    order. `main()` declares one and it outlives the context. `struct fyai_ctx`
@@ -247,7 +247,7 @@ Each step builds, passes both suites, and lands as its own patch series
    the durable allocator and builder, the overlay, the working builder and the
    head of the published root, which the 266 uses of `ctx->gb` read; they read
    `ctx->arena->gb`. `fyai_arena_release()` destroys them in order. Opening and
-   publishing are still in `src/fyai_storage.c`, which takes the context
+   publishing are still in `src/store/fyai_storage.c`, which takes the context
    because it reads the configuration and the branch state: those functions
    take the arena when the branch state is a component of its own. The
    component has no dependencies yet, and the transient builder depends on its

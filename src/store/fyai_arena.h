@@ -23,7 +23,7 @@ struct fy_generic_builder;
  * durable builder, @overlay_allocator backs it. An arena reopen replaces the
  * builders, so a borrower reads @gb at the use and does not keep it.
  *
- * Opening and publishing are in src/fyai_storage.c, which still reads the
+ * Opening and publishing are in src/store/fyai_storage.c, which still reads the
  * configuration and the branch state of the context; this struct owns what
  * they open.
  */

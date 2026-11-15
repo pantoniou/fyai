@@ -7,13 +7,13 @@ not name a grammar.
 
 | Grammar | File | `api` | Catalogue protocol |
 | --- | --- | --- | --- |
-| Responses | `src/fyai_grammar_responses.c` | `responses` | `responses` |
-| Chat Completions | `src/fyai_grammar_chat.c` | `chat-completions`, `chat` | `chat_completions` |
-| Anthropic Messages | `src/fyai_grammar_messages.c` | `messages` | `messages` |
+| Responses | `src/provider/fyai_grammar_responses.c` | `responses` | `responses` |
+| Chat Completions | `src/provider/fyai_grammar_chat.c` | `chat-completions`, `chat` | `chat_completions` |
+| Anthropic Messages | `src/provider/fyai_grammar_messages.c` | `messages` | `messages` |
 
 ## The interface
 
-`src/fyai_grammar.h` defines `struct fyai_grammar`. Each backend exports one
+`src/provider/fyai_grammar.h` defines `struct fyai_grammar`. Each backend exports one
 table. The grammar is selected at run time, so every build links all three.
 
 - `fyai_grammar(cfg)` gives the grammar of a configuration.
@@ -42,7 +42,7 @@ The core calls an operation through its wrapper, such as
 change cannot leave a stale one behind. A streamed reply is the exception:
 `fyai_grammar_stream_open()` records the grammar in the parse state, and the
 stream operations use that one, so a reply is read in the grammar of its
-request. Only `src/fyai_grammar.c` reads a function member. An operation that
+request. Only `src/provider/fyai_grammar.c` reads a function member. An operation that
 a grammar does not have does nothing.
 
 ## Requests
@@ -142,7 +142,7 @@ A request that does not continue a stored response carries the whole
 conversation, and the conversation grows with each turn. Making the text of
 all the turns again for each request costs more with each turn: the core
 collects the messages, the grammar builds the input from them, and the emitter
-writes the input as JSON. The stored turns never change, so `src/fyai_reqcache.c`
+writes the input as JSON. The stored turns never change, so `src/provider/fyai_reqcache.c`
 keeps the text.
 
 The cache keeps the text of the part of the input that the next request

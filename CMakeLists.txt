@@ -62,6 +62,25 @@ set(FYAI_VERSION_FULL "${PROJECT_VERSION}")
 project(fyai
     LANGUAGES C
     VERSION ${VERSION_MAJOR}.${VERSION_MINOR}.${VERSION_PATCH})
+
+# The sources live in one directory for each component. Every directory is
+# on the include path, so a header keeps the name that it always had.
+set(FYAI_SRC_DIRS
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/auth
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/cmd
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/core
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/front
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/host
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/loop
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/mcp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/net
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/provider
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/remote
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/sandbox
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/store
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/tools
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/transport
+)
 set(PROJECT_VERSION "${FYAI_VERSION_FULL}")
 
 # A build with no type has no optimisation, and the compiler then skips the
@@ -116,14 +135,14 @@ if(FYAI_HAVE_WERROR_STACK_ADDR)
 endif()
 
 # A boolean must be a _Bool in every translation unit, or libfyaml encodes a
-# request field as an integer (src/fyai_bool.h carries the detail). Force the
+# request field as an integer (src/core/fyai_bool.h carries the detail). Force the
 # header so that no source file can miss it.
-check_c_compiler_flag("-include ${CMAKE_CURRENT_SOURCE_DIR}/src/fyai_bool.h"
+check_c_compiler_flag("-include ${CMAKE_CURRENT_SOURCE_DIR}/src/core/fyai_bool.h"
     FYAI_HAVE_FORCE_INCLUDE)
 if(FYAI_HAVE_FORCE_INCLUDE)
-    add_compile_options(-include ${CMAKE_CURRENT_SOURCE_DIR}/src/fyai_bool.h)
+    add_compile_options(-include ${CMAKE_CURRENT_SOURCE_DIR}/src/core/fyai_bool.h)
 else()
-    message(WARNING "cannot force-include src/fyai_bool.h: a libc whose "
+    message(WARNING "cannot force-include src/core/fyai_bool.h: a libc whose "
         "<stdbool.h> makes true an int will send integer request fields")
 endif()
 
@@ -396,11 +415,11 @@ fyai_embed(FYAI_EMBEDDED_PAGE_SCHEMA embedded_page_schema.inc
 fyai_embed(FYAI_EMBEDDED_SKILL_SCHEMA embedded_skill_schema.inc
     data/skill.schema.yaml)
 
-# Embed the command definitions and their schema (src/fyai_cmd.c).
+# Embed the command definitions and their schema (src/cmd/fyai_cmd.c).
 fyai_embed(FYAI_EMBEDDED_COMMANDS embedded_commands.inc data/commands.yaml)
 
 # Prebuilt images of the two large documents, which are parsed at every start
-# otherwise (src/fyai_image.h). fyai_mkimage runs on the build host, so a
+# otherwise (src/core/fyai_image.h). fyai_mkimage runs on the build host, so a
 # cross build embeds empty images and parses the text.
 set(FYAI_IMAGE_INCS
     "${CMAKE_CURRENT_BINARY_DIR}/embedded_commands_image.inc"
@@ -417,7 +436,7 @@ else()
         ${FYAI_C_WARNINGS})
     target_compile_definitions(fyai_mkimage PRIVATE _GNU_SOURCE)
     target_include_directories(fyai_mkimage PRIVATE
-        ${CMAKE_CURRENT_SOURCE_DIR}/src)
+        ${FYAI_SRC_DIRS})
     target_link_libraries(fyai_mkimage PRIVATE libfyaml::libfyaml)
     add_custom_command(
         OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/embedded_commands_image.inc"
@@ -491,15 +510,15 @@ endif()
 # loop with no backend behind it.
 # The event layer reports through the diagnostic layer, so any target that
 # links it needs fyai_diag.c as well.
-set(FYAI_DIAG_SOURCES src/fyai_diag.c)
-set(FYAI_EVENT_SOURCES src/fyai_event.c src/fyai_event_dump.c)
+set(FYAI_DIAG_SOURCES src/core/fyai_diag.c)
+set(FYAI_EVENT_SOURCES src/loop/fyai_event.c src/loop/fyai_event_dump.c)
 if(APPLE)
-    list(APPEND FYAI_EVENT_SOURCES src/fyai_event_mac.c)
+    list(APPEND FYAI_EVENT_SOURCES src/loop/fyai_event_mac.c)
 else()
-    list(APPEND FYAI_EVENT_SOURCES src/fyai_event_linux.c)
+    list(APPEND FYAI_EVENT_SOURCES src/loop/fyai_event_linux.c)
 endif()
 
-# List the production sources except src/main.c.
+# List the production sources except src/core/main.c.
 # Use this list for the fyai and fyai_test binaries.
 # execinfo/backtrace() for the fatal-signal backtrace (fyai_crash.c).
 check_include_file("execinfo.h" HAVE_EXECINFO)
@@ -515,189 +534,189 @@ endif()
 message(STATUS "fyai: crash backtrace ${FYAI_HAVE_BACKTRACE}")
 
 set(FYAI_SOURCES
-    src/fyai_cas.c
-    src/fyai_host.c
-    src/fyai_host_linux.c
-    src/fyai_host_macos.c
-    src/fyai_host_none.c
-    src/fyai_cas_linux.c
-    src/fyai_cas_macos.c
-    src/fyai_cas_none.c
-    src/fyai_scratch.c
-    src/fyai_ignore.c
-    src/fyai_view_fs.c
-    src/fyai_manifest.c
-    src/fyai_wire.c
-    src/fyai_project.c
-    src/fyai_project_diff.c
-    src/fyai_project_capture.c
-    src/fyai_project_capture_linux.c
-    src/fyai_project_capture_macos.c
-    src/fyai_project_capture_none.c
-    src/fyai_fsview.c
-    src/fyai_fsview_linux.c
-    src/fyai_fsview_macos.c
-    src/fyai_fsview_none.c
-    src/fyai_view_apply.c
-    src/fyai_view_gc.c
+    src/store/fyai_cas.c
+    src/host/fyai_host.c
+    src/host/fyai_host_linux.c
+    src/host/fyai_host_macos.c
+    src/host/fyai_host_none.c
+    src/store/fyai_cas_linux.c
+    src/store/fyai_cas_macos.c
+    src/store/fyai_cas_none.c
+    src/store/fyai_scratch.c
+    src/store/fyai_ignore.c
+    src/sandbox/fyai_view_fs.c
+    src/store/fyai_manifest.c
+    src/core/fyai_wire.c
+    src/store/fyai_project.c
+    src/store/fyai_project_diff.c
+    src/store/fyai_project_capture.c
+    src/store/fyai_project_capture_linux.c
+    src/store/fyai_project_capture_macos.c
+    src/store/fyai_project_capture_none.c
+    src/sandbox/fyai_fsview.c
+    src/sandbox/fyai_fsview_linux.c
+    src/sandbox/fyai_fsview_macos.c
+    src/sandbox/fyai_fsview_none.c
+    src/sandbox/fyai_view_apply.c
+    src/sandbox/fyai_view_gc.c
     ${FYAI_EVENT_SOURCES}
-    src/fyai_crash.c
-    src/fyai_display.c
-    src/fyai_import.c
-    src/fyai_foreign_import.c
-    src/fyai_flow.c
-    src/fyai_output.c
-    src/fyai.c
-    src/fyai_agent.c
-    src/fyai_acp.c
-    src/fyai_uimodel.c
-    src/fyai_uilog.c
-    src/fyai_uiwork.c
-    src/fyai_uitranscript.c
-    src/fyai_uidraw.c
-    src/fyai_remote.c
-    src/fyai_remote_server.c
-    src/fyai_remote_ui.c
-    src/fyai_net.c
-    src/fyai_ws.c
-    src/fyai_remote_tls.c
-    src/fyai_httpd.c
-    src/fyai_ws_client.c
-    src/fyai_remote_http.c
-    src/fyai_remote_relay.c
-    src/fyai_claude_sdk.c
-    src/fyai_structured.c
-    src/fyai_settings.c
-    src/fyai_agents.c
-    src/fyai_ask.c
-    src/fyai_event_fmt.c
-    src/fyai_asks.c
-    src/fyai_todo.c
-    src/fyai_skill.c
-    src/fyai_media.c
-    src/fyai_branch.c
-    src/fyai_merge.c
-    src/fyai_diff.c
-    src/fyai_diag.c
-    src/fyai_log.c
-    src/fyai_markdown.c
-    src/fyai_chrome.c
-    src/fyai_marker.c
-    src/fyai_ui.c
-    src/fyai_workpane.c
-    src/fyai_page.c
-    src/fyai_panel.c
-    src/fyai_transcript_view.c
-    src/fyai_mcp.c
-    src/fyai_mcp_oauth.c
-    src/fyai_mcp_import.c
-    src/fyai_jsonrpc.c
-    src/fyai_patch.c
-    src/fyai_prof.c
-    src/fyai_grammar.c
-    src/fyai_grammar_chat.c
-    src/fyai_grammar_messages.c
-    src/fyai_grammar_responses.c
-    src/fyai_provider.c
-    src/fyai_render.c
-    src/fyai_sandbox.c
-    src/fyai_sandbox_linux.c
-    src/fyai_sandbox_macos.c
-    src/fyai_sandbox_none.c
-    src/fyai_cover_linux.c
-    src/fyai_cover_none.c
-    src/fyai_orphan_linux.c
-    src/fyai_orphan_none.c
-    src/fyai_home.c
-    src/fyai_sandbox_profile.c
-    src/fyai_session.c
-    src/fyai_browser.c
-    src/fyai_sink.c
-    src/fyai_sink_frames.c
-    src/fyai_storage.c
-    src/fyai_stream.c
-    src/fyai_term.c
-    src/fyai_wait.c
-    src/fyai_terminal.c
-    src/fyai_terminal_session.c
-    src/fyai_terminal_view.c
-    src/fyai_schema.c
-    src/fyai_tools.c
-    src/fyai_shell_sandbox.c
-    src/fyai_tool_child.c
-    src/fyai_shell_session.c
-    src/fyai_tools_focus.c
-    src/fyai_agent_view.c
-    src/fyai_tool_job.c
-    src/fyai_tool_spec.c
-    src/fyai_tool_registry.c
-    src/fyai_monitor.c
-    src/fyai_mock.c
-    src/fyai_cast.c
-    src/fyai_ptydrv.c
-    src/fyai_ptyscr.c
-    src/fyai_builtin.c
-    src/fyai_tool_template.c
-    src/fyai_turn.c
-    src/fyai_reqcache.c
-    src/fyai_buf.c
-    src/utils.c
-    src/fyai_app.c
-    src/fyai_arena.c
-    src/fyai_transient.c
-    src/fyai_shell_capture.c
-    src/fyai_editor.c
-    src/fyai_catalog.c
-    src/fyai_cost.c
-    src/fyai_config.c
-    src/fyai_curl.c
-    src/fyai_xfer.c
-    src/fyai_transport.c
-    src/fyai_transport_msg.c
-    src/fyai_transport_server.c
-    src/fyai_transport_ctl.c
-    src/fyai_transport_verb.c
-    src/fyai_transport_client.c
-    src/fyai_transport_cfg.c
-    src/fyai_transport_boot.c
-    src/fyai_auth.c
-    src/fyai_cred.c
-    src/fyai_oauth.c
-    src/fyai_auth_util.c
-    src/fyai_secret.c
-    src/fyai_secret_store.c
-    src/fyai_secret_keyctl.c
-    src/fyai_secret_keychain.c
-    src/fyai_secret_libsecret.c
-    src/fyai_secret_none.c
-    src/fyai_redact.c
-    src/fyai_cmd.c
-    src/fyai_cmd_auth.c
-    src/fyai_cmd_branch.c
-    src/fyai_cmd_catalog.c
-    src/fyai_cmd_schema.c
-    src/fyai_cmd_complete.c
-    src/fyai_cmd_config.c
-    src/fyai_cmd_help.c
-    src/fyai_cmd_mcp.c
-    src/fyai_cmd_session.c
-    src/fyai_cmd_media.c
-    src/fyai_cmd_skill.c
-    src/fyai_cmd_page.c
-    src/fyai_cmd_misc.c
-    src/fyai_cmd_cast.c
-    src/fyai_cast_file.c
-    src/fyai_cast_player.c
-    src/fyai_cmd_store.c
-    src/fyai_cmd_view.c
-    src/fyai_cmd_fsview.c
+    src/core/fyai_crash.c
+    src/front/fyai_display.c
+    src/core/fyai_import.c
+    src/core/fyai_foreign_import.c
+    src/front/fyai_flow.c
+    src/front/fyai_output.c
+    src/core/fyai.c
+    src/tools/fyai_agent.c
+    src/remote/fyai_acp.c
+    src/front/fyai_uimodel.c
+    src/front/fyai_uilog.c
+    src/front/fyai_uiwork.c
+    src/front/fyai_uitranscript.c
+    src/front/fyai_uidraw.c
+    src/remote/fyai_remote.c
+    src/remote/fyai_remote_server.c
+    src/remote/fyai_remote_ui.c
+    src/net/fyai_net.c
+    src/net/fyai_ws.c
+    src/remote/fyai_remote_tls.c
+    src/net/fyai_httpd.c
+    src/net/fyai_ws_client.c
+    src/remote/fyai_remote_http.c
+    src/remote/fyai_remote_relay.c
+    src/remote/fyai_claude_sdk.c
+    src/core/fyai_structured.c
+    src/core/fyai_settings.c
+    src/tools/fyai_agents.c
+    src/tools/fyai_ask.c
+    src/loop/fyai_event_fmt.c
+    src/tools/fyai_asks.c
+    src/core/fyai_todo.c
+    src/tools/fyai_skill.c
+    src/core/fyai_media.c
+    src/store/fyai_branch.c
+    src/store/fyai_merge.c
+    src/core/fyai_diff.c
+    src/core/fyai_diag.c
+    src/core/fyai_log.c
+    src/front/fyai_markdown.c
+    src/front/fyai_chrome.c
+    src/core/fyai_marker.c
+    src/front/fyai_ui.c
+    src/front/fyai_workpane.c
+    src/front/fyai_page.c
+    src/front/fyai_panel.c
+    src/front/fyai_transcript_view.c
+    src/mcp/fyai_mcp.c
+    src/auth/fyai_mcp_oauth.c
+    src/mcp/fyai_mcp_import.c
+    src/net/fyai_jsonrpc.c
+    src/core/fyai_patch.c
+    src/core/fyai_prof.c
+    src/provider/fyai_grammar.c
+    src/provider/fyai_grammar_chat.c
+    src/provider/fyai_grammar_messages.c
+    src/provider/fyai_grammar_responses.c
+    src/provider/fyai_provider.c
+    src/front/fyai_render.c
+    src/sandbox/fyai_sandbox.c
+    src/sandbox/fyai_sandbox_linux.c
+    src/sandbox/fyai_sandbox_macos.c
+    src/sandbox/fyai_sandbox_none.c
+    src/sandbox/fyai_cover_linux.c
+    src/sandbox/fyai_cover_none.c
+    src/sandbox/fyai_orphan_linux.c
+    src/sandbox/fyai_orphan_none.c
+    src/sandbox/fyai_home.c
+    src/sandbox/fyai_sandbox_profile.c
+    src/front/fyai_session.c
+    src/front/fyai_browser.c
+    src/front/fyai_sink.c
+    src/front/fyai_sink_frames.c
+    src/store/fyai_storage.c
+    src/provider/fyai_stream.c
+    src/front/fyai_term.c
+    src/loop/fyai_wait.c
+    src/front/fyai_terminal.c
+    src/front/fyai_terminal_session.c
+    src/front/fyai_terminal_view.c
+    src/core/fyai_schema.c
+    src/tools/fyai_tools.c
+    src/sandbox/fyai_shell_sandbox.c
+    src/tools/fyai_tool_child.c
+    src/tools/fyai_shell_session.c
+    src/front/fyai_tools_focus.c
+    src/front/fyai_agent_view.c
+    src/tools/fyai_tool_job.c
+    src/tools/fyai_tool_spec.c
+    src/tools/fyai_tool_registry.c
+    src/tools/fyai_monitor.c
+    src/provider/fyai_mock.c
+    src/front/fyai_cast.c
+    src/front/fyai_ptydrv.c
+    src/front/fyai_ptyscr.c
+    src/tools/fyai_builtin.c
+    src/tools/fyai_tool_template.c
+    src/core/fyai_turn.c
+    src/provider/fyai_reqcache.c
+    src/core/fyai_buf.c
+    src/core/utils.c
+    src/core/fyai_app.c
+    src/store/fyai_arena.c
+    src/store/fyai_transient.c
+    src/tools/fyai_shell_capture.c
+    src/front/fyai_editor.c
+    src/provider/fyai_catalog.c
+    src/core/fyai_cost.c
+    src/core/fyai_config.c
+    src/provider/fyai_curl.c
+    src/provider/fyai_xfer.c
+    src/transport/fyai_transport.c
+    src/transport/fyai_transport_msg.c
+    src/transport/fyai_transport_server.c
+    src/transport/fyai_transport_ctl.c
+    src/transport/fyai_transport_verb.c
+    src/transport/fyai_transport_client.c
+    src/transport/fyai_transport_cfg.c
+    src/transport/fyai_transport_boot.c
+    src/auth/fyai_auth.c
+    src/auth/fyai_cred.c
+    src/auth/fyai_oauth.c
+    src/auth/fyai_auth_util.c
+    src/auth/fyai_secret.c
+    src/auth/fyai_secret_store.c
+    src/auth/fyai_secret_keyctl.c
+    src/auth/fyai_secret_keychain.c
+    src/auth/fyai_secret_libsecret.c
+    src/auth/fyai_secret_none.c
+    src/core/fyai_redact.c
+    src/cmd/fyai_cmd.c
+    src/cmd/fyai_cmd_auth.c
+    src/cmd/fyai_cmd_branch.c
+    src/cmd/fyai_cmd_catalog.c
+    src/cmd/fyai_cmd_schema.c
+    src/cmd/fyai_cmd_complete.c
+    src/cmd/fyai_cmd_config.c
+    src/cmd/fyai_cmd_help.c
+    src/cmd/fyai_cmd_mcp.c
+    src/cmd/fyai_cmd_session.c
+    src/cmd/fyai_cmd_media.c
+    src/cmd/fyai_cmd_skill.c
+    src/cmd/fyai_cmd_page.c
+    src/cmd/fyai_cmd_misc.c
+    src/cmd/fyai_cmd_cast.c
+    src/front/fyai_cast_file.c
+    src/front/fyai_cast_player.c
+    src/cmd/fyai_cmd_store.c
+    src/cmd/fyai_cmd_view.c
+    src/cmd/fyai_cmd_fsview.c
 )
 
 configure_file(scripts/git-remote-fyai git-remote-fyai COPYONLY)
 install(PROGRAMS scripts/git-remote-fyai DESTINATION bin/)
 
 add_executable(fyai
-    src/main.c
+    src/core/main.c
     ${FYAI_SOURCES}
     ${FYAI_IMAGE_INCS}
 )
@@ -727,7 +746,7 @@ add_custom_target(docs-commands
 # glibc binaries do not require GLIBC_2.38; fully dynamic builds use the host
 # glibc directly (and the interposers break ASAN's own interceptors).
 if(FYAI_MOSTLY_STATIC)
-    target_sources(fyai PRIVATE src/glibc_compat.c)
+    target_sources(fyai PRIVATE src/core/glibc_compat.c)
 endif()
 target_compile_options(fyai PRIVATE ${FYAI_C_DIALECT} ${FYAI_C_WARNINGS}
     ${ASAN_C_FLAGS})
@@ -761,7 +780,7 @@ target_compile_definitions(fyai PRIVATE
     $<$<NOT:$<CONFIG:DEBUG>>:NDEBUG>
 )
 target_include_directories(fyai PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${FYAI_SRC_DIRS}
     ${CMAKE_CURRENT_BINARY_DIR})
 
 if(BUILD_TESTING)
@@ -856,7 +875,7 @@ if(BUILD_TESTING)
         "${FYAI_TEST_REGISTER_C}"
     )
     if(FYAI_MOSTLY_STATIC)
-        target_sources(fyai_test PRIVATE src/glibc_compat.c)
+        target_sources(fyai_test PRIVATE src/core/glibc_compat.c)
     endif()
     target_compile_options(fyai_test PRIVATE ${FYAI_C_DIALECT}
         ${FYAI_C_WARNINGS} ${ASAN_C_FLAGS})
@@ -866,7 +885,7 @@ if(BUILD_TESTING)
         VERSION="${PROJECT_VERSION}"
     )
     target_include_directories(fyai_test PRIVATE
-        ${CMAKE_CURRENT_SOURCE_DIR}/src
+        ${FYAI_SRC_DIRS}
         ${CMAKE_CURRENT_SOURCE_DIR}/tests
         ${CMAKE_CURRENT_BINARY_DIR})
     target_link_libraries(fyai_test PRIVATE libfyaml::libfyaml
@@ -888,9 +907,9 @@ if(BUILD_TESTING)
 
     if(APPLE)
         add_executable(fyai_macos_sandbox_test
-            tests/macos/sandbox_backend_test.c src/fyai_sandbox.c
-            src/fyai_sandbox_macos.c)
-        target_include_directories(fyai_macos_sandbox_test PRIVATE src)
+            tests/macos/sandbox_backend_test.c src/sandbox/fyai_sandbox.c
+            src/sandbox/fyai_sandbox_macos.c)
+        target_include_directories(fyai_macos_sandbox_test PRIVATE ${FYAI_SRC_DIRS})
         target_compile_options(fyai_macos_sandbox_test PRIVATE
             ${FYAI_C_DIALECT} ${FYAI_C_WARNINGS} ${ASAN_C_FLAGS})
         target_link_libraries(fyai_macos_sandbox_test PRIVATE ${ASAN_LINK_OPTS})

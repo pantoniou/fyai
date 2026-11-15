@@ -211,7 +211,7 @@ to a surface, and the library composes that surface with the transcript, the
 work bands and the prompt.
 
 - `fyai_ui_surface_*` is the only path from fyai to a surface, because
-`src/fyai_ui.c` is the file that speaks to the library. `fyai_term.c` owns the
+`src/front/fyai_ui.c` is the file that speaks to the library. `fyai_term.c` owns the
 pseudo-terminal, the event sources and the keys, and it writes to no descriptor
 of its own. `tests/sink-only-allow.txt` therefore needs no entry for it.
 - The program has the rows that the band granted, read back with

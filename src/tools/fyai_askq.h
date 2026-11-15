@@ -22,7 +22,7 @@ struct fyai_askq {
 	struct fyai_diag *diag;
 
 	struct fyai_ask_pending *asks;	/* background questions that wait for the user */
-	/* The sets of questions in the questions store (src/fyai_ask.c). */
+	/* The sets of questions in the questions store (src/tools/fyai_ask.c). */
 	struct fyai_ask_entry *entries;
 	unsigned long long serial;
 	unsigned int seq;		/* the number of the last question named by default */

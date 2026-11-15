@@ -20,7 +20,7 @@ Callers check `fy_equal(fy_get(report, "result"), "ok")` and iterate
 `fy_get(report, "problems")` for diagnostics — same shape as the config
 validator.
 
-## API (`src/fyai_schema.h`)
+## API (`src/core/fyai_schema.h`)
 
 ```c
 fy_generic fyai_schema_validate(struct fy_generic_builder *gb,
@@ -87,7 +87,7 @@ Regexes use POSIX ERE rather than the ECMA-262 dialect recommended by JSON
 Schema. This is a documented compatibility limitation because patterns cannot
 be classified reliably by dialect before compiling them.
 
-## Implementation (`src/fyai_schema.c`)
+## Implementation (`src/core/fyai_schema.c`)
 
 Core recursive function:
 
@@ -155,9 +155,9 @@ Same pattern as `fyai_provider_test.c`. Cases:
 
 ## CMake
 
-- Add `src/fyai_schema.c` to `fyai` target.
+- Add `src/core/fyai_schema.c` to `fyai` target.
 - Add `fyai_schema_test` executable (sources: `tests/fyai_schema_test.c`,
-  `src/fyai_schema.c`, `src/fyai_sandbox.c`, `src/utils.c`; same link libs).
+  `src/core/fyai_schema.c`, `src/sandbox/fyai_sandbox.c`, `src/core/utils.c`; same link libs).
 - `add_test(NAME fyai/schema_validate COMMAND fyai_schema_test)`.
 
 ## Out of scope

@@ -12,7 +12,7 @@ struct fyai_ctx;
 
 /*
  * The live document of the transcript, in the transcript store of the UI
- * model (src/fyai_uimodel.h). The output document gives it at its input:
+ * model (src/front/fyai_uimodel.h). The output document gives it at its input:
  *
  *   live: {tag, source, length, fragments, recorded, paused} | null
  *   last: {tag, state}

@@ -35,7 +35,7 @@ keep a second copy of the intent in a structure field (`cfg->config_doc` is
 the source; `apply_config` populates the fields in one pass).
 
 Each document has a schema. Each path that ingests a document validates it
-with `fyai_schema_validate()` (`src/fyai_schema.c`). The validator supports
+with `fyai_schema_validate()` (`src/core/fyai_schema.c`). The validator supports
 a subset of JSON Schema draft 2020-12 (`doc/schema-validator-plan.md`). It
 accepts an unknown keyword as an annotation. Thus the `x-fyai-*` keywords
 need no support in the validator: the code that reads a document reads them.
@@ -167,7 +167,7 @@ The model has no tool for this state. Its programs run in a shell, and the
 shell is the one place where a program of the model could reach the arena,
 for example with `fyai config set sandbox_profile none`:
 
-- With the sandbox on, `fyai_shell_sandbox_begin()` (`src/fyai_tools.c`)
+- With the sandbox on, `fyai_shell_sandbox_begin()` (`src/tools/fyai_tools.c`)
   denies `<project>/.fyai`. An arena outside the project is out of reach
   when no `allow` grant of the profile covers it.
 - With the sandbox off (`sandbox_profile: none`), a shell
@@ -330,7 +330,7 @@ change a `read` key.
 ## The tool `settings`
 
 One tool, defined in `data/tools.yaml`. Its entry is in
-`src/fyai_settings.c`, with `FYAI_TOOL_PARENT` (it reads and changes the
+`src/core/fyai_settings.c`, with `FYAI_TOOL_PARENT` (it reads and changes the
 state of the parent) and `FYAI_TOOL_EFFECT_NONE`. Its `describe` function
 leaves the tool out when `model_access` is `none`; a later phase also
 removes the actions that `model_access` does not allow from the
@@ -577,7 +577,7 @@ proposal pending.
 
 When a session approves or rejects a proposal, fyai queues the event
 `[config 'ID' approved]` or `[config 'ID' rejected]`, with the result as
-JSON, for the model, as `src/fyai_asks.c` queues the answer of a
+JSON, for the model, as `src/tools/fyai_asks.c` queues the answer of a
 background question. A verb tells the model nothing: no model runs.
 
 `config describe` also shows the class of the node and the layer of the

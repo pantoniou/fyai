@@ -26,7 +26,7 @@ not provide the agent's isolation.
 
 Canonical file bytes may be stored as immutable CAS blob files under the project’s `.fyai`.
 So may the project manifests, in a binary file format that is mapped and read
-in place (`src/fyai_manifest.h`): a manifest of a large tree has too many
+in place (`src/store/fyai_manifest.h`): a manifest of a large tree has too many
 objects to keep as generics. These are explicitly authorized extensions of the
 current arena-only storage rule. The view record, project-root references,
 transaction records, and configuration remain libfyaml generics in
@@ -211,7 +211,7 @@ is an implementation design gate.
 
 ### 4.1 Identity encoding
 
-A manifest is stored as the binary file of `src/fyai_manifest.h`; the generic
+A manifest is stored as the binary file of `src/store/fyai_manifest.h`; the generic
 form of this section, with `version: 2`, is its conversion for code that reads
 a snapshot as a generic. A builder returns a caller-arena-owned generic manifest with `version: 2` and
 `algorithm: blake3`. A file or symlink manifest has `kind`, mode, uid, gid,

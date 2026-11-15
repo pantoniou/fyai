@@ -155,19 +155,43 @@ initialize each generic field explicitly.
 
 ## Source layout
 
-- `src/main.c`: global option parsing and command dispatch.
-- `src/commands.h`: what an invocation runs, and the argument structures
+The sources are in one directory for each component, under `src/`. Every
+directory is on the include path, so `#include "fyai_loop.h"` names a header
+without its directory. Put a new file in the directory of the component that
+owns it.
+
+- `core/`: the entry point, the engine and what every component uses: the
+  configuration, the diagnostics, the turn, the import and export, small
+  helpers.
+- `loop/`: the event loop, its timers and signals, the waits.
+- `store/`: the arena, branches, merge, the project, the blob store.
+- `auth/`: the credentials, the login, the secret stores, OAuth.
+- `provider/`: the model connection, the transfers, the grammars and the
+  catalogue.
+- `net/`: sockets, the HTTP server, WebSocket and JSON-RPC.
+- `transport/`: the credential transport. `remote/`: `fyai serve`, the remote
+  client, ACP and the Claude SDK.
+- `mcp/`: the MCP client.
+- `tools/`: the tools, the jobs, the sub-agents, the skills, the questions.
+- `sandbox/`: confinement, the filesystem views, the exchange scope.
+  `host/`: the operating system primitives.
+- `front/`: the sink, the UI, the page, the work pane, Markdown and the
+  terminal.
+- `cmd/`: the commands.
+
+- `src/core/main.c`: global option parsing and command dispatch.
+- `src/cmd/commands.h`: what an invocation runs, and the argument structures
   that backends read.
 - `data/commands.yaml`: the definition of every verb and slash command.
-- `src/fyai_cmd.c`: the command registry, parser, dispatch, and presentation.
-- `src/fyai_image.h`, `tools/fyai_mkimage.c`: the prebuilt images of the
+- `src/cmd/fyai_cmd.c`: the command registry, parser, dispatch, and presentation.
+- `src/core/fyai_image.h`, `tools/fyai_mkimage.c`: the prebuilt images of the
   command definitions and the catalogue (`doc/embedded-images.md`). Load an
   embedded document that is large with `fyai_image_load()` and keep the parse
   of its text as the fallback.
-- `src/fyai_cmd_complete.c`, `src/fyai_cmd_help.c`: completion and help from
+- `src/cmd/fyai_cmd_complete.c`, `src/cmd/fyai_cmd_help.c`: completion and help from
   the definitions.
-- `src/fyai_cmd_*.c`: the handlers of the commands, one file for each group.
-- `src/fyai_app.c`: `struct fyai_app`, the root that owns the components that
+- `src/cmd/fyai_cmd_*.c`: the handlers of the commands, one file for each group.
+- `src/core/fyai_app.c`: `struct fyai_app`, the root that owns the components that
   the whole program shares, in dependency order (`doc/context-components.md`).
   `main()` declares it and everything else borrows from it. Today it holds the
   diagnostics, the event loop, the arena, the transient builder, the
@@ -185,199 +209,199 @@ initialize each generic field explicitly.
   through an accessor of its own, `NAME_ctx()` for `struct NAME`, defined
   next to the struct. Set the field where the object is made and read it
   nowhere else; `tests/ctx-accessor.sh` fails on a direct read.
-- `src/fyai_arena.c`: `struct fyai_arena`, the durable and working builders of
+- `src/store/fyai_arena.c`: `struct fyai_arena`, the durable and working builders of
   the canonical state. `ctx->arena` points at the one in the app; read
   `ctx->arena->gb` where you need the working builder.
-- `src/fyai_transient.c`: `struct fyai_transient`, the builder for the values of
+- `src/store/fyai_transient.c`: `struct fyai_transient`, the builder for the values of
   one operation. `ctx->transient` points at the one in the app.
-- `src/fyai_link.h`: `struct fyai_link`, the model connection: the curl handle,
+- `src/provider/fyai_link.h`: `struct fyai_link`, the model connection: the curl handle,
   its headers, the outcome of the last transfer, the curl multi state and the
   request cache. `ctx->link` points at the one in the app.
-- `src/fyai_transport_state.h`: `struct fyai_transport_state`, the client of the
+- `src/transport/fyai_transport_state.h`: `struct fyai_transport_state`, the client of the
   credential transport and its control channel. `ctx->transport` points at the
   one in the app.
-- `src/fyai_mcp_state.h`: `struct fyai_mcp`, the connections to the MCP servers
+- `src/mcp/fyai_mcp_state.h`: `struct fyai_mcp`, the connections to the MCP servers
   and their tool catalogue. `ctx->mcp` points at the one in the app.
-- `src/fyai_waitq.h`, `src/fyai_askq.h`: `struct fyai_waitq` (named waits, the
+- `src/loop/fyai_waitq.h`, `src/tools/fyai_askq.h`: `struct fyai_waitq` (named waits, the
   waiters that hold a call, the event queue) and `struct fyai_askq` (the
   background questions and the questions store). `ctx->waitq` and `ctx->askq`
   point at the ones in the app.
-- `src/fyai_scope.h`, `src/fyai_tty.h`, `src/fyai_skills.h`,
-  `src/fyai_toolspec.h`: the scope of the tool processes, the real terminal, the
+- `src/sandbox/fyai_scope.h`, `src/front/fyai_tty.h`, `src/tools/fyai_skills.h`,
+  `src/tools/fyai_toolspec.h`: the scope of the tool processes, the real terminal, the
   skill files, and the tool specification. `ctx->scope`, `ctx->tty`,
   `ctx->skills` and `ctx->toolspec` point at the ones in the app.
-- `src/fyai_branch_state.h`, `src/fyai_usage.h`: `struct fyai_branch_state`, the
+- `src/store/fyai_branch_state.h`, `src/core/fyai_usage.h`: `struct fyai_branch_state`, the
   branch cursor, and `struct fyai_usage`, the totals of the run. `ctx->bstate`
   and `ctx->usage` point at the ones in the app. A detached view context keeps
   a copy of the cursor (`struct fyai_view_own`).
-- `src/fyai_turnstate.h`: `struct fyai_turnstate`, what a running turn carries:
+- `src/core/fyai_turnstate.h`: `struct fyai_turnstate`, what a running turn carries:
   the last message, the observers, the tool gate, the stop reason and the
   attachments that wait. `ctx->turn` points at the one in the app.
-- `src/fyai_jobs.h`, `src/fyai_agent_state.h`: `struct fyai_jobs` (tool jobs,
+- `src/tools/fyai_jobs.h`, `src/tools/fyai_agent_state.h`: `struct fyai_jobs` (tool jobs,
   terminal sessions, monitors, background runs) and `struct fyai_agent_state`
   (the registry and the identity of a sub-agent). `ctx->jobs` and `ctx->astate`
   point at the ones in the app.
-- `src/fyai_front.h`: `struct fyai_front`, everything that presents the run and
+- `src/front/fyai_front.h`: `struct fyai_front`, everything that presents the run and
   takes input: the sink, the UI, the UI model, the transcript document, the work
   pane, the browser and the command in flight. `ctx->front` points at the one in
   the app.
-- `src/fyai_cred.c`: `struct fyai_cred`, the shared refresh of the login and
+- `src/auth/fyai_cred.c`: `struct fyai_cred`, the shared refresh of the login and
   the secrets in memory. `ctx->cred` points at the one in the app; it stands
   on the loop of the app for its timer.
-- `src/fyai_loop.h`: `struct fyai_loop`, the event loop component: the loop,
+- `src/loop/fyai_loop.h`: `struct fyai_loop`, the event loop component: the loop,
   its timers and sources and their pools, the signals, and the interrupt state.
-  `ctx->loop` points at the one in the app. `src/fyai_event*.c` implement it.
-- `src/fyai.c`: engine orchestration.
-- `src/fyai_sink.c`: the one rendering component and its backends.
-- `src/fyai_sink_frames.c`: the sink of a command that a client runs with
+  `ctx->loop` points at the one in the app. `src/loop/fyai_event*.c` implement it.
+- `src/core/fyai.c`: engine orchestration.
+- `src/front/fyai_sink.c`: the one rendering component and its backends.
+- `src/front/fyai_sink_frames.c`: the sink of a command that a client runs with
   `--remote TARGET`. It sends each sink operation as a frame, and the client presents
   the frame with its own sink.
-- `src/fyai_remote_server.c`: `fyai serve`, its project servers and workers
+- `src/remote/fyai_remote_server.c`: `fyai serve`, its project servers and workers
   (`doc/remote-sessions-sdd.md`, section 6.1.2).
-- `src/fyai_remote.c`: the client of `--remote` and of `remote connect`, and
-  what it shares with the server (`src/fyai_remote_int.h`). It reaches a
+- `src/remote/fyai_remote.c`: the client of `--remote` and of `remote connect`, and
+  what it shares with the server (`src/remote/fyai_remote_int.h`). It reaches a
   server by a Unix socket, by `ssh://` through `remote bridge`, and by
   `http://` and `https://` through `remote relay`.
-- `src/fyai_remote_http.c`: the HTTP front of `fyai serve --listen`: the
+- `src/remote/fyai_remote_http.c`: the HTTP front of `fyai serve --listen`: the
   bearer-token check, the route of the session, and the bridge of a WebSocket
-  to a socket of lines, on `fyai_httpd`. `src/fyai_remote_relay.c` is the
+  to a socket of lines, on `fyai_httpd`. `src/remote/fyai_remote_relay.c` is the
   client end of the relay, on `fyai_ws_client`.
-- `src/fyai_buf.c`: the growing byte buffer, `struct fyai_buf`. It holds text
+- `src/core/fyai_buf.c`: the growing byte buffer, `struct fyai_buf`. It holds text
   or a queue that is read from the front with `fyai_buf_consume()`. Use it
   for every buffer of bytes and do not write another.
-- `src/fyai_net.c`: sockets for the network code: a connection that is TCP or
+- `src/net/fyai_net.c`: sockets for the network code: a connection that is TCP or
   TLS over TCP, and the listen, connect (blocking, or started without
   blocking) and URL helpers. The URL parse uses the URL API of libcurl. It
   owns no event source.
-- `src/fyai_httpd.c`: the HTTP/1.1 server on the event loop: listeners with
+- `src/net/fyai_httpd.c`: the HTTP/1.1 server on the event loop: listeners with
   optional TLS, the request parser, request bodies, kept connections,
   answers (its own, or bytes that the handler writes), and the server end of a
   WebSocket. It knows no route, no credential and no protocol over the
   WebSocket; a handler gets each request and message
-  (`src/fyai_httpd.h`). Use it for every listener of HTTP in this program,
+  (`src/net/fyai_httpd.h`). Use it for every listener of HTTP in this program,
   the mock provider included, and do not write a second one.
-- `src/fyai_ws.c`: RFC 6455 as pure functions: the codec, the frame encoder and
-  the text of the handshake. `src/fyai_ws_client.c` is the client end, in two
+- `src/net/fyai_ws.c`: RFC 6455 as pure functions: the codec, the frame encoder and
+  the text of the handshake. `src/net/fyai_ws_client.c` is the client end, in two
   forms: a blocking connection (`fyai_ws_client`) for a standalone command, and
   a connection on the event loop (`fyai_wsc`) that never blocks. Each connects,
   makes the TLS handshake, checks the pin, upgrades, sends masked frames and
   gets whole messages. Use `fyai_wsc` in code that runs on the loop.
-- `src/fyai_remote_tls.c`: the self-signed key of a server, the context of a
+- `src/remote/fyai_remote_tls.c`: the self-signed key of a server, the context of a
   TLS listener, and the pin and chain checks of a client of one.
-- `src/fyai_uidraw.c`: the renderer of the UI model. It draws the live
+- `src/front/fyai_uidraw.c`: the renderer of the UI model. It draws the live
   document, the log and the bands from the stores with the sink
   (`doc/ui-model.md`).
-- `src/fyai_flow.c`: the output separation manager.
-- `src/fyai_output.c`: transcript document source and fragments.
-- `src/fyai_session.c`: interactive input and slash commands.
-- `src/fyai_agent.c`: sub-agent execution and agent RPC.
-- `src/fyai_tools.c`: the dispatch of tool calls, the tool implementations
-  and the glue. `src/fyai_tools_int.h` is the interface that the tool files
+- `src/front/fyai_flow.c`: the output separation manager.
+- `src/front/fyai_output.c`: transcript document source and fragments.
+- `src/front/fyai_session.c`: interactive input and slash commands.
+- `src/tools/fyai_agent.c`: sub-agent execution and agent RPC.
+- `src/tools/fyai_tools.c`: the dispatch of tool calls, the tool implementations
+  and the glue. `src/tools/fyai_tools_int.h` is the interface that the tool files
   share; keep a function there only when another tool file calls it.
-- `src/fyai_tool_job.c`: the lifecycle of a tool job and of a job group:
+- `src/tools/fyai_tool_job.c`: the lifecycle of a tool job and of a job group:
   spawn, submit, gate, collect and the exchange scope.
-- `src/fyai_tool_child.c`: the tool child process: its fork and exec, its
+- `src/tools/fyai_tool_child.c`: the tool child process: its fork and exec, its
   JSON-RPC serve loop and its dispatch.
-- `src/fyai_shell_sandbox.c`: the confinement policy of a shell command.
-- `src/fyai_shell_session.c`: shell sessions and their tiles, bang commands,
+- `src/sandbox/fyai_shell_sandbox.c`: the confinement policy of a shell command.
+- `src/tools/fyai_shell_session.c`: shell sessions and their tiles, bang commands,
   user programs and mirrors.
-- `src/fyai_tools_focus.c`: focus, zoom and the keys of tiles and inline
+- `src/front/fyai_tools_focus.c`: focus, zoom and the keys of tiles and inline
   blocks, and the control of a session by name.
-- `src/fyai_agent_view.c`: the screen of a sub-agent, its inline terminal and
+- `src/front/fyai_agent_view.c`: the screen of a sub-agent, its inline terminal and
   the btw panels.
-- `src/fyai_claude_sdk.c`: the Claude Agent SDK protocol
+- `src/remote/fyai_claude_sdk.c`: the Claude Agent SDK protocol
   (`doc/claude-sdk-compat.md`).
-- `src/fyai_event*.c`: the portable event loop and signal handling.
-- `src/fyai_event_dump.c`: SIGUSR2 event-loop diagnostics.
-- `src/fyai_render.c`: generic-to-Markdown table rendering.
-- `src/fyai_diag.c`: collected diagnostics.
-- `src/utils.c`: HTTP buffers, file helpers, and generic serialization.
-- `src/fyai_shell_capture.c`: shell capture on the event loop, and the child
+- `src/loop/fyai_event*.c`: the portable event loop and signal handling.
+- `src/loop/fyai_event_dump.c`: SIGUSR2 event-loop diagnostics.
+- `src/front/fyai_render.c`: generic-to-Markdown table rendering.
+- `src/core/fyai_diag.c`: collected diagnostics.
+- `src/core/utils.c`: HTTP buffers, file helpers, and generic serialization.
+- `src/tools/fyai_shell_capture.c`: shell capture on the event loop, and the child
   start: its status channel, `fyai_child_exec_prepare()` and
   `fyai_exec_shell_command()`.
-- `src/fyai_editor.c`: the external editor child, and the editor in a tile of
+- `src/front/fyai_editor.c`: the external editor child, and the editor in a tile of
   the work pane.
-- `src/fyai_workpane.c`: the one owner of work-pane geometry, focus, and zoom.
-- `src/fyai_chrome.c`: the one owner of tile chrome: which controls and scroll
+- `src/front/fyai_workpane.c`: the one owner of work-pane geometry, focus, and zoom.
+- `src/front/fyai_chrome.c`: the one owner of tile chrome: which controls and scroll
   bar a tile carries, and its head.
-- `src/fyai_fsview.c`: the portable part of the filesystem views and the
-  dispatch to the backend of the platform (`src/fyai_fsview_backend.h`).
-  `src/fyai_fsview_linux.c` is OverlayFS and the namespaces,
-  `src/fyai_fsview_macos.c` is the native cloned directory, and
-  `src/fyai_fsview_none.c` has no views. Put platform code in a backend.
-  The view commands (`src/fyai_cmd_fsview.c`) use its pipe, socket, boot id,
+- `src/sandbox/fyai_fsview.c`: the portable part of the filesystem views and the
+  dispatch to the backend of the platform (`src/sandbox/fyai_fsview_backend.h`).
+  `src/sandbox/fyai_fsview_linux.c` is OverlayFS and the namespaces,
+  `src/sandbox/fyai_fsview_macos.c` is the native cloned directory, and
+  `src/sandbox/fyai_fsview_none.c` has no views. Put platform code in a backend.
+  The view commands (`src/cmd/fyai_cmd_fsview.c`) use its pipe, socket, boot id,
   sync, prepare and confine members and test no platform.
-- `src/fyai_project_capture.c`: the portable part of the project capture. Its
+- `src/store/fyai_project_capture.c`: the portable part of the project capture. Its
   file system primitives are in a backend
-  (`src/fyai_project_capture_backend.h`): `src/fyai_project_capture_linux.c`,
-  `src/fyai_project_capture_macos.c` and `src/fyai_project_capture_none.c`.
-- `src/fyai_cas.c`: the portable part of the blob store. Its file system
+  (`src/store/fyai_project_capture_backend.h`): `src/store/fyai_project_capture_linux.c`,
+  `src/store/fyai_project_capture_macos.c` and `src/store/fyai_project_capture_none.c`.
+- `src/store/fyai_cas.c`: the portable part of the blob store. Its file system
   primitives (sync, kernel copy, clone) are in a backend
-  (`src/fyai_cas_backend.h`): `src/fyai_cas_linux.c`, `src/fyai_cas_macos.c`
-  and `src/fyai_cas_none.c`.
-- `src/fyai_sandbox.c`: the portable part of tool confinement and the dispatch
-  to the backend of the platform (`src/fyai_sandbox_backend.h`).
-  `src/fyai_sandbox_linux.c` is Landlock and the seccomp UDP filter,
-  `src/fyai_sandbox_macos.c` is Seatbelt, and `src/fyai_sandbox_none.c`
+  (`src/store/fyai_cas_backend.h`): `src/store/fyai_cas_linux.c`, `src/store/fyai_cas_macos.c`
+  and `src/store/fyai_cas_none.c`.
+- `src/sandbox/fyai_sandbox.c`: the portable part of tool confinement and the dispatch
+  to the backend of the platform (`src/sandbox/fyai_sandbox_backend.h`).
+  `src/sandbox/fyai_sandbox_linux.c` is Landlock and the seccomp UDP filter,
+  `src/sandbox/fyai_sandbox_macos.c` is Seatbelt, and `src/sandbox/fyai_sandbox_none.c`
   confines nothing. Put platform code in a backend, not in the core.
-- `src/fyai_host.c`: the portable part of the operating system primitives
+- `src/host/fyai_host.c`: the portable part of the operating system primitives
   (descriptors, processes, peer identity, entropy, browser launch) and the
-  dispatch to the backend of the platform (`src/fyai_host_backend.h`).
-  `src/fyai_host_linux.c`, `src/fyai_host_macos.c` and `src/fyai_host_none.c`
+  dispatch to the backend of the platform (`src/host/fyai_host_backend.h`).
+  `src/host/fyai_host_linux.c`, `src/host/fyai_host_macos.c` and `src/host/fyai_host_none.c`
   hold the platform code. Test a capability (`fyai_host_memfd_available()`),
-  never the name of a platform. `src/fyai_orphan_linux.c` and
-  `src/fyai_cover_linux.c` are the Linux code of the scope and the cover; the
+  never the name of a platform. `src/sandbox/fyai_orphan_linux.c` and
+  `src/sandbox/fyai_cover_linux.c` are the Linux code of the scope and the cover; the
   `_none.c` files hold their stubs.
-- `src/fyai_grammar.c`: the dispatch to the provider API grammars
-  (`src/fyai_grammar.h`). `src/fyai_grammar_responses.c`,
-  `src/fyai_grammar_chat.c` and `src/fyai_grammar_messages.c` each build the
+- `src/provider/fyai_grammar.c`: the dispatch to the provider API grammars
+  (`src/provider/fyai_grammar.h`). `src/provider/fyai_grammar_responses.c`,
+  `src/provider/fyai_grammar_chat.c` and `src/provider/fyai_grammar_messages.c` each build the
   requests and parse the replies of one grammar (`doc/provider-grammars.md`).
-  `src/fyai_provider.c` holds what the grammars share and the readers of the
+  `src/provider/fyai_provider.c` holds what the grammars share and the readers of the
   canonical response. Put grammar code in a grammar file.
-- `src/fyai_secret.c`: the `secret` verb and the machine-local secrets.
-  `src/fyai_secret_store.h` is the interface of the stores: the kernel keyring
+- `src/auth/fyai_secret.c`: the `secret` verb and the machine-local secrets.
+  `src/auth/fyai_secret_store.h` is the interface of the stores: the kernel keyring
   (`fyai_secret_keyctl.c`), the macOS keychain (`fyai_secret_keychain.c`), the
   Secret Service (`fyai_secret_libsecret.c`) and none. The login uses
   `fyai_secret_store_keyring()`.
-- `src/fyai_oauth.c`: provider-independent OAuth browser flow.
-- `src/fyai_cred.c`: the credential sources (`env:`, `secret:`, `mem:`,
+- `src/auth/fyai_oauth.c`: provider-independent OAuth browser flow.
+- `src/auth/fyai_cred.c`: the credential sources (`env:`, `secret:`, `mem:`,
   `oauth:chatgpt`) and the one refresh of the login for each process: waiters,
   `prepare` before a request, `reject` after a 401 and the scheduled refresh
   (`doc/credential-sources-plan.md`). The agent, the model discovery and the
   transport all use it; do not refresh a login anywhere else.
-- `src/fyai_xfer.c`: a model request over curl or the transport. It builds the
+- `src/provider/fyai_xfer.c`: a model request over curl or the transport. It builds the
   headers for each send and holds back a 401 that a renewal can answer.
-- `src/fyai_mcp_oauth.c`: the refresh request of an MCP OAuth server.
-- `src/fyai_jsonrpc.c`: JSON-RPC over standard I/O and HTTP, and the image
+- `src/auth/fyai_mcp_oauth.c`: the refresh request of an MCP OAuth server.
+- `src/net/fyai_jsonrpc.c`: JSON-RPC over standard I/O and HTTP, and the image
   mode of two fyai ends (`doc/remote-sessions-sdd.md`, section 5.2.1).
-- `src/fyai_config.c`: layered configuration and config commands.
-- `src/fyai_branch.c`: branch storage, references, and root selection.
-- `src/fyai_merge.c`: branch merge and rebase.
-- `src/fyai_catalog.c`: provider and model catalogue.
-- `src/fyai_media.c`: attachments that a message carries, their bytes, and
+- `src/core/fyai_config.c`: layered configuration and config commands.
+- `src/store/fyai_branch.c`: branch storage, references, and root selection.
+- `src/store/fyai_merge.c`: branch merge and rebase.
+- `src/provider/fyai_catalog.c`: provider and model catalogue.
+- `src/core/fyai_media.c`: attachments that a message carries, their bytes, and
   the clipboard helper (`doc/media.md`). `fyai_image.*` is something else:
   the prebuilt embedded YAML images.
-- `src/fyai_skill.c`: branch-stored skills and the `skill` tool.
-- `src/fyai_settings.c`: the `settings` tool, which reads, selects and
+- `src/tools/fyai_skill.c`: branch-stored skills and the `skill` tool.
+- `src/core/fyai_settings.c`: the `settings` tool, which reads, selects and
   exports the configuration by the `x-fyai-model` access of each key, and
   the catalogue. Its exports go to a private `mkdtemp()` directory that
   `fyai_settings_release()` removes at cleanup and
   `fyai_settings_abandon()` forgets in a forked child.
-- `src/*.h`: shared structures and internal interfaces.
+- `src/*/*.h`: shared structures and internal interfaces.
 - `data/`: embedded configuration schemas and catalogue data.
 - `tests/`: unit tests, functional cases, mock providers, and scenarios.
 
 ## Tools
 
 `data/tools.yaml` describes each model tool. `struct fyai_tool_def`
-(`src/fyai_tool_registry.h`) holds the rest: run function, title row, result
+(`src/tools/fyai_tool_registry.h`) holds the rest: run function, title row, result
 formatter for the user, ordering class, and flags. Define the entry in the file that implements the tool. Do
 not test a tool name in another place; add a field to the entry. See
 `doc/tools-yaml.md`.
 
 An event is a line `[KIND 'NAME' TAIL]` and an optional body, queued for the
 model. The card that echoes it, live and on replay, draws it through
-`fyai_event_pretty()` (`src/fyai_event_fmt.c`); a new producer keeps that
+`fyai_event_pretty()` (`src/loop/fyai_event_fmt.c`); a new producer keeps that
 header form and needs no code of its own. Do not change the text the model
 gets to make the card read better.
 
@@ -426,7 +450,7 @@ a slash table entry, or a hand-written parser.
 - A handler, `int fyai_cmd_NAME(struct fyai_cmd_call *call, fy_generic
   *result)`, gets validated arguments with the defaults applied: read them
   with `fyai_cmd_arg_str()` and `fyai_cmd_arg_bool()`. Do not parse or check
-  types in a handler. Register it in `cmd_handlers[]` of `src/fyai_cmd.c`.
+  types in a handler. Register it in `cmd_handlers[]` of `src/cmd/fyai_cmd.c`.
 - The caller presents the result. Build it in `call->gb`, and describe it in
   `render`: `table` (renderopts), `message` (lines with `{key}`; a line that
   names an unset key, or tests one with `{?key}`, is left out), `markdown`
@@ -469,7 +493,7 @@ a slash table entry, or a hand-written parser.
   layer (`fyai_config_session_set()`). Mark a new key `x-fyai-scope:
   session` when a session may change it for itself.
 - `x-fyai-complete` names a completion kind in `complete_kinds[]` of
-  `src/fyai_cmd_complete.c`. A unit test fails when a definition names a kind
+  `src/cmd/fyai_cmd_complete.c`. A unit test fails when a definition names a kind
   or a handler that does not exist. `config-value` and `catalog-value`
   complete from the schema of the item that the previous argument names; a
   configuration key can name its own kind with `x-fyai-complete` in
@@ -777,7 +801,7 @@ builder.
 
 ## Output and terminal UI
 
-`src/fyai_sink.c` is the only rendering component. Send all user-visible bytes
+`src/front/fyai_sink.c` is the only rendering component. Send all user-visible bytes
 through it. A producer builds Markdown source and gives it to the sink. The
 sink controls the presentation. Do not write to standard output or standard
 error from another component. `tests/sink-only.sh` fails the build if it finds
@@ -786,7 +810,7 @@ sink and gives the reason for each file.
 
 ### Separation
 
-`src/fyai_flow.c` decides what goes between two adjacent units of output: the
+`src/front/fyai_flow.c` decides what goes between two adjacent units of output: the
 blank rows and the configured separators. It is the one policy. A live run, a
 replay, and the measuring pass that sizes the recap window thus agree.
 
@@ -867,7 +891,7 @@ drain.
 
 ### Documents
 
-`src/fyai_output.c` owns the durable part of a transcript document. This part
+`src/front/fyai_output.c` owns the durable part of a transcript document. This part
 contains the Markdown source and its fragments. Keep one tagged document open
 for each system, user, or assistant output. Keep an assistant document open
 during the complete model and tool loop. Store the final document as
@@ -964,7 +988,7 @@ display makes them again.
 
 ### The page
 
-The page states the live screen as one UI Markdown page. `src/fyai_page.c` owns
+The page states the live screen as one UI Markdown page. `src/front/fyai_page.c` owns
 the page source; the terminal library draws its slots.
 
 - The page is rendered again for each frame, from the state of the session.
@@ -1068,7 +1092,7 @@ the page source; the terminal library draws its slots.
   them. Do not scan the bytes of a surface for them. The library reports them
   in order with the bytes around them, so what is typed after one reaches the
   new owner.
-- Questions to the user are a mode of the input area. `src/fyai_ask.c` owns
+- Questions to the user are a mode of the input area. `src/tools/fyai_ask.c` owns
   their model: `fyai_ask_normalize()` checks the arguments of `ask_user` and
   makes the one normalized sequence that the UI, the `user/ask` forward of a
   sub-agent, and the text fallbacks all read; `fyai_ask_result()` builds the
@@ -1095,7 +1119,7 @@ the page source; the terminal library draws its slots.
   theme without them leaves the bar uncoloured and the row bare, so the
   selection is still marked.
 - A question given `background` or a `name` is an object of the run, as a
-  named wait is. `src/fyai_asks.c` keeps them in `ctx->asks` with a builder of
+  named wait is. `src/tools/fyai_asks.c` keeps them in `ctx->asks` with a builder of
   their own, because the turn that asked ends before the user answers. `list`
   shows them (kind `questions`), `cancel` withdraws one with
   `fyai_ask_close()`, and `wait` resolves a name to it. When the user
@@ -1150,7 +1174,7 @@ the page source; the terminal library draws its slots.
   opens beside the transcript must not clip it.
 - `display/screen: fullscreen`, the default, puts the page on the alternate
   screen when the session starts (`FYTIM_SCREEN_ALT`). There is no scrollback
-  there, so the transcript is a view of the page, `src/fyai_transcript_view.c`, drawn into
+  there, so the transcript is a view of the page, `src/front/fyai_transcript_view.c`, drawn into
   its `transcript` text region over the tail. The view renders the stored
   conversation through a view context and a render sink, as the branch browser
   renders its preview, so it is not a second transcript renderer. It renders
@@ -1301,7 +1325,7 @@ producer; the terminal backend owns that.
 
 ### Tile chrome
 
-`src/fyai_chrome.c` decides the chrome of every tile of the work pane. An
+`src/front/fyai_chrome.c` decides the chrome of every tile of the work pane. An
 owner states the content of the head with `struct fyai_chrome_spec` and calls
 `fyai_chrome_update()`. It does not build a head, a button, or a column of its
 own.
@@ -1348,7 +1372,7 @@ not a band of its own. A stack of full-width screens pushes the oldest off the
 top and says nothing about which screen belongs to which call; one region that
 tiles them says both.
 
-`src/fyai_workpane.c` owns the pane. It is the one component that writes a
+`src/front/fyai_workpane.c` owns the pane. It is the one component that writes a
 pane cap or a tile request, and it holds which tile has the keys and which
 tile is zoomed. A producer states intent through a semantic operation -
 register, focus, zoom, resize - and sizes nothing itself.
@@ -1859,7 +1883,7 @@ currency and percent formatting that `renderopts` does not express.
 
 Export is deliberately outside the sink. `fyai_export_view()` serializes
 canonical messages to a `FILE *` in the `format: 1` textual grammar that
-`src/fyai_import.c` reads back, and it must keep working when a conversation
+`src/core/fyai_import.c` reads back, and it must keep working when a conversation
 has no stored `display_outputs`.
 
 ### Interactive rules
@@ -2269,7 +2293,7 @@ ninja -C build parallel-test
 ctest --test-dir build -R fyai/unit/oauth
 ```
 
-The unit-test binary links production sources except `src/main.c`. Do not use
+The unit-test binary links production sources except `src/core/main.c`. Do not use
 test stubs. Declare tests with `FYAI_TEST_ENTRY(suite, name, entry)` after the
 includes in a `tests/fyai_*_test.c` file.
 

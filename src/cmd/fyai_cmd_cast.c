@@ -5,7 +5,7 @@
  *
  * SPDX-License-Identifier: MIT
  *
- * A recording is the file that --cast writes (src/fyai_cast.c): a header line
+ * A recording is the file that --cast writes (src/front/fyai_cast.c): a header line
  * and one array for each event, [seconds, kind, text].
  */
 

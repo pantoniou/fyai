@@ -10,7 +10,7 @@ struct fyai_sink_band;
 
 /*
  * The bands of the work pane, in the member "bands" of the work store of the
- * UI model (src/fyai_uimodel.h). The sink and the fenced streams give each
+ * UI model (src/front/fyai_uimodel.h). The sink and the fenced streams give each
  * band to it at the input, and a renderer draws it again:
  *
  *   {id, shared, title, command, format, text | source, length, language,

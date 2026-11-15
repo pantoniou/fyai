@@ -12,7 +12,7 @@ The display has three layers:
    reads, as stores.
 2. The producers. They write the stores. Most of them write at the input of
    the display, not in the engine.
-3. The renderer (`src/fyai_uidraw.c`). It draws the stores with the sink of
+3. The renderer (`src/front/fyai_uidraw.c`). It draws the stores with the sink of
    the process. A local session and a remote client use the same renderer;
    the client draws a copy of the stores of a worker.
 
@@ -119,7 +119,7 @@ again.
 
 ### Front
 
-`src/fyai_remote_server.c` listens on a Unix socket. It admits a client by its token
+`src/remote/fyai_remote_server.c` listens on a Unix socket. It admits a client by its token
 or by the uid of the peer. It starts one worker for each branch, or attaches
 the client to the worker that runs. It forwards the frames and does not read
 the model. A worker reports its branch in a `fyai_worker` frame, so a
@@ -170,7 +170,7 @@ of a mirrored tile go to the worker through the hooks of
 
 A command that a client runs with `--remote` does not use the UI model. It has
 no display, so it has no bands and no live tiles: its output is what the sink
-gets. The worker runs with the frame sink (`src/fyai_sink_frames.c`), which
+gets. The worker runs with the frame sink (`src/front/fyai_sink_frames.c`), which
 sends each sink operation to the client, and the client gives each to its own
 sink. The client takes the `display` settings of the worker first, so it
 renders the output as a local run of the command does, at its own width. The

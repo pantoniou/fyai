@@ -87,8 +87,8 @@ stream terminal bytes, resize a terminal, forward a question and gate a call.
 It has no external endpoint.
 
 Before P1, fyai had no listener for a client. The two loopback listeners were the mock
-provider (`src/fyai_mock.c`) and the OAuth redirect catcher
-(`oauth_listen`, `src/fyai_oauth.c:417`). Each `AF_UNIX` socket was an
+provider (`src/provider/fyai_mock.c`) and the OAuth redirect catcher
+(`oauth_listen`, `src/auth/fyai_oauth.c:417`). Each `AF_UNIX` socket was an
 anonymous pair inside one invocation. A second process could not learn that a
 session ran; it sees only what the session publishes to the arena.
 `doc/events.md` lists the same gaps: no WebSocket source and no event feed of a
@@ -175,7 +175,7 @@ fyai serve                                   (front: listener, registry, fan-out
 - **Front.** The front owns the listener, the connections, the session
   registry and the fan-out of events. It runs no model request and no tool.
 - **Workers.** A turn of a session runs in a worker, as ACP runs a prompt
-  (`acp_spawn_worker`, `src/fyai_acp.c:394`). Unlike ACP, a worker of serve lives
+  (`acp_spawn_worker`, `src/remote/fyai_acp.c:394`). Unlike ACP, a worker of serve lives
   for as long as its session is active: it holds the work pane, the terminal
   sessions, the monitors and the waits. A worker is an fyai process that the
   front starts with `fork` and `exec` and admits to the credential transport.
@@ -226,7 +226,7 @@ endpoints share this directory:
 - `fyai remote list` reads the directory. Electron reads it to offer the
   running sessions.
 - A forked child does not own the listener: `fyai_ctx_fork_disown()`
-  (`src/fyai_tools.c:5670`) drops the listener, the connections and the record,
+  (`src/tools/fyai_tools.c:5670`) drops the listener, the connections and the record,
   and closes their descriptors without a shutdown on the wire.
 
 ## 5. Transports
@@ -321,10 +321,10 @@ WebSocket: the hello answer holds no `image-` feature, and the frames are text.
 http://HOST:PORT` on a socket pair, as ssh runs for an `ssh://` target, so
 the client code reads lines from a socket. `DIR` is the project, as for ssh.
 
-The transport has three layers that other code reuses. `src/fyai_net.c` holds
-the sockets, `src/fyai_httpd.c` the HTTP server with the server end of a
-WebSocket, and `src/fyai_ws_client.c` the client end. `src/fyai_remote_http.c`
-and `src/fyai_remote_relay.c` add the token, the route and the lines. The
+The transport has three layers that other code reuses. `src/net/fyai_net.c` holds
+the sockets, `src/net/fyai_httpd.c` the HTTP server with the server end of a
+WebSocket, and `src/net/fyai_ws_client.c` the client end. `src/remote/fyai_remote_http.c`
+and `src/remote/fyai_remote_relay.c` add the token, the route and the lines. The
 loopback receiver of the OAuth redirect uses the same server.
 
 #### 5.1.3 TLS
@@ -363,7 +363,7 @@ The frames are the NDJSON frames of the Agent SDK protocol
 (`doc/claude-sdk-compat.md`). One frame is one JSON object.
 
 - On stdio and on a Unix socket, the frames are lines, carried by the raw-frame
-  mode of `jsonrpc_conn_stdio()` (`src/fyai_jsonrpc.c`), as
+  mode of `jsonrpc_conn_stdio()` (`src/net/fyai_jsonrpc.c`), as
   `fyai_claude_sdk.c` uses it today.
 - Two ends that are both fyai can send images in place of lines (section
   5.2.1).
@@ -371,7 +371,7 @@ The frames are the NDJSON frames of the Agent SDK protocol
   terminal and screen bytes (section 8.3).
 - The frame limit stays `JSONRPC_FRAME_MAX` (16 MiB).
 
-The dispatcher of the SDK front (`sdk_frame`, `src/fyai_claude_sdk.c:2147`) does
+The dispatcher of the SDK front (`sdk_frame`, `src/remote/fyai_claude_sdk.c:2147`) does
 not depend on a connection kind. It gets frames and a reply function. Thus
 stdio, a Unix socket and a WebSocket share it.
 
@@ -435,7 +435,7 @@ Each connection has an output queue with a limit in bytes.
 | JWT            | until `exp`                 | not stored by the host; a client holds it (section 6.6, not built)       |
 
 The host keeps the device list in the auth store (`fyai_auth_state_path()`,
-`src/fyai_auth_util.c`): a file of mode 0600, written atomically under its lock.
+`src/auth/fyai_auth_util.c`): a file of mode 0600, written atomically under its lock.
 Each entry has the device name, the hash of its token, its scopes, and the
 times of pairing and last use. The arena holds no token and no hash.
 
@@ -553,7 +553,7 @@ A command line, or a prompt on standard input, is a command:
 
 The server starts `fyai --sink-frames ARGS` in the directory of the client,
 with `COLUMNS` set to `cols`, in the environment of the server. Its sink
-(`src/fyai_sink_frames.c`) presents nothing and sends each operation on its
+(`src/front/fyai_sink_frames.c`) presents nothing and sends each operation on its
 standard output:
 
 - `{type: fyai, subtype: display, config}` comes first: the `display`
@@ -611,7 +611,7 @@ A fyai client says hello after admission, before any other request:
 {"type":"control_request","request_id":"hello","request":{"subtype":"fyai_hello","version":"0.4.2","protocol":1,"features":["project","run","frames","session","resume","server","model"]}}
 ```
 
-`protocol` is `FYAI_REMOTE_PROTOCOL` (`src/fyai_remote.h`). A change of a
+`protocol` is `FYAI_REMOTE_PROTOCOL` (`src/remote/fyai_remote.h`). A change of a
 request, an answer or a frame of a fyai session increments it. A server of
 the same protocol answers with its own version, the features that both have,
 and the type of the session:
@@ -680,7 +680,7 @@ local session replays them when it opens.
 The model of the client is a mirror: the frames of the worker write it, and the
 writers of the client write nothing. The renderer draws the header, the turn
 state, the todo panel, the questions and the counts of the work from it as it
-draws a local session. The renderer of the model (`src/fyai_uidraw.c`) draws
+draws a local session. The renderer of the model (`src/front/fyai_uidraw.c`) draws
 the live document, the log and the bands of the mirror as it draws them in a
 local session. It gives the sink the bytes of the live document up to the
 length that the transcript store names, less the recorded ranges, so a text
@@ -729,7 +729,7 @@ styles and place the cursor. A new text starts when the text grows past
 256 KiB, so a client that attaches replays little, and the text stays
 bounded. The item of the session in the work store names the text and the
 size of the terminal. The client makes a mirror session of it: a terminal
-session of `src/fyai_tools.c` whose program runs in the worker, with the
+session of `src/tools/fyai_tools.c` whose program runs in the worker, with the
 tile or the block of the transcript, the head, the keys and the end of a local
 session. The keys go to the worker as `fyai_terminal_input {name, data}`. The
 grant of the tile or the block goes as `fyai_terminal_size {name, rows,
@@ -926,7 +926,7 @@ The response grants a subset:
   the version of the client answers with the highest version it has, and the
   client decides whether to go on.
 
-`sdk_control()` (`src/fyai_claude_sdk.c:1918`) reads the `fyai` member in the
+`sdk_control()` (`src/remote/fyai_claude_sdk.c:1918`) reads the `fyai` member in the
 `initialize` branch, beside `hooks` and `agents`.
 
 ### 7.3 Frames of the extensions
@@ -962,7 +962,7 @@ network loss costs no snapshot.
 | Extension    | State                                                                                         | Source in the engine                                                                       |
 | ------------ | --------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
 | `sessions`   | live sessions of the process; create, attach, detach, close                                   | the registry of serve; the branch table                                                    |
-| `status`     | model, provider, context, usage, auth, isolation, view, busy state, branch, head              | `fyai_session_status_data()` (`src/fyai_session.h:104`)                                     |
+| `status`     | model, provider, context, usage, auth, isolation, view, busy state, branch, head              | `fyai_session_status_data()` (`src/front/fyai_session.h:104`)                                     |
 | `transcript` | stored exchanges, paged; the live document                                                    | `display_outputs` of each turn; `fyai_output_append()`, `fyai_output_add_*fragment()`, `fyai_output_finalize()` |
 | `tools`      | each call: head, progress, result, outcome                                                    | the `tool_head` fragment; `struct fyai_chrome_spec`; `fyai_tool_progress_emit()`            |
 | `panels`     | todos, sub-agents, monitors, waits, named questions, terminal sessions, queued input, log     | `fyai_todo_rows()`, `fyai_agents_rows()`, `fyai_monitors_rows()`, `fyai_waits_rows()`, `fyai_asks_rows()`, `fyai_tools_sessions_data()` |
@@ -979,13 +979,13 @@ client renders it with its own Markdown renderer, at its own width.
 
 - `transcript.snapshot` gives the last K exchanges of the branch, each with its
   stored display records: `{tag, markdown, state, fragments}`
-  (`src/fyai_output.c`, `fyai_turn_append_display_output()`), and a cursor for
+  (`src/front/fyai_output.c`, `fyai_turn_append_display_output()`), and a cursor for
   older ones.
 - `fyai_transcript_page {session_id, before, count}` reads older exchanges.
 - The live document gives `doc.begin {tag}`, `doc.append {text}`,
   `doc.fragment {kind, start, end, tool?, ok?, cause?}`, and
   `doc.end {state}`. These come from the same points where ACP takes its text
-  and its tool updates today (`src/fyai_stream.c:267`, `src/fyai_output.c:314`).
+  and its tool updates today (`src/provider/fyai_stream.c:267`, `src/front/fyai_output.c:314`).
 - A command turn of the transcript (`display/command_output: transcript`) is a
   record of kind `command` with its line and output.
 - An image of a message is a reference `fyai-media:DIGEST`. The client reads
@@ -1003,7 +1003,7 @@ with a terminal also gives `terminal.open` (section 8).
 Each panel is a list of rows, the same rows that the verbs give with `--output
 json`. A delta replaces the whole list of one panel; the lists are short. The
 todo list changes when `ctx->branch_prev` changes, as the page of the
-terminal finds it (`src/fyai_ui.c`). The agents list changes with
+terminal finds it (`src/front/fyai_ui.c`). The agents list changes with
 `fyai_agents_generation()`.
 
 #### Questions
@@ -1047,8 +1047,8 @@ client                                            fyai serve
 The terminals of the work pane are the sessions of the shell tool, the bang
 sessions of the user, the editors, and the screens of direct sub-agents. Each
 terminal has one pseudo-terminal, which its tool child owns. The parent gets
-its output as `shell/output` (`src/fyai_tools.c:7094`) or, for a sub-agent, from
-the agent terminal (`fyai_agent_pty_read`, `src/fyai_tools.c:5099`), and feeds it
+its output as `shell/output` (`src/tools/fyai_tools.c:7094`) or, for a sub-agent, from
+the agent terminal (`fyai_agent_pty_read`, `src/tools/fyai_tools.c:5099`), and feeds it
 to a `fyai_terminal_view`.
 
 A remote client gets the same bytes and runs its own terminal emulator, such as
@@ -1114,7 +1114,7 @@ it needs no knowledge of the state.
 
 - **Tap.** The UI already gives every byte that it writes to an output tap
   (`fytim_set_output_tap()`, used by `ui_cast_open()`,
-  `src/fyai_ui.c:3259`). The screen extension adds a fan-out on this tap. The
+  `src/front/fyai_ui.c:3259`). The screen extension adds a fan-out on this tap. The
   `--cast` recorder is one consumer and each mirror is another.
 - **Attach.** On attach, the server asks the UI for a full repaint, as Ctrl-L
   does, and sends `screen.size` and then the bytes. The client draws them with
@@ -1138,7 +1138,7 @@ it needs no knowledge of the state.
 
 A user frame from a client enters as a line typed at the prompt:
 
-- The routing of `FYTIM_EVENT_LINE` (`src/fyai_ui.c`) gets a public entry point,
+- The routing of `FYTIM_EVENT_LINE` (`src/front/fyai_ui.c`) gets a public entry point,
   `fyai_ui_input_line(ctx, text, origin)`. It runs the same chain: command
   session input, the browser, agent input, then the queue (`ui_queue()`), and
   then `fyai_ui_wake()`.
@@ -1152,7 +1152,7 @@ A user frame from a client enters as a line typed at the prompt:
 ### 10.2 Cancel
 
 The stock `interrupt` control request today sets `ctx->interrupt_pending`
-(`src/fyai_claude_sdk.c:1965`). A remote cancel needs the same effect as Escape:
+(`src/remote/fyai_claude_sdk.c:1965`). A remote cancel needs the same effect as Escape:
 a public `fyai_session_cancel(ctx)` that runs the steps of
 `fyai_interactive_process_interrupt()` without the dependency on
 `interrupt_seq`. A remote cancel does not send `^C` to a focused tile; it
@@ -1190,7 +1190,7 @@ Each key of `data/config.schema.yaml` gets a remote access, beside its
 A key with no `x-fyai-remote` is `read`. A group gives its access to the keys
 below it, and a key can make it stricter. `fyai_config_remote_access_tree()`
 gives the strictest access below a path, as `fyai_config_model_access_tree()`
-(`src/fyai_config.h:317`) does for the model.
+(`src/core/fyai_config.h:317`) does for the model.
 
 The rules for a value:
 
@@ -1229,11 +1229,11 @@ No code exists for these. Each item names the seam.
 
 | Change                                  | Seam                                                                                                    |
 | --------------------------------------- | ------------------------------------------------------------------------------------------------------- |
-| Observer beside the sink                | A remote observer gets the document and band events of `struct fyai_sink_ops` in addition to the backend. `fyai_sink_captured()` (`src/fyai_sink.c:1477`) tests the ops by identity and must see the backend, not the observer. |
-| Band source                             | `band_paint()` gives rendered rows. The fenced stream (`fyai_fenced_stream`, `src/fyai_markdown.c`) also gives its source to the observer. |
+| Observer beside the sink                | A remote observer gets the document and band events of `struct fyai_sink_ops` in addition to the backend. `fyai_sink_captured()` (`src/front/fyai_sink.c:1477`) tests the ops by identity and must see the backend, not the observer. |
+| Band source                             | `band_paint()` gives rendered rows. The fenced stream (`fyai_fenced_stream`, `src/front/fyai_markdown.c`) also gives its source to the observer. |
 | Questions with no terminal UI           | `fyai_ask_open()` and `fyai_ui_ask_available()` require `ui->page`. A session with no UI keeps the question queue in a model that does not need a page. |
 | Answer from outside the UI              | a public call that settles the head question with replies, beside the static `ui_question_finish()`. |
-| Approvals in an interactive session     | `ctx->tool_gate` (`struct fyai_tool_gate_ops`, `src/fyai.h:1063`) for a remote approval mode, as the SDK front uses it. |
+| Approvals in an interactive session     | `ctx->tool_gate` (`struct fyai_tool_gate_ops`, `src/core/fyai.h:1063`) for a remote approval mode, as the SDK front uses it. |
 | Line input                              | `fyai_ui_input_line()` (section 10.1).                                                                  |
 | Cancel                                  | `fyai_session_cancel()` (section 10.2).                                                                 |
 | Terminal fan-out                        | the handler of `shell/output` and the agent terminal reader give each chunk to the subscribers of the terminal. |

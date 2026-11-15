@@ -735,7 +735,7 @@ struct fyai_link;
 
 struct fyai_ctx {
 	struct fyai_cfg *cfg;
-	/* The arena component, owned by struct fyai_app (src/fyai_arena.h). */
+	/* The arena component, owned by struct fyai_app (src/store/fyai_arena.h). */
 	struct fyai_arena *arena;
 	/* The transient builder component, owned by struct fyai_app. */
 	struct fyai_transient *transient;
@@ -744,7 +744,7 @@ struct fyai_ctx {
 	/* The credential transport component, owned by struct fyai_app. */
 	struct fyai_transport_state *transport;
 
-	/* The event loop component, owned by struct fyai_app (src/fyai_loop.h). */
+	/* The event loop component, owned by struct fyai_app (src/loop/fyai_loop.h). */
 	struct fyai_loop *loop;
 	/* The front end component, owned by struct fyai_app. */
 	struct fyai_front *front;

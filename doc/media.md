@@ -8,7 +8,7 @@ rendering of an attachment in the terminal is a separate, later step.
 ## What is supported
 
 Images today: PNG, JPEG, GIF, and WebP. The set is closed and stated in one
-place, `enum fyai_media_type` (`src/fyai_media.h`). A model reads an
+place, `enum fyai_media_type` (`src/core/fyai_media.h`). A model reads an
 attachment as an image part only when its catalogue entry lists the image
 modality; see *Capability* below.
 

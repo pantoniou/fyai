@@ -57,7 +57,7 @@ $defs:
         type: object
         additionalProperties: {$ref: "#/$defs/property"}
 
-  # The keywords that the argument scanner of src/fyai_cmd.c checks. The
+  # The keywords that the argument scanner of src/cmd/fyai_cmd.c checks. The
   # scanner does not validate an argument against its schema: a keyword that
   # is not here would be ignored, so a definition cannot use one.
   property:

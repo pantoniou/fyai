@@ -1,6 +1,6 @@
 # Plan: one component for every outbound credential
 
-This is the design of `src/fyai_cred.c`. It extends section 5 of
+This is the design of `src/auth/fyai_cred.c`. It extends section 5 of
 `doc/agent-transport-isolation-sdd.md`.
 
 ## 1. Purpose
@@ -186,7 +186,7 @@ refresh.
   the process runs, and keeps the single read at setup.
 - **MCP:** MCP OAuth is not a registry source. Its discovery, registration and
   authorization belong to the start of one server and stay in `fyai_mcp.c`.
-  The refresh is a request of its own (`src/fyai_mcp_oauth.c`): it takes the
+  The refresh is a request of its own (`src/auth/fyai_mcp_oauth.c`): it takes the
   store lock, reads the record again, adopts a token that another process
   renewed, and saves under the lock. A cancel lets a token request that is out
   end; a logout aborts it. A save of the registration or of the tokens waits

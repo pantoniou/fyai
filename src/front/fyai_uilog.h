@@ -11,7 +11,7 @@ struct fyai_ctx;
 
 /*
  * The log of the session: the results, notices and diagnostics of commands,
- * in the log store of the UI model (src/fyai_uimodel.h). An entry holds what
+ * in the log store of the UI model (src/front/fyai_uimodel.h). An entry holds what
  * the span of a command gave the sink and the diagnostics it drained, as
  * source:
  *

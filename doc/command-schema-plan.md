@@ -8,10 +8,10 @@ A verb (`fyai branch new x`) and a slash command (`/branch new x`) often do
 the same work. Each one has its own parser, its own validation, and its own
 help text:
 
-- A verb is a `struct fyai_verb` (`src/commands.h`). Its `configure()` parses
+- A verb is a `struct fyai_verb` (`src/cmd/commands.h`). Its `configure()` parses
   `argc`/`argv` into `union fyai_cmd_args`. Its `execute()` runs on the
   context.
-- A slash command is a `struct fyai_slash_cmd` (`src/fyai_session.c`). Its
+- A slash command is a `struct fyai_slash_cmd` (`src/front/fyai_session.c`). Its
   `run()` gets the rest of the line as one string and parses it by hand. Its
   `args` field is help text only.
 - Completion exists only in the interactive session
@@ -303,7 +303,7 @@ small result.
 
 The global options (`-b`/`--branch`, `-m`, `--set`, `--config`,
 `--transient`, `--root`, `--new`, ...) get one definition,
-`the `global` section of `data/commands.yaml``. `src/main.c` parses them from that definition.
+`the `global` section of `data/commands.yaml``. `src/core/main.c` parses them from that definition.
 Completion then knows them, and help lists them one time.
 
 ## Parser
@@ -420,7 +420,7 @@ The migration is finished. The registry is the only dispatch: the verb table
 (`fyai_find_verb()`), the slash table and the hand-written `configure()` and
 slash `run()` functions are gone, and `fyai help` and `/help` list the
 registry alone. `union fyai_cmd_args` stays as the argument structures that
-the backends read (`src/commands.h`).
+the backends read (`src/cmd/commands.h`).
 
 The first commands that were ported are `branch` (a group with subcommands and
 refs), `checkout` (a surface difference), `model` (catalogue completion),
@@ -429,11 +429,11 @@ refs), `checkout` (a surface difference), `model` (catalogue completion),
 
 ## Source layout
 
-- `src/fyai_cmd.c`, `src/fyai_cmd.h`: registry, parser, dispatch, and the
+- `src/cmd/fyai_cmd.c`, `src/cmd/fyai_cmd.h`: registry, parser, dispatch, and the
   handler table.
-- `src/fyai_cmd_complete.c`: completion engine, kinds, and the
+- `src/cmd/fyai_cmd_complete.c`: completion engine, kinds, and the
   `completion` and `__complete` verbs.
-- `src/fyai_cmd_help.c`: help, usage, manual page, and reference rendering.
+- `src/cmd/fyai_cmd_help.c`: help, usage, manual page, and reference rendering.
 - `src/fyai_cmd_<group>.c`: handlers, one file for each group as they move
   out of `commands.c` and `fyai_session.c`.
 - `data/command.schema.yaml`: meta schema of a definition.

@@ -60,14 +60,14 @@ Important reconstruction behavior includes:
 
 Relevant implementation:
 
-- `src/fyai_turn.c`: turn construction and provider-stream attachment;
-- `src/fyai_display.c:337`: user blockquote construction;
-- `src/fyai_display.c:842`: native reasoning rendering;
-- `src/fyai_display.c:957`: turn-level provider-stream reasoning;
-- `src/fyai_display.c:1365`: history grouping and `prev_tool`;
-- `src/fyai_display.c:1403`: user bubble flush boundary;
-- `src/fyai_display.c:1429`: tool-result flush boundary;
-- `src/fyai_display.c:1460`: heuristic turn separators.
+- `src/core/fyai_turn.c`: turn construction and provider-stream attachment;
+- `src/front/fyai_display.c:337`: user blockquote construction;
+- `src/front/fyai_display.c:842`: native reasoning rendering;
+- `src/front/fyai_display.c:957`: turn-level provider-stream reasoning;
+- `src/front/fyai_display.c:1365`: history grouping and `prev_tool`;
+- `src/front/fyai_display.c:1403`: user bubble flush boundary;
+- `src/front/fyai_display.c:1429`: tool-result flush boundary;
+- `src/front/fyai_display.c:1460`: heuristic turn separators.
 
 This means history represents a new rendering of semantic conversation data,
 not the finalized live display output.
@@ -78,12 +78,12 @@ not the finalized live display output.
 
 Streamed assistant content has its own progressive Markdown renderer.
 
-- `src/fyai_stream.c:145` applies terminal line deltas directly.
-- `src/fyai_stream.c:164` accumulates and progressively renders assistant
+- `src/provider/fyai_stream.c:145` applies terminal line deltas directly.
+- `src/provider/fyai_stream.c:164` accumulates and progressively renders assistant
   content.
-- `src/fyai_stream.c:224` writes plain-mode content directly to `stdout`.
-- `src/fyai_stream.c:370` performs final healing and output.
-- `src/fyai.c:72` handles non-streaming final responses through a separate
+- `src/provider/fyai_stream.c:224` writes plain-mode content directly to `stdout`.
+- `src/provider/fyai_stream.c:370` performs final healing and output.
+- `src/core/fyai.c:72` handles non-streaming final responses through a separate
   one-shot Markdown path with a `printf` fallback.
 
 The streamed and non-streamed paths therefore do not share one output object,
@@ -94,16 +94,16 @@ even when they eventually display the same assistant text.
 Reasoning is currently a second progressive document rather than part of the
 assistant document.
 
-- `src/fyai_stream.c:231` manually constructs reasoning Markdown headed by
+- `src/provider/fyai_stream.c:231` manually constructs reasoning Markdown headed by
   `**💭 reasoning**`.
-- `src/fyai_stream.c:258` invokes a separate one-shot Markdown renderer for
+- `src/provider/fyai_stream.c:258` invokes a separate one-shot Markdown renderer for
   each update.
-- `src/fyai_stream.c:277` sends rendered reasoning to a dedicated UI work-band
+- `src/provider/fyai_stream.c:277` sends rendered reasoning to a dedicated UI work-band
   or directly to `stderr`.
-- `src/fyai_stream.c:303` has a non-Markdown fallback that prints
+- `src/provider/fyai_stream.c:303` has a non-Markdown fallback that prints
   `reasoning ▸` and raw text to `stderr`.
-- `src/fyai_stream.c:337` manually prints the reasoning separator.
-- `src/fyai_ui.c:429` owns a distinct reasoning work-band.
+- `src/provider/fyai_stream.c:337` manually prints the reasoning separator.
+- `src/front/fyai_ui.c:429` owns a distinct reasoning work-band.
 
 History separately implements the same concepts in
 `fyai_emit_native_item()` and `fyai_emit_turn_reasoning()`. Encrypted reasoning
@@ -119,20 +119,20 @@ Tool output is split between still more render paths.
 
 For shell tools:
 
-- `src/fyai_tools.c:75` creates a temporary Markdown document for the shell
+- `src/tools/fyai_tools.c:75` creates a temporary Markdown document for the shell
   header and renders it directly to `stderr`;
-- `src/fyai_tools.c:81` has a direct `fprintf` fallback;
-- `src/fyai_tools.c:128` starts a separate progressive fenced-block renderer;
-- `src/fyai_markdown.c:547` implements that fenced stream independently of the
+- `src/tools/fyai_tools.c:81` has a direct `fprintf` fallback;
+- `src/tools/fyai_tools.c:128` starts a separate progressive fenced-block renderer;
+- `src/front/fyai_markdown.c:547` implements that fenced stream independently of the
   assistant stream;
-- `src/fyai_tools.c:150` prints plain-mode shell headers directly;
-- `src/fyai_tools.c:194` writes plain shell chunks directly to `stderr`;
-- `src/fyai_tools.c:355` and `src/fyai_tools.c:529` contain direct binary-output
+- `src/tools/fyai_tools.c:150` prints plain-mode shell headers directly;
+- `src/tools/fyai_tools.c:194` writes plain shell chunks directly to `stderr`;
+- `src/tools/fyai_tools.c:355` and `src/tools/fyai_tools.c:529` contain direct binary-output
   summary fallbacks.
 
 For non-shell tools:
 
-- `src/fyai_display.c:1041` builds and renders a temporary Markdown document
+- `src/front/fyai_display.c:1041` builds and renders a temporary Markdown document
   for the tool-call header;
 - the tool result is rendered in a separate fenced-output call;
 - live rendering and history share some emitters, but do not consume the same
@@ -147,12 +147,12 @@ execution layer.
 User input is canonically stored with `role: user`, but its display path
 bypasses the normal progressive Markdown renderer.
 
-- `src/fyai_display.c:337` converts user text to blockquote Markdown;
-- `src/fyai_display.c:2018` manually emits reverse bubble fence rows using SGR
+- `src/front/fyai_display.c:337` converts user text to blockquote Markdown;
+- `src/front/fyai_display.c:2018` manually emits reverse bubble fence rows using SGR
   state and erase-line control;
-- `src/fyai_display.c:2038` owns a separate reverse-render and commit path;
-- `src/fyai_display.c:2077` has a direct plain fallback;
-- `src/fyai.c:1320` displays the user input before persisting its canonical
+- `src/front/fyai_display.c:2038` owns a separate reverse-render and commit path;
+- `src/front/fyai_display.c:2077` has a direct plain fallback;
+- `src/core/fyai.c:1320` displays the user input before persisting its canonical
   message.
 
 The reverse bubble is therefore encoded in a special printing routine rather
@@ -167,7 +167,7 @@ Spacing ownership is distributed across producers:
 - fenced renderers append final newlines;
 - the user bubble appends its own separation;
 - history inserts separators based on adjacency heuristics;
-- `src/fyai.c:1367` adds another blank line after an interactive response.
+- `src/core/fyai.c:1367` adds another blank line after an interactive response.
 
 No component owns the grammar of a complete displayed turn, so small changes
 regularly cause live/history spacing differences.
@@ -178,21 +178,21 @@ Some direct output is transient UI chrome or diagnostics rather than
 conversation content:
 
 - the wait spinner writes terminal control directly to `stderr`
-  (`src/fyai.c:398`);
-- usage statistics print directly to `stderr` (`src/fyai.c:140`);
+  (`src/core/fyai.c:398`);
+- usage statistics print directly to `stderr` (`src/core/fyai.c:140`);
 - `ask_user` prints its question, choices, and echoed answer directly to
-  `stderr` (`src/fyai_tools.c:406`);
+  `stderr` (`src/tools/fyai_tools.c:406`);
 - diagnostics are drained after the turn;
 - slash commands and administrative commands print directly to
   `stdout`/`stderr`;
 - the pending-input indicator is manually assembled as ANSI text in
-  `src/fyai_ui.c:43`.
+  `src/front/fyai_ui.c:43`.
 
 The interactive UI redirects both `stdout` and `stderr` to spool files and
 commits every captured byte into the transcript:
 
-- `src/fyai_ui.c:112`: spool draining;
-- `src/fyai_ui.c:208`: stream redirection setup.
+- `src/front/fyai_ui.c:112`: spool draining;
+- `src/front/fyai_ui.c:208`: stream redirection setup.
 
 The spool cannot distinguish among:
 

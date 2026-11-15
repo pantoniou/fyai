@@ -1143,7 +1143,7 @@ What the transport protects:
 - The transport is undumpable, takes no listening socket, and forks no child
   after it has read a credential (section 6).
 - The transport uses the same credential component as the agent
-  (`src/fyai_cred.c`; `doc/credential-sources-plan.md`). The component keeps
+  (`src/auth/fyai_cred.c`; `doc/credential-sources-plan.md`). The component keeps
   one refresh for each process and a list of the requests that wait for it.
   The transport verbs call `prepare` before a request and `reject` after a
   401. A cancel of a request that waits only removes that request.

@@ -4,7 +4,7 @@
 
 Today a `shell` or `agent` call that runs for longer than
 `display/work_open_delay_ms` (500 ms) opens a tile of the work pane
-(`fyai_tool_job_band_open()`, `src/fyai_tools.c:5209`, armed at :5527). The
+(`fyai_tool_job_band_open()`, `src/tools/fyai_tools.c:5209`, armed at :5527). The
 progress is drawn there, away from the transcript position of the call, and
 the pane opening/closing moves the page. The delay exists only to hide that
 jump for fast commands.
@@ -12,7 +12,7 @@ jump for fast commands.
 Goal: an alternative renderer, gated by configuration, that draws the live
 output of the call **in the transcript itself**, at the rows the call occupies
 in the Markdown scrollback. First release: fullscreen page only
-(`display/screen: fullscreen`, `src/fyai_transcript_view.c`), where the
+(`display/screen: fullscreen`, `src/front/fyai_transcript_view.c`), where the
 transcript is a view we own, so nothing jumps. Two kinds of live block:
 
 1. **Text block** (no PTY): the existing progressive fenced render
@@ -36,7 +36,7 @@ transcript is a view we own, so nothing jumps. Two kinds of live block:
 
 - New key `display/tool_display: pane | inline` (default `pane`),
   `x-fyai-scope: session`, in `data/config.schema.yaml`; field
-  `cfg->tool_display` set in `apply_config` (`src/fyai_config.c` near :752).
+  `cfg->tool_display` set in `apply_config` (`src/core/fyai_config.c` near :752).
 - `display/inline_terminal_rows` (integer, default 12): height of a terminal
   block. Width is the transcript width less the tool-output indent.
 - `inline` takes effect only when the UI is fullscreen; otherwise the pane
@@ -46,7 +46,7 @@ transcript is a view we own, so nothing jumps. Two kinds of live block:
 
 ## Design
 
-### 1. Live blocks in the transcript view (`src/fyai_transcript_view.c`)
+### 1. Live blocks in the transcript view (`src/front/fyai_transcript_view.c`)
 
 The view now has stored rows, committed live rows, and one flat tail
 (`fyai_transcript_view_set_tail()`). Add an ordered list of **live blocks**
@@ -70,7 +70,7 @@ void fyai_transcript_view_block_close(b);	/* rows leave with the stored exchange
 - On commit the existing `fyai_transcript_view_replace_live()` path drops the
   blocks with the live rows when the exchange is stored.
 
-### 2. Sink placement for text blocks (`src/fyai_sink.c`, `src/fyai_ui.c`)
+### 2. Sink placement for text blocks (`src/front/fyai_sink.c`, `src/front/fyai_ui.c`)
 
 Producers keep the band API (`fyai_sink_band_open/paint/close`); the terminal
 backend decides placement. When `fyai_ui_tools_inline()` is true:
@@ -92,7 +92,7 @@ In `fyai_tools.c` the inline path opens the band at once (no
 `band_delay` timer) and uses the same title row via
 `markdown_render_tool_head()`.
 
-### 3. Terminal blocks (`src/fyai_terminal_view.c`, `src/fyai_tools.c`, `src/fyai_agent.c`)
+### 3. Terminal blocks (`src/front/fyai_terminal_view.c`, `src/tools/fyai_tools.c`, `src/tools/fyai_agent.c`)
 
 - The terminal session gets its size from the block, not from a tile grant:
   `tool/run` carries `size = {inline_terminal_rows, block cols}`;

@@ -33,7 +33,7 @@ The seam is built, but it is on the other side of a process boundary:
 - The UI model (`doc/ui-model.md`) holds data and Markdown source, and holds
   no rows, no width and no theme. View state is already outside it.
 - The remote worker is the engine with no display. It sends `fyai`/`store`
-  and `fyai`/`text` frames. The remote client (`src/fyai_remote_ui.c`) is a
+  and `fyai`/`text` frames. The remote client (`src/remote/fyai_remote_ui.c`) is a
   terminal UI over a mirror of the model, and sends `fyai_answer`,
   `fyai_command`, `fyai_terminal_input`, `fyai_bang` and `fyai_sync`.
 - `scope: view` commands and `display/` settings already run in the client.

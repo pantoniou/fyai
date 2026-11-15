@@ -8,7 +8,7 @@
 struct fyai_ctx;
 
 /*
- * Read a recording that --cast wrote (src/fyai_cast.c): a header line, then one
+ * Read a recording that --cast wrote (src/front/fyai_cast.c): a header line, then one
  * array [seconds, kind, text] for each event. The reader parses a line at a
  * time with a scratch builder that it makes again from time to time, so the
  * value of an event lives until the next call of fyai_cast_file_next().

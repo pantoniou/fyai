@@ -36,7 +36,7 @@ address ranges.
 
 ## What is different under Fil-C
 
-- The libc has no `statx()`. `src/fyai_filc_compat.h` takes `struct statx` from
+- The libc has no `statx()`. `src/core/fyai_filc_compat.h` takes `struct statx` from
   the kernel headers and issues the system call.
 - `close_range()` is not used; the fallback closes the descriptors.
 - The kernel keyring secret store is not built: its pointer arguments pass

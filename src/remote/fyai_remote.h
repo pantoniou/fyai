@@ -37,7 +37,7 @@ int fyai_remote_ui_step(struct fyai_remote_ui *view);
 void fyai_remote_ui_close(struct fyai_remote_ui *view);
 
 /*
- * Present a frame of the sink of a remote command (src/fyai_sink_frames.c)
+ * Present a frame of the sink of a remote command (src/front/fyai_sink_frames.c)
  * with the sink of @ctx. -1 with a diagnostic for a frame it cannot present.
  */
 int fyai_sink_frames_present(struct fyai_ctx *ctx, fy_generic frame);

@@ -12,7 +12,7 @@ level B.
 
 **Status: resolved for the agent image.** `resolve_secret()` and the
 automatic provider lookup do not read the secret store when
-`fyai_transport_supervised()` is true (`src/fyai_config.c`). Level B installs
+`fyai_transport_supervised()` is true (`src/core/fyai_config.c`). Level B installs
 no filesystem or keyring policy, so a tool of the same user can still read
 the store. Section 5 of `agent-transport-isolation-sdd.md` states this limit.
 
@@ -27,10 +27,10 @@ The persistent keyring lookup is based on the user's UID. The patch does not
 restrict the agent or its tools from making the same lookup. Environment
 scrubbing does not protect credentials stored there.
 
-Evidence: [`resolve_secret()`](../src/fyai_config.c#L313-L346),
-[`fyai_config_apply()`](../src/fyai_config.c#L363-L383),
-[automatic provider lookup](../src/fyai_config.c#L2921-L2935), and
-[bootstrap environment scrubbing](../src/fyai_transport_boot.c#L483-L519).
+Evidence: [`resolve_secret()`](../src/core/fyai_config.c#L313-L346),
+[`fyai_config_apply()`](../src/core/fyai_config.c#L363-L383),
+[automatic provider lookup](../src/core/fyai_config.c#L2921-L2935), and
+[bootstrap environment scrubbing](../src/transport/fyai_transport_boot.c#L483-L519).
 
 **Suggested fix:** In a supervised image, keep only the credential reference
 in agent configuration. Resolve its value exclusively in the transport. Apply
@@ -43,7 +43,7 @@ that checks the agent's memory-facing configuration and tool access.
 **Status: resolved.** A secondary connection records its execution.
 `op_grant()` accepts only that execution or a descendant of it, and only the
 primary connection changes profiles, sets a credential, or starts and ends
-the transport (`src/fyai_transport_verb.c`).
+the transport (`src/transport/fyai_transport_verb.c`).
 
 Each sub-agent receives a control connection. The transport accepts `profiles`
 from any such connection and applies them to the global profile set. It also
@@ -52,10 +52,10 @@ the execution or that a merged profile preserves an existing endpoint and
 credential source. A holder of a sub-agent control connection can therefore
 replace a profile used by the root or change the root's grant.
 
-Evidence: [control dispatch](../src/fyai_transport_verb.c#L496-L553),
-[`op_grant()`](../src/fyai_transport_verb.c#L464-L476),
-[`op_profiles()`](../src/fyai_transport_verb.c#L478-L494), and
-[profile merge replacement](../src/fyai_transport.c#L493-L521).
+Evidence: [control dispatch](../src/transport/fyai_transport_verb.c#L496-L553),
+[`op_grant()`](../src/transport/fyai_transport_verb.c#L464-L476),
+[`op_profiles()`](../src/transport/fyai_transport_verb.c#L478-L494), and
+[profile merge replacement](../src/transport/fyai_transport.c#L493-L521).
 
 **Suggested fix:** Associate each secondary control connection with its
 registered execution. Restrict admissions and grant changes to that
@@ -67,8 +67,8 @@ cross-execution grant and profile changes through the control protocol.
 
 **Status: resolved.** `op_envgrant()` writes the values into a socket that
 only the command child reads; the agent does not hold them. Only the primary
-connection can ask for the grant (`src/fyai_transport_verb.c`,
-`src/fyai_catalog.c`).
+connection can ask for the grant (`src/transport/fyai_transport_verb.c`,
+`src/provider/fyai_catalog.c`).
 
 For a catalogue update, the agent asks the transport to `fetch` the configured
 environment variables. The transport returns their values, and
@@ -78,10 +78,10 @@ catalogue update paths both do this. During that interval, the agent holds
 the raw values; the launched command inherits them. This violates the stated
 guarantee that the transport alone holds provider credentials.
 
-Evidence: [`op_fetch()`](../src/fyai_transport_verb.c#L390-L411),
-[`fyai_transport_fetch_env()`](../src/fyai_transport_boot.c#L797-L841),
-[synchronous catalogue update](../src/fyai_catalog.c#L743-L751), and
-[interactive catalogue update](../src/fyai_catalog.c#L845-L855).
+Evidence: [`op_fetch()`](../src/transport/fyai_transport_verb.c#L390-L411),
+[`fyai_transport_fetch_env()`](../src/transport/fyai_transport_boot.c#L797-L841),
+[synchronous catalogue update](../src/provider/fyai_catalog.c#L743-L751), and
+[interactive catalogue update](../src/provider/fyai_catalog.c#L845-L855).
 
 **Suggested fix:** Run this credential-bearing command from a distinct,
 explicitly trusted process, or make catalogue updates use transport-mediated
@@ -100,7 +100,7 @@ Bootstrap always resolves `auto` to `level-b` and rejects every explicit
 `level-a` is selectable and that `auto` chooses the highest supported level.
 On a host with usable cgroup v2 delegation, neither behavior occurs.
 
-Evidence: [bootstrap level selection](../src/fyai_transport_boot.c#L422-L429),
+Evidence: [bootstrap level selection](../src/transport/fyai_transport_boot.c#L422-L429),
 [configuration schema](../data/config.schema.yaml#L428-L440), and
 [level definitions](agent-transport-isolation-sdd.md#L255-L270).
 

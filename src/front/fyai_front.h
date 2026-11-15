@@ -42,9 +42,9 @@ struct fyai_front {
 	/* The one rendering component. Every byte the user sees goes here. */
 	struct fyai_sink *sink;
 	struct fyai_ui *ui;
-	/* The state that renderers read (src/fyai_uimodel.h). */
+	/* The state that renderers read (src/front/fyai_uimodel.h). */
 	struct fyai_uimodel *uimodel;
-	struct fyai_uiwork *uiwork;	/* the bands of the display (src/fyai_uiwork.h) */
+	struct fyai_uiwork *uiwork;	/* the bands of the display (src/front/fyai_uiwork.h) */
 	/* A copy that renders stored output: it has no UI model. */
 	bool uimodel_detached;
 	/*
@@ -52,9 +52,9 @@ struct fyai_front {
 	 * whose client draws the model it replicates.
 	 */
 	bool uidraw_off;
-	struct fyai_uitranscript *uitranscript;	/* the live document (src/fyai_uitranscript.h) */
-	struct fyai_uilog *uilog;	/* the span of a command (src/fyai_uilog.h) */
-	struct fyai_uidraw *uidraw;	/* the renderer of the model (src/fyai_uidraw.h) */
+	struct fyai_uitranscript *uitranscript;	/* the live document (src/front/fyai_uitranscript.h) */
+	struct fyai_uilog *uilog;	/* the span of a command (src/front/fyai_uilog.h) */
+	struct fyai_uidraw *uidraw;	/* the renderer of the model (src/front/fyai_uidraw.h) */
 	struct fyai_browser *browser;
 	/* The one owner of work-pane geometry, focus, and zoom. */
 	struct fyai_workpane_manager *workpane;

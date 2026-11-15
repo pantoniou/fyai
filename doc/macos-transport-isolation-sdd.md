@@ -177,7 +177,7 @@ with the audit token of that process, and the transport rejects it.
 
 ### 6.4 Event loop
 
-`src/fyai_event_mac.c` adds a Mach port source with `EVFILT_MACHPORT`.
+`src/loop/fyai_event_mac.c` adds a Mach port source with `EVFILT_MACHPORT`.
 Each borrower removes its sources, as for every other source. A forked child
 that does not execute drops the port sources in `fyai_ctx_loop_abandon()`.
 
@@ -300,7 +300,7 @@ changes. Each check has a positive control.
 3. The Mach source of the event loop.
 4. The handoff of section 6.2 in the agent spawn path, and the exec path of
    sub-agents on macOS.
-5. The tool profile rules of section 7.2 in `src/fyai_sandbox_macos.c`.
+5. The tool profile rules of section 7.2 in `src/sandbox/fyai_sandbox_macos.c`.
 6. The hardened-runtime signature in the build and the startup check.
 7. `level-m` in the schema, the startup, and the status.
 8. Tests: unit tests of the channel backend and the handoff in `fyai_test`,

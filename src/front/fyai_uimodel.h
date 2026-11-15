@@ -22,9 +22,9 @@ enum fyai_ui_store {
 	FYAI_UI_SESSION,	/* the values of the header and the status */
 	FYAI_UI_PANELS,		/* the panels by name, each as data rows */
 	FYAI_UI_QUESTIONS,	/* the sets of questions put to the user */
-	FYAI_UI_LOG,		/* the results of commands (src/fyai_uilog.h) */
-	FYAI_UI_WORK,		/* the live work and the bands (src/fyai_uiwork.h) */
-	FYAI_UI_TRANSCRIPT,	/* the live document (src/fyai_uitranscript.h) */
+	FYAI_UI_LOG,		/* the results of commands (src/front/fyai_uilog.h) */
+	FYAI_UI_WORK,		/* the live work and the bands (src/front/fyai_uiwork.h) */
+	FYAI_UI_TRANSCRIPT,	/* the live document (src/front/fyai_uitranscript.h) */
 	FYAI_UI_STATE,		/* the state a renderer reads from the arena */
 	FYAI_UI_STORE_COUNT
 };

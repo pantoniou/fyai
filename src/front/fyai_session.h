@@ -138,7 +138,7 @@ void fyai_session_turn_set(struct fyai_ctx *ctx, bool busy);
 void fyai_session_head_set(struct fyai_ctx *ctx, fy_generic entry);
 /*
  * The values of the header and the status, for the session store of the UI
- * model (src/fyai_uimodel.h): data, without templates, colours or escapes.
+ * model (src/front/fyai_uimodel.h): data, without templates, colours or escapes.
  */
 fy_generic fyai_session_values(struct fyai_ctx *ctx,
 			       struct fy_generic_builder *gb);

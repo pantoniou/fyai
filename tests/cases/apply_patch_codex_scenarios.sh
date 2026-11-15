@@ -11,7 +11,7 @@
 # 015_failure_after_partial_success_leaves_changes expects a failed patch to
 # leave earlier, already-applied ops committed to disk. fyai deliberately
 # keeps all-or-nothing atomic commit semantics instead (see
-# src/fyai_patch.c's patch_ops_commit()), so that scenario's expectation does
+# src/core/fyai_patch.c's patch_ops_commit()), so that scenario's expectation does
 # not - and should not - hold here.
 set -u
 . "$(dirname "$0")/../harness.sh"

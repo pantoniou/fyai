@@ -2,7 +2,7 @@
 
 The UI model is the state that every renderer reads. The engine writes it. The
 terminal renderer reads it at frame time. A remote client, an HTML renderer or
-a GPU renderer reads the same state as a stream. `src/fyai_uimodel.h` is the
+a GPU renderer reads the same state as a stream. `src/front/fyai_uimodel.h` is the
 interface. `doc/ui-architecture.md` gives how the parts work together.
 
 ## Rules
@@ -46,8 +46,8 @@ describe the display of the parent, such as a turn that runs there.
 | `panels`    | `todo`: the rows of the todo list of the branch               | `fyai_ctx_branch_prev_set()`, at each adoption of a branch entry |
 | `questions` | `open`: the sets of questions, each `{qid, from, questions}`  | `fyai_ask_open()`, `fyai_ask_close()`, `fyai_ask_settle()` |
 | `log`       | `entries`: the output of each command, `{id, title, error, level, parts}` | `fyai_uilog_begin()`, `fyai_uilog_end()` |
-| `work`      | `items`: the live work, `{kind, name}`: a `user-shell` or `shell` that runs, an `agent` that runs; `bands`: the bands of the work pane | `fyai_tools_work_update()`, at each start and end of a session or a job; `src/fyai_uiwork.c` |
-| `transcript` | `live`: the open output document, `{tag, source, length, fragments, recorded, paused}`, or null; `last`: `{tag, state}` of the document that ended last | `src/fyai_uitranscript.c`, from `fyai_output_begin()`, `fyai_output_append()`, `fyai_output_append_recorded()`, the fragments and `fyai_output_finalize()` |
+| `work`      | `items`: the live work, `{kind, name}`: a `user-shell` or `shell` that runs, an `agent` that runs; `bands`: the bands of the work pane | `fyai_tools_work_update()`, at each start and end of a session or a job; `src/front/fyai_uiwork.c` |
+| `transcript` | `live`: the open output document, `{tag, source, length, fragments, recorded, paused}`, or null; `last`: `{tag, state}` of the document that ended last | `src/front/fyai_uitranscript.c`, from `fyai_output_begin()`, `fyai_output_append()`, `fyai_output_append_recorded()`, the fragments and `fyai_output_finalize()` |
 | `state`     | `display`: the stored display configuration of the branch | `fyai_uimodel_state_update()`, at each derivation of the configuration, for a consumer only |
 
 The `header` member holds values, not template expansions: the model, the
@@ -71,7 +71,7 @@ entries. The span starts with the pane span of the terminal renderer, and
 records whether a terminal UI is open or not.
 
 A band enters the work store at its input. The sink gives each band that it
-opens, paints, closes, commits or destroys to `src/fyai_uiwork.c`, and a fenced
+opens, paints, closes, commits or destroys to `src/front/fyai_uiwork.c`, and a fenced
 stream gives each push of source. A band item is
 `{id, shared, title, command, format, ...}`:
 
@@ -135,7 +135,7 @@ renderer goes, `fyai_ask_settle_all()` settles every set with no answer.
 
 ## The renderer
 
-`src/fyai_uidraw.c` draws the stores with the sink of the context, from the
+`src/front/fyai_uidraw.c` draws the stores with the sink of the context, from the
 stores alone. The model gives it each change of a store when the change is
 made, before a consumer gets it, so it draws in the order of the writes. A
 local session and the client of a remote session use the same renderer:
@@ -143,7 +143,7 @@ local session and the client of a remote session use the same renderer:
 - The live document. It opens a document of the sink when `live` names a new
   text, gives the sink the bytes up to `length` less the `recorded` ranges,
   pauses and resumes the render as `paused` changes, and ends the document as
-  `last` says. `src/fyai_output.c` does not call the sink.
+  `last` says. `src/front/fyai_output.c` does not call the sink.
 - The log. It replays the parts of each new entry into the capture of the
   pane, each as a notice, because the span captured every stream as the
   output of the command, and gives the rows to `fyai_ui_log_show()`, which
@@ -191,7 +191,7 @@ display with the first stored turns, as a local session opens on its
 conversation; until then it holds the other frames in their order.
 
 A terminal session of the worker is a mirror session of the client
-(`fyai_tools_mirror_open()`): a session of `src/fyai_tools.c` whose program
+(`fyai_tools_mirror_open()`): a session of `src/tools/fyai_tools.c` whose program
 runs in the worker. It has the tile or the block, the head, the keys and the
 end of a local session, from the same code. Its keys, its size and its end go
 to the worker through `struct fyai_tools_remote`. A line that the user types
@@ -212,8 +212,8 @@ when a checkpoint of the screens differs (`doc/pty-driver.md`).
   only the model.
 - The stored exchanges for a client without the arena: a page of the records
   of each exchange. The client reads the last turns again when the head moves.
-- The screens of sub-agents in a client are tiles of `src/fyai_remote_ui.c`,
-  not mirrors of the agent screens of `src/fyai_tools.c`: their head and
+- The screens of sub-agents in a client are tiles of `src/remote/fyai_remote_ui.c`,
+  not mirrors of the agent screens of `src/tools/fyai_tools.c`: their head and
   their end differ from a local session.
 - The branch browser, the resume picker and the completion of a client read
   no state of the worker: the branch names go in the `state` store next.

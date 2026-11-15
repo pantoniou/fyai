@@ -7,7 +7,7 @@ time and embeds the result.
 ## Build
 
 `tools/fyai_mkimage` parses a document with the flags of fyai
-(`src/fyai_yaml_flags.h`) and deduplication, and makes the image of the result
+(`src/core/fyai_yaml_flags.h`) and deduplication, and makes the image of the result
 with `fy_generic_image_create()` of libfyaml. The image holds the arena with
 the shared values kept shared, and its pointers are offsets from address zero.
 It does not hold the index of the deduplication or any state of the process, so

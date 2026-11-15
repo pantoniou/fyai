@@ -312,7 +312,7 @@ the stored transcript:
   measuring pass of `struct fyai_fragment_ops`, with a row count cached per
   exchange and width. A scroll into an exchange that has no count at the
   current width measures it then.
-- Separation is the flow policy of `src/fyai_flow.c` without change. The top
+- Separation is the flow policy of `src/front/fyai_flow.c` without change. The top
   edge of the view clips rows; it is not a unit boundary and takes no
   separation of its own.
 - Search is an act of the page (`transcript:search`).
@@ -437,7 +437,7 @@ All additions. The current API keeps its behaviour.
 3. The state builder: one generic for each frame, and the schema of its names.
 4. The actions: a table of named functions, and key dispatch by mode.
 5. The question queue and the ask mode.
-6. `src/fyai_transcript_view.c`: the fullscreen viewport over the fragment
+6. `src/front/fyai_transcript_view.c`: the fullscreen viewport over the fragment
    walk.
 
 ## 7. Remaining work

@@ -38,7 +38,7 @@ int fyai_uidraw_echoed(struct fyai_ctx *ctx, const char *line);
 /*
  * Whether this renderer draws the bands of the producers of @ctx: a display
  * is open and the model is its own. The bands of a producer are then shadows
- * (src/fyai_sink.h).
+ * (src/front/fyai_sink.h).
  */
 bool fyai_uidraw_bands(struct fyai_ctx *ctx);
 /* The width of the band of the display that draws the shadow @shadow. */

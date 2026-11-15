@@ -154,7 +154,7 @@ Enforcement:
 
 - `data/tools.yaml`: add the entry and update the order comment, and the order
   list in `doc/tools-yaml.md`.
-- `src/fyai_claude_sdk.c`: map `WebFetch` to `web_fetch` beside `WebSearch`,
+- `src/remote/fyai_claude_sdk.c`: map `WebFetch` to `web_fetch` beside `WebSearch`,
   so the SDK permission rules apply.
 - `doc/foreign-tool-mapping.md`: map the `WebFetch` call of a foreign session.
   An imported call stays inert.

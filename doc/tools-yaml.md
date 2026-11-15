@@ -2,7 +2,7 @@
 
 The `data/tools.yaml` file defines the built-in tools. The file contains the
 tool names, descriptions, and parameter schemas. CMake embeds the file in the
-binary. The `make_tools()` function in `src/fyai_tool_spec.c` parses the file
+binary. The `make_tools()` function in `src/tools/fyai_tool_spec.c` parses the file
 at run time.
 
 The provider, the `fyai catalog` output, and the tool tests use this data. To
@@ -81,7 +81,7 @@ state under `templates`, beside its description:
         Text for a run where the option can be chosen.
 ```
 
-`fyai_tool_template_state()` in `src/fyai_tool_template.c` lists the names and
+`fyai_tool_template_state()` in `src/tools/fyai_tool_template.c` lists the names and
 gives the state of each. A name that has no text in this run, or in a state
 that the tool does not list, stands for nothing, and the blank it leaves is
 removed. The `templates` key is not sent to the provider.
@@ -109,7 +109,7 @@ settings.
 
 ## Filtering
 
-`make_tools_filtered()` in `src/fyai_tool_spec.c` adapts the parsed tools to
+`make_tools_filtered()` in `src/tools/fyai_tool_spec.c` adapts the parsed tools to
 the context.
 
 - A delegated session offers `ask_parent` and removes `ask_user`. A session
@@ -132,8 +132,8 @@ validate the full document shape, exact tool order, every `required` list, or
 ## Tool registry
 
 `data/tools.yaml` describes a tool to the model. `struct fyai_tool_def`
-(`src/fyai_tool_registry.h`) describes it to the program. The file that
-implements a tool defines its entry, and `src/fyai_tool_registry.c` joins the
+(`src/tools/fyai_tool_registry.h`) describes it to the program. The file that
+implements a tool defines its entry, and `src/tools/fyai_tool_registry.c` joins the
 tables. An entry holds:
 
 - `run`: the function that runs the call;
