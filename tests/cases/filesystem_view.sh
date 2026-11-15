@@ -189,7 +189,11 @@ import os, select, time, sys
 pid, fd = os.forkpty()
 if pid == 0:
     os.execv(sys.argv[1], [sys.argv[1], 'view', 'enter', 'demo', 'sh', '-c',
-                         'printf interrupt-ready; sleep 60'])
+                         # The trap is set before the program says it is ready, and a
+                         # Ctrl-C that comes at any later step still reaches it: a
+                         # shell that gets the signal before it starts its child would
+                         # otherwise let the child run on.
+                         "trap 'exit 130' INT; printf interrupt-ready; read line"])
 # A deadline bounds a failure: scale it for a sanitized or a loaded run. Each
 # phase has its own, so a slow start does not take the time of the interrupt.
 bound = 15 * int(os.environ.get('FYAI_TIMEOUT_SCALE', '1'))
