@@ -190,8 +190,10 @@ pid, fd = os.forkpty()
 if pid == 0:
     os.execv(sys.argv[1], [sys.argv[1], 'view', 'enter', 'demo', 'sh', '-c',
                          'printf interrupt-ready; sleep 60'])
-# A deadline bounds a failure: scale it for a sanitized or a loaded run.
-deadline = time.monotonic() + 15 * int(os.environ.get('FYAI_TIMEOUT_SCALE', '1'))
+# A deadline bounds a failure: scale it for a sanitized or a loaded run. Each
+# phase has its own, so a slow start does not take the time of the interrupt.
+bound = 15 * int(os.environ.get('FYAI_TIMEOUT_SCALE', '1'))
+deadline = time.monotonic() + bound
 output = b''
 status = None
 try:
@@ -200,6 +202,7 @@ try:
             output += os.read(fd, 65536)
     assert b'interrupt-ready' in output, output
     os.write(fd, b'\x03')
+    deadline = time.monotonic() + bound
     # The end of the terminal wakes the wait: the child has closed it.
     while time.monotonic() < deadline:
         if select.select([fd], [], [], 0.1)[0]:
@@ -223,13 +226,13 @@ finally:
 PTY
 
 "$PYTHON" - "$FYAI_BIN" <<'CANCEL'
-import subprocess, signal, sys
+import os, subprocess, signal, sys
 p = subprocess.Popen([sys.argv[1], 'view', 'enter', 'demo', 'sh', '-c',
                       'printf "ready\\n"; sleep 60'], stdin=subprocess.DEVNULL,
                      stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 assert p.stdout.readline() == b'ready\n'
 p.send_signal(signal.SIGTERM)
-output, error = p.communicate(timeout=10)
+output, error = p.communicate(timeout=10 * int(os.environ.get('FYAI_TIMEOUT_SCALE', '1')))
 assert p.returncode == 143, (p.returncode, output, error)
 CANCEL
 
