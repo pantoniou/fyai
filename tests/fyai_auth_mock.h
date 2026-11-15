@@ -62,7 +62,9 @@ __attribute__((unused)) static void mock_cred(void)
 	mock_app.ctx.loop = &loop;
 	mock_app.ctx.cred = &mock_app.cred;
 	fyai_test_transport_of(&mock_app.ctx);
-	fyai_cred_init(mock_app.ctx.cred, &loop);
+	fyai_cred_init(mock_app.ctx.cred, &loop, &cfg, fyai_test_transient_of(&mock_app.ctx),
+		       fyai_test_link_of(&mock_app.ctx), mock_app.ctx.transport,
+		       fyai_cfg_diag(&cfg));
 }
 static bool diag_ready;
 
@@ -256,6 +258,7 @@ __attribute__((unused)) static void mock_start(struct mock *m,
 		FYAI_TCHECK(!rc);
 		loop.diag = cfg.diag;
 		diag_ready = true;
+		mock_app.cred.diag = cfg.diag;
 	}
 	mock_cred();
 	fyai_test_link_of(&mock_app.ctx)->loop = &loop;

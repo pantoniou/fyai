@@ -446,7 +446,7 @@ int fyai_cmd_list(struct fyai_cmd_call *call, fy_generic *result)
 	live = list_live(ctx, call->gb, what);
 	if (!strcmp(what, "models") &&
 	    ctx->cfg->auth_mode == FYAI_AUTH_CHATGPT) {
-		request = fyai_auth_models_submit(ctx, list_models_complete,
+		request = fyai_auth_models_submit(ctx->cred, list_models_complete,
 						  call);
 		fyai_error_check(ctx, request, err, "list: cannot fetch the "
 				 "models");

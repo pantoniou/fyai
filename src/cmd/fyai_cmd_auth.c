@@ -128,7 +128,7 @@ int fyai_cmd_auth_logout(struct fyai_cmd_call *call, fy_generic *result)
 		*result = fy_mapping(call->gb, "logged_out", true);
 		return 0;
 	}
-	request = fyai_auth_logout_submit(fyai_cmd_call_ctx(call), auth_logout_complete,
+	request = fyai_auth_logout_submit((fyai_cmd_call_ctx(call))->cred, auth_logout_complete,
 					  call);
 	if (!request)
 		return -1;
@@ -287,7 +287,7 @@ int fyai_cmd_auth_login(struct fyai_cmd_call *call, fy_generic *result)
 		return fyai_auth_login(fyai_cmd_call_ctx(call), false, false, true,
 			fyai_cmd_arg_str(call, "account"), fyai_cmd_arg_bool(call, "new_account"));
 	}
-	request = fyai_auth_login_submit(fyai_cmd_call_ctx(call),
+	request = fyai_auth_login_submit((fyai_cmd_call_ctx(call))->cred,
 					 fyai_cmd_arg_bool(call, "device_code"),
 					 fyai_cmd_arg_bool(call, "no_browser") ||
 					 fyai_cmd_arg_bool(call, "manual"),

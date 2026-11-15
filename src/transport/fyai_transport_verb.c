@@ -158,7 +158,7 @@ static int verb_cred(void *ud, const struct fyai_transport_profile *pr,
 {
 	struct fyai_transport_verb *v = ud;
 
-	return fyai_cred_get(fyai_transport_verb_ctx(v), pr->credential, secret, extra);
+	return fyai_cred_get((fyai_transport_verb_ctx(v))->cred, pr->credential, secret, extra);
 }
 
 /* The refresh of the login ended: run the requests that waited for it. */
@@ -173,26 +173,26 @@ static void verb_waiter_run(struct fyai_cred_waiter *w, int result)
 /*
  * Refresh the subscription login before a request uses it. The component
  * shares one refresh between all requests that wait and ends a request that
- * waited from the state of the login (fyai_cred_prepare()).
+ * waited from the state of the login (fyai_cred_prepare(()->cred)).
  */
 static int verb_prepare(void *ud, const struct fyai_transport_profile *pr,
 			bool resumed)
 {
 	struct fyai_transport_verb *v = ud;
 
-	return fyai_cred_prepare(fyai_transport_verb_ctx(v), pr->credential, &v->waiter, resumed);
+	return fyai_cred_prepare((fyai_transport_verb_ctx(v))->cred, pr->credential, &v->waiter, resumed);
 }
 
 /*
  * A request that used the login got HTTP 401. Renew the login one time and
- * let the request run again (fyai_cred_reject()).
+ * let the request run again (fyai_cred_reject(()->cred)).
  */
 static int verb_reject(void *ud, const struct fyai_transport_profile *pr,
 		       uint64_t tag, bool probe)
 {
 	struct fyai_transport_verb *v = ud;
 
-	return fyai_cred_reject(fyai_transport_verb_ctx(v), pr->credential, &v->waiter, tag, probe);
+	return fyai_cred_reject((fyai_transport_verb_ctx(v))->cred, pr->credential, &v->waiter, tag, probe);
 }
 
 /* Events go to the supervisor if it is listening; a full socket drops them. */
@@ -424,7 +424,7 @@ static int op_cmd(struct fyai_transport_conn *c, struct fy_generic_builder *gb,
 		*detail = "the transport does not run this command";
 		return -EPERM;
 	}
-	if (forwarded[i].idle && fyai_cred_refresh_pending(fyai_transport_verb_ctx(v))) {
+	if (forwarded[i].idle && fyai_cred_refresh_pending((fyai_transport_verb_ctx(v))->cred)) {
 		*detail = "a token refresh is running; retry the command";
 		return -EBUSY;
 	}
@@ -786,7 +786,7 @@ static int verb_dispatch(struct fyai_transport_conn *c, struct fy_generic_builde
 			detail = "a credential needs a name and a value";
 			rc = -EINVAL;
 		} else
-			rc = fyai_cred_mem_set(fyai_transport_verb_ctx(v), fy_castp(&name, ""), fy_castp(&value, ""));
+			rc = fyai_cred_mem_set((fyai_transport_verb_ctx(v))->cred, fy_castp(&name, ""), fy_castp(&value, ""));
 		goto out;
 	}
 	if (!strcmp(op, "shutdown")) {
@@ -965,7 +965,7 @@ static void verb_cleanup(struct fyai_transport_verb *v)
 		free(c);
 	}
 	conn_reap(v);
-	fyai_cred_release(fyai_transport_verb_ctx(v));
+	fyai_cred_release((fyai_transport_verb_ctx(v))->cred);
 	fyai_transport_server_destroy(v->srv);
 	fyai_transport_registry_destroy(v->reg);
 }

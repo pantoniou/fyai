@@ -225,8 +225,9 @@ failure into the sink that a component holds. Done: the event queue and the
 named waits (`waitq`), the orphans and the pins of the scope (`scope`), the
 background questions (`askq`, which reaches the user through hooks), the curl
 multi plumbing of the connection (`link`), and the control channel of the
-credential transport (`transport`). A function that composes components, such
-as `fyai_xfer_submit()`, `fyai_transport_ensure()` and `fyai_transport_attach()`,
+credential transport (`transport`), and the login (`cred`: the store, the
+refresh, the login and logout requests, and the sources). A function that composes components, such
+as `fyai_auth_resolve()`, `fyai_auth_login()`, `fyai_xfer_submit()`, `fyai_transport_ensure()` and `fyai_transport_attach()`,
 stays on `ctx`.
 
 ## Order of work

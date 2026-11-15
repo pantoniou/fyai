@@ -22,7 +22,12 @@
 #include "fyai_auth.h"
 
 struct fyai_ctx;
+struct fyai_cfg;
+struct fyai_diag;
+struct fyai_link;
 struct fyai_loop;
+struct fyai_transient;
+struct fyai_transport_state;
 struct fy_generic_builder;
 struct fyai_event_source;
 struct fyai_auth_refresh_request;
@@ -58,6 +63,11 @@ struct fyai_cred {
 	/* Refresh requests whose token request is out after a cancel. */
 	unsigned int auth_detached;
 	struct fyai_loop *loop;			/* dependency: the timer */
+	struct fyai_cfg *cfg;			/* the settings of the login */
+	struct fyai_transient *transient;	/* the values of one call */
+	struct fyai_link *link;			/* the curl handle of a request */
+	struct fyai_transport_state *transport;
+	struct fyai_diag *diag;
 	struct fyai_event_source *timer;	/* the scheduled refresh */
 	time_t scheduled;			/* when the timer fires, or 0 */
 	struct fyai_auth_refresh_request *refresh;
@@ -67,7 +77,10 @@ struct fyai_cred {
 	size_t nmem;
 };
 
-void fyai_cred_init(struct fyai_cred *cred, struct fyai_loop *loop);
+void fyai_cred_init(struct fyai_cred *cred, struct fyai_loop *loop,
+		    struct fyai_cfg *cfg, struct fyai_transient *transient,
+		    struct fyai_link *link, struct fyai_transport_state *transport,
+		    struct fyai_diag *diag);
 
 /*
  * Make the credential of @source usable before a request reads it. Returns 0
@@ -76,7 +89,7 @@ void fyai_cred_init(struct fyai_cred *cred, struct fyai_loop *loop);
  * answers from its state and starts no refresh, so a failed refresh ends each
  * waiting request once. A static source returns 0.
  */
-int fyai_cred_prepare(struct fyai_ctx *ctx, const char *source,
+int fyai_cred_prepare(struct fyai_cred *cred, const char *source,
 		      struct fyai_cred_waiter *waiter, bool resumed);
 
 /*
@@ -88,7 +101,7 @@ int fyai_cred_prepare(struct fyai_ctx *ctx, const char *source,
  * start now, 1 when the refresh runs and @waiter is queued, or a negative
  * errno when no renewal is possible.
  */
-int fyai_cred_reject(struct fyai_ctx *ctx, const char *source,
+int fyai_cred_reject(struct fyai_cred *cred, const char *source,
 		     struct fyai_cred_waiter *waiter, uint64_t tag, bool probe);
 
 /*
@@ -99,11 +112,11 @@ int fyai_cred_reject(struct fyai_ctx *ctx, const char *source,
  * A source that names a header sets @extra, which the caller frees. @ctx may
  * be NULL for env: and secret:.
  */
-int fyai_cred_get(struct fyai_ctx *ctx, const char *chain, char **secret,
+int fyai_cred_get(struct fyai_cred *cred, const char *chain, char **secret,
 		  struct curl_slist **extra);
 
 /* Keep a secret in memory under @name, as "mem:NAME" reads it. */
-int fyai_cred_mem_set(struct fyai_ctx *ctx, const char *name, const char *value);
+int fyai_cred_mem_set(struct fyai_cred *cred, const char *name, const char *value);
 
 /* The tag that tells two values of a credential apart. */
 uint64_t fyai_cred_tag(const char *secret);
@@ -113,7 +126,7 @@ uint64_t fyai_cred_tag(const char *secret);
  * the token request, the refresh is cancelled; a token request goes on and
  * saves its answer.
  */
-void fyai_cred_waiter_cancel(struct fyai_ctx *ctx,
+void fyai_cred_waiter_cancel(struct fyai_cred *cred,
 			     struct fyai_cred_waiter *waiter);
 
 /*
@@ -121,14 +134,14 @@ void fyai_cred_waiter_cancel(struct fyai_ctx *ctx,
  * is armed. fyai_cred_timer_fire() is what the timer runs; a test calls it to
  * act at that time without waiting.
  */
-time_t fyai_cred_scheduled_at(const struct fyai_ctx *ctx);
-void fyai_cred_timer_fire(struct fyai_ctx *ctx);
+time_t fyai_cred_scheduled_at(const struct fyai_cred *cred);
+void fyai_cred_timer_fire(struct fyai_cred *cred);
 
 /* True while a refresh of the login runs. */
-bool fyai_cred_refresh_pending(const struct fyai_ctx *ctx);
+bool fyai_cred_refresh_pending(const struct fyai_cred *cred);
 
 /* End the refresh and drop the waiters without running them. */
-void fyai_cred_release(struct fyai_ctx *ctx);
+void fyai_cred_release(struct fyai_cred *cred);
 /* Forget the refresh and the waiters of the parent in a forked child; end nothing. */
 void fyai_cred_abandon(struct fyai_cred *cred);
 

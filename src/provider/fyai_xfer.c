@@ -210,7 +210,7 @@ static size_t xfer_write(char *ptr, size_t size, size_t nmemb, void *ud)
 		curl_easy_getinfo(fyai_xfer_ctx(x)->link->curl, CURLINFO_RESPONSE_CODE, &status);
 		if (status == 401 && !x->retried &&
 		    (x->rekey ||
-		     fyai_cred_reject(fyai_xfer_ctx(x), "oauth:chatgpt", NULL, 0, true)))
+		     fyai_cred_reject((fyai_xfer_ctx(x))->cred, "oauth:chatgpt", NULL, 0, true)))
 			x->phase = XFER_HELD;
 		else
 			x->phase = XFER_STARTED;
@@ -240,7 +240,7 @@ static int xfer_curl_send(struct fyai_xfer *x)
 		for (src = ctx->link->headers; !rc && src; src = src->next)
 			rc = append_header(&x->headers, src->data);
 		if (!rc && x->login)
-			rc = fyai_auth_apply_headers(ctx, &x->headers);
+			rc = fyai_auth_apply_headers(ctx->cred, &x->headers);
 		fyai_error_check(ctx, !rc, err_out,
 				 "the credential cannot authenticate this request");
 		if (x->login)
@@ -261,7 +261,7 @@ static int xfer_login_send(struct fyai_xfer *x)
 {
 	int rc;
 
-	rc = fyai_cred_prepare(fyai_xfer_ctx(x), "oauth:chatgpt", &x->waiter, x->retried);
+	rc = fyai_cred_prepare((fyai_xfer_ctx(x))->cred, "oauth:chatgpt", &x->waiter, x->retried);
 	if (rc < 0) {
 		xfer_login_cause(fyai_xfer_ctx(x), rc);
 		return -1;
@@ -301,7 +301,7 @@ static bool xfer_rejected(struct fyai_xfer *x, long status)
 {
 	int rc;
 
-	rc = fyai_cred_reject(fyai_xfer_ctx(x), "oauth:chatgpt", &x->waiter, x->tag, false);
+	rc = fyai_cred_reject((fyai_xfer_ctx(x))->cred, "oauth:chatgpt", &x->waiter, x->tag, false);
 	if (rc < 0)
 		return false;
 	x->retried = true;
@@ -329,7 +329,7 @@ static bool xfer_rekeyed(struct fyai_xfer *x)
 	size_t slen;
 	int rc;
 
-	rc = fyai_cred_get(ctx, cfg->api_key_ref, &secret, NULL);
+	rc = fyai_cred_get(ctx->cred, cfg->api_key_ref, &secret, NULL);
 	if (rc || fy_str_empty(secret) ||
 	    fyai_cred_tag(secret) == fyai_cred_tag(cfg->api_key))
 		goto err_same;
@@ -531,7 +531,7 @@ void fyai_xfer_cancel(struct fyai_xfer *x)
 		fyai_curl_cancel(x->curl);
 	} else if (x->phase == XFER_PARKED) {
 		/* No transfer runs: the request ends from the loop. */
-		fyai_cred_waiter_cancel(fyai_xfer_ctx(x), &x->waiter);
+		fyai_cred_waiter_cancel((fyai_xfer_ctx(x))->cred, &x->waiter);
 		x->phase = XFER_NEW;
 		xfer_defer(x);
 	}
@@ -549,7 +549,7 @@ void fyai_xfer_destroy(struct fyai_xfer *x)
 	if (!x)
 		return;
 	if (x->phase == XFER_PARKED || x->waiter.queued)
-		fyai_cred_waiter_cancel(fyai_xfer_ctx(x), &x->waiter);
+		fyai_cred_waiter_cancel((fyai_xfer_ctx(x))->cred, &x->waiter);
 	if (x->deferred)
 		fyai_event_defer_cancel(fyai_ctx_loop(fyai_xfer_ctx(x)), xfer_defer_cb, x);
 	if (x->curl)

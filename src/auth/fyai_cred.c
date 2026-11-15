@@ -26,9 +26,9 @@
 
 struct fyai_cred_ops {
 	const char *name;
-	int (*prepare)(struct fyai_ctx *ctx, struct fyai_cred_waiter *w,
+	int (*prepare)(struct fyai_cred *cred, struct fyai_cred_waiter *w,
 		       bool resumed);
-	int (*reject)(struct fyai_ctx *ctx, struct fyai_cred_waiter *w,
+	int (*reject)(struct fyai_cred *cred, struct fyai_cred_waiter *w,
 		      uint64_t tag, bool probe);
 };
 
@@ -37,25 +37,24 @@ uint64_t fyai_cred_tag(const char *secret)
 	return fyai_transport_credential_tag(secret);
 }
 
-static struct fyai_cred *cred_get(struct fyai_ctx *ctx)
-{
-	fyai_error_check(ctx, ctx->cred, err_out,
-			 "the credential component is not set up");
-	return ctx->cred;
-err_out:
-	return NULL;
-}
-
-void fyai_cred_init(struct fyai_cred *cred, struct fyai_loop *loop)
+void fyai_cred_init(struct fyai_cred *cred, struct fyai_loop *loop,
+		    struct fyai_cfg *cfg, struct fyai_transient *transient,
+		    struct fyai_link *link, struct fyai_transport_state *transport,
+		    struct fyai_diag *diag)
 {
 	memset(cred, 0, sizeof(*cred));
 	cred->loop = loop;
+	cred->cfg = cfg;
+	cred->transient = transient;
+	cred->link = link;
+	cred->transport = transport;
+	cred->diag = diag;
 	cred->auth.registrations = fy_invalid;
 }
 
-bool fyai_cred_refresh_pending(const struct fyai_ctx *ctx)
+bool fyai_cred_refresh_pending(const struct fyai_cred *cred)
 {
-	return ctx->cred && ctx->cred->refresh;
+	return cred && cred->refresh;
 }
 
 static void cred_queue(struct fyai_cred *cred, struct fyai_cred_waiter *w)
@@ -84,15 +83,13 @@ static void cred_queue(struct fyai_cred *cred, struct fyai_cred_waiter *w)
 
 static enum fyai_event_action cred_timer_cb(const struct fyai_event *ev);
 
-static void cred_arm(struct fyai_ctx *ctx, time_t at)
+static void cred_arm(struct fyai_cred *cred, time_t at)
 {
-	struct fyai_cred *cred;
 	struct fyai_event_loop *el;
 	time_t now = time(NULL);
 	fyai_event_ms_t ms;
 	int rc;
 
-	cred = cred_get(ctx);
 	if (!cred || cred->timer)
 		return;
 	if (at < now + CRED_SCHEDULE_MIN_S)
@@ -101,7 +98,7 @@ static void cred_arm(struct fyai_ctx *ctx, time_t at)
 	if (!el)
 		return;
 	ms = (fyai_event_ms_t)(at - now) * 1000;
-	rc = fyai_event_add_timer(el, ms, 0, cred_timer_cb, ctx, &cred->timer);
+	rc = fyai_event_add_timer(el, ms, 0, cred_timer_cb, cred, &cred->timer);
 	if (rc) {
 		cred->timer = NULL;
 		return;
@@ -109,13 +106,12 @@ static void cred_arm(struct fyai_ctx *ctx, time_t at)
 	cred->scheduled = at;
 }
 
-static int login_refresh(struct fyai_ctx *ctx, struct fyai_cred_waiter *w,
+static int login_refresh(struct fyai_cred *cred, struct fyai_cred_waiter *w,
 			 bool force, uint64_t tag);
 
-void fyai_cred_timer_fire(struct fyai_ctx *ctx)
+void fyai_cred_timer_fire(struct fyai_cred *cred)
 {
-	struct fyai_cred *cred = ctx->cred;
-	time_t due;
+		time_t due;
 	int rc;
 
 	if (!cred)
@@ -128,38 +124,38 @@ void fyai_cred_timer_fire(struct fyai_ctx *ctx)
 	if (cred->refresh)
 		return;
 	/* No login, or a store that cannot be read: nothing to keep fresh. */
-	if (fyai_auth_store_load(ctx))
+	if (fyai_auth_store_load(cred))
 		return;
-	due = fyai_auth_store_due_at(ctx);
+	due = fyai_auth_store_due_at(cred);
 	if (!due)
 		return;
 	/* Another process renewed it meanwhile: wait for the new due time. */
-	if (fyai_auth_store_fresh(ctx)) {
-		cred_arm(ctx, due);
+	if (fyai_auth_store_fresh(cred)) {
+		cred_arm(cred, due);
 		return;
 	}
-	rc = login_refresh(ctx, NULL, false, 0);
+	rc = login_refresh(cred, NULL, false, 0);
 	/* A refresh that cannot start is tried again later, not at once. */
 	if (rc < 0)
-		cred_arm(ctx, time(NULL) + CRED_SCHEDULE_RETRY_S);
+		cred_arm(cred, time(NULL) + CRED_SCHEDULE_RETRY_S);
 	else if (!rc)
-		cred_arm(ctx, fyai_auth_store_due_at(ctx));
+		cred_arm(cred, fyai_auth_store_due_at(cred));
 }
 
 static enum fyai_event_action cred_timer_cb(const struct fyai_event *ev)
 {
-	struct fyai_ctx *ctx = ev->userdata;
+	struct fyai_cred *cred = ev->userdata;
 
 	/* A timer of one shot ends with its callback. */
-	if (ctx->cred)
-		ctx->cred->timer = NULL;
-	fyai_cred_timer_fire(ctx);
+	if (cred)
+		cred->timer = NULL;
+	fyai_cred_timer_fire(cred);
 	return FYAIEA_CONTINUE;
 }
 
-time_t fyai_cred_scheduled_at(const struct fyai_ctx *ctx)
+time_t fyai_cred_scheduled_at(const struct fyai_cred *cred)
 {
-	return ctx->cred ? ctx->cred->scheduled : 0;
+	return cred ? cred->scheduled : 0;
 }
 
 /*
@@ -178,9 +174,9 @@ static void cred_refresh_done(struct fyai_auth_refresh_request *request,
 	cred->refresh = NULL;
 	/* Keep the new token fresh; a failed refresh waits before it is tried again. */
 	if (!rc)
-		cred_arm(fyai_cred_ctx(cred), fyai_auth_store_due_at(fyai_cred_ctx(cred)));
+		cred_arm(cred, fyai_auth_store_due_at(cred));
 	else
-		cred_arm(fyai_cred_ctx(cred), time(NULL) + CRED_SCHEDULE_RETRY_S);
+		cred_arm(cred, time(NULL) + CRED_SCHEDULE_RETRY_S);
 	list = cred->head;
 	cred->head = cred->tail = NULL;
 	while (list) {
@@ -197,19 +193,17 @@ static void cred_refresh_done(struct fyai_auth_refresh_request *request,
  * the caller is queued, 0 when the refresh ended at once, with the answer in
  * the store, and a negative errno when it could not start.
  */
-static int login_refresh(struct fyai_ctx *ctx, struct fyai_cred_waiter *w,
+static int login_refresh(struct fyai_cred *cred, struct fyai_cred_waiter *w,
 			 bool force, uint64_t tag)
 {
-	struct fyai_cred *cred;
 
-	cred = cred_get(ctx);
 	if (!cred)
 		return -ENOMEM;
 	if (!cred->refresh) {
 		cred->refresh = tag ?
-			fyai_auth_refresh_submit_rejected(ctx, tag,
+			fyai_auth_refresh_submit_rejected(cred, tag,
 							  cred_refresh_done, cred) :
-			fyai_auth_refresh_submit(ctx, force, cred_refresh_done,
+			fyai_auth_refresh_submit(cred, force, cred_refresh_done,
 						 cred);
 		if (!cred->refresh)
 			return -EIO;
@@ -224,49 +218,49 @@ static int login_refresh(struct fyai_ctx *ctx, struct fyai_cred_waiter *w,
 	return 1;
 }
 
-static int login_prepare(struct fyai_ctx *ctx, struct fyai_cred_waiter *w,
+static int login_prepare(struct fyai_cred *cred, struct fyai_cred_waiter *w,
 			 bool resumed)
 {
 	int rc;
 
-	if (fyai_auth_store_load(ctx))
+	if (fyai_auth_store_load(cred))
 		return -ENOENT;
-	if (fyai_auth_store_fresh(ctx)) {
-		cred_arm(ctx, fyai_auth_store_due_at(ctx));
+	if (fyai_auth_store_fresh(cred)) {
+		cred_arm(cred, fyai_auth_store_due_at(cred));
 		return 0;
 	}
 	if (resumed)
-		return fyai_auth_store_valid(ctx) ? 0 : -ESTALE;
-	rc = login_refresh(ctx, w, false, 0);
+		return fyai_auth_store_valid(cred) ? 0 : -ESTALE;
+	rc = login_refresh(cred, w, false, 0);
 	if (rc < 0)
-		return fyai_auth_store_valid(ctx) ? 0 : -EIO;
+		return fyai_auth_store_valid(cred) ? 0 : -EIO;
 	if (rc > 0)
 		return 1;
-	if (fyai_auth_store_load(ctx))
+	if (fyai_auth_store_load(cred))
 		return -EIO;
-	return fyai_auth_store_valid(ctx) ? 0 : -ESTALE;
+	return fyai_auth_store_valid(cred) ? 0 : -ESTALE;
 }
 
-static int login_reject(struct fyai_ctx *ctx, struct fyai_cred_waiter *w,
+static int login_reject(struct fyai_cred *cred, struct fyai_cred_waiter *w,
 			uint64_t tag, bool probe)
 {
 	int rc;
 
 	if (probe)
 		return 1;
-	if (fyai_auth_store_load(ctx))
+	if (fyai_auth_store_load(cred))
 		return -ENOENT;
-	if (tag && fyai_cred_tag(fyai_auth_store_token(ctx)) != tag)
-		return fyai_auth_store_valid(ctx) ? 0 : -ESTALE;
-	rc = login_refresh(ctx, w, true, tag);
+	if (tag && fyai_cred_tag(fyai_auth_store_token(cred)) != tag)
+		return fyai_auth_store_valid(cred) ? 0 : -ESTALE;
+	rc = login_refresh(cred, w, true, tag);
 	if (rc < 0)
 		return -EIO;
 	if (rc > 0)
 		return 1;
-	if (fyai_auth_store_load(ctx))
+	if (fyai_auth_store_load(cred))
 		return -EIO;
-	return fyai_auth_store_valid(ctx) &&
-	       (!tag || fyai_cred_tag(fyai_auth_store_token(ctx)) != tag) ?
+	return fyai_auth_store_valid(cred) &&
+	       (!tag || fyai_cred_tag(fyai_auth_store_token(cred)) != tag) ?
 	       0 : -ESTALE;
 }
 
@@ -284,31 +278,30 @@ static const struct fyai_cred_ops *cred_find(const char *source)
 	return NULL;
 }
 
-int fyai_cred_prepare(struct fyai_ctx *ctx, const char *source,
+int fyai_cred_prepare(struct fyai_cred *cred, const char *source,
 		      struct fyai_cred_waiter *waiter, bool resumed)
 {
 	const struct fyai_cred_ops *ops = cred_find(source);
 
 	if (!ops || !ops->prepare)
 		return 0;
-	return ops->prepare(ctx, waiter, resumed);
+	return ops->prepare(cred, waiter, resumed);
 }
 
-int fyai_cred_reject(struct fyai_ctx *ctx, const char *source,
+int fyai_cred_reject(struct fyai_cred *cred, const char *source,
 		     struct fyai_cred_waiter *waiter, uint64_t tag, bool probe)
 {
 	const struct fyai_cred_ops *ops = cred_find(source);
 
 	if (!ops || !ops->reject)
 		return probe ? 0 : -ENOTSUP;
-	return ops->reject(ctx, waiter, tag, probe);
+	return ops->reject(cred, waiter, tag, probe);
 }
 
-void fyai_cred_waiter_cancel(struct fyai_ctx *ctx,
+void fyai_cred_waiter_cancel(struct fyai_cred *cred,
 			     struct fyai_cred_waiter *waiter)
 {
-	struct fyai_cred *cred = ctx->cred;
-	struct fyai_cred_waiter **pp;
+		struct fyai_cred_waiter **pp;
 	struct fyai_auth_refresh_request *refresh;
 
 	if (!cred || !waiter || !waiter->queued)
@@ -340,12 +333,12 @@ void fyai_cred_waiter_cancel(struct fyai_ctx *ctx,
  * malloc'd value, -ENOENT when the source holds none, or -ESTALE for a login
  * that is out of date.
  */
-static int kind_env(struct fyai_ctx *ctx, const char *name, char **secret,
+static int kind_env(struct fyai_cred *cred, const char *name, char **secret,
 		    struct curl_slist **extra)
 {
 	const char *value;
 
-	(void)ctx;
+	(void)cred;
 	(void)extra;
 	value = getenv(name);
 	if (!value || !*value)
@@ -365,27 +358,27 @@ static const struct fyai_cred_mem *mem_find(const struct fyai_cred *cred,
 	return NULL;
 }
 
-static int kind_mem(struct fyai_ctx *ctx, const char *name, char **secret,
+static int kind_mem(struct fyai_cred *cred, const char *name, char **secret,
 		    struct curl_slist **extra)
 {
 	const struct fyai_cred_mem *m;
 
 	(void)extra;
-	m = mem_find(ctx ? ctx->cred : NULL, name);
+	m = mem_find(cred, name);
 	if (!m || !m->value || !*m->value)
 		return -ENOENT;
 	*secret = strdup(m->value);
 	return *secret ? 0 : -ENOMEM;
 }
 
-static int kind_secret(struct fyai_ctx *ctx, const char *name, char **secret,
+static int kind_secret(struct fyai_cred *cred, const char *name, char **secret,
 		       struct curl_slist **extra)
 {
 	char key[300], *found = NULL;
 	size_t flen = 0;
 	int rc, n;
 
-	(void)ctx;
+	(void)cred;
 	(void)extra;
 	n = snprintf(key, sizeof(key), "fyai:%s", name);
 	if (n < 0 || (size_t)n >= sizeof(key))
@@ -407,25 +400,25 @@ static int kind_secret(struct fyai_ctx *ctx, const char *name, char **secret,
  * cannot be used is reported, not refreshed here: fyai_cred_prepare() does
  * that before a request reads it.
  */
-static int kind_oauth(struct fyai_ctx *ctx, const char *name, char **secret,
+static int kind_oauth(struct fyai_cred *cred, const char *name, char **secret,
 		      struct curl_slist **extra)
 {
 	(void)extra;
-	if (strcmp(name, "chatgpt") || !ctx)
+	if (strcmp(name, "chatgpt") || !cred)
 		return -EINVAL;
-	if (fyai_auth_store_load(ctx))
+	if (fyai_auth_store_load(cred))
 		return -ENOENT;
-	if (!fyai_auth_store_ready(ctx))
+	if (!fyai_auth_store_ready(cred))
 		return -ENOENT;
-	if (!fyai_auth_store_valid(ctx))
+	if (!fyai_auth_store_valid(cred))
 		return -ESTALE;
-	*secret = strdup(fyai_auth_store_token(ctx));
+	*secret = strdup(fyai_auth_store_token(cred));
 	return *secret ? 0 : -ENOMEM;
 }
 
 struct fyai_cred_kind {
 	const char *prefix;
-	int (*get)(struct fyai_ctx *, const char *, char **,
+	int (*get)(struct fyai_cred *, const char *, char **,
 		   struct curl_slist **);
 };
 
@@ -436,7 +429,7 @@ static const struct fyai_cred_kind cred_kinds[] = {
 	{ "oauth:", kind_oauth },
 };
 
-static int cred_one(struct fyai_ctx *ctx, const char *src, size_t len,
+static int cred_one(struct fyai_cred *cred, const char *src, size_t len,
 		    char **secret, struct curl_slist **extra)
 {
 	char tmp[256];
@@ -449,7 +442,7 @@ static int cred_one(struct fyai_ctx *ctx, const char *src, size_t len,
 	for (i = 0; i < sizeof(cred_kinds) / sizeof(cred_kinds[0]); i++) {
 		n = strlen(cred_kinds[i].prefix);
 		if (!strncmp(tmp, cred_kinds[i].prefix, n))
-			return cred_kinds[i].get(ctx, tmp + n, secret, extra);
+			return cred_kinds[i].get(cred, tmp + n, secret, extra);
 	}
 	return -EINVAL;
 }
@@ -458,7 +451,7 @@ static int cred_one(struct fyai_ctx *ctx, const char *src, size_t len,
  * The source can be a chain, "A|B": the first source that holds a value wins,
  * as the provider default tries the environment and then the secret store.
  */
-int fyai_cred_get(struct fyai_ctx *ctx, const char *chain, char **secret,
+int fyai_cred_get(struct fyai_cred *cred, const char *chain, char **secret,
 		  struct curl_slist **extra)
 {
 	const char *src = chain;
@@ -471,7 +464,7 @@ int fyai_cred_get(struct fyai_ctx *ctx, const char *chain, char **secret,
 		end = strchr(src, '|');
 		len = end ? (size_t)(end - src) : strlen(src);
 
-		rc = cred_one(ctx, src, len, secret, extra);
+		rc = cred_one(cred, src, len, secret, extra);
 		if (!rc || rc == -ENOMEM)
 			return rc;
 		src = end ? end + 1 : NULL;
@@ -479,13 +472,11 @@ int fyai_cred_get(struct fyai_ctx *ctx, const char *chain, char **secret,
 	return rc == -EINVAL || rc == -ESTALE ? rc : -ENOENT;
 }
 
-int fyai_cred_mem_set(struct fyai_ctx *ctx, const char *name, const char *value)
+int fyai_cred_mem_set(struct fyai_cred *cred, const char *name, const char *value)
 {
-	struct fyai_cred *cred;
 	struct fyai_cred_mem *m, *nm;
 	char *val, *nn;
 
-	cred = cred_get(ctx);
 	if (!cred)
 		return -ENOMEM;
 	val = strdup(value);
@@ -514,10 +505,9 @@ int fyai_cred_mem_set(struct fyai_ctx *ctx, const char *name, const char *value)
 	return 0;
 }
 
-void fyai_cred_release(struct fyai_ctx *ctx)
+void fyai_cred_release(struct fyai_cred *cred)
 {
-	struct fyai_cred *cred = ctx->cred;
-	struct fyai_cred_waiter *w;
+		struct fyai_cred_waiter *w;
 	size_t i;
 
 	if (!cred)

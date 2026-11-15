@@ -217,13 +217,15 @@ int auth_plan_permission(void)
 	bool ready;
 
 	cfg.gb = fy_generic_builder_create(&config);
-	fyai_cred_init(&cred, fyai_test_loop_of(&ctx));
+	fyai_cred_init(&cred, fyai_test_loop_of(&ctx), &cfg, fyai_test_transient_of(&ctx),
+		       fyai_test_link_of(&ctx), fyai_test_transport_of(&ctx),
+		       fyai_cfg_diag(&cfg));
 	fyai_test_transient_of(&ctx)->gb = cfg.gb;
 	tokens = fy_mapping(cfg.gb, "access_token", "oauth-access",
 		"refresh_token", "refresh-1", "id_token", "id-token",
 		"expires_in", 3600LL, "token_type", "Bearer",
 		"scope", "openid offline_access resource.invoke chatgpt.tokens.use.direct");
-	rc = fyai_auth_parse_tokens(&ctx, &c, tokens, false);
+	rc = fyai_auth_parse_tokens(ctx.cred, &c, tokens, false);
 	FYAI_TCHECK(!rc);
 	ready = fyai_auth_credentials_ready(&c);
 	FYAI_TCHECK(!ready);
@@ -234,21 +236,21 @@ int auth_plan_permission(void)
 	FYAI_TCHECK(ready);
 	old_access = c.access_token;
 	invalid = fy_assoc(cfg.gb, tokens, "scope", "openid resource.invoke chatgpt.tokens.use.direct.extra");
-	rc = fyai_auth_parse_tokens(&ctx, &c, invalid, false);
+	rc = fyai_auth_parse_tokens(ctx.cred, &c, invalid, false);
 	FYAI_TCHECK(rc && c.access_token == old_access);
 	invalid = fy_delete_at_path(cfg.gb, tokens, "scope");
-	rc = fyai_auth_parse_tokens(&ctx, &c, invalid, false);
+	rc = fyai_auth_parse_tokens(ctx.cred, &c, invalid, false);
 	FYAI_TCHECK(rc);
 	invalid = fy_assoc(cfg.gb, invalid, "refresh_token", "refresh-2");
-	rc = fyai_auth_parse_tokens(&ctx, &c, invalid, true);
+	rc = fyai_auth_parse_tokens(ctx.cred, &c, invalid, true);
 	FYAI_TCHECK(!rc && !strcmp(c.refresh_token, "refresh-2"));
 	invalid = fy_assoc(cfg.gb, tokens, "scope", "openid");
-	rc = fyai_auth_parse_tokens(&ctx, &c, invalid, true);
+	rc = fyai_auth_parse_tokens(ctx.cred, &c, invalid, true);
 	FYAI_TCHECK(rc);
 	c.client_id = "dynamic_agent_client";
 	ready = fyai_auth_credentials_ready(&c);
 	FYAI_TCHECK(!ready);
-	fyai_auth_cleanup(&ctx);
+	fyai_auth_cleanup(ctx.cred);
 	fy_generic_builder_destroy(cfg.gb);
 	return 0;
 }
@@ -368,7 +370,9 @@ int auth_billing_route(void)
 	FYAI_TCHECK(created);
 	cfg.auth_state_dir = created;
 	cfg.gb = fy_generic_builder_create(&config);
-	fyai_cred_init(&cred, fyai_test_loop_of(&ctx));
+	fyai_cred_init(&cred, fyai_test_loop_of(&ctx), &cfg, fyai_test_transient_of(&ctx),
+		       fyai_test_link_of(&ctx), fyai_test_transport_of(&ctx),
+		       fyai_cfg_diag(&cfg));
 	fyai_test_transient_of(&ctx)->gb = cfg.gb;
 	record = fy_mapping(cfg.gb, "type", "chatgpt", "client_id", "oaiapp_test",
 		"ext_agent_host_id", "urn:uuid:00000000-0000-4000-8000-000000000000",
@@ -395,7 +399,7 @@ int auth_billing_route(void)
 	FYAI_TCHECK(!rc);
 	rc = fyai_auth_resolve(&ctx);
 	FYAI_TCHECK(rc && !cfg.chatgpt_auth);
-	fyai_auth_cleanup(&ctx);
+	fyai_auth_cleanup(ctx.cred);
 	fy_generic_builder_destroy(cfg.gb);
 	snprintf(path, sizeof(path), "%s/auth.json", created);
 	unlink(path);

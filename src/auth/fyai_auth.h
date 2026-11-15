@@ -7,6 +7,7 @@
 #include <libfyaml/libfyaml-generic.h>
 
 struct fyai_ctx;
+struct fyai_cred;
 struct fyai_auth_refresh_request;
 struct fyai_auth_login_request;
 
@@ -41,7 +42,7 @@ struct fyai_credentials {
 
 bool fyai_auth_credentials_ready(const struct fyai_credentials *c);
 /* Token strings are copied into ctx's authentication builder. */
-int fyai_auth_parse_tokens(struct fyai_ctx *ctx, struct fyai_credentials *c,
+int fyai_auth_parse_tokens(struct fyai_cred *cred, struct fyai_credentials *c,
 			  fy_generic doc, bool refresh);
 const char *fyai_auth_mode_string(enum fyai_auth_mode mode);
 fy_generic fyai_auth_status_data(struct fyai_ctx *ctx,
@@ -69,7 +70,7 @@ typedef void (*fyai_auth_logout_complete_fn)(
  * changes nothing. Returns NULL with the cause raised.
  */
 struct fyai_auth_logout_request *
-fyai_auth_logout_submit(struct fyai_ctx *ctx,
+fyai_auth_logout_submit(struct fyai_cred *cred,
 			fyai_auth_logout_complete_fn complete, void *userdata);
 void fyai_auth_logout_cancel(struct fyai_auth_logout_request *request);
 bool fyai_auth_logout_done(const struct fyai_auth_logout_request *request);
@@ -84,7 +85,7 @@ int fyai_auth_usage(struct fyai_ctx *ctx, struct fy_generic_builder *out_gb,
  */
 int fyai_auth_resolve(struct fyai_ctx *ctx);
 struct fyai_auth_refresh_request *
-fyai_auth_refresh_submit(struct fyai_ctx *ctx, bool force,
+fyai_auth_refresh_submit(struct fyai_cred *cred, bool force,
 			 fyai_auth_refresh_complete_fn complete,
 			 void *userdata);
 /*
@@ -93,7 +94,7 @@ fyai_auth_refresh_submit(struct fyai_ctx *ctx, bool force,
  * time the store lock is taken, the refresh ends with no request.
  */
 struct fyai_auth_refresh_request *
-fyai_auth_refresh_submit_rejected(struct fyai_ctx *ctx, uint64_t tag,
+fyai_auth_refresh_submit_rejected(struct fyai_cred *cred, uint64_t tag,
 				  fyai_auth_refresh_complete_fn complete,
 				  void *userdata);
 void fyai_auth_refresh_cancel(struct fyai_auth_refresh_request *request);
@@ -103,7 +104,7 @@ int fyai_auth_refresh_collect(
 		const struct fyai_auth_refresh_request *request);
 void fyai_auth_refresh_destroy(struct fyai_auth_refresh_request *request);
 struct fyai_auth_login_request *
-fyai_auth_login_submit(struct fyai_ctx *ctx, bool device_code,
+fyai_auth_login_submit(struct fyai_cred *cred, bool device_code,
 		       bool no_browser, const char *account, bool new_account,
 		       fyai_auth_login_complete_fn complete,
 		       void *userdata);
@@ -114,7 +115,7 @@ void fyai_auth_login_cancel(struct fyai_auth_login_request *request);
 bool fyai_auth_login_done(const struct fyai_auth_login_request *request);
 int fyai_auth_login_collect(const struct fyai_auth_login_request *request);
 void fyai_auth_login_destroy(struct fyai_auth_login_request *request);
-int fyai_auth_apply_headers(struct fyai_ctx *ctx,
+int fyai_auth_apply_headers(struct fyai_cred *cred,
 			    struct curl_slist **headers);
 
 /*
@@ -122,14 +123,14 @@ int fyai_auth_apply_headers(struct fyai_ctx *ctx,
  * Token pointers are borrowed from ctx until the next load.
  * Fresh tokens do not need a refresh; valid tokens have not expired.
  */
-int fyai_auth_store_load(struct fyai_ctx *ctx);
-bool fyai_auth_store_fresh(const struct fyai_ctx *ctx);
+int fyai_auth_store_load(struct fyai_cred *cred);
+bool fyai_auth_store_fresh(const struct fyai_cred *cred);
 /* The time at which the loaded token is due for a refresh, or 0 for none. */
-time_t fyai_auth_store_due_at(const struct fyai_ctx *ctx);
-bool fyai_auth_store_valid(const struct fyai_ctx *ctx);
-const char *fyai_auth_store_token(const struct fyai_ctx *ctx);
+time_t fyai_auth_store_due_at(const struct fyai_cred *cred);
+bool fyai_auth_store_valid(const struct fyai_cred *cred);
+const char *fyai_auth_store_token(const struct fyai_cred *cred);
 /* True when the loaded login holds a registration that authorizes the plan. */
-bool fyai_auth_store_ready(const struct fyai_ctx *ctx);
+bool fyai_auth_store_ready(const struct fyai_cred *cred);
 /* The credential source that names the login held by the transport. */
 #define FYAI_AUTH_CHATGPT_REF "oauth:chatgpt"
 
@@ -161,7 +162,7 @@ typedef void (*fyai_auth_models_complete_fn)(
  * runs once from the loop. Returns NULL with the cause raised.
  */
 struct fyai_auth_models_request *
-fyai_auth_models_submit(struct fyai_ctx *ctx,
+fyai_auth_models_submit(struct fyai_cred *cred,
 			fyai_auth_models_complete_fn complete, void *userdata);
 void fyai_auth_models_cancel(struct fyai_auth_models_request *request);
 bool fyai_auth_models_done(const struct fyai_auth_models_request *request);
@@ -169,13 +170,13 @@ bool fyai_auth_models_done(const struct fyai_auth_models_request *request);
 fy_generic fyai_auth_models_collect(const struct fyai_auth_models_request *request,
 				    struct fy_generic_builder *gb, bool full);
 void fyai_auth_models_destroy(struct fyai_auth_models_request *request);
-void fyai_auth_cleanup(struct fyai_ctx *ctx);
+void fyai_auth_cleanup(struct fyai_cred *cred);
 
 /*
  * Wait for a token request that a cancel detached, so that a rotated refresh
  * token is saved before the invocation ends. Call it before the curl handles
  * are released. The wait is bounded.
  */
-void fyai_auth_drain(struct fyai_ctx *ctx);
+void fyai_auth_drain(struct fyai_cred *cred);
 
 #endif

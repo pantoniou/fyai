@@ -2618,7 +2618,7 @@ void fyai_cleanup(struct fyai_ctx *ctx)
 	fyai_mcp_cleanup(ctx);
 	fyai_ui_close(ctx);
 
-	fyai_auth_drain(ctx);
+	fyai_auth_drain(ctx->cred);
 
 	/* Before the easy handle: the multi still references it. */
 	fyai_transport_detach(ctx->transport);
@@ -2627,7 +2627,7 @@ void fyai_cleanup(struct fyai_ctx *ctx)
 		curl_easy_cleanup(ctx->link->curl);
 		ctx->link->curl = NULL;
 	}
-	fyai_auth_cleanup(ctx);
+	fyai_auth_cleanup(ctx->cred);
 
 	/* Destroy the loop after every borrower has dropped its sources. */
 	fyai_loop_release(ctx->loop);
@@ -2722,7 +2722,7 @@ int fyai_request_state_apply(struct fyai_ctx *ctx)
 		 * The token is read for each send (fyai_xfer.c); check here that
 		 * the login can authenticate this endpoint at all.
 		 */
-		rc = fyai_auth_apply_headers(ctx, &login_check);
+		rc = fyai_auth_apply_headers(ctx->cred, &login_check);
 		curl_slist_free_all(login_check);
 	} else if (ctx->link->auth_header)
 		rc = append_header(&ctx->link->headers, ctx->link->auth_header);

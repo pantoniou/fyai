@@ -579,13 +579,13 @@ int app_cred_keeps_secret_until_release(void)
 	memset(&ctx, 0, sizeof(ctx));
 	ctx.cfg = &app.cfg;
 	ctx.cred = &app.cred;
-	FYAI_TCHECK(!fyai_cred_mem_set(&ctx, "key", "value"));
-	FYAI_TCHECK(!fyai_cred_get(&ctx, "mem:key", &secret, NULL));
+	FYAI_TCHECK(!fyai_cred_mem_set(ctx.cred, "key", "value"));
+	FYAI_TCHECK(!fyai_cred_get(ctx.cred, "mem:key", &secret, NULL));
 	FYAI_TCHECK(secret && !strcmp(secret, "value"));
 	free(secret);
-	fyai_cred_release(&ctx);
+	fyai_cred_release(ctx.cred);
 	FYAI_TCHECK(ctx.cred == &app.cred && !app.cred.nmem);
-	FYAI_TCHECK(fyai_cred_get(&ctx, "mem:key", &secret, NULL) == -ENOENT);
+	FYAI_TCHECK(fyai_cred_get(ctx.cred, "mem:key", &secret, NULL) == -ENOENT);
 	fyai_app_cleanup(&app);
 	printf("ok - release clears the secrets and keeps the component\n");
 	return 0;
