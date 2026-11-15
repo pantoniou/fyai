@@ -171,14 +171,26 @@ int fyai_event_backend_wait(struct fyai_event_loop *el,
 int fyai_event_child_try_reap(struct fyai_event_source *src);
 
 /* Track process signal state across multiple event sources. */
-bool fyai_event_signal_first_ref(int signo);
-bool fyai_event_signal_last_unref(int signo);
+bool fyai_event_signal_first_ref(struct fyai_loop *loop, int signo);
+bool fyai_event_signal_last_unref(struct fyai_loop *loop, int signo);
 
 /* After fork(): the mask and dispositions are inherited, not owned here. */
-void fyai_event_signal_forget(void);
+void fyai_event_signal_forget(struct fyai_loop *loop);
 
 /* Fill @ev from @src for a dispatch of @events. */
 void fyai_event_prepare(struct fyai_event *ev, struct fyai_event_source *src,
 			unsigned int events);
+
+
+/*
+ * The loop whose handlers are installed. A signal handler has no argument,
+ * so it finds its loop through this one pointer, which is the only mutable
+ * state in the process that the handlers read. Everything else they use is in
+ * the loop component.
+ */
+struct fyai_loop *fyai_event_signal_owner(void);
+void fyai_event_signal_owner_set(struct fyai_loop *loop);
+/* Drop the owner when @loop has no handler installed any more. */
+void fyai_event_signal_owner_release(struct fyai_loop *loop);
 
 #endif

@@ -21,12 +21,6 @@
 #include "fyai_event_priv.h"
 #include "fyai_loop.h"
 
-static volatile sig_atomic_t fyai_dump_fd = -1;
-static volatile sig_atomic_t fyai_dump_crlf;	/* probed when the dump is armed */
-static volatile sig_atomic_t fyai_dump_busy;
-static struct fyai_event_loop *volatile fyai_dump_loop;
-static struct fyai_loop *volatile fyai_dump_owner;
-
 struct dump_buf {
 	char b[512];
 	size_t n;
@@ -360,33 +354,41 @@ void fyai_event_dump_to_fd(struct fyai_event_loop *el, struct fyai_loop *loop,
 
 /*
  * Dump in signal context with bounded, nonblocking, async-signal-safe
- * operations. The diagnostic list walk is unsynchronized.
+ * operations. The diagnostic list walk is unsynchronized. The loop is the
+ * one that owns the handlers (fyai_event_signal_owner()).
  */
 static void fyai_event_dump_handler(int signo)
 {
+	struct fyai_loop *loop = fyai_event_signal_owner();
+	struct fyai_event_loop *el;
 	int saved_errno = errno, fd;
 
 	(void)signo;
-	/* One dump at a time: a second signal must not interleave output. */
-	if (fyai_dump_busy) {
+	if (!loop || !loop->dump_armed) {
 		errno = saved_errno;
 		return;
 	}
-	fyai_dump_busy = 1;
+	/* One dump at a time: a second signal must not interleave output. */
+	if (loop->dump_busy) {
+		errno = saved_errno;
+		return;
+	}
+	loop->dump_busy = 1;
+	el = loop->el;
 	fd = -1;
-	if (fyai_dump_owner && fyai_dump_owner->dump_file) {
-		(void)mkdir(fyai_dump_owner->dump_dir, 0700);
-		fd = open(fyai_dump_owner->dump_file,
+	if (loop->dump_file) {
+		(void)mkdir(loop->dump_dir, 0700);
+		fd = open(loop->dump_file,
 			  O_WRONLY | O_CREAT | O_APPEND | O_CLOEXEC, 0600);
 	}
 	if (fd >= 0) {
-		dump_state(fyai_dump_loop, fyai_dump_owner, fd, false);
+		dump_state(el, loop, fd, false);
 		close(fd);
 	} else {
-		dump_state(fyai_dump_loop, fyai_dump_owner, (int)fyai_dump_fd,
-			   fyai_dump_crlf != 0);
+		dump_state(el, loop, (int)loop->dump_out_fd,
+			   loop->dump_crlf != 0);
 	}
-	fyai_dump_busy = 0;
+	loop->dump_busy = 0;
 	errno = saved_errno;
 }
 
@@ -399,11 +401,11 @@ int fyai_event_dump_open(struct fyai_loop *loop, int signo, int fd)
 	if (!loop || signo <= 0 || signo >= NSIG || fd < 0)
 		return -1;
 
-	fyai_dump_owner = loop;
-	fyai_dump_loop = fyai_loop_get(loop);
-	fyai_dump_fd = fd;
-	fyai_dump_crlf = dump_needs_crlf(fd);
-	fyai_dump_busy = 0;
+	loop->dump_out_fd = fd;
+	loop->dump_crlf = dump_needs_crlf(fd);
+	loop->dump_busy = 0;
+	loop->dump_armed = true;
+	fyai_event_signal_owner_set(loop);
 
 	memset(&sa, 0, sizeof(sa));
 	sa.sa_handler = fyai_event_dump_handler;
@@ -411,16 +413,23 @@ int fyai_event_dump_open(struct fyai_loop *loop, int signo, int fd)
 	sa.sa_flags = SA_RESTART;
 	rc = sigaction(signo, &sa, NULL);
 	if (rc)
-		return -1;
+		goto err_disarm;
 
 	sigemptyset(&unblock);
 	sigaddset(&unblock, signo);
 	return sigprocmask(SIG_UNBLOCK, &unblock, NULL);
+
+err_disarm:
+	loop->dump_armed = false;
+	fyai_event_signal_owner_release(loop);
+	return -1;
 }
 
-void fyai_event_dump_close(void)
+void fyai_event_dump_close(struct fyai_loop *loop)
 {
-	fyai_dump_loop = NULL;
-	fyai_dump_owner = NULL;
-	fyai_dump_fd = -1;
+	if (!loop)
+		return;
+	loop->dump_armed = false;
+	loop->dump_out_fd = -1;
+	fyai_event_signal_owner_release(loop);
 }

@@ -169,7 +169,7 @@ void fyai_event_source_remove(struct fyai_event_source *src);
  * cannot be opened, the dump goes to @fd.
  */
 int fyai_event_dump_open(struct fyai_loop *loop, int signo, int fd);
-void fyai_event_dump_close(void);
+void fyai_event_dump_close(struct fyai_loop *loop);
 void fyai_event_dump_to_fd(struct fyai_event_loop *el, struct fyai_loop *loop,
 			   int fd);
 

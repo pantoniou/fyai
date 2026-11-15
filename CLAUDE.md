@@ -1915,6 +1915,13 @@ loop, and starts the watchdog. A pump that sees the interrupt must call
 `fyai_event_interrupt_close()` removes the handlers during context cleanup,
 because they name the context.
 
+A handler has no argument, so it finds the loop component through one pointer,
+`fyai_event_signal_owner()`. That pointer is the only mutable variable of the
+process that a handler reads. Keep every other value that a handler uses in
+`struct fyai_loop`, and compose actions on the handler's stack. Do not add a
+second global for a handler. The pointer goes when the last handler of the loop
+is removed.
+
 The diagnostic dump is the one handler that does more than record and wake. It
 must report a loop that is stuck, which is the state a deferred dump could
 never reach, so it formats and writes from signal context. Keep it able to do

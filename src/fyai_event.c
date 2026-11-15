@@ -162,26 +162,24 @@ err_out:
 	return NULL;
 }
 
-/* Count event sources for each signal. */
-static unsigned int fyai_event_signal_refs[NSIG];
-
-bool fyai_event_signal_first_ref(int signo)
+/* Count the event sources of each signal; the counts belong to the loop. */
+bool fyai_event_signal_first_ref(struct fyai_loop *loop, int signo)
 {
 	if (signo <= 0 || signo >= NSIG)
 		return false;
-	return fyai_event_signal_refs[signo]++ == 0;
+	return loop->signal_refs[signo]++ == 0;
 }
 
-bool fyai_event_signal_last_unref(int signo)
+bool fyai_event_signal_last_unref(struct fyai_loop *loop, int signo)
 {
-	if (signo <= 0 || signo >= NSIG || !fyai_event_signal_refs[signo])
+	if (signo <= 0 || signo >= NSIG || !loop->signal_refs[signo])
 		return false;
-	return --fyai_event_signal_refs[signo] == 0;
+	return --loop->signal_refs[signo] == 0;
 }
 
-void fyai_event_signal_forget(void)
+void fyai_event_signal_forget(struct fyai_loop *loop)
 {
-	memset(fyai_event_signal_refs, 0, sizeof(fyai_event_signal_refs));
+	memset(loop->signal_refs, 0, sizeof(loop->signal_refs));
 }
 
 /* Open a self-pipe that wakes the event loop. The pipe does not contain state. */
@@ -226,9 +224,6 @@ static void fyai_event_wakepipe_poke(int fd)
 	(void)n;
 }
 
-/* Give the signal handler direct access to the wake-pipe write descriptor. */
-static volatile sig_atomic_t fyai_interrupt_wake_fd = -1;
-
 /* Drain the wake pipe. The loop component contains the interrupt state. */
 static enum fyai_event_action fyai_event_wake_dispatch(const struct fyai_event *ev)
 {
@@ -247,7 +242,7 @@ static int fyai_event_wake_open(struct fyai_event_loop *el)
 	if (!el)
 		return -1;
 	if (el->wake_src) {
-		fyai_interrupt_wake_fd = el->wake_pipe[1];
+		el->owner->interrupt_wake_fd = el->wake_pipe[1];
 		return 0;
 	}
 
@@ -262,7 +257,7 @@ static int fyai_event_wake_open(struct fyai_event_loop *el)
 		el->wake_pipe[0] = el->wake_pipe[1] = -1;
 		return -1;
 	}
-	fyai_interrupt_wake_fd = el->wake_pipe[1];
+	el->owner->interrupt_wake_fd = el->wake_pipe[1];
 	return 0;
 }
 
@@ -272,8 +267,8 @@ static void fyai_event_wake_clear(struct fyai_event_loop *el)
 	if (!el)
 		return;
 	if (el->wake_pipe[1] >= 0 &&
-	    fyai_interrupt_wake_fd == el->wake_pipe[1])
-		fyai_interrupt_wake_fd = -1;
+	    el->owner->interrupt_wake_fd == el->wake_pipe[1])
+		el->owner->interrupt_wake_fd = -1;
 	el->wake_src = NULL;
 	if (el->wake_pipe[0] >= 0)
 		close(el->wake_pipe[0]);
@@ -282,59 +277,86 @@ static void fyai_event_wake_clear(struct fyai_event_loop *el)
 	el->wake_pipe[0] = el->wake_pipe[1] = -1;
 }
 
-/* SIGINT starts the watchdog. SIGALRM restores the default signal actions. */
-/* The signal handlers use the loop component of this invocation. */
-static struct fyai_loop *fyai_interrupt_loop;
-static volatile sig_atomic_t fyai_interrupt_escalated;
-static struct sigaction fyai_interrupt_sa;	/* the graceful SIGINT handler */
-static struct sigaction fyai_interrupt_dfl;	/* SIG_DFL */
-static struct sigaction fyai_interrupt_prev_int;	/* before we installed */
-static struct sigaction fyai_interrupt_prev_alrm;
-static bool fyai_interrupt_installed;
-static sigset_t fyai_interrupt_terminating;	/* {SIGINT, SIGTERM} */
-static struct itimerval fyai_interrupt_arm;
-static struct itimerval fyai_interrupt_off;
+/*
+ * SIGINT starts the watchdog. SIGALRM restores the default signal actions.
+ * A handler has no argument, so the loop that owns the handlers is the one
+ * mutable variable of the process that they read. The state that they act on
+ * is in that loop, and they compose nothing but plain actions on the stack.
+ */
+static struct fyai_loop *volatile fyai_signal_owner;
+
+struct fyai_loop *fyai_event_signal_owner(void)
+{
+	return fyai_signal_owner;
+}
+
+void fyai_event_signal_owner_set(struct fyai_loop *loop)
+{
+	fyai_signal_owner = loop;
+}
+
+void fyai_event_signal_owner_release(struct fyai_loop *loop)
+{
+	if (fyai_signal_owner == loop && !loop->interrupt_installed &&
+	    !loop->dump_armed)
+		fyai_signal_owner = NULL;
+}
 
 static void fyai_interrupt_handler(int signo)
 {
+	struct fyai_loop *loop = fyai_signal_owner;
 	int saved_errno = errno;
 
 	(void)signo;
-	if (fyai_interrupt_loop) {
-		fyai_interrupt_loop->interrupt_pending = 1;
-		fyai_interrupt_loop->interrupt_seq++;
+	if (loop) {
+		loop->interrupt_pending = 1;
+		loop->interrupt_seq++;
+		/* Wake a blocked loop through its readable descriptor. */
+		fyai_event_wakepipe_poke((int)loop->interrupt_wake_fd);
+		(void)setitimer(ITIMER_REAL, &loop->interrupt_arm, NULL);
 	}
-	/* Wake a blocked loop through its readable descriptor. */
-	fyai_event_wakepipe_poke((int)fyai_interrupt_wake_fd);
-	(void)setitimer(ITIMER_REAL, &fyai_interrupt_arm, NULL);
 	errno = saved_errno;
 }
 
 static void fyai_interrupt_watchdog(int signo)
 {
+	struct fyai_loop *loop = fyai_signal_owner;
+	struct sigaction dfl = { .sa_handler = SIG_DFL };
+	sigset_t terminating;
 	int saved_errno = errno;
 
 	(void)signo;
-	fyai_interrupt_escalated = 1;
-	(void)sigaction(SIGINT, &fyai_interrupt_dfl, NULL);
-	(void)sigaction(SIGTERM, &fyai_interrupt_dfl, NULL);
-	(void)sigprocmask(SIG_UNBLOCK, &fyai_interrupt_terminating, NULL);
+	if (loop) {
+		loop->interrupt_escalated = 1;
+		(void)sigaction(SIGINT, &dfl, NULL);
+		(void)sigaction(SIGTERM, &dfl, NULL);
+		(void)sigemptyset(&terminating);
+		(void)sigaddset(&terminating, SIGINT);
+		(void)sigaddset(&terminating, SIGTERM);
+		(void)sigprocmask(SIG_UNBLOCK, &terminating, NULL);
+	}
 	errno = saved_errno;
 }
 
 /* Stop the watchdog and restore graceful SIGINT handling. */
 void fyai_event_interrupt_ack(struct fyai_loop *loop)
 {
+	struct sigaction sa = { .sa_handler = fyai_interrupt_handler,
+				.sa_flags = SA_RESTART };
+	struct itimerval off;
 	sigset_t mask;
 
-	(void)loop;
-	(void)setitimer(ITIMER_REAL, &fyai_interrupt_off, NULL);
-	if (!fyai_interrupt_escalated)
+	if (!loop)
 		return;
-	fyai_interrupt_escalated = 0;
+	memset(&off, 0, sizeof(off));
+	(void)setitimer(ITIMER_REAL, &off, NULL);
+	if (!loop->interrupt_escalated)
+		return;
+	loop->interrupt_escalated = 0;
 
 	/* SIGTERM remains blocked for its signalfd source. */
-	(void)sigaction(SIGINT, &fyai_interrupt_sa, NULL);
+	(void)sigemptyset(&sa.sa_mask);
+	(void)sigaction(SIGINT, &sa, NULL);
 	sigemptyset(&mask);
 	sigaddset(&mask, SIGTERM);
 	(void)sigprocmask(SIG_BLOCK, &mask, NULL);
@@ -342,51 +364,41 @@ void fyai_event_interrupt_ack(struct fyai_loop *loop)
 
 int fyai_event_interrupt_open(struct fyai_loop *loop, unsigned int watchdog_ms)
 {
-	struct sigaction alarm_sa;
+	struct sigaction sa, alarm_sa;
 	sigset_t sigint_only;
 	int rc;
 
 	if (!loop)
 		return -1;
 
-	/* Compose once, so neither handler has to build a structure. */
-	memset(&fyai_interrupt_dfl, 0, sizeof(fyai_interrupt_dfl));
-	fyai_interrupt_dfl.sa_handler = SIG_DFL;
-	sigemptyset(&fyai_interrupt_dfl.sa_mask);
-
-	memset(&fyai_interrupt_sa, 0, sizeof(fyai_interrupt_sa));
-	fyai_interrupt_sa.sa_handler = fyai_interrupt_handler;
-	sigemptyset(&fyai_interrupt_sa.sa_mask);
+	memset(&sa, 0, sizeof(sa));
+	sa.sa_handler = fyai_interrupt_handler;
+	sigemptyset(&sa.sa_mask);
 	/* The wake descriptor, not EINTR, ends the wait. */
-	fyai_interrupt_sa.sa_flags = SA_RESTART;
+	sa.sa_flags = SA_RESTART;
 
 	memset(&alarm_sa, 0, sizeof(alarm_sa));
 	alarm_sa.sa_handler = fyai_interrupt_watchdog;
 	sigemptyset(&alarm_sa.sa_mask);
 	alarm_sa.sa_flags = SA_RESTART;
 
-	sigemptyset(&fyai_interrupt_terminating);
-	sigaddset(&fyai_interrupt_terminating, SIGINT);
-	sigaddset(&fyai_interrupt_terminating, SIGTERM);
-
-	memset(&fyai_interrupt_arm, 0, sizeof(fyai_interrupt_arm));
-	fyai_interrupt_arm.it_value.tv_usec = (suseconds_t)watchdog_ms * 1000;
-	memset(&fyai_interrupt_off, 0, sizeof(fyai_interrupt_off));
+	memset(&loop->interrupt_arm, 0, sizeof(loop->interrupt_arm));
+	loop->interrupt_arm.it_value.tv_usec = (suseconds_t)watchdog_ms * 1000;
 
 	rc = fyai_event_wake_open(fyai_loop_get(loop));
 	if (rc)
 		return -1;
 
-	fyai_interrupt_loop = loop;
-	fyai_interrupt_escalated = 0;
+	fyai_signal_owner = loop;
+	loop->interrupt_escalated = 0;
 
-	rc = sigaction(SIGINT, &fyai_interrupt_sa, &fyai_interrupt_prev_int);
+	rc = sigaction(SIGINT, &sa, &loop->interrupt_prev_int);
 	fyai_loop_error_check(loop, !rc, err_out,
 			      "could not install the interrupt handler");
-	rc = sigaction(SIGALRM, &alarm_sa, &fyai_interrupt_prev_alrm);
+	rc = sigaction(SIGALRM, &alarm_sa, &loop->interrupt_prev_alrm);
 	fyai_loop_error_check(loop, !rc, err_restore_int,
 			      "could not install the interrupt watchdog handler");
-	fyai_interrupt_installed = true;
+	loop->interrupt_installed = true;
 
 	/* SIGINT must stay unblocked, or the handler never runs. */
 	sigemptyset(&sigint_only);
@@ -394,30 +406,35 @@ int fyai_event_interrupt_open(struct fyai_loop *loop, unsigned int watchdog_ms)
 	return sigprocmask(SIG_UNBLOCK, &sigint_only, NULL);
 
 err_restore_int:
-	(void)sigaction(SIGINT, &fyai_interrupt_prev_int, NULL);
+	(void)sigaction(SIGINT, &loop->interrupt_prev_int, NULL);
 err_out:
-	fyai_interrupt_loop = NULL;
+	fyai_event_signal_owner_release(loop);
 	return -1;
 }
 
 /* Restore interrupt handlers before their loop component is destroyed. */
 void fyai_event_interrupt_close(struct fyai_loop *loop)
 {
+	struct itimerval off;
+
 	/* The handlers are the ones of the loop that installed them. */
-	if (!fyai_interrupt_installed || fyai_interrupt_loop != loop)
+	if (!loop || !loop->interrupt_installed || fyai_signal_owner != loop)
 		return;
-	(void)setitimer(ITIMER_REAL, &fyai_interrupt_off, NULL);
-	(void)sigaction(SIGINT, &fyai_interrupt_prev_int, NULL);
-	(void)sigaction(SIGALRM, &fyai_interrupt_prev_alrm, NULL);
-	fyai_interrupt_installed = false;
-	fyai_interrupt_escalated = 0;
-	fyai_interrupt_loop = NULL;
+	memset(&off, 0, sizeof(off));
+	(void)setitimer(ITIMER_REAL, &off, NULL);
+	(void)sigaction(SIGINT, &loop->interrupt_prev_int, NULL);
+	(void)sigaction(SIGALRM, &loop->interrupt_prev_alrm, NULL);
+	loop->interrupt_installed = false;
+	loop->interrupt_escalated = 0;
+	fyai_event_signal_owner_release(loop);
 }
 
 /* Return true after the watchdog restores the default signal actions. */
 bool fyai_event_interrupt_escalated(void)
 {
-	return fyai_interrupt_escalated != 0;
+	struct fyai_loop *loop = fyai_signal_owner;
+
+	return loop && loop->interrupt_escalated != 0;
 }
 
 /* The one application loop, created on demand and owned by @loop. */
@@ -445,7 +462,7 @@ void fyai_loop_abandon(struct fyai_loop *loop)
 	if (!loop)
 		return;
 	/* The child has no handler for the dump of the loop of its parent. */
-	fyai_event_dump_close();
+	fyai_event_dump_close(loop);
 	for (i = 0; i < ARRAY_SIZE(loop->signal_src); i++)
 		loop->signal_src[i] = NULL;
 	/* The parent closes its diagnostic copy. */
@@ -472,7 +489,7 @@ void fyai_loop_abandon(struct fyai_loop *loop)
 	/* signalfd requires blocked signals. They are application-loop state,
 	 * not part of the execution environment inherited by a tool child. */
 	fyai_loop_restore_signal_mask(loop);
-	fyai_event_signal_forget();
+	fyai_event_signal_forget(loop);
 	fyai_event_backend_abandon(el);
 	free(el);
 }
@@ -498,6 +515,8 @@ void fyai_loop_init(struct fyai_loop *loop, struct fyai_diag *diag)
 	memset(loop, 0, sizeof(*loop));
 	loop->diag = diag;
 	loop->dump_fd = -1;
+	loop->interrupt_wake_fd = -1;
+	loop->dump_out_fd = -1;
 }
 
 void fyai_loop_release(struct fyai_loop *loop)
@@ -512,7 +531,7 @@ void fyai_loop_release(struct fyai_loop *loop)
 	}
 	fyai_event_pool_drain(loop);
 	/* A signal after this point must not walk what was just freed. */
-	fyai_event_dump_close();
+	fyai_event_dump_close(loop);
 	loop->on_interrupt = NULL;
 	loop->on_interrupt_data = NULL;
 }

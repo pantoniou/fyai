@@ -161,8 +161,6 @@ err_out:
 	return -1;
 }
 
-/* Record the initial blocked state of each signal. */
-static bool signal_was_blocked[NSIG];
 
 /* Release this source's claim on @src->signo, unblocking only if it was the
  * last claim and the signal was not blocked to begin with. */
@@ -170,9 +168,9 @@ static void unblock_signal(struct fyai_event_source *src)
 {
 	sigset_t mask;
 
-	if (!fyai_event_signal_last_unref(src->signo))
+	if (!fyai_event_signal_last_unref(src->loop->owner, src->signo))
 		return;
-	if (signal_was_blocked[src->signo])
+	if (src->loop->owner->signal_was_blocked[src->signo])
 		return;
 
 	sigemptyset(&mask);
@@ -192,15 +190,15 @@ static int arm_signal(struct fyai_event_source *src)
 	sigaddset(&mask, src->signo);
 
 	/* Block the signal while at least one signalfd source uses it. */
-	if (fyai_event_signal_first_ref(src->signo)) {
+	if (fyai_event_signal_first_ref(src->loop->owner, src->signo)) {
 		rc = sigprocmask(SIG_BLOCK, &mask, &prev);
 		if (rc) {
-			(void)fyai_event_signal_last_unref(src->signo);
+			(void)fyai_event_signal_last_unref(src->loop->owner, src->signo);
 			fyai_event_error_check(src->loop, false, err_out,
 					       "sigprocmask: %s",
 					       strerror(errno));
 		}
-		signal_was_blocked[src->signo] = sigismember(&prev, src->signo);
+		src->loop->owner->signal_was_blocked[src->signo] = sigismember(&prev, src->signo);
 	}
 	/* signalfd blocks the signal; it does not replace its disposition. */
 	src->signal_blocked = true;

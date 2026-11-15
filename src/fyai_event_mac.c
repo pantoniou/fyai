@@ -131,8 +131,6 @@ static int arm_timer(struct fyai_event_source *src)
 }
 
 /* Store signal state by number and restore it after the last use. */
-static struct sigaction signal_saved_sa[NSIG];
-static bool signal_was_blocked[NSIG];
 
 /* Release this source's claim on @src->signo, undoing the disposition and the
  * unblock only when it was the last claim. */
@@ -140,13 +138,13 @@ static void restore_signal(struct fyai_event_source *src)
 {
 	sigset_t mask;
 
-	if (!fyai_event_signal_last_unref(src->signo))
+	if (!fyai_event_signal_last_unref(src->loop->owner, src->signo))
 		return;
 
 	kq_change(src, EVFILT_SIGNAL, EV_DELETE, 0, 0,
 		  (uintptr_t)src->signo, true);
-	sigaction(src->signo, &signal_saved_sa[src->signo], NULL);
-	if (!signal_was_blocked[src->signo])
+	sigaction(src->signo, &src->loop->owner->signal_saved_sa[src->signo], NULL);
+	if (!src->loop->owner->signal_was_blocked[src->signo])
 		return;
 
 	sigemptyset(&mask);
@@ -167,15 +165,15 @@ static int arm_signal(struct fyai_event_source *src)
 	sigemptyset(&mask);
 	sigaddset(&mask, src->signo);
 
-	first = fyai_event_signal_first_ref(src->signo);
+	first = fyai_event_signal_first_ref(src->loop->owner, src->signo);
 	if (first) {
 		/* Suppress the default action while EVFILT_SIGNAL observes it. */
 		memset(&sa, 0, sizeof(sa));
 		sa.sa_handler = SIG_IGN;
 		sigemptyset(&sa.sa_mask);
-		rc = sigaction(src->signo, &sa, &signal_saved_sa[src->signo]);
+		rc = sigaction(src->signo, &sa, &src->loop->owner->signal_saved_sa[src->signo]);
 		if (rc) {
-			(void)fyai_event_signal_last_unref(src->signo);
+			(void)fyai_event_signal_last_unref(src->loop->owner, src->signo);
 			fyai_event_error_check(src->loop, false, err_out,
 					       "sigaction: %s",
 					       strerror(errno));
@@ -183,10 +181,10 @@ static int arm_signal(struct fyai_event_source *src)
 
 		/* And it must not be blocked, or delivery never happens. */
 		sigprocmask(SIG_UNBLOCK, &mask, &prev);
-		signal_was_blocked[src->signo] =
+		src->loop->owner->signal_was_blocked[src->signo] =
 			sigismember(&prev, src->signo);
 	}
-	src->saved_sa = signal_saved_sa[src->signo];
+	src->saved_sa = src->loop->owner->signal_saved_sa[src->signo];
 	src->saved_valid = true;
 
 	if (!first)

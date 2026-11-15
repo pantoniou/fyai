@@ -11,6 +11,7 @@
 
 #include <signal.h>
 #include <stdbool.h>
+#include <sys/time.h>
 
 struct fyai_diag;
 struct fyai_event_loop;
@@ -46,6 +47,25 @@ struct fyai_loop {
 	struct fyai_event_source *signal_src[4];
 	sigset_t signal_mask;
 	bool signal_mask_valid;
+	/* Signal sources: the claims on each signal and what a backend saved. */
+	unsigned int signal_refs[NSIG];
+	bool signal_was_blocked[NSIG];
+	struct sigaction signal_saved_sa[NSIG];		/* kqueue backends */
+	/*
+	 * The interrupt handlers (SIGINT, and SIGALRM for the watchdog) and the
+	 * handler of the dump read this state through the one owner pointer of
+	 * fyai_event.c. They compose nothing: the actions that they take are
+	 * here, made when the handlers are installed.
+	 */
+	struct sigaction interrupt_prev_int, interrupt_prev_alrm;
+	struct itimerval interrupt_arm;
+	volatile sig_atomic_t interrupt_wake_fd;	/* the wake pipe, or -1 */
+	volatile sig_atomic_t interrupt_escalated;
+	bool interrupt_installed;
+	volatile sig_atomic_t dump_out_fd;		/* where the dump goes, or -1 */
+	volatile sig_atomic_t dump_crlf;		/* probed when the dump is armed */
+	volatile sig_atomic_t dump_busy;
+	bool dump_armed;
 	/* The SIGINT handler can set this value. */
 	volatile sig_atomic_t interrupt_pending;
 	/* Count SIGINT edges while interrupt_pending remains set. */
