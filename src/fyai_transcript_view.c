@@ -858,6 +858,12 @@ struct view_render {
 	int measurer_width;
 };
 
+/* The context that this object stands on. */
+static inline struct fyai_ctx *view_render_ctx(const struct view_render *o)
+{
+	return o->ctx;
+}
+
 static size_t view_measure_exchange(void *user, size_t index, int width)
 {
 	struct view_render *r = user;
@@ -867,14 +873,14 @@ static size_t view_measure_exchange(void *user, size_t index, int width)
 		r->measurer = NULL;
 	}
 	if (!r->measurer) {
-		r->measurer = markdown_measurer_create(r->ctx->cfg,
+		r->measurer = markdown_measurer_create(view_render_ctx(r)->cfg,
 						       (size_t)width);
 		r->measurer_width = width;
 	}
 	/* Without a measurer the exchange takes a row until it renders. */
 	if (!r->measurer)
 		return 1;
-	return fyai_display_turn_range_rows(r->ctx, r->measurer, r->stack,
+	return fyai_display_turn_range_rows(view_render_ctx(r), r->measurer, r->stack,
 					    r->starts[index],
 					    r->starts[index + 1]);
 }
@@ -886,7 +892,7 @@ static int view_render_exchange(void *user, size_t index, int width,
 		.flags = FYGBCF_SCOPE_LEADER | FYGBCF_DEDUP_ENABLED,
 	};
 	struct view_render *r = user;
-	struct fyai_ctx *ctx = r->ctx;
+	struct fyai_ctx *ctx = view_render_ctx(r);
 	struct fy_generic_builder *gb;
 	struct fyai_ctx view;
 	struct fyai_cfg cfg;

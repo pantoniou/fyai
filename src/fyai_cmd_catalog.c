@@ -30,19 +30,19 @@ static int catalog_changed(struct fyai_cmd_call *call, int rc)
 {
 	if (rc || call->surface != FYAI_CMD_SESSION)
 		return rc;
-	return fyai_config_rederive(call->ctx);
+	return fyai_config_rederive(fyai_cmd_call_ctx(call));
 }
 
 int fyai_cmd_catalog_show(struct fyai_cmd_call *call, fy_generic *result)
 {
-	return fyai_catalog_document(call->ctx, result);
+	return fyai_catalog_document(fyai_cmd_call_ctx(call), result);
 }
 
 int fyai_cmd_catalog_list(struct fyai_cmd_call *call, fy_generic *result)
 {
 	const char *what = fyai_cmd_arg_str(call, "what");
 
-	*result = fyai_catalog_list_data(call->ctx, call->gb, what,
+	*result = fyai_catalog_list_data(fyai_cmd_call_ctx(call), call->gb, what,
 					 fyai_cmd_arg_bool(call, "available"));
 	if (!fy_is_valid(*result))
 		return -1;
@@ -66,7 +66,7 @@ int fyai_cmd_catalog_tools(struct fyai_cmd_call *call, fy_generic *result)
 {
 	char *md;
 
-	md = fyai_catalog_tools_markdown(call->ctx,
+	md = fyai_catalog_tools_markdown(fyai_cmd_call_ctx(call),
 					 fyai_cmd_arg_str(call, "agent"),
 					 fyai_cmd_arg_bool(call, "full"));
 	if (!md)
@@ -78,14 +78,14 @@ int fyai_cmd_catalog_tools(struct fyai_cmd_call *call, fy_generic *result)
 
 int fyai_cmd_catalog_get(struct fyai_cmd_call *call, fy_generic *result)
 {
-	return fyai_catalog_value(call->ctx, fyai_cmd_arg_str(call, "path"),
+	return fyai_catalog_value(fyai_cmd_call_ctx(call), fyai_cmd_arg_str(call, "path"),
 				  result);
 }
 
 int fyai_cmd_catalog_set(struct fyai_cmd_call *call, fy_generic *result)
 {
 	(void)result;
-	return catalog_changed(call, fyai_catalog_set(call->ctx,
+	return catalog_changed(call, fyai_catalog_set(fyai_cmd_call_ctx(call),
 					fyai_cmd_arg_str(call, "path"),
 					fyai_cmd_arg_str(call, "value")));
 }
@@ -93,7 +93,7 @@ int fyai_cmd_catalog_set(struct fyai_cmd_call *call, fy_generic *result)
 int fyai_cmd_catalog_delete(struct fyai_cmd_call *call, fy_generic *result)
 {
 	(void)result;
-	return catalog_changed(call, fyai_catalog_delete(call->ctx,
+	return catalog_changed(call, fyai_catalog_delete(fyai_cmd_call_ctx(call),
 					fyai_cmd_arg_str(call, "path")));
 }
 
@@ -102,9 +102,9 @@ int fyai_cmd_catalog_import(struct fyai_cmd_call *call, fy_generic *result)
 	const char *file = fyai_cmd_arg_str(call, "file");
 	fy_generic cat;
 
-	if (catalog_changed(call, fyai_catalog_import(call->ctx, file)))
+	if (catalog_changed(call, fyai_catalog_import(fyai_cmd_call_ctx(call), file)))
 		return -1;
-	cat = call->ctx->bstate->catalog;
+	cat = fyai_cmd_call_ctx(call)->bstate->catalog;
 	*result = fy_mapping(call->gb, "file", file,
 			     "models", (long long)fy_len(fy_get(cat, "models",
 								fy_seq_empty)),
@@ -119,16 +119,16 @@ int fyai_cmd_catalog_export(struct fyai_cmd_call *call, fy_generic *result)
 
 	/* Standard output takes the catalogue as a document. */
 	if (!file) {
-		*result = fyai_catalog_effective(call->ctx->bstate->catalog,
-						 call->ctx->cfg->gb);
+		*result = fyai_catalog_effective(fyai_cmd_call_ctx(call)->bstate->catalog,
+						 fyai_cmd_call_ctx(call)->cfg->gb);
 		return fy_is_valid(*result) ? 0 : -1;
 	}
-	return fyai_catalog_export(call->ctx, file);
+	return fyai_catalog_export(fyai_cmd_call_ctx(call), file);
 }
 
 int fyai_cmd_catalog_validate(struct fyai_cmd_call *call, fy_generic *result)
 {
-	if (fyai_catalog_validate(call->ctx))
+	if (fyai_catalog_validate(fyai_cmd_call_ctx(call)))
 		return -1;
 	*result = fy_mapping(call->gb, "valid", true);
 	return 0;
@@ -137,7 +137,7 @@ int fyai_cmd_catalog_validate(struct fyai_cmd_call *call, fy_generic *result)
 int fyai_cmd_catalog_schema(struct fyai_cmd_call *call, fy_generic *result)
 {
 	*result = fyai_catalog_schema(call->gb);
-	fyai_error_check(call->ctx, fy_is_valid(*result), err,
+	fyai_error_check(fyai_cmd_call_ctx(call), fy_is_valid(*result), err,
 			 "the catalogue schema does not load");
 	return 0;
 err:
@@ -147,7 +147,7 @@ err:
 int fyai_cmd_catalog_reset(struct fyai_cmd_call *call, fy_generic *result)
 {
 	(void)result;
-	if (catalog_changed(call, fyai_catalog_reset(call->ctx)))
+	if (catalog_changed(call, fyai_catalog_reset(fyai_cmd_call_ctx(call))))
 		return -1;
 	*result = fy_mapping(call->gb, "catalog", "embedded");
 	return 0;
@@ -156,7 +156,7 @@ int fyai_cmd_catalog_reset(struct fyai_cmd_call *call, fy_generic *result)
 /* A session edits in a tile of the work pane and applies between turns. */
 int fyai_cmd_catalog_edit(struct fyai_cmd_call *call, fy_generic *result)
 {
-	struct fyai_ctx *ctx = call->ctx;
+	struct fyai_ctx *ctx = fyai_cmd_call_ctx(call);
 
 	(void)result;
 	if (call->surface == FYAI_CMD_CLI)
@@ -176,7 +176,7 @@ err:
 int fyai_cmd_catalog_update(struct fyai_cmd_call *call, fy_generic *result)
 {
 	const char *providers[FYAI_CATALOG_UPDATE_PROVIDERS_MAX];
-	struct fyai_ctx *ctx = call->ctx;
+	struct fyai_ctx *ctx = fyai_cmd_call_ctx(call);
 	bool curated = fyai_cmd_arg_bool(call, "curated");
 	fy_generic p;
 	size_t n;

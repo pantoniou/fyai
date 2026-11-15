@@ -88,6 +88,12 @@ struct fyai_cmd_call {
 	void (*finish)(struct fyai_cmd_call *call);
 };
 
+/* The context that this object stands on. */
+static inline struct fyai_ctx *fyai_cmd_call_ctx(const struct fyai_cmd_call *o)
+{
+	return o->ctx;
+}
+
 /*
  * The parsed registry, or fy_invalid when the embedded definitions do not
  * parse. The value lives as long as the process. It is not checked against

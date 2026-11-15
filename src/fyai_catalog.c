@@ -874,6 +874,12 @@ struct fyai_catalog_update_request {
 	int signal;
 };
 
+/* The context that this object stands on. */
+static inline struct fyai_ctx *fyai_catalog_update_request_ctx(const struct fyai_catalog_update_request *o)
+{
+	return o->ctx;
+}
+
 static void catalog_update_exited(void *userdata, int exit_code, int signal)
 {
 	struct fyai_catalog_update_request *request = userdata;
@@ -967,7 +973,7 @@ int fyai_catalog_update_collect(struct fyai_catalog_update_request *request)
 
 	if (!request || !request->done || request->cancelled)
 		return -1;
-	ctx = request->ctx;
+	ctx = fyai_catalog_update_request_ctx(request);
 	rc = -1;
 	fyai_error_check(ctx, !request->signal, out, "%s was stopped by "
 			 "signal %d; its output is in its tile", request->cmd,

@@ -34,7 +34,7 @@
 static fy_generic media_add_result(struct fyai_cmd_call *call,
 				   fy_generic pending)
 {
-	struct fyai_ctx *ctx = call->ctx;
+	struct fyai_ctx *ctx = fyai_cmd_call_ctx(call);
 	fy_generic part, out;
 
 	if (!fy_is_sequence(pending) || fy_empty(pending))
@@ -64,7 +64,7 @@ static fy_generic media_add_result(struct fyai_cmd_call *call,
 
 int fyai_cmd_image_add(struct fyai_cmd_call *call, fy_generic *result)
 {
-	struct fyai_ctx *ctx = call->ctx;
+	struct fyai_ctx *ctx = fyai_cmd_call_ctx(call);
 	const char *path = fyai_cmd_arg_str(call, "path");
 	const char *type = fyai_cmd_arg_str(call, "media_type");
 	const char *name = fyai_cmd_arg_str(call, "name");
@@ -77,7 +77,7 @@ int fyai_cmd_image_add(struct fyai_cmd_call *call, fy_generic *result)
 
 int fyai_cmd_image_paste(struct fyai_cmd_call *call, fy_generic *result)
 {
-	struct fyai_ctx *ctx = call->ctx;
+	struct fyai_ctx *ctx = fyai_cmd_call_ctx(call);
 	const char *name = fyai_cmd_arg_str(call, "name");
 	fy_generic pending, last;
 
@@ -101,7 +101,7 @@ int fyai_cmd_image_paste(struct fyai_cmd_call *call, fy_generic *result)
  */
 int fyai_cmd_attach(struct fyai_cmd_call *call, fy_generic *result)
 {
-	struct fyai_ctx *ctx = call->ctx;
+	struct fyai_ctx *ctx = fyai_cmd_call_ctx(call);
 	const char *path = fyai_cmd_arg_str(call, "path");
 	fy_generic part = fy_invalid;
 	char size[48];
@@ -124,7 +124,7 @@ int fyai_cmd_attach(struct fyai_cmd_call *call, fy_generic *result)
 
 int fyai_cmd_image_clear(struct fyai_cmd_call *call, fy_generic *result)
 {
-	struct fyai_ctx *ctx = call->ctx;
+	struct fyai_ctx *ctx = fyai_cmd_call_ctx(call);
 	size_t count;
 
 	count = fy_len(ctx->turn->media_pending);
@@ -135,7 +135,7 @@ int fyai_cmd_image_clear(struct fyai_cmd_call *call, fy_generic *result)
 
 int fyai_cmd_image_list(struct fyai_cmd_call *call, fy_generic *result)
 {
-	struct fyai_ctx *ctx = call->ctx;
+	struct fyai_ctx *ctx = fyai_cmd_call_ctx(call);
 	fy_generic out, part;
 	long long width, height;
 

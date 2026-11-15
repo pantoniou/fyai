@@ -198,6 +198,12 @@ struct fyai_wsc {
 	char key[FYAI_WS_KEY_SIZE];
 };
 
+/* The context that this object stands on. */
+static inline struct fyai_ctx *fyai_wsc_ctx(const struct fyai_wsc *o)
+{
+	return o->ctx;
+}
+
 static void wsc_free_cb(void *data)
 {
 	struct fyai_wsc *c = data;
@@ -295,7 +301,7 @@ int fyai_wsc_send(struct fyai_wsc *c, int opcode, const void *data, size_t n)
 	/* Try at once, so that a frame is a segment of its own when it can be. */
 	rc = wsc_flush(c);
 	if (rc) {
-		fyai_error(c->ctx, "the connection to '%s' was lost", c->o.ws.url.host);
+		fyai_error(fyai_wsc_ctx(c), "the connection to '%s' was lost", c->o.ws.url.host);
 		wsc_end(c);
 		return -1;
 	}
@@ -378,7 +384,7 @@ static int wsc_answer(struct fyai_wsc *c, size_t end)
 
 	status = fyai_ws_client_check(head, c->key);
 	if (status) {
-		ws_client_refusal(c->ctx, status, head);
+		ws_client_refusal(fyai_wsc_ctx(c), status, head);
 		return -1;
 	}
 	fyai_buf_consume(&c->in, end);
@@ -402,7 +408,7 @@ static int wsc_answer(struct fyai_wsc *c, size_t end)
 static void wsc_read(struct fyai_wsc *c)
 {
 	unsigned char chunk[FYAI_WS_CLIENT_CHUNK];
-	struct fyai_ctx *ctx = c->ctx;
+	struct fyai_ctx *ctx = fyai_wsc_ctx(c);
 	const char *mark;
 	ssize_t n;
 	int rc, rounds;
@@ -452,10 +458,10 @@ static int wsc_request(struct fyai_wsc *c)
 	fyai_host_random(nonce, sizeof(nonce));
 	n = fyai_ws_client_request(c->path, c->o.ws.url.authority, c->bearer, nonce,
 				   c->key, request, sizeof(request));
-	fyai_error_check(c->ctx, n > 0, err, "cannot make the upgrade request");
+	fyai_error_check(fyai_wsc_ctx(c), n > 0, err, "cannot make the upgrade request");
 	rc = fyai_buf_append_data(&c->out, request, (size_t)n);
 	memset(request, 0, sizeof(request));
-	fyai_error_check(c->ctx, !rc, err, "cannot queue the upgrade request");
+	fyai_error_check(fyai_wsc_ctx(c), !rc, err, "cannot queue the upgrade request");
 	c->state = WSC_HEAD;
 	return 0;
 err:
@@ -465,7 +471,7 @@ err:
 /* Do what the connection can do now. */
 static void wsc_run(struct fyai_wsc *c, unsigned int events)
 {
-	struct fyai_ctx *ctx = c->ctx;
+	struct fyai_ctx *ctx = fyai_wsc_ctx(c);
 	const char *host = c->o.ws.url.host;
 	SSL *ssl;
 	int rc;
@@ -539,7 +545,7 @@ static enum fyai_event_action wsc_timer_cb(const struct fyai_event *ev)
 
 	/* The timer is one shot and goes with its client. */
 	c->timer = NULL;
-	fyai_error(c->ctx, "'%s' did not open the WebSocket in time", c->o.ws.url.host);
+	fyai_error(fyai_wsc_ctx(c), "'%s' did not open the WebSocket in time", c->o.ws.url.host);
 	wsc_end(c);
 	return FYAIEA_CONTINUE;
 }

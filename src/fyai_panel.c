@@ -17,6 +17,12 @@ struct fyai_panel {
 	int cols, rows, total, top;
 };
 
+/* The context that this object stands on. */
+static inline struct fyai_ctx *fyai_panel_ctx(const struct fyai_panel *o)
+{
+	return o->ctx;
+}
+
 static void panel_render_free(struct fyai_panel *p, char *text)
 {
 	if (p->type == FYAI_PANEL_DIFF)
@@ -60,7 +66,7 @@ static void panel_clamp(struct fyai_panel *p)
 int fyai_panel_update(struct fyai_panel *p, const char *source,
 		      int cols, int rows)
 {
-	struct fyai_cfg *cfg = p->ctx->cfg;
+	struct fyai_cfg *cfg = fyai_panel_ctx(p)->cfg;
 	struct fyai_buf out = {0};
 	char *copy;
 	size_t *offsets, i;

@@ -328,6 +328,12 @@ struct fyai_fenced_stream {
 	bool full_render;		/* render the whole accumulator */
 };
 
+/* The context that this object stands on. */
+static inline struct fyai_ctx *fyai_fenced_stream_ctx(const struct fyai_fenced_stream *o)
+{
+	return o->ctx;
+}
+
 int fyai_fenced_stream_start(struct fyai_fenced_stream *fs, struct fyai_ctx *ctx,
 			     struct fyai_cfg *cfg,
 			     const char *lang, size_t max_lines,

@@ -60,6 +60,12 @@ struct tty_run {
 	struct fyai_event_source *killer;
 };
 
+/* The context that this object stands on. */
+static inline struct fyai_ctx *tty_run_ctx(const struct tty_run *o)
+{
+	return o->ctx;
+}
+
 /* Write the reply of the view to the terminal of the program. */
 static void tty_view_reply(const char *data, size_t len, void *user)
 {
@@ -137,7 +143,7 @@ static void tty_cancel(struct tty_run *r)
 	(void)kill(-r->pid, SIGHUP);
 	(void)kill(-r->pid, SIGTERM);
 
-	el = fyai_ctx_loop(r->ctx);
+	el = fyai_ctx_loop(tty_run_ctx(r));
 	if (el && !r->killer)
 		(void)fyai_event_add_timer(el, FYAI_TTY_KILL_GRACE_MS, 0,
 					   tty_kill, r, &r->killer);
@@ -609,6 +615,12 @@ struct fyai_terminal_relay {
 	struct fyai_event_source *killer;
 };
 
+/* The context that this object stands on. */
+static inline struct fyai_ctx *fyai_terminal_relay_ctx(const struct fyai_terminal_relay *o)
+{
+	return o->ctx;
+}
+
 /* A terminal is one descriptor; a pipe session has one for each direction. */
 static void relay_fds_close(struct fyai_terminal_relay *rl)
 {
@@ -637,7 +649,7 @@ static void relay_finish(struct fyai_terminal_relay *rl)
 		return;
 	rl->done = true;
 
-	gb = fyai_ctx_transient_gb(rl->ctx);
+	gb = fyai_ctx_transient_gb(fyai_terminal_relay_ctx(rl));
 	if (!gb)
 		return;
 	if (WIFSIGNALED(rl->status))
@@ -658,7 +670,7 @@ static void relay_drain_output(struct fyai_terminal_relay *rl)
 	char buf[4096];
 	ssize_t n;
 
-	gb = fyai_ctx_transient_gb(rl->ctx);
+	gb = fyai_ctx_transient_gb(fyai_terminal_relay_ctx(rl));
 
 	for (;;) {
 		n = read(rl->master, buf, sizeof(buf));
@@ -872,7 +884,7 @@ void fyai_terminal_relay_close(struct fyai_terminal_relay *rl, bool force)
 	/* Resume a stopped job so it can process termination signals. */
 	(void)kill(-rl->pid, SIGCONT);
 
-	el = fyai_ctx_loop(rl->ctx);
+	el = fyai_ctx_loop(fyai_terminal_relay_ctx(rl));
 	if (el && !rl->killer)
 		(void)fyai_event_add_timer(el, FYAI_TTY_KILL_GRACE_MS, 0,
 					   relay_kill, rl, &rl->killer);

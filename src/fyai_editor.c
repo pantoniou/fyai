@@ -73,6 +73,12 @@ struct fyai_editor_request {
 	bool abandoned;
 };
 
+/* The context that this object stands on. */
+static inline struct fyai_ctx *fyai_editor_request_ctx(const struct fyai_editor_request *o)
+{
+	return o->ctx;
+}
+
 static void fyai_editor_notify(struct fyai_editor_request *request)
 {
 	if (request->notified)

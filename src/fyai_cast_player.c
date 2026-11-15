@@ -88,6 +88,12 @@ struct player {
 	struct fyai_event_source *input_src, *timer_src;
 };
 
+/* The context that this object stands on. */
+static inline struct fyai_ctx *player_ctx(const struct player *o)
+{
+	return o->ctx;
+}
+
 static const struct player_button buttons[] = {
 	{ "start", "|<" },
 	{ "back10", "-10s" },
@@ -136,7 +142,7 @@ static int player_load(struct player *p, const char *path)
 	size_t *marks;
 	int rc = -1, op_rc;
 
-	if (fyai_cast_file_open(p->ctx, &f, path, &header))
+	if (fyai_cast_file_open(player_ctx(p), &f, path, &header))
 		return -1;
 	p->rec_cols = (int)fy_get(header, "width", 80LL);
 	p->rec_rows = (int)fy_get(header, "height", 24LL);
@@ -152,7 +158,7 @@ static int player_load(struct player *p, const char *path)
 		if (p->nev == p->evcap) {
 			p->evcap = p->evcap ? p->evcap * 2 : 4096;
 			grown = realloc(p->ev, p->evcap * sizeof(*grown));
-			fyai_error_check(p->ctx, grown, out, "cast: out of memory");
+			fyai_error_check(player_ctx(p), grown, out, "cast: out of memory");
 			p->ev = grown;
 		}
 		e = &p->ev[p->nev];
@@ -162,11 +168,11 @@ static int player_load(struct player *p, const char *path)
 		e->kind = kind[0];
 		e->len = strlen(text);
 		op_rc = pool_add(p, text, e->len, &e->off);
-		fyai_error_check(p->ctx, !op_rc, out,
+		fyai_error_check(player_ctx(p), !op_rc, out,
 				 "cast: out of memory");
 		if (e->kind == 'm') {
 			marks = realloc(p->marks, (p->nmarks + 1) * sizeof(*marks));
-			fyai_error_check(p->ctx, marks, out, "cast: out of memory");
+			fyai_error_check(player_ctx(p), marks, out, "cast: out of memory");
 			p->marks = marks;
 			p->marks[p->nmarks++] = p->nev;
 		}
@@ -174,7 +180,7 @@ static int player_load(struct player *p, const char *path)
 			p->duration = e->t;
 		p->nev++;
 	}
-	fyai_error_check(p->ctx, p->nev, out, "cast: %s has no output", path);
+	fyai_error_check(player_ctx(p), p->nev, out, "cast: %s has no output", path);
 	rc = 0;
 out:
 	fyai_cast_file_close(&f);
@@ -185,7 +191,7 @@ out:
 static int player_view_reset(struct player *p)
 {
 	fyai_terminal_view_destroy(p->view);
-	p->view = fyai_terminal_view_create(p->ctx, p->rec_rows, p->rec_cols, 0);
+	p->view = fyai_terminal_view_create(player_ctx(p), p->rec_rows, p->rec_cols, 0);
 	p->pos = 0;
 	return p->view ? 0 : -1;
 }
@@ -550,7 +556,7 @@ static void player_draw(struct player *p)
 		res = fytim_page_set(p->ft, rows, (size_t)(p->h > 1 ? p->h - 1 : 0),
 				     fr->r, fr->n);
 		if (res != FYTIM_OK)
-			fyai_warning(p->ctx, "cast: the page was rejected: %s",
+			fyai_warning(player_ctx(p), "cast: the page was rejected: %s",
 				     fytim_result_string(res));
 		free(rows);
 	}
@@ -771,7 +777,7 @@ static enum fyai_event_action player_tick(const struct fyai_event *ev)
 		player_draw(p);
 		rc = fytim_pump(p->ft);
 		if (rc != FYTIM_OK) {
-			fyai_warning(p->ctx, "cast: cannot draw the screen");
+			fyai_warning(player_ctx(p), "cast: cannot draw the screen");
 			p->quit = true;
 			return FYAIEA_STOP;
 		}
@@ -782,7 +788,7 @@ static enum fyai_event_action player_tick(const struct fyai_event *ev)
 	ms = player_wait_ms(p);
 	rc = fyai_event_timer_rearm(p->timer_src, ms > 0 ? ms : 1, 0);
 	if (rc) {
-		fyai_warning(p->ctx, "cast: cannot arm the player timer");
+		fyai_warning(player_ctx(p), "cast: cannot arm the player timer");
 		p->quit = true;
 		return FYAIEA_STOP;
 	}

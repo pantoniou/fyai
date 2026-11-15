@@ -207,6 +207,12 @@ struct driver {
 	bool snapshot_taken;
 };
 
+/* The context that this object stands on. */
+static inline struct fyai_ctx *driver_ctx(const struct driver *o)
+{
+	return o->ctx;
+}
+
 /*
  * How much longer every deadline waits. A deadline is a guess about a machine:
  * a sanitized build, or a suite run with many jobs at once, takes several
@@ -862,13 +868,13 @@ static int run_step(struct driver *d, const struct step *st)
 		rc = (int)send_keys(d, st->text, st->len);
 		if (!rc)
 			rc = (int)send_keys(d, "\n", 1);
-		fyai_error_check(d->ctx, !rc, err,
+		fyai_error_check(driver_ctx(d), !rc, err,
 				 "step %zu: cannot type: %s", st->index,
 				 strerror(errno));
 		return 0;
 	case STEP_WRITE:
 		rc = (int)send_keys(d, st->text, st->len);
-		fyai_error_check(d->ctx, !rc, err,
+		fyai_error_check(driver_ctx(d), !rc, err,
 				 "step %zu: cannot write: %s", st->index,
 				 strerror(errno));
 		return 0;
@@ -882,7 +888,7 @@ static int run_step(struct driver *d, const struct step *st)
 		view_sync(d);
 		ok = fyai_ptyscr_locate(&d->view, st->text, &row, &col);
 		screen = screen_repr(d);
-		fyai_error_check(d->ctx, ok, err,
+		fyai_error_check(driver_ctx(d), ok, err,
 				 "step %zu: '%s' is not on the screen to click; screen=%s",
 				 st->index, st->text, screen ? screen : "");
 		{
@@ -893,7 +899,7 @@ static int run_step(struct driver *d, const struct step *st)
 				      row + 1, col + 1, row + 1);
 			rc = (int)send_keys(d, seq, (size_t)rc);
 		}
-		fyai_error_check(d->ctx, !rc, err,
+		fyai_error_check(driver_ctx(d), !rc, err,
 				 "step %zu: cannot click: %s", st->index,
 				 strerror(errno));
 		free(screen);
@@ -906,14 +912,14 @@ static int run_step(struct driver *d, const struct step *st)
 		fyai_cast_resize(d->cast, d->resize_cols, d->resize_rows);
 		rc = fyai_ptyscr_resize(&d->term, d->resize_rows,
 					d->resize_cols);
-		fyai_error_check(d->ctx, !rc, err,
+		fyai_error_check(driver_ctx(d), !rc, err,
 				 "step %zu: out of memory", st->index);
 		free(d->held);
 		d->held = NULL;
 		d->nheld = 0;
 		rc = fyai_ptyscr_resize(&d->view, d->resize_rows,
 					d->resize_cols);
-		fyai_error_check(d->ctx, !rc, err,
+		fyai_error_check(driver_ctx(d), !rc, err,
 				 "step %zu: out of memory", st->index);
 		d->view_at = d->buf.len;
 		d->scrolled_start = 0;
@@ -922,25 +928,25 @@ static int run_step(struct driver *d, const struct step *st)
 		return 0;
 	case STEP_TOUCH:
 		rc = touch_file(st->text);
-		fyai_error_check(d->ctx, !rc, err,
+		fyai_error_check(driver_ctx(d), !rc, err,
 				 "step %zu: cannot create %s: %s", st->index,
 				 st->text, strerror(errno));
 		return 0;
 	case STEP_SIGNAL:
 		rc = kill(d->pid, (int)st->n);
-		fyai_error_check(d->ctx, !rc, err,
+		fyai_error_check(driver_ctx(d), !rc, err,
 				 "step %zu: cannot signal: %s", st->index,
 				 strerror(errno));
 		return 0;
 	case STEP_SNAPSHOT:
 		rc = write_file(st->text, dbytes(d), d->buf.len);
-		fyai_error_check(d->ctx, !rc, err,
+		fyai_error_check(driver_ctx(d), !rc, err,
 				 "step %zu: cannot write %s: %s", st->index,
 				 st->text, strerror(errno));
 		return 0;
 	case STEP_CHECKPOINT:
 		rc = checkpoint_step(d, st);
-		fyai_error_check(d->ctx, !rc, err,
+		fyai_error_check(driver_ctx(d), !rc, err,
 				 "step %zu: cannot write %s: %s", st->index,
 				 st->text, strerror(errno));
 		return 0;
@@ -969,13 +975,13 @@ static int run_step(struct driver *d, const struct step *st)
 		wc.target = (long)count_of(dbytes(d), d->buf.len, st->extra) + 1;
 		for (;;) {
 			rc = (int)send_keys(d, "\n", 1);
-			fyai_error_check(d->ctx, !rc, err,
+			fyai_error_check(driver_ctx(d), !rc, err,
 					 "step %zu: cannot submit: %s",
 					 st->index, strerror(errno));
 			if (wait_until(d, p_count, &wc, d->session_end))
 				return 0;
 			tail = tail_repr(d);
-			fyai_error_check(d->ctx, --tries > 0, err,
+			fyai_error_check(driver_ctx(d), --tries > 0, err,
 					 "step %zu: '%s' did not follow the submit; tail=%s",
 					 st->index, st->extra, tail ? tail : "");
 			/* The input row must hold the text again before the
@@ -1027,7 +1033,7 @@ static int run_step(struct driver *d, const struct step *st)
 		pred = p_input;
 		break;
 	default:
-		fyai_error_check(d->ctx, false, err, "step %zu: unknown kind",
+		fyai_error_check(driver_ctx(d), false, err, "step %zu: unknown kind",
 				 st->index);
 	}
 	if (wait_until(d, pred, &w, until))
@@ -1037,27 +1043,27 @@ static int run_step(struct driver *d, const struct step *st)
 	screen = screen_repr(d);
 	switch (st->def->kind) {
 	case STEP_FRAME:
-		fyai_error(d->ctx, "step %zu: the window painted fewer than %ld frames; tail=%s",
+		fyai_error(driver_ctx(d), "step %zu: the window painted fewer than %ld frames; tail=%s",
 			   st->index, st->n, tail ? tail : "");
 		break;
 	case STEP_WAIT_COPY: {
-		fyai_error(d->ctx, "step %zu: no copy holds '%s'", st->index,
+		fyai_error(driver_ctx(d), "step %zu: no copy holds '%s'", st->index,
 			   st->text);
 		break;
 	}
 	case STEP_WAIT_COUNT:
-		fyai_error(d->ctx, "step %zu: the output showed '%s' %zu of %ld times; tail=%s",
+		fyai_error(driver_ctx(d), "step %zu: the output showed '%s' %zu of %ld times; tail=%s",
 			   st->index, st->text,
 			   count_of(dbytes(d), d->buf.len, st->text), w.target,
 			   tail ? tail : "");
 		break;
 	case STEP_WAIT_FILE:
-		fyai_error(d->ctx, "step %zu: file %s never %s '%s'", st->index,
+		fyai_error(driver_ctx(d), "step %zu: file %s never %s '%s'", st->index,
 			   st->text, st->contains ? "contained" : "held",
 			   st->extra);
 		break;
 	case STEP_WAIT_INPUT:
-		fyai_error(d->ctx, "step %zu: the input row never held '%s'; tail=%s",
+		fyai_error(driver_ctx(d), "step %zu: the input row never held '%s'; tail=%s",
 			   st->index, st->text, tail ? tail : "");
 		break;
 	case STEP_WAIT_SCREEN:
@@ -1065,11 +1071,11 @@ static int run_step(struct driver *d, const struct step *st)
 	case STEP_WAIT_GONE:
 	case STEP_WAIT_REPAINT:
 		shown = st->def->kind == STEP_WAIT_GONE ? "left" : "reached";
-		fyai_error(d->ctx, "step %zu: '%s' never %s the screen; screen=%s",
+		fyai_error(driver_ctx(d), "step %zu: '%s' never %s the screen; screen=%s",
 			   st->index, st->text, shown, screen ? screen : "");
 		break;
 	default:
-		fyai_error(d->ctx, "step %zu: the output never contained '%s'; tail=%s",
+		fyai_error(driver_ctx(d), "step %zu: the output never contained '%s'; tail=%s",
 			   st->index, st->text, tail ? tail : "");
 		break;
 	}
@@ -1104,7 +1110,7 @@ static const char *expand_len(struct driver *d, const char *s, size_t slen,
 	size_t used = 0, cap = slen + 1, nl, vl, left = slen;
 	const char *close, *val;
 
-	fyai_error_check(d->ctx, out, err, "script: out of memory");
+	fyai_error_check(driver_ctx(d), out, err, "script: out of memory");
 	while (left) {
 		if (left >= 2 && s[0] == '$' && s[1] == '$') {
 			out[used++] = '$';
@@ -1115,13 +1121,13 @@ static const char *expand_len(struct driver *d, const char *s, size_t slen,
 		if (left >= 2 && s[0] == '$' && s[1] == '{' &&
 		    (close = memchr(s, '}', left))) {
 			nl = (size_t)(close - (s + 2));
-			fyai_error_check(d->ctx, nl && nl < sizeof(name), err,
+			fyai_error_check(driver_ctx(d), nl && nl < sizeof(name), err,
 					 "step %zu: bad name in '%.*s'", index,
 					 (int)left, s);
 			memcpy(name, s + 2, nl);
 			name[nl] = '\0';
 			val = getenv(name);
-			fyai_error_check(d->ctx, val, err,
+			fyai_error_check(driver_ctx(d), val, err,
 					 "step %zu: ${%s} is not set", index,
 					 name);
 			vl = strlen(val);
@@ -1129,7 +1135,7 @@ static const char *expand_len(struct driver *d, const char *s, size_t slen,
 			if (used + vl + left + 1 > cap) {
 				cap = used + vl + left + 1;
 				grown = realloc(out, cap);
-				fyai_error_check(d->ctx, grown, err,
+				fyai_error_check(driver_ctx(d), grown, err,
 						 "script: out of memory");
 				out = grown;
 			}
@@ -1143,7 +1149,7 @@ static const char *expand_len(struct driver *d, const char *s, size_t slen,
 	}
 	out[used] = '\0';
 	owned = realloc(d->owned, (d->nowned + 1) * sizeof(*owned));
-	fyai_error_check(d->ctx, owned, err, "script: out of memory");
+	fyai_error_check(driver_ctx(d), owned, err, "script: out of memory");
 	d->owned = owned;
 	d->owned[d->nowned++] = out;
 	if (olen)
@@ -1169,7 +1175,7 @@ static const char *value_bytes(struct driver *d, fy_generic v, size_t index,
 {
 	fy_generic copy = v;
 
-	fyai_error_check(d->ctx, fy_is_string(copy), err,
+	fyai_error_check(driver_ctx(d), fy_is_string(copy), err,
 			 "step %zu: %s must be a string", index, what);
 	return expand_len(d, fy_castp(&copy, ""), fy_len(copy), index, len);
 err:
@@ -1182,7 +1188,7 @@ static const char *value_str(struct driver *d, fy_generic v, size_t index,
 	size_t len;
 	const char *text = value_bytes(d, v, index, what, &len);
 
-	fyai_error_check(d->ctx, !text || len == strlen(text), err,
+	fyai_error_check(driver_ctx(d), !text || len == strlen(text), err,
 			 "step %zu: %s holds a NUL byte", index, what);
 	return text;
 err:
@@ -1240,7 +1246,7 @@ static int parse_resize(struct driver *d, struct step *st, fy_generic v)
 	long a, b;
 
 	if (num_of(d, v, &num)) {
-		fyai_error_check(d->ctx, num >= 1, err,
+		fyai_error_check(driver_ctx(d), num >= 1, err,
 				 "step %zu: resize needs a positive width",
 				 st->index);
 		st->cols = (int)num;
@@ -1251,21 +1257,21 @@ static int parse_resize(struct driver *d, struct step *st, fy_generic v)
 		return -1;
 	x = strchr(text, 'x');
 	a = strtol(text, &end, 10);
-	fyai_error_check(d->ctx, end != text && a > 0, err,
+	fyai_error_check(driver_ctx(d), end != text && a > 0, err,
 			 "step %zu: resize is COLS or ROWSxCOLS, not '%s'",
 			 st->index, text);
 	if (!x) {
-		fyai_error_check(d->ctx, !*end, err,
+		fyai_error_check(driver_ctx(d), !*end, err,
 				 "step %zu: resize is COLS or ROWSxCOLS, not '%s'",
 				 st->index, text);
 		st->cols = (int)a;
 		return 0;
 	}
-	fyai_error_check(d->ctx, end == x, err,
+	fyai_error_check(driver_ctx(d), end == x, err,
 			 "step %zu: resize is COLS or ROWSxCOLS, not '%s'",
 			 st->index, text);
 	b = strtol(x + 1, &end, 10);
-	fyai_error_check(d->ctx, !*end && b > 0 && x[1], err,
+	fyai_error_check(driver_ctx(d), !*end && b > 0 && x[1], err,
 			 "step %zu: resize is COLS or ROWSxCOLS, not '%s'",
 			 st->index, text);
 	st->rows = (int)a;
@@ -1289,14 +1295,14 @@ static int step_parse(struct driver *d, fy_generic step, size_t index,
 	st->index = index;
 	st->timeout = -1.0;
 	st->n = 1;
-	fyai_error_check(d->ctx, fy_is_mapping(step), err,
+	fyai_error_check(driver_ctx(d), fy_is_mapping(step), err,
 			 "step %zu: a step is a mapping", index);
 	fy_foreach_key_value(key, value, step) {
-		fyai_error_check(d->ctx, fy_is_string(key), err,
+		fyai_error_check(driver_ctx(d), fy_is_string(key), err,
 				 "step %zu: a key is a string", index);
 		name = fy_castp(&key, "");
 		if (step_def_find(name)) {
-			fyai_error_check(d->ctx, !def, err,
+			fyai_error_check(driver_ctx(d), !def, err,
 					 "step %zu: '%s' follows the kind '%s'",
 					 index, name, def->name);
 			def = step_def_find(name);
@@ -1312,16 +1318,16 @@ static int step_parse(struct driver *d, fy_generic step, size_t index,
 		      !strcmp(name, "from") ? MOD_FROM :
 		      !strcmp(name, "expect") ? MOD_EXPECT :
 		      !strcmp(name, "tries") ? MOD_TRIES : 0;
-		fyai_error_check(d->ctx, bit, err,
+		fyai_error_check(driver_ctx(d), bit, err,
 				 "step %zu: unknown key '%s'", index, name);
 		seen |= bit;
 	}
-	fyai_error_check(d->ctx, def, err, "step %zu: it names no step kind",
+	fyai_error_check(driver_ctx(d), def, err, "step %zu: it names no step kind",
 			 index);
-	fyai_error_check(d->ctx, !(seen & ~def->mods), err,
+	fyai_error_check(driver_ctx(d), !(seen & ~def->mods), err,
 			 "step %zu: '%s' does not take that modifier", index,
 			 def->name);
-	fyai_error_check(d->ctx, !def->need || (seen & def->need), err,
+	fyai_error_check(driver_ctx(d), !def->need || (seen & def->need), err,
 			 "step %zu: '%s' needs a modifier", index, def->name);
 	st->def = def;
 
@@ -1338,7 +1344,7 @@ static int step_parse(struct driver *d, fy_generic step, size_t index,
 		text = "";
 		break;
 	case STEP_SLEEP:
-		fyai_error_check(d->ctx, num_of(d, main_value, &num) &&
+		fyai_error_check(driver_ctx(d), num_of(d, main_value, &num) &&
 				 num >= 0, err,
 				 "step %zu: sleep is a number of seconds",
 				 index);
@@ -1346,7 +1352,7 @@ static int step_parse(struct driver *d, fy_generic step, size_t index,
 		text = "";
 		break;
 	case STEP_FRAME:
-		fyai_error_check(d->ctx, num_of(d, main_value, &num) &&
+		fyai_error_check(driver_ctx(d), num_of(d, main_value, &num) &&
 				 num >= 1, err,
 				 "step %zu: frame is a count of frames", index);
 		st->n = (long)num;
@@ -1361,7 +1367,7 @@ static int step_parse(struct driver *d, fy_generic step, size_t index,
 				return -1;
 			st->n = signal_number(text);
 		}
-		fyai_error_check(d->ctx, st->n >= 1, err,
+		fyai_error_check(driver_ctx(d), st->n >= 1, err,
 				 "step %zu: signal is a number or a name",
 				 index);
 		text = "";
@@ -1382,7 +1388,7 @@ static int step_parse(struct driver *d, fy_generic step, size_t index,
 		text = value_str(d, main_value, index, def->name);
 		if (!text)
 			return -1;
-		fyai_error_check(d->ctx, *text || def->kind == STEP_WAIT_COPY ||
+		fyai_error_check(driver_ctx(d), *text || def->kind == STEP_WAIT_COPY ||
 				 def->kind == STEP_TYPE || def->kind == STEP_WRITE,
 				 err, "step %zu: '%s' needs a text", index,
 				 def->name);
@@ -1397,13 +1403,13 @@ modifiers:
 			continue;
 		if (!strcmp(name, "timeout")) {
 			if (fy_is_string(value)) {
-				fyai_error_check(d->ctx,
+				fyai_error_check(driver_ctx(d),
 						 fy_equal(value, "session"), err,
 						 "step %zu: timeout is seconds or 'session'",
 						 index);
 				st->session = true;
 			} else {
-				fyai_error_check(d->ctx, num_of(d, value, &num) &&
+				fyai_error_check(driver_ctx(d), num_of(d, value, &num) &&
 						 num > 0, err,
 						 "step %zu: timeout is seconds or 'session'",
 						 index);
@@ -1411,14 +1417,14 @@ modifiers:
 			}
 		} else if (!strcmp(name, "count") || !strcmp(name, "more") ||
 			   !strcmp(name, "tries")) {
-			fyai_error_check(d->ctx, num_of(d, value, &num) &&
+			fyai_error_check(driver_ctx(d), num_of(d, value, &num) &&
 					 num >= 1, err,
 					 "step %zu: %s is a positive number",
 					 index, name);
 			st->n = (long)num;
 			st->more = !strcmp(name, "more");
 		} else if (!strcmp(name, "from")) {
-			fyai_error_check(d->ctx, fy_equal(value, "start") ||
+			fyai_error_check(driver_ctx(d), fy_equal(value, "start") ||
 					 fy_equal(value, "mark"), err,
 					 "step %zu: from is 'start' or 'mark'",
 					 index);
@@ -1451,16 +1457,16 @@ static int masks_load(struct driver *d, fy_generic list)
 
 	if (fy_is_invalid(list))
 		return 0;
-	fyai_error_check(d->ctx, fy_is_sequence(list), err,
+	fyai_error_check(driver_ctx(d), fy_is_sequence(list), err,
 			 "script: mask is a list of patterns");
 	d->masks = calloc(fy_len(list) + 1, sizeof(*d->masks));
-	fyai_error_check(d->ctx, d->masks, err, "script: cannot keep the masks");
+	fyai_error_check(driver_ctx(d), d->masks, err, "script: cannot keep the masks");
 	fy_foreach(item, list) {
 		text = value_str(d, item, 0, "mask");
 		if (!text)
 			return -1;
 		rc = regcomp(&d->masks[n], text, REG_EXTENDED);
-		fyai_error_check(d->ctx, !rc, err,
+		fyai_error_check(driver_ctx(d), !rc, err,
 				 "script: mask '%s' is not a pattern", text);
 		d->nmasks = ++n;
 	}
@@ -1488,37 +1494,37 @@ static int script_load(struct driver *d, const char *path)
 	d->wait_sec = WAIT_DEFAULT * d->scale;
 	d->ready = READY_DEFAULT;
 	doc = fy_parse_file(d->gb, FYAI_YAML_PARSE_FLAGS, path);
-	fyai_error_check(d->ctx, fy_is_mapping(doc), err,
+	fyai_error_check(driver_ctx(d), fy_is_mapping(doc), err,
 			 "script: cannot parse %s", path);
 	fy_foreach_key_value(key, value, doc) {
 		name = fy_castp(&key, "");
 		for (known = false, k = 0; k < sizeof(keys) / sizeof(keys[0]); k++)
 			if (!strcmp(keys[k], name))
 				known = true;
-		fyai_error_check(d->ctx, known, err,
+		fyai_error_check(driver_ctx(d), known, err,
 				 "script: unknown key '%s'", name);
 	}
 	v = fy_get(doc, "rows", fy_invalid);
 	if (fy_is_valid(v)) {
-		fyai_error_check(d->ctx, num_of(d, v, &num) && num >= 1, err,
+		fyai_error_check(driver_ctx(d), num_of(d, v, &num) && num >= 1, err,
 				 "script: rows is a positive number");
 		d->rows = (int)num;
 	}
 	v = fy_get(doc, "cols", fy_invalid);
 	if (fy_is_valid(v)) {
-		fyai_error_check(d->ctx, num_of(d, v, &num) && num >= 1, err,
+		fyai_error_check(driver_ctx(d), num_of(d, v, &num) && num >= 1, err,
 				 "script: cols is a positive number");
 		d->cols = (int)num;
 	}
 	v = fy_get(doc, "timeout", fy_invalid);
 	if (fy_is_valid(v)) {
-		fyai_error_check(d->ctx, num_of(d, v, &num) && num > 0, err,
+		fyai_error_check(driver_ctx(d), num_of(d, v, &num) && num > 0, err,
 				 "script: timeout is a number of seconds");
 		d->session_sec = num * d->scale;
 	}
 	v = fy_get(doc, "wait_timeout", fy_invalid);
 	if (fy_is_valid(v)) {
-		fyai_error_check(d->ctx, num_of(d, v, &num) && num > 0, err,
+		fyai_error_check(driver_ctx(d), num_of(d, v, &num) && num > 0, err,
 				 "script: wait_timeout is a number of seconds");
 		d->wait_sec = num * d->scale;
 	}
@@ -1527,7 +1533,7 @@ static int script_load(struct driver *d, const char *path)
 		text = value_str(d, v, 0, "ready");
 		if (!text)
 			return -1;
-		fyai_error_check(d->ctx, *text, err,
+		fyai_error_check(driver_ctx(d), *text, err,
 				 "script: ready needs a text");
 		d->ready = text;
 	}
@@ -1541,7 +1547,7 @@ static int script_load(struct driver *d, const char *path)
 					false);
 	v = fy_get(doc, "emoji_vs", fy_invalid);
 	if (fy_is_valid(v)) {
-		fyai_error_check(d->ctx, fy_equal(v, "narrow"), err,
+		fyai_error_check(driver_ctx(d), fy_equal(v, "narrow"), err,
 				 "script: emoji_vs is 'narrow'");
 		d->emoji_narrow = true;
 	}
@@ -1555,11 +1561,11 @@ static int script_load(struct driver *d, const char *path)
 		return -1;
 	exit = fy_get(doc, "exit", fy_invalid);
 	if (fy_is_valid(exit)) {
-		fyai_error_check(d->ctx, fy_is_mapping(exit), err,
+		fyai_error_check(driver_ctx(d), fy_is_mapping(exit), err,
 				 "script: exit is a mapping");
 		fy_foreach_key_value(key, value, exit) {
 			name = fy_castp(&key, "");
-			fyai_error_check(d->ctx, !strcmp(name, "status") ||
+			fyai_error_check(driver_ctx(d), !strcmp(name, "status") ||
 					 !strcmp(name, "signal") ||
 					 !strcmp(name, "clear"), err,
 					 "script: unknown key 'exit/%s'", name);
@@ -1576,17 +1582,17 @@ static int script_load(struct driver *d, const char *path)
 					return -1;
 				d->exit_signal = signal_number(text);
 			}
-			fyai_error_check(d->ctx, d->exit_signal >= 1, err,
+			fyai_error_check(driver_ctx(d), d->exit_signal >= 1, err,
 					 "script: exit/signal is a number or a name");
 		}
 		d->exit_clear = fy_get(exit, "clear", false);
 	}
 	steps = fy_get(doc, "steps", fy_seq_empty);
-	fyai_error_check(d->ctx, fy_is_sequence(steps), err,
+	fyai_error_check(driver_ctx(d), fy_is_sequence(steps), err,
 			 "script: steps is a sequence");
 	d->nsteps = fy_len(steps);
 	d->steps = calloc(d->nsteps + 1, sizeof(*d->steps));
-	fyai_error_check(d->ctx, d->steps, err, "script: out of memory");
+	fyai_error_check(driver_ctx(d), d->steps, err, "script: out of memory");
 	for (i = 0; i < d->nsteps; i++)
 		if (step_parse(d, fy_get_at(steps, i), i + 1, &d->steps[i]))
 			return -1;
@@ -1610,24 +1616,24 @@ static int session_start(struct driver *d, char *const *argv,
 	pid_t pid;
 
 	master = posix_openpt(O_RDWR | O_NOCTTY);
-	fyai_error_check(d->ctx, master >= 0, err,
+	fyai_error_check(driver_ctx(d), master >= 0, err,
 			 "pty: cannot open a pseudo-terminal: %s",
 			 strerror(errno));
 	rc = grantpt(master);
 	if (!rc)
 		rc = unlockpt(master);
-	fyai_error_check(d->ctx, !rc, err_close,
+	fyai_error_check(driver_ctx(d), !rc, err_close,
 			 "pty: cannot unlock the pseudo-terminal: %s",
 			 strerror(errno));
 	name = ptsname(master);
-	fyai_error_check(d->ctx, name, err_close,
+	fyai_error_check(driver_ctx(d), name, err_close,
 			 "pty: no name for the pseudo-terminal");
 	slave = open(name, O_RDWR | O_NOCTTY);
-	fyai_error_check(d->ctx, slave >= 0, err_close,
+	fyai_error_check(driver_ctx(d), slave >= 0, err_close,
 			 "pty: cannot open %s: %s", name, strerror(errno));
 	set_size(slave, d->rows, d->cols);
 	pid = fork();
-	fyai_error_check(d->ctx, pid >= 0, err_slave, "pty: cannot fork: %s",
+	fyai_error_check(driver_ctx(d), pid >= 0, err_slave, "pty: cannot fork: %s",
 			 strerror(errno));
 	if (!pid) {
 		/* A controlling terminal with a foreground process group. */
@@ -1733,12 +1739,12 @@ static int session_exit(struct driver *d)
 			return 0;
 		rc = WIFSIGNALED(status) ? WTERMSIG(status) :
 		     WIFEXITED(status) ? WEXITSTATUS(status) : status;
-		fyai_error(d->ctx, "the program %s %d, not as the script expects",
+		fyai_error(driver_ctx(d), "the program %s %d, not as the script expects",
 			   WIFSIGNALED(status) ? "died from signal" :
 			   "exited with status", rc);
 		return -1;
 	}
-	fyai_error(d->ctx, "the program did not exit");
+	fyai_error(driver_ctx(d), "the program did not exit");
 	return -1;
 }
 
@@ -1763,7 +1769,7 @@ static int session_run(struct driver *d)
 		 * shows no prompt cursor: the script then states the text. */
 		if (!wait_until(d, p_contains, &w, d->session_end)) {
 			tail = tail_repr(d);
-			fyai_error(d->ctx, "the output never contained the ready text %s; tail=%s",
+			fyai_error(driver_ctx(d), "the output never contained the ready text %s; tail=%s",
 				   d->ready, tail ? tail : "");
 			free(tail);
 			return -1;
@@ -1777,7 +1783,7 @@ static int session_run(struct driver *d)
 		return -1;
 	if (d->snapshot && !d->snapshot_taken)
 		if (write_file(d->snapshot, dbytes(d), d->buf.len)) {
-			fyai_error(d->ctx, "cannot write %s: %s", d->snapshot,
+			fyai_error(driver_ctx(d), "cannot write %s: %s", d->snapshot,
 				   strerror(errno));
 			return -1;
 		}

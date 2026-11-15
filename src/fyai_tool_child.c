@@ -277,18 +277,24 @@ struct fyai_tool_child {
 	int size_rows, size_cols;
 };
 
+/* The context that this object stands on. */
+static inline struct fyai_ctx *fyai_tool_child_ctx(const struct fyai_tool_child *o)
+{
+	return o->ctx;
+}
+
 static fy_generic fyai_tool_child_serve(struct jsonrpc_conn *conn,
 					const char *method, fy_generic params,
 					fy_generic id, void *userdata,
 					fy_generic *errorp)
 {
 	struct fyai_tool_child *tc = userdata;
-	struct fy_generic_builder *gb = fyai_ctx_transient_gb(tc->ctx);
+	struct fy_generic_builder *gb = fyai_ctx_transient_gb(fyai_tool_child_ctx(tc));
 	fy_generic result = fy_invalid;
 	char *bytes;
 	size_t len;
 
-	if (fyai_agents_serve(tc->ctx, conn, method, params, id, &result, errorp))
+	if (fyai_agents_serve(fyai_tool_child_ctx(tc), conn, method, params, id, &result, errorp))
 		return result;
 	if (!strcmp(method, "tool/run")) {
 		if (!fy_is_valid(id) || tc->phase >= FYAI_TC_REQUESTED) {
@@ -298,15 +304,15 @@ static fy_generic fyai_tool_child_serve(struct jsonrpc_conn *conn,
 		}
 		tc->args = fy_get(params, "call", fy_invalid);
 		tc->branch = fy_get(params, "branch", fy_invalid);
-		tc->ctx->turn->relay_gate = fy_get(params, "gate", false);
-		tc->ctx->turn->relay_steps = fy_get(params, "steps", false);
+		fyai_tool_child_ctx(tc)->turn->relay_gate = fy_get(params, "gate", false);
+		fyai_tool_child_ctx(tc)->turn->relay_steps = fy_get(params, "steps", false);
 		tc->size_rows = (int)fy_get(fy_get(params, "size", fy_invalid),
 					   "rows", 0LL);
 		tc->size_cols = (int)fy_get(fy_get(params, "size", fy_invalid),
 					   "cols", 0LL);
 		/* The result carries the diagnostics of a refused state. */
-		if (tc->ctx->cfg->tool_exec)
-			tc->spawn_failed = fyai_tool_child_spawn_take(tc->ctx,
+		if (fyai_tool_child_ctx(tc)->cfg->tool_exec)
+			tc->spawn_failed = fyai_tool_child_spawn_take(fyai_tool_child_ctx(tc),
 					fy_get(params, "spawn", fy_invalid));
 		tc->id = id;
 		tc->phase = FYAI_TC_REQUESTED;
@@ -314,25 +320,25 @@ static fy_generic fyai_tool_child_serve(struct jsonrpc_conn *conn,
 		return fy_invalid;
 	}
 	if (!strcmp(method, "tty/resize")) {
-		tc->ctx->tty->rows = (int)fy_get(params, "rows", 0LL);
-		tc->ctx->tty->cols = (int)fy_get(params, "cols", 0LL);
+		fyai_tool_child_ctx(tc)->tty->rows = (int)fy_get(params, "rows", 0LL);
+		fyai_tool_child_ctx(tc)->tty->cols = (int)fy_get(params, "cols", 0LL);
 		/*
 		 * A resize before the session starts replaces the size of
 		 * the run: the parent sends each grant one time.
 		 */
-		if (!tc->relay && tc->ctx->tty->rows > 0 &&
-		    tc->ctx->tty->cols > 0) {
-			tc->size_rows = tc->ctx->tty->rows;
-			tc->size_cols = tc->ctx->tty->cols;
+		if (!tc->relay && fyai_tool_child_ctx(tc)->tty->rows > 0 &&
+		    fyai_tool_child_ctx(tc)->tty->cols > 0) {
+			tc->size_rows = fyai_tool_child_ctx(tc)->tty->rows;
+			tc->size_cols = fyai_tool_child_ctx(tc)->tty->cols;
 		}
-		fyai_terminal_session_resize(tc->ctx, tc->ctx->tty->rows,
-					     tc->ctx->tty->cols);
+		fyai_terminal_session_resize(fyai_tool_child_ctx(tc), fyai_tool_child_ctx(tc)->tty->rows,
+					     fyai_tool_child_ctx(tc)->tty->cols);
 		if (tc->relay)
-			fyai_terminal_relay_resize(tc->relay, tc->ctx->tty->rows,
-						   tc->ctx->tty->cols);
+			fyai_terminal_relay_resize(tc->relay, fyai_tool_child_ctx(tc)->tty->rows,
+						   fyai_tool_child_ctx(tc)->tty->cols);
 		(void)jsonrpc_notify(conn, "tty/resized",
-			fy_gb_mapping(gb, "rows", (long long)tc->ctx->tty->rows,
-				      "cols", (long long)tc->ctx->tty->cols));
+			fy_gb_mapping(gb, "rows", (long long)fyai_tool_child_ctx(tc)->tty->rows,
+				      "cols", (long long)fyai_tool_child_ctx(tc)->tty->cols));
 		return fy_invalid;
 	}
 	if (!strcmp(method, "shell/write")) {
@@ -585,11 +591,17 @@ struct fyai_tool_child_dispatch_args {
 	struct fyai_event_loop *el;
 };
 
+/* The context that this object stands on. */
+static inline struct fyai_ctx *fyai_tool_child_dispatch_args_ctx(const struct fyai_tool_child_dispatch_args *o)
+{
+	return o->ctx;
+}
+
 static void *fyai_tool_child_dispatch_entry(void *arg)
 {
 	struct fyai_tool_child_dispatch_args *da = arg;
 
-	fyai_tool_child_dispatch(da->ctx, da->tc, da->conn, da->el);
+	fyai_tool_child_dispatch(fyai_tool_child_dispatch_args_ctx(da), da->tc, da->conn, da->el);
 	return NULL;
 }
 #endif

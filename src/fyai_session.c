@@ -1901,26 +1901,32 @@ struct fyai_btw_run {
 	const char *branch;
 };
 
+/* The context that this object stands on. */
+static inline struct fyai_ctx *fyai_btw_run_ctx(const struct fyai_btw_run *o)
+{
+	return o->ctx;
+}
+
 static void session_btw_finish(void *userdata)
 {
 	struct fyai_btw_run *run = userdata;
-	struct fyai_btw_run **link = &run->ctx->jobs->btw;
+	struct fyai_btw_run **link = &fyai_btw_run_ctx(run)->jobs->btw;
 	struct fy_generic_builder *gb;
 	fy_generic result = fy_invalid;
 	bool ok = false;
 
-	gb = fyai_ctx_transient_gb(run->ctx);
-	fyai_error_check(run->ctx, gb, release,
+	gb = fyai_ctx_transient_gb(fyai_btw_run_ctx(run));
+	fyai_error_check(fyai_btw_run_ctx(run), gb, release,
 			 "btw: could not collect the side answer");
 	if (fyai_tool_job_group_collect(run->group, 0, &result, &ok) || !ok) {
 		if (fy_is_string(result))
-			fyai_warning(run->ctx, "btw: %s", fy_castp(&result, "failed"));
+			fyai_warning(fyai_btw_run_ctx(run), "btw: %s", fy_castp(&result, "failed"));
 		else
-			fyai_warning(run->ctx, "btw: side question failed");
+			fyai_warning(fyai_btw_run_ctx(run), "btw: side question failed");
 	}
-	(void)fyai_tools_zoom(run->ctx, run->branch);
+	(void)fyai_tools_zoom(fyai_btw_run_ctx(run), run->branch);
 release:
-	fyai_ui_diag_drain(run->ctx, "btw");
+	fyai_ui_diag_drain(fyai_btw_run_ctx(run), "btw");
 	while (*link && *link != run)
 		link = &(*link)->next;
 	if (*link)
@@ -1935,7 +1941,7 @@ static void session_btw_complete(struct fyai_tool_job_group *group,
 	struct fyai_btw_run *run = userdata;
 
 	(void)group;
-	(void)fyai_event_defer(fyai_ctx_loop(run->ctx), session_btw_finish, run);
+	(void)fyai_event_defer(fyai_ctx_loop(fyai_btw_run_ctx(run)), session_btw_finish, run);
 }
 
 void fyai_session_btw_close(struct fyai_ctx *ctx)

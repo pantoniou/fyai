@@ -333,7 +333,7 @@ static int chat_stream_event(struct fyai_stream_parse *p, fy_generic chunk)
 {
 	struct chat_stream *cs = chat_stream(p);
 	struct fy_generic_builder *gb = p->gb;
-	struct fyai_cfg *cfg = p->ctx->cfg;
+	struct fyai_cfg *cfg = fyai_stream_parse_ctx(p)->cfg;
 	fy_generic choice, delta, tool_calls, tool_call, usage, logprobs;
 	fy_generic content, refusal;
 	const char *text;
@@ -417,7 +417,7 @@ static fy_generic chat_stream_finish(struct fyai_stream_parse *p)
 {
 	struct chat_stream *cs = chat_stream(p);
 	struct fy_generic_builder *gb = p->gb;
-	struct fyai_cfg *cfg = p->ctx->cfg;
+	struct fyai_cfg *cfg = fyai_stream_parse_ctx(p)->cfg;
 	fy_generic message, choice, doc, tool_calls, tool_call, function, fn, call;
 
 	tool_calls = fy_seq_empty;

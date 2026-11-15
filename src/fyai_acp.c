@@ -73,6 +73,12 @@ struct acp_server {
 	int version;
 };
 
+/* The context that this object stands on. */
+static inline struct fyai_ctx *acp_server_ctx(const struct acp_server *o)
+{
+	return o->ctx;
+}
+
 struct acp_worker {
 	struct fyai_ctx *ctx;
 	struct jsonrpc_conn *conn;
@@ -86,6 +92,12 @@ struct acp_worker {
 	bool cancelled;
 	bool done;
 };
+
+/* The context that this object stands on. */
+static inline struct fyai_ctx *acp_worker_ctx(const struct acp_worker *o)
+{
+	return o->ctx;
+}
 
 static fy_generic acp_error(struct fyai_ctx *ctx, long long code,
 			    const char *message)
@@ -113,14 +125,14 @@ static int acp_update_frame(struct acp_server *server, const char *id,
 			    fy_generic update)
 {
 	return jsonrpc_notify(server->client, "session/update",
-		fy_mapping(fyai_ctx_transient_gb(server->ctx),
+		fy_mapping(fyai_ctx_transient_gb(acp_server_ctx(server)),
 			   "sessionId", id, "update", update));
 }
 
 static int acp_update(struct acp_server *server, const char *id,
 		      fy_generic update)
 {
-	struct fy_generic_builder *gb = fyai_ctx_transient_gb(server->ctx);
+	struct fy_generic_builder *gb = fyai_ctx_transient_gb(acp_server_ctx(server));
 	fy_generic kind, block;
 	const char *message_id;
 
@@ -159,11 +171,11 @@ static struct acp_session *acp_session_add(struct acp_server *server,
 {
 	struct acp_session *s = calloc(1, sizeof(*s));
 
-	fyai_error_check(server->ctx, s, err,
+	fyai_error_check(acp_server_ctx(server), s, err,
 			 "acp: cannot allocate the session");
 	s->id = strdup(id);
 	s->cwd = strdup(cwd);
-	fyai_error_check(server->ctx, s->id && s->cwd, err_free,
+	fyai_error_check(acp_server_ctx(server), s->id && s->cwd, err_free,
 			 "acp: cannot copy the id and directory of the session");
 	s->server = server;
 	s->worker_in = -1;
@@ -268,7 +280,7 @@ static void acp_run_complete(struct jsonrpc_request *req, void *userdata)
 {
 	struct acp_session *s = userdata;
 	struct acp_server *server = s->server;
-	struct fyai_ctx *ctx = server->ctx;
+	struct fyai_ctx *ctx = acp_server_ctx(server);
 	struct fy_generic_builder *gb = fyai_ctx_transient_gb(ctx);
 	bool ok = jsonrpc_request_ok(req);
 	const char *reason;
@@ -316,10 +328,10 @@ static fy_generic acp_child_serve(struct jsonrpc_conn *conn,
 		    fy_equal(fy_get(params, "messageId"), s->message_id)) {
 			if (server->version == 2 &&
 			    jsonrpc_conn_respond(server->client, s->prompt_id,
-					fy_mapping(fyai_ctx_transient_gb(server->ctx),
+					fy_mapping(fyai_ctx_transient_gb(acp_server_ctx(server)),
 						   "messageId", s->message_id),
 					fy_invalid)) {
-				fyai_error(server->ctx,
+				fyai_error(acp_server_ctx(server),
 					   "could not acknowledge ACP prompt '%s'",
 					   s->message_id);
 				s->update_failed = true;
@@ -332,7 +344,7 @@ static fy_generic acp_child_serve(struct jsonrpc_conn *conn,
 		if (s->busy && fy_is_mapping(update) &&
 		    acp_update(server, s->id, update)) {
 			s->update_failed = true;
-			fyai_error(server->ctx,
+			fyai_error(acp_server_ctx(server),
 				   "could not forward ACP update for '%s'", s->id);
 		}
 	}
@@ -343,7 +355,7 @@ static int acp_spawn_worker(struct acp_session *s, fy_generic content,
 			    const char *text)
 {
 	struct acp_server *server = s->server;
-	struct fyai_ctx *ctx = server->ctx;
+	struct fyai_ctx *ctx = acp_server_ctx(server);
 	char *const *orig = ctx->cfg->argv;
 	char **args = NULL;
 	char *self = NULL;
@@ -465,7 +477,7 @@ out:
 static int acp_replay(struct acp_server *server, struct acp_session *s,
 		      fy_generic head)
 {
-	struct fyai_ctx *ctx = server->ctx;
+	struct fyai_ctx *ctx = acp_server_ctx(server);
 	struct fy_generic_builder *gb = fyai_ctx_transient_gb(ctx);
 	struct fyai_turn_stack stack;
 	fy_generic messages, m, role, id, content, blocks;
@@ -536,7 +548,7 @@ static fy_generic acp_initialize(struct acp_server *server,
 				 struct jsonrpc_conn *conn, fy_generic params,
 				 fy_generic *errorp)
 {
-	struct fyai_ctx *ctx = server->ctx;
+	struct fyai_ctx *ctx = acp_server_ctx(server);
 	struct fy_generic_builder *gb = fyai_ctx_transient_gb(ctx);
 
 	if (server->initialized ||
@@ -569,7 +581,7 @@ static fy_generic acp_initialize(struct acp_server *server,
 static fy_generic acp_session_new(struct acp_server *server,
 				  fy_generic params, fy_generic *errorp)
 {
-	struct fyai_ctx *ctx = server->ctx;
+	struct fyai_ctx *ctx = acp_server_ctx(server);
 	struct fy_generic_builder *gb = fyai_ctx_transient_gb(ctx);
 	const char *cwd = fy_get(params, "cwd", (const char *)NULL);
 	char newid[64];
@@ -592,7 +604,7 @@ static fy_generic acp_session_new(struct acp_server *server,
 static fy_generic acp_session_list(struct acp_server *server,
 				   fy_generic params, fy_generic *errorp)
 {
-	struct fyai_ctx *ctx = server->ctx;
+	struct fyai_ctx *ctx = acp_server_ctx(server);
 	struct fy_generic_builder *gb = fyai_ctx_transient_gb(ctx);
 	struct fyai_branch b;
 	fy_generic name, entry, sessions, cursor;
@@ -626,7 +638,7 @@ static fy_generic acp_session_resume(struct acp_server *server,
 				     const char *sid, const char *method,
 				     fy_generic params, fy_generic *errorp)
 {
-	struct fyai_ctx *ctx = server->ctx;
+	struct fyai_ctx *ctx = acp_server_ctx(server);
 	fy_generic cursor;
 	const char *cwd = fy_get(params, "cwd", (const char *)NULL);
 
@@ -671,7 +683,7 @@ static fy_generic acp_session_prompt(struct acp_server *server,
 				     fy_generic params, fy_generic id,
 				     fy_generic *errorp)
 {
-	struct fyai_ctx *ctx = server->ctx;
+	struct fyai_ctx *ctx = acp_server_ctx(server);
 	fy_generic blocks;
 	char msgid[64], agentid[96];
 	char *text;
@@ -715,7 +727,7 @@ static fy_generic acp_session_stop(struct acp_server *server,
 	if (s->busy) {
 		s->cancelling = true;
 		if (jsonrpc_notify(s->worker, "acp/cancel", fy_map_empty)) {
-			*errorp = acp_error(server->ctx, -32000,
+			*errorp = acp_error(acp_server_ctx(server), -32000,
 				"cannot cancel ACP turn");
 			return fy_invalid;
 		}
@@ -730,7 +742,7 @@ static fy_generic acp_serve(struct jsonrpc_conn *conn, const char *method,
                             fy_generic *errorp)
 {
 	struct acp_server *server = userdata;
-	struct fyai_ctx *ctx = server->ctx;
+	struct fyai_ctx *ctx = acp_server_ctx(server);
 	struct fyai_branch branch;
 	struct acp_session *s;
 	const char *sid;
@@ -889,7 +901,7 @@ static fy_generic acp_worker_serve(struct jsonrpc_conn *conn,
 				   fy_generic *errorp)
 {
 	struct acp_worker *worker = userdata;
-	struct fyai_ctx *ctx = worker->ctx;
+	struct fyai_ctx *ctx = acp_worker_ctx(worker);
 	const char *text, *mid, *aid;
 
 	if (!strcmp(method, "acp/cancel")) {
@@ -930,7 +942,7 @@ static fy_generic acp_worker_serve(struct jsonrpc_conn *conn,
 
 static int acp_worker_turn(struct acp_worker *worker)
 {
-	struct fyai_ctx *ctx = worker->ctx;
+	struct fyai_ctx *ctx = acp_worker_ctx(worker);
 	struct fy_generic_builder *gb;
 	fy_generic user, turn;
 
@@ -1035,6 +1047,6 @@ int fyai_cmd_acp_prepare(struct fyai_cfg *cfg, fy_generic args)
 int fyai_cmd_acp(struct fyai_cmd_call *call, fy_generic *result)
 {
 	(void)result;
-	return call->ctx->cfg->acp_worker ?
-		acp_worker_run(call->ctx) : acp_server_run(call->ctx);
+	return fyai_cmd_call_ctx(call)->cfg->acp_worker ?
+		acp_worker_run(fyai_cmd_call_ctx(call)) : acp_server_run(fyai_cmd_call_ctx(call));
 }

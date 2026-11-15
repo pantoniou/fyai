@@ -114,6 +114,12 @@ struct fyai_workpane_manager {
 	struct fyai_workpane_tile *tiles;
 };
 
+/* The context that this object stands on. */
+static inline struct fyai_ctx *fyai_workpane_manager_ctx(const struct fyai_workpane_manager *o)
+{
+	return o->ctx;
+}
+
 /* Keep the fitted-track marker compatible with the layout library. */
 _Static_assert(FYAI_WORKPANE_TRACK_FIT == FYTIM_TRACK_FIT,
 	       "the fitted-track marker must match the layout library");
@@ -201,7 +207,7 @@ static void workpane_sample_size(struct fyai_workpane_manager *wm)
 	bool sampled = false;
 	int fd;
 
-	fd = fyai_ui_tty_fd(wm->ctx);
+	fd = fyai_ui_tty_fd(fyai_workpane_manager_ctx(wm));
 	if (fd >= 0)
 		sampled = terminal_window_size(fd, &rows, &cols);
 	if (!sampled && wm->ft)
@@ -219,7 +225,7 @@ void fyai_workpane_adopt_config(struct fyai_workpane_manager *wm)
 
 	if (!wm)
 		return;
-	cfg = wm->ctx->cfg;
+	cfg = fyai_workpane_manager_ctx(wm)->cfg;
 	wm->max_rows = cfg->work_max_rows;
 	wm->columns = cfg->work_columns;
 	wm->layout = FYAI_WORKPANE_LAYOUT_AUTO;
@@ -319,7 +325,7 @@ int fyai_workpane_cap_source(const struct fyai_workpane_manager *wm,
 			 workpane_disposition_name(wm->disposition));
 	cap.height = height;
 	cap.zoomed = wm->zoomed != NULL;
-	return fyai_chrome_cap_source(wm->ctx, &cap, buf, size);
+	return fyai_chrome_cap_source(fyai_workpane_manager_ctx(wm), &cap, buf, size);
 }
 
 /*
@@ -338,7 +344,7 @@ static void workpane_cap_update(struct fyai_workpane_manager *wm)
 
 	if (!wm || !wm->pane)
 		return;
-	cfg = wm->ctx->cfg;
+	cfg = fyai_workpane_manager_ctx(wm)->cfg;
 	if (!cfg->work_cap)
 		return;
 	n = fyai_workpane_cap_source(wm, source, sizeof(source));
@@ -377,7 +383,7 @@ void fyai_workpane_configure(struct fyai_workpane_manager *wm)
 
 	if (!wm || !wm->pane)
 		return;
-	cfg = wm->ctx->cfg;
+	cfg = fyai_workpane_manager_ctx(wm)->cfg;
 	/* The arrangement decides the columns; the automatic one still needs
 	 * the count a host asked for. */
 	if (wm->layout == FYAI_WORKPANE_LAYOUT_COLUMNS)
@@ -406,7 +412,7 @@ void fyai_workpane_configure(struct fyai_workpane_manager *wm)
 	(void)fytim_workpane_set_bottom(wm->pane,
 					fyai_chrome_text(cfg->work_frame));
 	(void)fytim_workpane_set_tile_sep(wm->pane, cfg->tile_sep);
-	(void)fytim_workpane_set_controls(wm->pane, workpane_controls(wm->ctx));
+	(void)fytim_workpane_set_controls(wm->pane, workpane_controls(fyai_workpane_manager_ctx(wm)));
 	wm->layout_pending = true;
 }
 
@@ -438,7 +444,7 @@ int fyai_workpane_tile_set_head(struct fyai_workpane_manager *wm,
 		return -1;
 	if (!fy_str_empty(rows)) {
 		copy = strdup(rows);
-		fyai_error_check(wm->ctx, copy, err_out,
+		fyai_error_check(fyai_workpane_manager_ctx(wm), copy, err_out,
 				 "cannot keep the head of a tile");
 		for (n = 1, p = rows; *p; p++)
 			n += *p == '\n';
@@ -468,7 +474,7 @@ int fyai_workpane_page_tiles(const struct fyai_workpane_manager *wm,
 			continue;
 		pt = &tiles[n++];
 		memset(pt, 0, sizeof(*pt));
-		pt->ctx = wm->ctx;
+		pt->ctx = fyai_workpane_manager_ctx(wm);
 		pt->slot = t->slot;
 		pt->surface = t->surface;
 		pt->band = t->surface ? NULL : t->band;
@@ -478,7 +484,7 @@ int fyai_workpane_page_tiles(const struct fyai_workpane_manager *wm,
 		pt->present = (int)t->present;
 		pt->scrolled = t->scrolled;
 		pt->scroll_top = t->scroll_top;
-		pt->items = fyai_chrome_items(wm->ctx, t->kind,
+		pt->items = fyai_chrome_items(fyai_workpane_manager_ctx(wm), t->kind,
 					      FYAI_CHROME_RUNNING);
 		fyai_ui_surface_chrome(t->surface, &pt->margin, &pt->margin_cols,
 				       &pt->ground, &pt->mix);
@@ -713,17 +719,17 @@ int fyai_workpane_page_grid(struct fyai_workpane_manager *wm, int height,
 		cells[i].band = !order[i]->surface && order[i]->band;
 	}
 	if (height <= 0) {
-		rc = fyai_page_grid(wm->ctx, &g, cells, n, 0, sep, sep_cols,
+		rc = fyai_page_grid(fyai_workpane_manager_ctx(wm), &g, cells, n, 0, sep, sep_cols,
 				    NULL, &rows);
-		fyai_error_check(wm->ctx, !rc, err_out,
+		fyai_error_check(fyai_workpane_manager_ctx(wm), !rc, err_out,
 				 "cannot size the work pane page grid");
 		/* The pane ceiling bounds what the tiles ask for. */
 		if (wm->resolved_max_rows > 0 && rows > wm->resolved_max_rows)
 			height = wm->resolved_max_rows;
 	}
-	rc = fyai_page_grid_lead(wm->ctx, &g, cells, n, height, sep, sep_cols,
+	rc = fyai_page_grid_lead(fyai_workpane_manager_ctx(wm), &g, cells, n, height, sep, sep_cols,
 				 side ? lead : NULL, out, rowsp);
-	fyai_error_check(wm->ctx, !rc, err_out,
+	fyai_error_check(fyai_workpane_manager_ctx(wm), !rc, err_out,
 			 "cannot build the work pane page grid");
 	return 0;
 
@@ -763,7 +769,7 @@ static int workpane_add(struct fyai_workpane_manager *wm,
 
 	if (!wm)
 		return -1;
-	fyai_error_check(wm->ctx, sf || band, err_out,
+	fyai_error_check(fyai_workpane_manager_ctx(wm), sf || band, err_out,
 			 "workpane: register with neither a surface nor a band");
 	t = calloc(1, sizeof(*t));
 	if (!t)
@@ -928,14 +934,14 @@ void fyai_workpane_clear_focus(struct fyai_workpane_manager *wm)
 	sf = wm->focused;
 	wm->focused = NULL;
 	/* Chrome and key routing belong to the display; focus does not. */
-	if (fyai_ui_active(wm->ctx)) {
-		fyai_chrome_focus(wm->ctx, sf, false);
-		(void)fyai_ui_surface_keys(wm->ctx, sf, false, NULL, NULL);
+	if (fyai_ui_active(fyai_workpane_manager_ctx(wm))) {
+		fyai_chrome_focus(fyai_workpane_manager_ctx(wm), sf, false);
+		(void)fyai_ui_surface_keys(fyai_workpane_manager_ctx(wm), sf, false, NULL, NULL);
 	}
 	t = workpane_tile(wm, sf);
 	if (t && t->ops && t->ops->focus_changed)
 		t->ops->focus_changed(t->owner, false);
-	fyai_ui_wake(wm->ctx);
+	fyai_ui_wake(fyai_workpane_manager_ctx(wm));
 }
 
 void fyai_workpane_tile_set_regions(struct fyai_workpane_manager *wm,
@@ -989,16 +995,16 @@ void fyai_workpane_set_focus(struct fyai_workpane_manager *wm,
 		fyai_workpane_set_hidden(wm, false);
 	fyai_workpane_clear_focus(wm);
 	/* A headless pane has no keys to route. */
-	if (fyai_ui_active(wm->ctx)) {
-		if (fyai_ui_surface_keys(wm->ctx, sf, true, wm->keys_cb,
+	if (fyai_ui_active(fyai_workpane_manager_ctx(wm))) {
+		if (fyai_ui_surface_keys(fyai_workpane_manager_ctx(wm), sf, true, wm->keys_cb,
 					 wm->keys_user))
 			return;
-		fyai_chrome_focus(wm->ctx, sf, true);
+		fyai_chrome_focus(fyai_workpane_manager_ctx(wm), sf, true);
 	}
 	wm->focused = sf;
 	if (t->ops && t->ops->focus_changed)
 		t->ops->focus_changed(t->owner, true);
-	fyai_ui_wake(wm->ctx);
+	fyai_ui_wake(fyai_workpane_manager_ctx(wm));
 }
 
 /* Return true if @t is a visible live tile that can receive keyboard focus. */
@@ -1216,7 +1222,7 @@ void fyai_workpane_cycle_disposition(struct fyai_workpane_manager *wm)
 
 	if (!wm)
 		return;
-	cfg = wm->ctx->cfg;
+	cfg = fyai_workpane_manager_ctx(wm)->cfg;
 	cfg->work_zoom_fixed_rows = 0;
 	wm->fixed_rows = 0;
 	switch (wm->disposition) {
@@ -1232,7 +1238,7 @@ void fyai_workpane_cycle_disposition(struct fyai_workpane_manager *wm)
 		break;
 	}
 	cfg->work_zoom_rows = workpane_disposition_name(wm->disposition);
-	fyai_report(wm->ctx, "work pane height: %s", cfg->work_zoom_rows);
+	fyai_report(fyai_workpane_manager_ctx(wm), "work pane height: %s", cfg->work_zoom_rows);
 	wm->layout_pending = true;
 	fyai_workpane_reconcile(wm);
 }
@@ -1245,7 +1251,7 @@ void fyai_workpane_cycle_disposition(struct fyai_workpane_manager *wm)
  */
 static int workpane_auto_cols(const struct fyai_workpane_manager *wm, int n)
 {
-	int min = wm->ctx->cfg->work_min_tile_cols;
+	int min = fyai_workpane_manager_ctx(wm)->cfg->work_min_tile_cols;
 	int fit, sq, cols;
 
 	fit = min > 0 ? wm->terminal_cols / min : n;
@@ -1691,7 +1697,7 @@ void fyai_workpane_reconcile(struct fyai_workpane_manager *wm)
 		 * panel only for a change. */
 		if (wm->layout_pending) {
 			wm->layout_pending = false;
-			fyai_ui_panel_update(wm->ctx);
+			fyai_ui_panel_update(fyai_workpane_manager_ctx(wm));
 		}
 		return;
 	}
@@ -1726,8 +1732,8 @@ void fyai_workpane_reconcile(struct fyai_workpane_manager *wm)
 	wm->layout_pending = false;
 	wm->reconciling = false;
 	/* Update the header panel after pane state changes. */
-	fyai_ui_panel_update(wm->ctx);
-	fyai_ui_wake(wm->ctx);
+	fyai_ui_panel_update(fyai_workpane_manager_ctx(wm));
+	fyai_ui_wake(fyai_workpane_manager_ctx(wm));
 }
 
 void fyai_workpane_layout_complete(struct fyai_workpane_manager *wm)
@@ -1749,7 +1755,7 @@ void fyai_workpane_layout_complete(struct fyai_workpane_manager *wm)
 			 * The width of a tile follows its column, not its
 			 * rows, so the repaint does not change the next width.
 			 */
-			cols = fyai_ui_work_tile_cols(wm->ctx, t->band);
+			cols = fyai_ui_work_tile_cols(fyai_workpane_manager_ctx(wm), t->band);
 			if (cols > 0 && cols != t->head_cols && t->ops &&
 			    t->ops->repaint_head) {
 				t->head_cols = cols;
@@ -1757,8 +1763,8 @@ void fyai_workpane_layout_complete(struct fyai_workpane_manager *wm)
 			}
 			continue;
 		}
-		cols = fyai_ui_surface_granted_cols(wm->ctx, t->surface);
-		rows = fyai_ui_surface_granted_rows(wm->ctx, t->surface);
+		cols = fyai_ui_surface_granted_cols(fyai_workpane_manager_ctx(wm), t->surface);
+		rows = fyai_ui_surface_granted_rows(fyai_workpane_manager_ctx(wm), t->surface);
 		/*
 		 * What a tile draws follows the size it was given, so a screen
 		 * too small to read becomes the one line that says whose it

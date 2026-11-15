@@ -493,7 +493,7 @@ err:
 
 int fyai_cmd_remote_fingerprint(struct fyai_cmd_call *call, fy_generic *result)
 {
-	struct fyai_ctx *ctx = call->ctx;
+	struct fyai_ctx *ctx = fyai_cmd_call_ctx(call);
 	char fp[FYAI_TLS_FP_SIZE], *path = NULL;
 	const char *file = fyai_cmd_arg_str(call, "file");
 	struct stat st;
@@ -519,7 +519,7 @@ out:
 
 int fyai_cmd_remote_rekey(struct fyai_cmd_call *call, fy_generic *result)
 {
-	struct fyai_ctx *ctx = call->ctx;
+	struct fyai_ctx *ctx = fyai_cmd_call_ctx(call);
 	fy_generic list = fy_get(call->args, "tls_name", fy_invalid);
 	char fp[FYAI_TLS_FP_SIZE], *path;
 	const char **names = NULL, *name;

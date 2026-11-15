@@ -2704,6 +2704,12 @@ struct fyai_tool_view {
 	fy_generic shown;
 };
 
+/* The context that this object stands on. */
+static inline struct fyai_ctx *fyai_tool_view_ctx(const struct fyai_tool_view *o)
+{
+	return o->ctx;
+}
+
 static void fyai_tool_view_cleanup(struct fyai_tool_view *tv)
 {
 	if (!tv)
@@ -3502,6 +3508,12 @@ struct render_walk {
 	struct fyai_ctx *ctx;
 };
 
+/* The context that this object stands on. */
+static inline struct fyai_ctx *render_walk_ctx(const struct render_walk *o)
+{
+	return o->ctx;
+}
+
 /* Test if the range presents anything. */
 static bool range_has_content(const char *md, size_t len)
 {
@@ -3522,16 +3534,16 @@ static int render_walk_gap(void *user, const char *md, size_t len,
 
 	if (!range_has_content(md, len))
 		return 0;
-	flow = fyai_sink_flow(w->ctx->front->sink);
+	flow = fyai_sink_flow(render_walk_ctx(w)->front->sink);
 	/* A gap inside a tool exchange is part of that exchange. */
 	if (!flow || !fyai_flow_unit_is_tool(flow->prev) ||
 	    !fyai_flow_unit_is_tool(next)) {
-		rc = fyai_sink_unit(w->ctx->front->sink, FYAI_SINK_TRANSCRIPT,
+		rc = fyai_sink_unit(render_walk_ctx(w)->front->sink, FYAI_SINK_TRANSCRIPT,
 				    FYAI_FLOW_PROSE);
 		if (rc)
 			return rc;
 	}
-	return fyai_display_markdown_range(w->ctx, md, 0, len);
+	return fyai_display_markdown_range(render_walk_ctx(w), md, 0, len);
 }
 
 static int render_walk_whole(void *user, const char *md, size_t len)
@@ -3539,13 +3551,13 @@ static int render_walk_whole(void *user, const char *md, size_t len)
 	struct render_walk *w = user;
 
 	(void)len;
-	return fyai_render_display_output(w->ctx, "assistant", md);
+	return fyai_render_display_output(render_walk_ctx(w), "assistant", md);
 }
 
 static int render_walk_unit(void *user, const struct fyai_fragment *f)
 {
 	struct render_walk *w = user;
-	struct fyai_ctx *ctx = w->ctx;
+	struct fyai_ctx *ctx = render_walk_ctx(w);
 	struct fyai_cfg *cfg = ctx->cfg;
 	int rc;
 
@@ -3749,6 +3761,12 @@ struct fyai_display_render {
 	bool emitted;
 };
 
+/* The context that this object stands on. */
+static inline struct fyai_ctx *fyai_display_render_ctx(const struct fyai_display_render *o)
+{
+	return o->ctx;
+}
+
 static void fyai_display_scan_reads(struct fyai_display_render *view,
 				    size_t lo, size_t hi)
 {
@@ -3770,16 +3788,16 @@ static int fyai_display_flush_reopen(struct fyai_display_render *view)
 
 	rc = fclose(view->mf);
 	view->mf = NULL;
-	fyai_error_check(view->ctx, !rc, out,
+	fyai_error_check(fyai_display_render_ctx(view), !rc, out,
 			 "could not finish the display buffer");
 	if (view->md)
-		(void)fyai_sink_markdown(view->ctx->front->sink, FYAI_SINK_TRANSCRIPT,
+		(void)fyai_sink_markdown(fyai_display_render_ctx(view)->front->sink, FYAI_SINK_TRANSCRIPT,
 					 view->md);
 	free(view->md);
 	view->md = NULL;
 	view->mdlen = 0;
 	view->mf = open_memstream(&view->md, &view->mdlen);
-	fyai_error_check(view->ctx, view->mf, out,
+	fyai_error_check(fyai_display_render_ctx(view), view->mf, out,
 			 "could not create the display buffer");
 	return 0;
 out:
@@ -3800,13 +3818,13 @@ static int fyai_display_reasoning(struct fyai_display_render *view,
 	rmd = NULL;
 	rlen = 0;
 	rf = open_memstream(&rmd, &rlen);
-	fyai_error_check(view->ctx, rf, out,
+	fyai_error_check(fyai_display_render_ctx(view), rf, out,
 			 "could not create the reasoning display buffer");
-	any = fyai_emit_turn_reasoning(view->ctx->cfg, rf, view->tgb, turn,
+	any = fyai_emit_turn_reasoning(fyai_display_render_ctx(view)->cfg, rf, view->tgb, turn,
 				       view->cfg->thinking);
 	rc = fclose(rf);
 	rf = NULL;
-	fyai_error_check(view->ctx, !rc, out,
+	fyai_error_check(fyai_display_render_ctx(view), !rc, out,
 			 "could not finish the reasoning display buffer");
 	if (any) {
 		if (view->emitted)
@@ -3838,14 +3856,14 @@ static int fyai_display_message(struct fyai_display_render *view,
 		return 0;
 
 	if (c.is_str && fy_equal(c.role, "user") && !view->args->raw &&
-	    view->cfg->markdown && view->ctx->tty->stdout_tty) {
+	    view->cfg->markdown && fyai_display_render_ctx(view)->tty->stdout_tty) {
 		rc = fyai_display_flush_reopen(view);
-		fyai_error_check(view->ctx, !rc, out,
+		fyai_error_check(fyai_display_render_ctx(view), !rc, out,
 				 "could not flush the display buffer");
 		if (view->emitted)
-			(void)fyai_sink_write(view->ctx->front->sink,
+			(void)fyai_sink_write(fyai_display_render_ctx(view)->front->sink,
 					      FYAI_SINK_TRANSCRIPT, "\n", 1);
-		fyai_print_user_turn(view->ctx, fyai_msg_text(&c), false);
+		fyai_print_user_turn(fyai_display_render_ctx(view), fyai_msg_text(&c), false);
 		view->prev_tool = true;
 		view->emitted = true;
 		return 0;
@@ -3854,10 +3872,10 @@ static int fyai_display_message(struct fyai_display_render *view,
 	if (!view->args->raw && view->cfg->markdown &&
 	    fyai_msg_is_tool_result(&c, &result)) {
 		rc = fyai_display_flush_reopen(view);
-		fyai_error_check(view->ctx, !rc, out,
+		fyai_error_check(fyai_display_render_ctx(view), !rc, out,
 				 "could not flush the display buffer");
 		rlang = fyai_read_result_lang(view->reads, &c);
-		fyai_render_tool_result(view->ctx->front->sink, view->cfg, result, rlang,
+		fyai_render_tool_result(fyai_display_render_ctx(view)->front->sink, view->cfg, result, rlang,
 					view->cfg->tool_preview_lines);
 		free(rlang);
 		view->prev_tool = c.tool_related;
@@ -3869,7 +3887,7 @@ static int fyai_display_message(struct fyai_display_render *view,
 	    !(view->prev_tool && (c.tool_related || c.is_assistant)))
 		fprintf(view->mf, "%s\n\n", view->cfg->turn_separator);
 	rlang = fyai_read_result_lang(view->reads, &c);
-	fyai_emit_message_md(view->ctx, view->mf, view->tgb, &c,
+	fyai_emit_message_md(fyai_display_render_ctx(view), view->mf, view->tgb, &c,
 				     view->cfg->tool_preview_lines, rlang,
 				     view->cfg->thinking);
 	free(rlang);
@@ -3888,7 +3906,7 @@ static int fyai_display_message_list(struct fyai_display_render *view,
 
 	fy_foreach(message, messages) {
 		rc = fyai_display_message(view, message);
-		fyai_error_check(view->ctx, !rc, out,
+		fyai_error_check(fyai_display_render_ctx(view), !rc, out,
 				 "could not render a display message");
 	}
 	return 0;
@@ -3907,10 +3925,10 @@ static int fyai_display_turns(struct fyai_display_render *view,
 		msgs = fy_get(view->stack->items[i], "messages", fy_seq_empty);
 		rc = fyai_display_reasoning(view, view->stack->items[i],
 					    fy_len(msgs));
-		fyai_error_check(view->ctx, !rc, out,
+		fyai_error_check(fyai_display_render_ctx(view), !rc, out,
 				 "could not render turn reasoning");
 		rc = fyai_display_message_list(view, msgs);
-		fyai_error_check(view->ctx, !rc, out,
+		fyai_error_check(fyai_display_render_ctx(view), !rc, out,
 				 "could not render turn messages");
 	}
 	return 0;
@@ -3924,22 +3942,22 @@ static int fyai_display_finish(struct fyai_display_render *view)
 
 	rc = fclose(view->mf);
 	view->mf = NULL;
-	fyai_error_check(view->ctx, !rc, out,
+	fyai_error_check(fyai_display_render_ctx(view), !rc, out,
 			 "could not finish the display buffer");
 	if (view->md) {
 		if (view->args->raw)
-			(void)fyai_sink_write(view->ctx->front->sink,
+			(void)fyai_sink_write(fyai_display_render_ctx(view)->front->sink,
 					      FYAI_SINK_TRANSCRIPT, view->md,
 					      strlen(view->md));
 		else
-			(void)fyai_sink_markdown(view->ctx->front->sink,
+			(void)fyai_sink_markdown(fyai_display_render_ctx(view)->front->sink,
 						 FYAI_SINK_TRANSCRIPT,
 						 view->md);
 	}
 	free(view->md);
 	view->md = NULL;
-	if (view->ctx->tty->stdout_tty && !view->args->raw)
-		(void)fyai_sink_write(view->ctx->front->sink, FYAI_SINK_TRANSCRIPT,
+	if (fyai_display_render_ctx(view)->tty->stdout_tty && !view->args->raw)
+		(void)fyai_sink_write(fyai_display_render_ctx(view)->front->sink, FYAI_SINK_TRANSCRIPT,
 				      "\n", 1);
 	return 0;
 out:

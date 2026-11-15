@@ -552,6 +552,12 @@ struct auth_fetch {
 	void *owner;
 };
 
+/* The context that this object stands on. */
+static inline struct fyai_ctx *auth_fetch_ctx(const struct auth_fetch *o)
+{
+	return o->ctx;
+}
+
 static void auth_fetch_reset(struct auth_fetch *f)
 {
 	curl_easy_cleanup(f->curl);
@@ -589,7 +595,7 @@ static void auth_fetch_complete(struct fyai_curl_transfer *transfer,
 static int auth_fetch_start(struct auth_fetch *f, const char *url, char *body,
 			    struct curl_slist *headers)
 {
-	struct fyai_ctx *ctx = f->ctx;
+	struct fyai_ctx *ctx = auth_fetch_ctx(f);
 
 	auth_fetch_reset(f);
 	f->headers = headers;
@@ -671,6 +677,12 @@ struct fyai_auth_login_request {
 	enum fyai_auth_login_state state;
 };
 
+/* The context that this object stands on. */
+static inline struct fyai_ctx *fyai_auth_login_request_ctx(const struct fyai_auth_login_request *o)
+{
+	return o->ctx;
+}
+
 static bool fyai_auth_login_state_final(enum fyai_auth_login_state state)
 {
 	return state == FYAILS_COMPLETED || state == FYAILS_CANCELLED ||
@@ -736,7 +748,7 @@ static int fyai_auth_login_http_submit(struct fyai_auth_login_request *request,
 		curl_easy_setopt(request->curl, CURLOPT_POSTFIELDS, request->body);
 		curl_easy_setopt(request->curl, CURLOPT_HTTPHEADER, request->headers);
 	}
-	request->transfer = fyai_curl_submit(request->ctx, request->curl,
+	request->transfer = fyai_curl_submit(fyai_auth_login_request_ctx(request), request->curl,
 					    fyai_auth_login_http_complete, request);
 	return request->transfer ? 0 : -1;
 }
@@ -750,22 +762,22 @@ static int fyai_auth_login_save(struct fyai_auth_login_request *request)
 	int lockfd;
 	int rc;
 
-	lockfd = auth_lock_try(request->ctx);
+	lockfd = auth_lock_try(fyai_auth_login_request_ctx(request));
 	if (lockfd == -2) {
 		request->state = FYAILS_CREDENTIAL_WAIT;
-		rc = fyai_event_add_timer(fyai_ctx_loop(request->ctx), 50, 0,
+		rc = fyai_event_add_timer(fyai_ctx_loop(fyai_auth_login_request_ctx(request)), 50, 0,
 			fyai_auth_login_credential_timer, request, &request->timer_src);
 		return rc ? -1 : 1;
 	}
 	if (lockfd < 0)
 		return -1;
-	rc = auth_load(request->ctx, &active);
+	rc = auth_load(fyai_auth_login_request_ctx(request), &active);
 	if (!rc)
 		request->credentials.registrations = active.registrations;
-	rc = auth_save(request->ctx, &request->credentials);
+	rc = auth_save(fyai_auth_login_request_ctx(request), &request->credentials);
 	if (!rc)
-		request->ctx->cred->auth = request->credentials;
-	auth_unlock(request->ctx, lockfd);
+		fyai_auth_login_request_ctx(request)->cred->auth = request->credentials;
+	auth_unlock(fyai_auth_login_request_ctx(request), lockfd);
 	return rc;
 }
 
@@ -822,26 +834,26 @@ static void fyai_auth_login_http_complete(struct fyai_curl_transfer *transfer,
 		fyai_auth_login_finish(request, FYAILS_CANCELLED, -1);
 		return;
 	}
-	fyai_error_check(request->ctx, code == CURLE_OK, failed,
+	fyai_error_check(fyai_auth_login_request_ctx(request), code == CURLE_OK, failed,
 		"authentication request failed: %s", curl_easy_strerror(code));
 	curl_easy_getinfo(request->curl, CURLINFO_RESPONSE_CODE, &status);
-	fyai_error_check(request->ctx, status / 100 == 2, failed,
+	fyai_error_check(fyai_auth_login_request_ctx(request), status / 100 == 2, failed,
 		"authentication request failed (HTTP %ld)", status);
 	if (request->state == FYAILS_TOKEN_EXCHANGE) {
-		doc = parse_json_string(request->ctx->transient->gb, request->response.data);
-		rc = fyai_auth_parse_tokens(request->ctx, &request->credentials, doc, false);
-		fyai_error_check(request->ctx, !rc, failed, "invalid subscription token response");
+		doc = parse_json_string(fyai_auth_login_request_ctx(request)->transient->gb, request->response.data);
+		rc = fyai_auth_parse_tokens(fyai_auth_login_request_ctx(request), &request->credentials, doc, false);
+		fyai_error_check(fyai_auth_login_request_ctx(request), !rc, failed, "invalid subscription token response");
 		request->state = FYAILS_JWKS;
 		rc = fyai_auth_login_http_submit(request, AUTH_JWKS_URL, NULL);
-		fyai_error_check(request->ctx, !rc, failed, "could not fetch OpenAI signing keys");
+		fyai_error_check(fyai_auth_login_request_ctx(request), !rc, failed, "could not fetch OpenAI signing keys");
 		return;
 	}
-	jwks = parse_json_string(request->ctx->transient->gb, request->response.data);
-	rc = auth_validate_tokens(request->ctx, &request->credentials, jwks, request->pkce.nonce);
+	jwks = parse_json_string(fyai_auth_login_request_ctx(request)->transient->gb, request->response.data);
+	rc = auth_validate_tokens(fyai_auth_login_request_ctx(request), &request->credentials, jwks, request->pkce.nonce);
 	if (rc)
 		goto failed;
 	rc = fyai_auth_login_save(request);
-	fyai_error_check(request->ctx, rc >= 0, failed, "cannot save subscription credentials");
+	fyai_error_check(fyai_auth_login_request_ctx(request), rc >= 0, failed, "cannot save subscription credentials");
 	if (!rc)
 		fyai_auth_login_finish(request, FYAILS_COMPLETED, 0);
 	return;
@@ -928,7 +940,7 @@ static void fyai_auth_login_browser_ready(struct fyai_oauth_flow *flow, void *us
 
 	request = userdata;
 	if (fyai_oauth_flow_state(flow) != FYAI_OAUTH_GOT_CODE) {
-		fyai_error(request->ctx, "ChatGPT authorization failed (%s)",
+		fyai_error(fyai_auth_login_request_ctx(request), "ChatGPT authorization failed (%s)",
 			fyai_oauth_flow_error(flow) ? "permission declined" :
 			fyai_oauth_state_string(fyai_oauth_flow_state(flow)));
 		goto failed;
@@ -936,24 +948,24 @@ static void fyai_auth_login_browser_ready(struct fyai_oauth_flow *flow, void *us
 	client_id = fyai_oauth_flow_client_id(flow);
 	if (fy_str_empty(request->credentials.client_id)) {
 		if (fy_str_empty(client_id) || !strcmp(client_id, AUTH_DYNAMIC_CLIENT)) {
-			fyai_error(request->ctx, "registration did not return an issued client ID");
+			fyai_error(fyai_auth_login_request_ctx(request), "registration did not return an issued client ID");
 			goto failed;
 		}
-		request->credentials.client_id = fy_gb_intern_string(auth_builder(request->ctx), client_id);
-		if (auth_register_pending(request->ctx, &request->credentials))
+		request->credentials.client_id = fy_gb_intern_string(auth_builder(fyai_auth_login_request_ctx(request)), client_id);
+		if (auth_register_pending(fyai_auth_login_request_ctx(request), &request->credentials))
 			goto failed;
 	} else if (client_id && strcmp(client_id, request->credentials.client_id)) {
-		fyai_error(request->ctx, "callback client ID differs from the selected registration");
+		fyai_error(fyai_auth_login_request_ctx(request), "callback client ID differs from the selected registration");
 		goto failed;
 	}
-	body = auth_form(request->ctx, fy_mapping(
+	body = auth_form(fyai_auth_login_request_ctx(request), fy_mapping(
 		"grant_type", "authorization_code",
 		"client_id", request->credentials.client_id,
 		"code", fyai_oauth_flow_code(flow),
 		"code_verifier", request->pkce.verifier,
 		"redirect_uri", request->redirect,
 		"resource", AUTH_RESOURCE));
-	fyai_error_check(request->ctx, body, failed, "could not encode token request");
+	fyai_error_check(fyai_auth_login_request_ctx(request), body, failed, "could not encode token request");
 	request->state = FYAILS_TOKEN_EXCHANGE;
 	rc = fyai_auth_login_http_submit(request, AUTH_TOKEN_URL, body);
 	free(body);
@@ -1195,6 +1207,12 @@ struct fyai_auth_refresh_request {
 	struct fyai_credentials credentials;
 };
 
+/* The context that this object stands on. */
+static inline struct fyai_ctx *fyai_auth_refresh_request_ctx(const struct fyai_auth_refresh_request *o)
+{
+	return o->ctx;
+}
+
 static bool
 fyai_auth_refresh_state_final(enum fyai_auth_refresh_state state)
 {
@@ -1255,7 +1273,7 @@ fyai_auth_refresh_transition(struct fyai_auth_refresh_request *request,
 			     enum fyai_auth_refresh_state state)
 {
 	if (!fyai_auth_refresh_transition_valid(request->state, state)) {
-		fyai_error(request->ctx,
+		fyai_error(fyai_auth_refresh_request_ctx(request),
 			   "invalid auth refresh transition %s -> %s",
 			   fyai_auth_refresh_state_name(request->state),
 			   fyai_auth_refresh_state_name(state));
@@ -1263,8 +1281,8 @@ fyai_auth_refresh_transition(struct fyai_auth_refresh_request *request,
 			request->state = FYAIARS_FAILED;
 		return;
 	}
-	if (request->ctx->cfg->debug)
-		fyai_debug(request->ctx, "auth refresh state %s -> %s",
+	if (fyai_auth_refresh_request_ctx(request)->cfg->debug)
+		fyai_debug(fyai_auth_refresh_request_ctx(request), "auth refresh state %s -> %s",
 			   fyai_auth_refresh_state_name(request->state),
 			   fyai_auth_refresh_state_name(state));
 	request->state = state;
@@ -1280,7 +1298,7 @@ static void fyai_auth_refresh_complete(
 	int rc;
 
 	request = userdata;
-	ctx = request->ctx;
+	ctx = fyai_auth_refresh_request_ctx(request);
 	status = 0;
 	request->result = -1;
 	code = fyai_curl_collect(transfer);
@@ -1352,7 +1370,7 @@ fyai_auth_refresh_start_locked(struct fyai_auth_refresh_request *request)
 
 	int rc;
 
-	ctx = request->ctx;
+	ctx = fyai_auth_refresh_request_ctx(request);
 	rc = auth_load(ctx, &ctx->cred->auth);
 	fyai_error_check(ctx, !rc, err_out,
 			 "could not load authentication state");
@@ -1423,7 +1441,7 @@ fyai_auth_refresh_lock_timer(const struct fyai_event *ev)
 
 	request = ev->userdata;
 	request->timer_src = NULL;
-	request->lockfd = auth_lock_try(request->ctx);
+	request->lockfd = auth_lock_try(fyai_auth_refresh_request_ctx(request));
 	if (request->lockfd == -2) {
 		rc = fyai_event_add_timer(ev->loop, 50, 0,
 				fyai_auth_refresh_lock_timer, request,
@@ -1519,7 +1537,7 @@ void fyai_auth_refresh_cancel(struct fyai_auth_refresh_request *request)
 	if (request->transfer && request->refreshing) {
 		/* The refresh token is on the wire: read the answer. */
 		request->detached = true;
-		request->ctx->cred->auth_detached++;
+		fyai_auth_refresh_request_ctx(request)->cred->auth_detached++;
 		fyai_auth_refresh_transition(request, FYAIARS_CANCELLED);
 		if (request->complete)
 			request->complete(request, request->userdata);
@@ -1560,7 +1578,7 @@ void fyai_auth_refresh_destroy(struct fyai_auth_refresh_request *request)
 	if (request->transfer)
 		fyai_curl_transfer_destroy(request->transfer);
 	fyai_event_source_remove(request->timer_src);
-	auth_unlock(request->ctx, request->lockfd);
+	auth_unlock(fyai_auth_refresh_request_ctx(request), request->lockfd);
 	curl_easy_cleanup(request->curl);
 	curl_slist_free_all(request->headers);
 	free(request->response.data);
@@ -1593,6 +1611,12 @@ struct fyai_auth_logout_request {
 	bool loaded;
 };
 
+/* The context that this object stands on. */
+static inline struct fyai_ctx *fyai_auth_logout_request_ctx(const struct fyai_auth_logout_request *o)
+{
+	return o->ctx;
+}
+
 static bool auth_logout_state_final(enum fyai_auth_logout_state state)
 {
 	return state == FYAILOS_COMPLETED || state == FYAILOS_CANCELLED ||
@@ -1602,7 +1626,7 @@ static bool auth_logout_state_final(enum fyai_auth_logout_state state)
 static void auth_logout_finish(struct fyai_auth_logout_request *request,
 			       enum fyai_auth_logout_state state)
 {
-	struct fyai_ctx *ctx = request->ctx;
+	struct fyai_ctx *ctx = fyai_auth_logout_request_ctx(request);
 	struct fyai_credentials *c = &request->credentials;
 	int rc = 0;
 
@@ -1629,7 +1653,7 @@ static void auth_logout_finish(struct fyai_auth_logout_request *request,
 
 static void auth_logout_unconfirmed(struct fyai_auth_logout_request *request)
 {
-	fyai_notice(request->ctx, "remote revocation was not confirmed; disconnect fyai in ChatGPT Settings");
+	fyai_notice(fyai_auth_logout_request_ctx(request), "remote revocation was not confirmed; disconnect fyai in ChatGPT Settings");
 	auth_logout_finish(request, FYAILOS_COMPLETED);
 }
 
@@ -1637,7 +1661,7 @@ static void auth_logout_fetched(void *owner)
 {
 	struct fyai_auth_logout_request *request = owner;
 	struct auth_fetch *f = &request->fetch;
-	struct fyai_ctx *ctx = request->ctx;
+	struct fyai_ctx *ctx = fyai_auth_logout_request_ctx(request);
 	struct curl_slist *headers;
 	fy_generic discovery;
 	const char *endpoint;
@@ -1745,7 +1769,7 @@ void fyai_auth_logout_destroy(struct fyai_auth_logout_request *request)
 	if (!request)
 		return;
 	auth_fetch_destroy(&request->fetch);
-	auth_unlock(request->ctx, request->lockfd);
+	auth_unlock(fyai_auth_logout_request_ctx(request), request->lockfd);
 	free(request);
 }
 
@@ -1923,11 +1947,17 @@ struct fyai_auth_models_request {
 	enum fyai_auth_models_state state;
 };
 
+/* The context that this object stands on. */
+static inline struct fyai_ctx *fyai_auth_models_request_ctx(const struct fyai_auth_models_request *o)
+{
+	return o->ctx;
+}
+
 static void auth_models_fetched(void *owner)
 {
 	struct fyai_auth_models_request *request = owner;
 	struct auth_fetch *f = &request->fetch;
-	struct fyai_ctx *ctx = request->ctx;
+	struct fyai_ctx *ctx = fyai_auth_models_request_ctx(request);
 
 	if (f->code == CURLE_ABORTED_BY_CALLBACK) {
 		request->state = FYAIMS_CANCELLED;
@@ -1948,7 +1978,7 @@ static void auth_models_fetched(void *owner)
 /* Start the fetch of the model list; the credentials are current. */
 static int auth_models_start(struct fyai_auth_models_request *request)
 {
-	struct fyai_ctx *ctx = request->ctx;
+	struct fyai_ctx *ctx = fyai_auth_models_request_ctx(request);
 	struct curl_slist *headers = NULL;
 	int rc;
 
@@ -2031,7 +2061,7 @@ void fyai_auth_models_cancel(struct fyai_auth_models_request *request)
 		fyai_curl_cancel(request->fetch.transfer);
 	} else if (request->waiter.queued) {
 		/* The fetch has not started: it ends here, once. */
-		fyai_cred_waiter_cancel(request->ctx, &request->waiter);
+		fyai_cred_waiter_cancel(fyai_auth_models_request_ctx(request), &request->waiter);
 		request->state = FYAIMS_CANCELLED;
 		if (request->complete)
 			request->complete(request, request->userdata);
@@ -2067,8 +2097,8 @@ fy_generic fyai_auth_models_collect(const struct fyai_auth_models_request *reque
 			continue;
 		if (fy_not_equal(fy_get(m, "visibility", ""), "list"))
 			continue;
-		active = request->ctx->cfg->model &&
-			 fy_equal(request->ctx->cfg->model, slug);
+		active = fyai_auth_models_request_ctx(request)->cfg->model &&
+			 fy_equal(fyai_auth_models_request_ctx(request)->cfg->model, slug);
 		item = fy_null_filtered_mapping(gb,
 			"name", fy_value(gb, slug),
 			"active", active,
@@ -2089,7 +2119,7 @@ void fyai_auth_models_destroy(struct fyai_auth_models_request *request)
 	if (!request)
 		return;
 	if (request->waiter.queued)
-		fyai_cred_waiter_cancel(request->ctx, &request->waiter);
+		fyai_cred_waiter_cancel(fyai_auth_models_request_ctx(request), &request->waiter);
 	auth_fetch_destroy(&request->fetch);
 	free(request);
 }
@@ -2224,13 +2254,13 @@ int fyai_auth_login_redirect(struct fyai_auth_login_request *request,
 	char *redirect_request;
 
 	if (request->state != FYAILS_BROWSER_WAIT) {
-		fyai_error(request->ctx, "login is no longer waiting for a callback");
+		fyai_error(fyai_auth_login_request_ctx(request), "login is no longer waiting for a callback");
 		return -1;
 	}
 	len = strlen(request->redirect);
 	if (strncmp(url, request->redirect, len) || url[len] != '?' ||
 	    strpbrk(url, " \t\r\n")) {
-		fyai_error(request->ctx, "paste the complete callback URL from this login attempt, not a bare token or code");
+		fyai_error(fyai_auth_login_request_ctx(request), "paste the complete callback URL from this login attempt, not a bare token or code");
 		return -1;
 	}
 	redirect_request = fy_sprintfa("GET %s HTTP/1.1\r\n", url);

@@ -2739,6 +2739,12 @@ struct fyai_mcp_call_request {
 	bool auth_retry_done;
 };
 
+/* The context that this object stands on. */
+static inline struct fyai_ctx *fyai_mcp_call_request_ctx(const struct fyai_mcp_call_request *o)
+{
+	return o->ctx;
+}
+
 static bool
 fyai_mcp_call_state_final(enum fyai_mcp_call_state state)
 {
@@ -2810,7 +2816,7 @@ static void fyai_mcp_call_req_done(struct jsonrpc_request *req, void *userdata);
 static int
 fyai_mcp_call_submit_phase(struct fyai_mcp_call_request *request)
 {
-	struct fyai_ctx *ctx = request->ctx;
+	struct fyai_ctx *ctx = fyai_mcp_call_request_ctx(request);
 	const char *method;
 	fy_generic params;
 	long long id;
@@ -2873,7 +2879,7 @@ static enum fyai_event_action
 fyai_mcp_call_wait_tick(const struct fyai_event *ev)
 {
 	struct fyai_mcp_call_request *request = ev->userdata;
-	struct fyai_ctx *ctx = request->ctx;
+	struct fyai_ctx *ctx = fyai_mcp_call_request_ctx(request);
 	char msg[160];
 
 	if (request->state == FYAIMCS_CANCELLING) {
@@ -2919,7 +2925,7 @@ fyai_mcp_call_wait_tick(const struct fyai_event *ev)
 /* Start a call when its server is ready. Poll all other server states. */
 static int fyai_mcp_call_gate(struct fyai_mcp_call_request *request)
 {
-	struct fyai_ctx *ctx = request->ctx;
+	struct fyai_ctx *ctx = fyai_mcp_call_request_ctx(request);
 	struct fyai_event_loop *el;
 	int rc;
 
@@ -2953,7 +2959,7 @@ err_out:
 static void fyai_mcp_call_req_done(struct jsonrpc_request *req, void *userdata)
 {
 	struct fyai_mcp_call_request *request = userdata;
-	struct fyai_ctx *ctx = request->ctx;
+	struct fyai_ctx *ctx = fyai_mcp_call_request_ctx(request);
 	fy_generic result = jsonrpc_request_result(req);
 	bool ok = jsonrpc_request_ok(req);
 	long status = jsonrpc_request_http_status(req);

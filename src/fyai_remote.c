@@ -226,6 +226,12 @@ struct remote_client {
 	struct fyai_event_source *input;
 };
 
+/* The context that this object stands on. */
+static inline struct fyai_ctx *remote_client_ctx(const struct remote_client *o)
+{
+	return o->ctx;
+}
+
 /* A frame of the command that runs at the server: output, or its end. */
 static void remote_run_output(struct remote_client *client, fy_generic frame)
 {
@@ -243,11 +249,11 @@ static void remote_run_output(struct remote_client *client, fy_generic frame)
 	}
 	if (!strcmp(subtype, "stderr")) {
 		if (fy_is_string(data))
-			(void)fyai_sink_write(client->ctx->front->sink, FYAI_SINK_DIAG,
+			(void)fyai_sink_write(remote_client_ctx(client)->front->sink, FYAI_SINK_DIAG,
 					      fy_castp(&data, ""), fy_len(data));
 		return;
 	}
-	if (fyai_sink_frames_present(client->ctx, frame))
+	if (fyai_sink_frames_present(remote_client_ctx(client), frame))
 		client->failed = true;
 }
 
@@ -339,7 +345,7 @@ err:
  * over. */
 static int remote_wait(struct remote_client *client)
 {
-	struct fyai_ctx *ctx = client->ctx;
+	struct fyai_ctx *ctx = remote_client_ctx(client);
 	fyai_event_ms_t deadline = fyai_event_now_ms() + REMOTE_ADMIT_MS;
 	int rc;
 
@@ -362,7 +368,7 @@ static int remote_wait(struct remote_client *client)
 static int remote_request(struct remote_client *client, const char *id,
 			  fy_generic request)
 {
-	struct fyai_ctx *ctx = client->ctx;
+	struct fyai_ctx *ctx = remote_client_ctx(client);
 	int rc;
 
 	client->phase = REMOTE_WAITING;
@@ -476,7 +482,7 @@ static int remote_http_open(struct remote_client *client, const char *url)
 {
 	static const char *const keep[] = { "FYAI_REMOTE_TOKEN", "FYAI_REMOTE_PIN",
 		"FYAI_REMOTE_CA", NULL };
-	struct fyai_ctx *ctx = client->ctx;
+	struct fyai_ctx *ctx = remote_client_ctx(client);
 	char *self, *args[5], *base, *slash;
 	int rc;
 
@@ -512,7 +518,7 @@ err:
  */
 static int remote_ssh_preamble(struct remote_client *client, const char *nonce)
 {
-	struct fyai_ctx *ctx = client->ctx;
+	struct fyai_ctx *ctx = remote_client_ctx(client);
 	char marker[64], *text;
 	size_t used = 0, len;
 	ssize_t n;
@@ -562,7 +568,7 @@ static int remote_ssh_open(struct remote_client *client, const char *target)
 {
 	static const char *const keep[] = { "SSH_AUTH_SOCK", "SSH_ASKPASS",
 		"SSH_ASKPASS_REQUIRE", "DISPLAY", NULL };
-	struct fyai_ctx *ctx = client->ctx;
+	struct fyai_ctx *ctx = remote_client_ctx(client);
 	char host[256], port[8], nonce[33], *args[14];
 	unsigned char raw[16];
 	const char *program = getenv("FYAI_SSH");
@@ -606,7 +612,7 @@ err:
 static int remote_client_open(struct remote_client *client, const char *path,
 			      int token_fd)
 {
-	struct fyai_ctx *ctx = client->ctx;
+	struct fyai_ctx *ctx = remote_client_ctx(client);
 	struct sockaddr_un address = { .sun_family = AF_UNIX };
 	char token[65] = { 0 };
 	uid_t uid;
@@ -683,7 +689,7 @@ static int remote_hello(struct remote_client *client)
 
 static void remote_client_close(struct remote_client *client)
 {
-	fyai_event_interrupt_ack(client->ctx->loop);
+	fyai_event_interrupt_ack(remote_client_ctx(client)->loop);
 	jsonrpc_conn_destroy(client->stdio);
 	client->stdio = NULL;
 	jsonrpc_conn_destroy(client->peer);
@@ -711,7 +717,7 @@ int fyai_cmd_remote_connect_prepare(struct fyai_cfg *cfg, fy_generic args)
 /* Run the full-screen client until the user detaches or the worker goes. */
 static int remote_view_run(struct remote_client *client, bool watch)
 {
-	struct fyai_ctx *ctx = client->ctx;
+	struct fyai_ctx *ctx = remote_client_ctx(client);
 	int rc = 0;
 
 	client->view = fyai_remote_ui_open(ctx, client->peer);
@@ -741,7 +747,7 @@ err:
 /* Carry SDK frames between standard input and output and the endpoint. */
 static int remote_sdk_run(struct remote_client *client, const char *path)
 {
-	struct fyai_ctx *ctx = client->ctx;
+	struct fyai_ctx *ctx = remote_client_ctx(client);
 	struct fyai_event_loop *loop = fyai_ctx_loop(ctx);
 	bool input_ended = false;
 	int rc;
@@ -785,7 +791,7 @@ err:
 
 int fyai_cmd_remote_connect(struct fyai_cmd_call *call, fy_generic *result)
 {
-	struct fyai_ctx *ctx = call->ctx;
+	struct fyai_ctx *ctx = fyai_cmd_call_ctx(call);
 	struct remote_client client = { .ctx = ctx, .gb = call->gb, .fd = -1 };
 	/* The branch is the global option: -b, else $FYAI_BRANCH. */
 	const char *branch = ctx->cfg->branch_explicit ? ctx->cfg->branch : NULL;
@@ -840,7 +846,7 @@ out:
 static int remote_server_ask(struct fyai_cmd_call *call, const char *subtype,
 			     fy_generic *result)
 {
-	struct fyai_ctx *ctx = call->ctx;
+	struct fyai_ctx *ctx = fyai_cmd_call_ctx(call);
 	struct remote_client client = { .ctx = ctx, .gb = call->gb, .fd = -1 };
 	char *path;
 	int rc = -1;
@@ -924,7 +930,7 @@ static int remote_run_file(struct remote_client *client)
  */
 static int remote_command_run(struct remote_client *client)
 {
-	struct fyai_ctx *ctx = client->ctx;
+	struct fyai_ctx *ctx = remote_client_ctx(client);
 	struct fyai_cfg *cfg = ctx->cfg;
 	bool input = false, stream = false;
 	struct stat st;
@@ -1046,7 +1052,7 @@ static char *remote_run_endpoint(struct fyai_ctx *ctx)
 
 int fyai_cmd_remote_run(struct fyai_cmd_call *call, fy_generic *result)
 {
-	struct fyai_ctx *ctx = call->ctx;
+	struct fyai_ctx *ctx = fyai_cmd_call_ctx(call);
 	struct fyai_cfg *cfg = ctx->cfg;
 	struct remote_client client = { .ctx = ctx, .gb = call->gb, .fd = -1 };
 	fy_generic request, globals = fy_seq_empty;
@@ -1109,7 +1115,7 @@ out:
  */
 int fyai_cmd_remote_bridge(struct fyai_cmd_call *call, fy_generic *result)
 {
-	struct fyai_ctx *ctx = call->ctx;
+	struct fyai_ctx *ctx = fyai_cmd_call_ctx(call);
 	struct sockaddr_un address = { .sun_family = AF_UNIX };
 	struct pollfd pfd[2];
 	const char *nonce = fyai_cmd_arg_str(call, "nonce");

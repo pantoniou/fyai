@@ -76,6 +76,12 @@ struct fyai_stream_parse {
 	bool failed;
 };
 
+/* The context that this object stands on. */
+static inline struct fyai_ctx *fyai_stream_parse_ctx(const struct fyai_stream_parse *o)
+{
+	return o->ctx;
+}
+
 struct fyai_grammar {
 	enum fyai_api_mode mode;
 	const char *name;		/* the value of the `api` key */

@@ -59,6 +59,12 @@ struct fyai_cast {
 	char *noop;
 };
 
+/* The context that this object stands on. */
+static inline struct fyai_ctx *fyai_cast_ctx(const struct fyai_cast *o)
+{
+	return o->ctx;
+}
+
 /* Add the repaired text of @in to the text of the event; keep a cut character. */
 static int put_text(struct fyai_cast *c, int kind, const void *in, size_t n)
 {
@@ -138,7 +144,7 @@ static void line_write(struct fyai_cast *c, fy_generic v)
 		rc = -1;
 	if (rc && !c->failed) {
 		c->failed = true;
-		fyai_warning(c->ctx, "cast: cannot write the recording: %s",
+		fyai_warning(fyai_cast_ctx(c), "cast: cannot write the recording: %s",
 			     errno ? strerror(errno) : "emitter error");
 	}
 }
@@ -159,7 +165,7 @@ static void event(struct fyai_cast *c, const char *kind, int hold,
 	c->text.len = 0;
 	rc = put_text(c, hold, data, len);
 	if (rc) {
-		fyai_warning(c->ctx, "cast: out of memory");
+		fyai_warning(fyai_cast_ctx(c), "cast: out of memory");
 		c->failed = true;
 		return;
 	}
@@ -244,7 +250,7 @@ void fyai_cast_output(struct fyai_cast *c, const void *data, size_t len)
 		/* Look for the end where it can start: the held part and this chunk. */
 		used = c->block.len;
 		if (fyai_buf_append_data(&c->block, p, len)) {
-			fyai_warning(c->ctx, "cast: out of memory");
+			fyai_warning(fyai_cast_ctx(c), "cast: out of memory");
 			c->failed = true;
 			return;
 		}
@@ -272,7 +278,7 @@ void fyai_cast_output(struct fyai_cast *c, const void *data, size_t len)
 			char *tail = malloc(len);
 
 			if (!tail) {
-				fyai_warning(c->ctx, "cast: out of memory");
+				fyai_warning(fyai_cast_ctx(c), "cast: out of memory");
 				c->failed = true;
 				return;
 			}

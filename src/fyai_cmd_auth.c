@@ -30,7 +30,7 @@ static int auth_provider(struct fyai_cmd_call *call)
 {
 	const char *provider = fyai_cmd_arg_str(call, "provider");
 
-	fyai_error_check(call->ctx, provider && !strcmp(provider, "openai"),
+	fyai_error_check(fyai_cmd_call_ctx(call), provider && !strcmp(provider, "openai"),
 			 err, "provider '%s' is not supported yet",
 			 provider ? provider : "");
 	return 0;
@@ -47,7 +47,7 @@ static int auth_forward(struct fyai_cmd_call *call, const char *sub,
 {
 	const char *words[3] = { "auth", fyai_cmd_arg_str(call, "provider"), sub };
 
-	return fyai_transport_command(call->ctx, call->gb, words, 3,
+	return fyai_transport_command(fyai_cmd_call_ctx(call), call->gb, words, 3,
 				      (int)call->format, data);
 }
 
@@ -63,16 +63,16 @@ int fyai_cmd_auth_status(struct fyai_cmd_call *call, fy_generic *result)
 		return -1;
 	detail = fy_equal(fy_get(call->def, "command", fy_invalid), "info") ||
 		 call->format != FYAI_CMD_OUT_MARKDOWN;
-	if (call->ctx->transport->client) {
+	if (fyai_cmd_call_ctx(call)->transport->client) {
 		fy_generic data;
 
 		if (auth_forward(call, detail ? "info" : "status", &data))
 			return -1;
-		*result = fyai_auth_status_overlay(call->ctx, call->gb, data);
+		*result = fyai_auth_status_overlay(fyai_cmd_call_ctx(call), call->gb, data);
 		return fy_is_valid(*result) ? 0 : -1;
 	}
-	*result = fyai_auth_status_data(call->ctx, call->gb, detail);
-	fyai_error_check(call->ctx, fy_is_valid(*result), err,
+	*result = fyai_auth_status_data(fyai_cmd_call_ctx(call), call->gb, detail);
+	fyai_error_check(fyai_cmd_call_ctx(call), fy_is_valid(*result), err,
 			 "auth: cannot read the status");
 	return 0;
 err:
@@ -85,7 +85,7 @@ int fyai_cmd_auth_usage(struct fyai_cmd_call *call, fy_generic *result)
 	if (fy_is_valid(fy_get(call->args, "provider", fy_invalid)) &&
 	    auth_provider(call))
 		return -1;
-	return fyai_auth_usage(call->ctx, call->gb,
+	return fyai_auth_usage(fyai_cmd_call_ctx(call), call->gb,
 			       call->format != FYAI_CMD_OUT_MARKDOWN, result);
 }
 
@@ -120,7 +120,7 @@ int fyai_cmd_auth_logout(struct fyai_cmd_call *call, fy_generic *result)
 
 	if (auth_provider(call))
 		return -1;
-	if (call->ctx->transport->client) {
+	if (fyai_cmd_call_ctx(call)->transport->client) {
 		fy_generic data;
 
 		if (auth_forward(call, "logout", &data))
@@ -128,7 +128,7 @@ int fyai_cmd_auth_logout(struct fyai_cmd_call *call, fy_generic *result)
 		*result = fy_mapping(call->gb, "logged_out", true);
 		return 0;
 	}
-	request = fyai_auth_logout_submit(call->ctx, auth_logout_complete,
+	request = fyai_auth_logout_submit(fyai_cmd_call_ctx(call), auth_logout_complete,
 					  call);
 	if (!request)
 		return -1;
@@ -153,7 +153,7 @@ static void auth_login_complete(struct fyai_auth_login_request *request,
 		return;
 	rc = fyai_auth_login_collect(request);
 	if (rc)
-		fyai_error(call->ctx, "login failed");
+		fyai_error(fyai_cmd_call_ctx(call), "login failed");
 	fyai_cmd_done(call, rc ? -1 : 0,
 		      rc ? fy_invalid : fy_mapping(call->gb, "login", true));
 }
@@ -177,7 +177,7 @@ static void auth_login_cleanup(struct fyai_cmd_call *call)
 static void auth_login_input(struct fyai_cmd_call *call, const char *line)
 {
 	if (fyai_auth_login_redirect(call->priv, line))
-		fyai_ui_diag_drain(call->ctx, "error");
+		fyai_ui_diag_drain(fyai_cmd_call_ctx(call), "error");
 }
 
 /*
@@ -198,7 +198,7 @@ static void auth_child_exited(void *userdata, int exit_code, int signal)
 
 	child->session = NULL;
 	if (exit_code || signal)
-		fyai_error(call->ctx, "login failed; its output is in its tile");
+		fyai_error(fyai_cmd_call_ctx(call), "login failed; its output is in its tile");
 	fyai_cmd_done(call, exit_code || signal ? -1 : 0,
 		      exit_code || signal ? fy_invalid :
 		      fy_mapping(call->gb, "login", true));
@@ -234,11 +234,11 @@ static int auth_login_child(struct fyai_cmd_call *call)
 	int rc;
 
 	n = readlink("/proc/self/exe", exe, sizeof(exe) - 1);
-	fyai_error_check(call->ctx, n > 0, err, "login: cannot find this program: %s",
+	fyai_error_check(fyai_cmd_call_ctx(call), n > 0, err, "login: cannot find this program: %s",
 			 strerror(errno));
 	exe[n] = '\0';
 	child = calloc(1, sizeof(*child));
-	fyai_error_check(call->ctx, child, err, "login: out of memory");
+	fyai_error_check(fyai_cmd_call_ctx(call), child, err, "login: out of memory");
 	child->call = call;
 	rc = fyai_shell_quote(&line, exe) ||
 	     fyai_buf_append(&line, " auth openai login");
@@ -253,10 +253,10 @@ static int auth_login_child(struct fyai_cmd_call *call)
 	if (!rc && account && *account)
 		rc = fyai_buf_append(&line, " --account ") ||
 		     fyai_shell_quote(&line, account);
-	fyai_error_check(call->ctx, !rc, err_child, "login: out of memory");
+	fyai_error_check(fyai_cmd_call_ctx(call), !rc, err_child, "login: out of memory");
 	call->priv = child;
 	call->cleanup = auth_child_cleanup;
-	child->session = fyai_tools_config_program(call->ctx, line.data, "auth",
+	child->session = fyai_tools_config_program(fyai_cmd_call_ctx(call), line.data, "auth",
 						   fy_seq_empty,
 						   auth_child_exited, child);
 	free(line.data);
@@ -280,27 +280,27 @@ int fyai_cmd_auth_login(struct fyai_cmd_call *call, fy_generic *result)
 
 	if (auth_provider(call))
 		return -1;
-	if (call->ctx->transport->client && call->surface == FYAI_CMD_SESSION)
+	if (fyai_cmd_call_ctx(call)->transport->client && call->surface == FYAI_CMD_SESSION)
 		return auth_login_child(call);
 	if (fyai_cmd_arg_bool(call, "manual") && call->surface == FYAI_CMD_CLI) {
 		*result = fy_invalid;
-		return fyai_auth_login(call->ctx, false, false, true,
+		return fyai_auth_login(fyai_cmd_call_ctx(call), false, false, true,
 			fyai_cmd_arg_str(call, "account"), fyai_cmd_arg_bool(call, "new_account"));
 	}
-	request = fyai_auth_login_submit(call->ctx,
+	request = fyai_auth_login_submit(fyai_cmd_call_ctx(call),
 					 fyai_cmd_arg_bool(call, "device_code"),
 					 fyai_cmd_arg_bool(call, "no_browser") ||
 					 fyai_cmd_arg_bool(call, "manual"),
 					 fyai_cmd_arg_str(call, "account"),
 					 fyai_cmd_arg_bool(call, "new_account"),
 					 auth_login_complete, call);
-	fyai_error_check(call->ctx, request, err,
+	fyai_error_check(fyai_cmd_call_ctx(call), request, err,
 			 "could not start authentication login");
 	call->priv = request;
 	call->cleanup = auth_login_cleanup;
 	if (fyai_cmd_arg_bool(call, "manual")) {
 		call->input = auth_login_input;
-		fyai_result(call->ctx, "Paste the complete redirect URL into the input area. ^C or Escape cancels.\n");
+		fyai_result(fyai_cmd_call_ctx(call), "Paste the complete redirect URL into the input area. ^C or Escape cancels.\n");
 	}
 	/* A flow that failed at once has completed already. */
 	if (call->done) {
@@ -317,8 +317,8 @@ int fyai_cmd_auth_accounts(struct fyai_cmd_call *call, fy_generic *result)
 {
 	if (auth_provider(call))
 		return -1;
-	if (call->ctx->transport->client)
+	if (fyai_cmd_call_ctx(call)->transport->client)
 		return auth_forward(call, "accounts", result);
-	*result = fyai_auth_accounts_data(call->ctx, call->gb);
+	*result = fyai_auth_accounts_data(fyai_cmd_call_ctx(call), call->gb);
 	return fy_is_valid(*result) ? 0 : -1;
 }

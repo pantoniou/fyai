@@ -53,6 +53,12 @@ struct foreign_build {
 	fy_generic calls;
 };
 
+/* The context that this object stands on. */
+static inline struct fyai_ctx *foreign_build_ctx(const struct foreign_build *o)
+{
+	return o->ctx;
+}
+
 struct foreign_display {
 	struct fy_generic_builder *gb;
 	fy_generic markdown;
@@ -263,6 +269,12 @@ struct foreign_list {
 	fy_generic codex_names;
 	bool all;
 };
+
+/* The context that this object stands on. */
+static inline struct fyai_ctx *foreign_list_ctx(const struct foreign_list *o)
+{
+	return o->ctx;
+}
 
 static void foreign_name_component(const char *input, char *output,
 				   size_t size);
@@ -976,8 +988,8 @@ static bool foreign_codex_tool_known(struct foreign_build *build,
 {
 	fy_generic catalog, agents, agent, tools;
 
-	catalog = fyai_catalog_effective(build->ctx->bstate->catalog,
-					 build->ctx->cfg->gb);
+	catalog = fyai_catalog_effective(foreign_build_ctx(build)->bstate->catalog,
+					 foreign_build_ctx(build)->cfg->gb);
 	agents = fy_get(catalog, "agents", fy_invalid);
 	fy_foreach(agent, agents) {
 		if (!fy_equal(fy_get(agent, "name", fy_invalid), "codex"))
@@ -1143,7 +1155,7 @@ static fy_generic foreign_codex_item(struct foreign_build *build,
 {
 	fy_generic messages;
 
-	messages = fyai_grammar_history(&fyai_grammar_responses, build->ctx,
+	messages = fyai_grammar_history(&fyai_grammar_responses, foreign_build_ctx(build),
 			fy_sequence(build->gb, foreign_codex_wire(build, item)),
 			&build->losses);
 	messages = foreign_ids(build, messages, sequence);
@@ -1228,7 +1240,7 @@ static fy_generic foreign_claude_messages(struct foreign_build *build,
 		}
 		content = blocks;
 	}
-	messages = fyai_grammar_history(&fyai_grammar_messages, build->ctx,
+	messages = fyai_grammar_history(&fyai_grammar_messages, foreign_build_ctx(build),
 			fy_sequence(gb, fy_mapping(gb, "role", role,
 						   "content", content)),
 			&build->losses);

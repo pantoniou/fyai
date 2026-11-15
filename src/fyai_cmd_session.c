@@ -39,13 +39,13 @@
 int fyai_cmd_exit(struct fyai_cmd_call *call, fy_generic *result)
 {
 	(void)result;
-	fyai_ui_quit_request(call->ctx);
+	fyai_ui_quit_request(fyai_cmd_call_ctx(call));
 	return 0;
 }
 
 int fyai_cmd_reload(struct fyai_cmd_call *call, fy_generic *result)
 {
-	struct fyai_ctx *ctx = call->ctx;
+	struct fyai_ctx *ctx = fyai_cmd_call_ctx(call);
 	char *branch;
 	int rc;
 
@@ -87,13 +87,13 @@ err:
 int fyai_cmd_btw(struct fyai_cmd_call *call, fy_generic *result)
 {
 	(void)result;
-	return fyai_session_btw(call->ctx, fyai_cmd_arg_str(call, "question"));
+	return fyai_session_btw(fyai_cmd_call_ctx(call), fyai_cmd_arg_str(call, "question"));
 }
 
 int fyai_cmd_branches(struct fyai_cmd_call *call, fy_generic *result)
 {
 	(void)result;
-	return fyai_browser_open(call->ctx);
+	return fyai_browser_open(fyai_cmd_call_ctx(call));
 }
 
 /*
@@ -108,17 +108,17 @@ int fyai_cmd_resume(struct fyai_cmd_call *call, fy_generic *result)
 	(void)result;
 	/* The verb selected its session before setup; the prompt runs it. */
 	if (call->surface == FYAI_CMD_CLI)
-		return fyai_prompt(call->ctx);
+		return fyai_prompt(fyai_cmd_call_ctx(call));
 	if (!name)
-		return fyai_browser_open_switch(call->ctx,
+		return fyai_browser_open_switch(fyai_cmd_call_ctx(call),
 						fyai_cmd_arg_bool(call, "all"));
-	return fyai_session_branch_switch(call->ctx, name, false, true);
+	return fyai_session_branch_switch(fyai_cmd_call_ctx(call), name, false, true);
 }
 
 /* A new `session/` branch that starts empty; the branch left is not changed. */
 int fyai_cmd_session_new(struct fyai_cmd_call *call, fy_generic *result)
 {
-	struct fyai_ctx *ctx = call->ctx;
+	struct fyai_ctx *ctx = fyai_cmd_call_ctx(call);
 	char name[FYAI_BRANCH_NAME_MAX + 1];
 	int rc;
 
@@ -145,10 +145,10 @@ int fyai_cmd_zoom(struct fyai_cmd_call *call, fy_generic *result)
 
 	if (name && !strcmp(name, "off")) {
 		/* fyai_tools_unzoom() reports the focus change. */
-		fyai_tools_unzoom(call->ctx);
+		fyai_tools_unzoom(fyai_cmd_call_ctx(call));
 		return 0;
 	}
-	what = fyai_tools_zoom(call->ctx, name);
+	what = fyai_tools_zoom(fyai_cmd_call_ctx(call), name);
 	*result = what ? fy_mapping(call->gb, "zoomed", what) :
 		  fy_mapping(call->gb, "unknown", (bool)name,
 			     "idle", !name);
@@ -157,8 +157,8 @@ int fyai_cmd_zoom(struct fyai_cmd_call *call, fy_generic *result)
 
 int fyai_cmd_sessions(struct fyai_cmd_call *call, fy_generic *result)
 {
-	*result = fyai_tools_sessions_data(call->ctx, call->gb);
-	fyai_error_check(call->ctx, fy_is_valid(*result), err,
+	*result = fyai_tools_sessions_data(fyai_cmd_call_ctx(call), call->gb);
+	fyai_error_check(fyai_cmd_call_ctx(call), fy_is_valid(*result), err,
 			 "sessions: cannot list the sessions");
 	return 0;
 err:
@@ -170,7 +170,7 @@ int fyai_cmd_kill(struct fyai_cmd_call *call, fy_generic *result)
 	const char *name = fyai_cmd_arg_str(call, "name");
 	const char *action = NULL;
 
-	if (fyai_tools_kill(call->ctx, name, &action))
+	if (fyai_tools_kill(fyai_cmd_call_ctx(call), name, &action))
 		return -1;
 	*result = fy_mapping(call->gb, "name", name, "action", action);
 	return 0;
@@ -222,20 +222,20 @@ int fyai_cmd_profiles(struct fyai_cmd_call *call, fy_generic *result)
 	uint64_t id = 0;
 	fy_generic reply;
 
-	if (!call->ctx->transport->client) {
-		fyai_error(call->ctx, "profiles: credential isolation is not "
+	if (!fyai_cmd_call_ctx(call)->transport->client) {
+		fyai_error(fyai_cmd_call_ctx(call), "profiles: credential isolation is not "
 			   "active in this run");
 		return -1;
 	}
 	if (!fy_str_empty(agent)) {
-		id = profiles_agent(call->ctx, agent);
+		id = profiles_agent(fyai_cmd_call_ctx(call), agent);
 		if (!id) {
-			fyai_error(call->ctx, "profiles: no running sub-agent '%s'",
+			fyai_error(fyai_cmd_call_ctx(call), "profiles: no running sub-agent '%s'",
 				   agent);
 			return -1;
 		}
 	}
-	if (fyai_transport_describe(call->ctx, call->gb, id, &reply))
+	if (fyai_transport_describe(fyai_cmd_call_ctx(call), call->gb, id, &reply))
 		return -1;
 	*result = fy_get(reply, "profiles", fy_seq_empty);
 	return 0;
@@ -245,8 +245,8 @@ int fyai_cmd_status(struct fyai_cmd_call *call, fy_generic *result)
 {
 	fy_generic data;
 
-	data = fyai_session_status_data(call->ctx, call->gb);
-	fyai_error_check(call->ctx, fy_is_valid(data), err,
+	data = fyai_session_status_data(fyai_cmd_call_ctx(call), call->gb);
+	fyai_error_check(fyai_cmd_call_ctx(call), fy_is_valid(data), err,
 			 "status: cannot build the report");
 	*result = call->format == FYAI_CMD_OUT_MARKDOWN ?
 		  status_flatten(call->gb, data) : data;
@@ -257,8 +257,8 @@ err:
 
 int fyai_cmd_todo_show(struct fyai_cmd_call *call, fy_generic *result)
 {
-	*result = fyai_todo_rows(call->ctx, call->gb);
-	fyai_error_check(call->ctx, fy_is_valid(*result), err,
+	*result = fyai_todo_rows(fyai_cmd_call_ctx(call), call->gb);
+	fyai_error_check(fyai_cmd_call_ctx(call), fy_is_valid(*result), err,
 			 "todo: cannot build the todo list");
 	return 0;
 err:
@@ -268,7 +268,7 @@ err:
 int fyai_cmd_todo_clear(struct fyai_cmd_call *call, fy_generic *result)
 {
 	(void)result;
-	if (fyai_todo_clear(call->ctx))
+	if (fyai_todo_clear(fyai_cmd_call_ctx(call)))
 		return -1;
 	*result = fy_mapping(call->gb, "cleared", true);
 	return 0;

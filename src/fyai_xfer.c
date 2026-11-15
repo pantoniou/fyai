@@ -71,6 +71,12 @@ struct fyai_xfer {
 	long retry_after;
 };
 
+/* The context that this object stands on. */
+static inline struct fyai_ctx *fyai_xfer_ctx(const struct fyai_xfer *o)
+{
+	return o->ctx;
+}
+
 static void xfer_finish(struct fyai_xfer *x, CURLcode result, long status,
 			long retry_after, const char *error);
 static int xfer_login_send(struct fyai_xfer *x);
@@ -113,7 +119,7 @@ const char *fyai_xfer_last_error(const struct fyai_ctx *ctx)
 static void xfer_finish(struct fyai_xfer *x, CURLcode result, long status,
 			long retry_after, const char *error)
 {
-	struct fyai_ctx *ctx = x->ctx;
+	struct fyai_ctx *ctx = fyai_xfer_ctx(x);
 
 	x->result = result;
 	x->phase = XFER_FINISHED;
@@ -183,7 +189,7 @@ static void xfer_defer_cb(void *ud)
 
 static void xfer_defer(struct fyai_xfer *x)
 {
-	struct fyai_event_loop *el = fyai_ctx_loop(x->ctx);
+	struct fyai_event_loop *el = fyai_ctx_loop(fyai_xfer_ctx(x));
 
 	if (x->deferred)
 		return;
@@ -201,10 +207,10 @@ static size_t xfer_write(char *ptr, size_t size, size_t nmemb, void *ud)
 	if (!(x->login || x->rekey) || x->phase == XFER_STARTED)
 		return x->write(ptr, size, nmemb, x->write_ud);
 	if (x->phase != XFER_HELD) {
-		curl_easy_getinfo(x->ctx->link->curl, CURLINFO_RESPONSE_CODE, &status);
+		curl_easy_getinfo(fyai_xfer_ctx(x)->link->curl, CURLINFO_RESPONSE_CODE, &status);
 		if (status == 401 && !x->retried &&
 		    (x->rekey ||
-		     fyai_cred_reject(x->ctx, "oauth:chatgpt", NULL, 0, true)))
+		     fyai_cred_reject(fyai_xfer_ctx(x), "oauth:chatgpt", NULL, 0, true)))
 			x->phase = XFER_HELD;
 		else
 			x->phase = XFER_STARTED;
@@ -214,7 +220,7 @@ static size_t xfer_write(char *ptr, size_t size, size_t nmemb, void *ud)
 	/* Keep the start of it: it is the answer if the login cannot renew. */
 	if (fyai_buf_pending(&x->held) < XFER_HELD_MAX &&
 	    fyai_buf_append_data(&x->held, ptr, size * nmemb)) {
-		fyai_error(x->ctx, "cannot keep the body of the refused request");
+		fyai_error(fyai_xfer_ctx(x), "cannot keep the body of the refused request");
 		return 0;
 	}
 	return size * nmemb;
@@ -223,7 +229,7 @@ static size_t xfer_write(char *ptr, size_t size, size_t nmemb, void *ud)
 /* Send the request: the headers are built for this send from the login. */
 static int xfer_curl_send(struct fyai_xfer *x)
 {
-	struct fyai_ctx *ctx = x->ctx;
+	struct fyai_ctx *ctx = fyai_xfer_ctx(x);
 	struct curl_slist *src;
 	int rc = 0;
 
@@ -255,9 +261,9 @@ static int xfer_login_send(struct fyai_xfer *x)
 {
 	int rc;
 
-	rc = fyai_cred_prepare(x->ctx, "oauth:chatgpt", &x->waiter, x->retried);
+	rc = fyai_cred_prepare(fyai_xfer_ctx(x), "oauth:chatgpt", &x->waiter, x->retried);
 	if (rc < 0) {
-		xfer_login_cause(x->ctx, rc);
+		xfer_login_cause(fyai_xfer_ctx(x), rc);
 		return -1;
 	}
 	if (rc > 0) {
@@ -278,7 +284,7 @@ static void xfer_waiter_run(struct fyai_cred_waiter *w, int result)
 		return;
 	}
 	if (result < 0) {
-		xfer_login_cause(x->ctx, result);
+		xfer_login_cause(fyai_xfer_ctx(x), result);
 		xfer_finish(x, CURLE_LOGIN_DENIED, 0, 0, NULL);
 		return;
 	}
@@ -295,7 +301,7 @@ static bool xfer_rejected(struct fyai_xfer *x, long status)
 {
 	int rc;
 
-	rc = fyai_cred_reject(x->ctx, "oauth:chatgpt", &x->waiter, x->tag, false);
+	rc = fyai_cred_reject(fyai_xfer_ctx(x), "oauth:chatgpt", &x->waiter, x->tag, false);
 	if (rc < 0)
 		return false;
 	x->retried = true;
@@ -314,7 +320,7 @@ static bool xfer_rejected(struct fyai_xfer *x, long status)
  */
 static bool xfer_rekeyed(struct fyai_xfer *x)
 {
-	struct fyai_ctx *ctx = x->ctx;
+	struct fyai_ctx *ctx = fyai_xfer_ctx(x);
 	struct fyai_cfg *cfg = ctx->cfg;
 	const struct fyai_grammar *grammar = fyai_grammar(cfg);
 	struct curl_slist *list = NULL, *src;
@@ -368,8 +374,8 @@ static void xfer_curl_complete(struct fyai_curl_transfer *transfer, void *ud)
 	curl_off_t retry = 0;
 	long status = 0;
 
-	curl_easy_getinfo(x->ctx->link->curl, CURLINFO_RESPONSE_CODE, &status);
-	if (curl_easy_getinfo(x->ctx->link->curl, CURLINFO_RETRY_AFTER, &retry) != CURLE_OK)
+	curl_easy_getinfo(fyai_xfer_ctx(x)->link->curl, CURLINFO_RESPONSE_CODE, &status);
+	if (curl_easy_getinfo(fyai_xfer_ctx(x)->link->curl, CURLINFO_RETRY_AFTER, &retry) != CURLE_OK)
 		retry = 0;
 	fyai_curl_transfer_destroy(transfer);
 	x->curl = NULL;
@@ -525,7 +531,7 @@ void fyai_xfer_cancel(struct fyai_xfer *x)
 		fyai_curl_cancel(x->curl);
 	} else if (x->phase == XFER_PARKED) {
 		/* No transfer runs: the request ends from the loop. */
-		fyai_cred_waiter_cancel(x->ctx, &x->waiter);
+		fyai_cred_waiter_cancel(fyai_xfer_ctx(x), &x->waiter);
 		x->phase = XFER_NEW;
 		xfer_defer(x);
 	}
@@ -543,9 +549,9 @@ void fyai_xfer_destroy(struct fyai_xfer *x)
 	if (!x)
 		return;
 	if (x->phase == XFER_PARKED || x->waiter.queued)
-		fyai_cred_waiter_cancel(x->ctx, &x->waiter);
+		fyai_cred_waiter_cancel(fyai_xfer_ctx(x), &x->waiter);
 	if (x->deferred)
-		fyai_event_defer_cancel(fyai_ctx_loop(x->ctx), xfer_defer_cb, x);
+		fyai_event_defer_cancel(fyai_ctx_loop(fyai_xfer_ctx(x)), xfer_defer_cb, x);
 	if (x->curl)
 		fyai_curl_transfer_destroy(x->curl);
 	if (x->call)

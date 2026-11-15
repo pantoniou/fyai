@@ -401,10 +401,16 @@ struct agent_gate_ask {
 	bool after;
 };
 
+/* The context that this object stands on. */
+static inline struct fyai_ctx *agent_gate_ask_ctx(const struct agent_gate_ask *o)
+{
+	return o->ctx;
+}
+
 static void agent_gate_answer(struct jsonrpc_request *req, void *userdata)
 {
 	struct agent_gate_ask *ask = userdata;
-	struct fyai_ctx *ctx = ask->ctx;
+	struct fyai_ctx *ctx = agent_gate_ask_ctx(ask);
 	fy_generic r, v;
 
 	r = jsonrpc_request_ok(req) ? jsonrpc_request_result(req) : fy_invalid;
@@ -911,6 +917,12 @@ struct fyai_agent_bg_run {
 	struct fyai_scope_pin pin;	/* it holds the scope of its exchange */
 };
 
+/* The context that this object stands on. */
+static inline struct fyai_ctx *fyai_agent_bg_run_ctx(const struct fyai_agent_bg_run *o)
+{
+	return o->ctx;
+}
+
 bool fyai_agent_background_requested(fy_generic args)
 {
 	return fy_get(args, "background", false);
@@ -919,7 +931,7 @@ bool fyai_agent_background_requested(fy_generic args)
 static void agent_bg_free(struct fyai_agent_bg_run *run)
 {
 	fyai_tool_job_group_destroy(run->group);
-	fyai_scope_unpin(run->ctx, &run->pin);
+	fyai_scope_unpin(fyai_agent_bg_run_ctx(run), &run->pin);
 	free(run);
 }
 
@@ -927,7 +939,7 @@ static void agent_bg_free(struct fyai_agent_bg_run *run)
 static void agent_bg_finish(void *userdata)
 {
 	struct fyai_agent_bg_run *run = userdata;
-	struct fyai_ctx *ctx = run->ctx;
+	struct fyai_ctx *ctx = fyai_agent_bg_run_ctx(run);
 	fy_generic result = fy_invalid;
 	const char *report;
 	struct fy_generic_builder *gb;
@@ -959,7 +971,7 @@ static void agent_bg_complete(struct fyai_tool_job_group *group, void *userdata)
 	struct fyai_agent_bg_run *run = userdata;
 
 	(void)group;
-	(void)fyai_event_defer(fyai_ctx_loop(run->ctx), agent_bg_finish, run);
+	(void)fyai_event_defer(fyai_ctx_loop(fyai_agent_bg_run_ctx(run)), agent_bg_finish, run);
 }
 
 fy_generic fyai_agent_background(struct fyai_ctx *ctx, fy_generic args,
@@ -1238,6 +1250,12 @@ struct agent_rpc {
 	bool quit;
 };
 
+/* The context that this object stands on. */
+static inline struct fyai_ctx *agent_rpc_ctx(const struct agent_rpc *o)
+{
+	return o->ctx;
+}
+
 static fy_generic agent_rpc_error(struct fyai_ctx *ctx, long long code,
 				  const char *message)
 {
@@ -1266,7 +1284,7 @@ static fy_generic agent_rpc_serve(struct jsonrpc_conn *conn, const char *method,
 				  void *userdata, fy_generic *errorp)
 {
 	struct agent_rpc *rpc = userdata;
-	struct fyai_ctx *ctx = rpc->ctx;
+	struct fyai_ctx *ctx = agent_rpc_ctx(rpc);
 	const char *task;
 
 	if (!strcmp(method, "initialize")) {

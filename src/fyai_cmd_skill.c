@@ -32,8 +32,8 @@
 
 int fyai_cmd_skill_list(struct fyai_cmd_call *call, fy_generic *result)
 {
-	*result = fyai_skill_rows(call->ctx, call->gb);
-	fyai_error_check(call->ctx, fy_is_valid(*result), err,
+	*result = fyai_skill_rows(fyai_cmd_call_ctx(call), call->gb);
+	fyai_error_check(fyai_cmd_call_ctx(call), fy_is_valid(*result), err,
 			 "cannot list the skills");
 	return 0;
 err:
@@ -134,7 +134,7 @@ static fy_generic skill_md_escape_dollar(struct fy_generic_builder *gb,
 /* The body as the render shows it: escaped for Markdown, else as it stands. */
 static fy_generic skill_show_body(struct fyai_cmd_call *call, fy_generic body)
 {
-	if (call->format != FYAI_CMD_OUT_MARKDOWN || !call->ctx->cfg->markdown)
+	if (call->format != FYAI_CMD_OUT_MARKDOWN || !fyai_cmd_call_ctx(call)->cfg->markdown)
 		return body;
 	return skill_md_escape_dollar(call->gb, fy_castp(&body, ""));
 }
@@ -151,19 +151,19 @@ int fyai_cmd_skill_show(struct fyai_cmd_call *call, fy_generic *result)
 	fy_generic skill, files, text, fm, emitted, body;
 	size_t len;
 
-	skill = fyai_skill_get(call->ctx, name);
-	fyai_error_check(call->ctx, fy_is_valid(skill), err,
+	skill = fyai_skill_get(fyai_cmd_call_ctx(call), name);
+	fyai_error_check(fyai_cmd_call_ctx(call), fy_is_valid(skill), err,
 			 "no skill '%s' on branch '%s'", name,
-			 fyai_ctx_branch(call->ctx));
+			 fyai_ctx_branch(fyai_cmd_call_ctx(call)));
 	if (!file) {
 		fm = fy_get(skill, "frontmatter", fy_map_empty);
 		emitted = fy_emit(call->gb, fm, FYAI_YAML_EMIT_FLAGS |
 				  FYOPEF_OUTPUT_TYPE_STRING |
 				  FYOPEF_NO_ENDING_NEWLINE, NULL);
-		fyai_error_check(call->ctx, fy_is_string(emitted), err,
+		fyai_error_check(fyai_cmd_call_ctx(call), fy_is_string(emitted), err,
 				 "cannot write the front matter of '%s'", name);
 		body = skill_show_body(call, fy_get(skill, "body", fy_invalid));
-		fyai_error_check(call->ctx, fy_is_string(body), err,
+		fyai_error_check(fyai_cmd_call_ctx(call), fy_is_string(body), err,
 				 "cannot show the body of '%s'", name);
 		*result = fy_mapping(call->gb, "name", name, "file", "SKILL.md",
 				     "frontmatter", emitted, "body", body);
@@ -177,12 +177,12 @@ int fyai_cmd_skill_show(struct fyai_cmd_call *call, fy_generic *result)
 	files = fy_get(skill, "files", fy_map_empty);
 	text = fy_get(fy_is_mapping(files) ? files : fy_map_empty, file,
 		      fy_invalid);
-	fyai_error_check(call->ctx, fy_is_string(text), err,
+	fyai_error_check(fyai_cmd_call_ctx(call), fy_is_string(text), err,
 			 "skill '%s' has no file '%s'", name, file);
 	len = strlen(file);
 	if (len > 3 && !strcmp(file + len - 3, ".md")) {
 		body = skill_show_body(call, text);
-		fyai_error_check(call->ctx, fy_is_string(body), err,
+		fyai_error_check(fyai_cmd_call_ctx(call), fy_is_string(body), err,
 				 "cannot show '%s' of '%s'", file, name);
 		*result = fy_mapping(call->gb, "name", name, "file", file,
 				     "body", body);
@@ -204,11 +204,11 @@ int fyai_cmd_skill_import(struct fyai_cmd_call *call, fy_generic *result)
 	const char *claude = fyai_cmd_arg_str(call, "claude");
 	fy_generic names;
 
-	fyai_error_check(call->ctx, !claude || (!path && !into), err,
+	fyai_error_check(fyai_cmd_call_ctx(call), !claude || (!path && !into), err,
 			 "--claude finds the skills itself; it takes no PATH "
 			 "and no --into");
 	if (claude) {
-		if (fyai_skill_import_claude(call->ctx, call->gb, claude,
+		if (fyai_skill_import_claude(fyai_cmd_call_ctx(call), call->gb, claude,
 					     fyai_cmd_arg_bool(call, "force"),
 					     &names))
 			return -1;
@@ -219,21 +219,21 @@ int fyai_cmd_skill_import(struct fyai_cmd_call *call, fy_generic *result)
 				     "count", (long long)fy_len(names));
 		return 0;
 	}
-	fyai_error_check(call->ctx, path, err,
+	fyai_error_check(fyai_cmd_call_ctx(call), path, err,
 			 "name the PATH to import, or give --claude");
 
-	fyai_error_check(call->ctx, !as || into, err,
+	fyai_error_check(fyai_cmd_call_ctx(call), !as || into, err,
 			 "--as names a supporting file; give the skill with "
 			 "--into");
 	if (into) {
-		if (fyai_skill_import_file(call->ctx, into, path, as))
+		if (fyai_skill_import_file(fyai_cmd_call_ctx(call), into, path, as))
 			return -1;
 		*result = fy_mapping(call->gb, "path", path, "names",
 				     fy_stringf(call->gb, "%s into %s",
 						as ? as : path, into));
 		return 0;
 	}
-	if (fyai_skill_import(call->ctx, call->gb, path,
+	if (fyai_skill_import(fyai_cmd_call_ctx(call), call->gb, path,
 			      fyai_cmd_arg_bool(call, "force"), &names))
 		return -1;
 	*result = fy_mapping(call->gb, "path", path,
@@ -251,17 +251,17 @@ int fyai_cmd_skill_remove(struct fyai_cmd_call *call, fy_generic *result)
 	fy_generic name;
 
 	if (file) {
-		fyai_error_check(call->ctx, fy_len(names) == 1, err,
+		fyai_error_check(fyai_cmd_call_ctx(call), fy_len(names) == 1, err,
 				 "--file removes a file of one skill");
 		name = fy_get_at(names, 0);
-		if (fyai_skill_remove_file(call->ctx, fy_castp(&name, ""), file))
+		if (fyai_skill_remove_file(fyai_cmd_call_ctx(call), fy_castp(&name, ""), file))
 			return -1;
 		*result = fy_mapping(call->gb, "names",
 				     fy_stringf(call->gb, "%s from %s", file,
 						fy_castp(&name, "")));
 		return 0;
 	}
-	if (fyai_skill_remove(call->ctx, names))
+	if (fyai_skill_remove(fyai_cmd_call_ctx(call), names))
 		return -1;
 	*result = fy_mapping(call->gb, "names",
 			     fyai_skill_join(call->gb, names, ", "));
@@ -277,23 +277,23 @@ int fyai_cmd_skill_export(struct fyai_cmd_call *call, fy_generic *result)
 	const char *file = fyai_cmd_arg_str(call, "file");
 	fy_generic skill, files, text;
 
-	fyai_error_check(call->ctx, file || strcmp(dir, "-"), err,
+	fyai_error_check(fyai_cmd_call_ctx(call), file || strcmp(dir, "-"), err,
 			 "standard output takes one file; give --file");
 	if (file && !strcmp(dir, "-")) {
-		skill = fyai_skill_get(call->ctx, name);
+		skill = fyai_skill_get(fyai_cmd_call_ctx(call), name);
 		files = fy_get(skill, "files", fy_map_empty);
 		text = fy_get(fy_is_mapping(files) ? files : fy_map_empty,
 			      file, fy_invalid);
-		fyai_error_check(call->ctx, fy_is_string(text), err,
+		fyai_error_check(fyai_cmd_call_ctx(call), fy_is_string(text), err,
 				 "skill '%s' has no file '%s'", name, file);
 		/* The file as it stands, for another program to read. */
-		(void)fyai_sink_write(call->ctx->front->sink, FYAI_SINK_MACHINE,
+		(void)fyai_sink_write(fyai_cmd_call_ctx(call)->front->sink, FYAI_SINK_MACHINE,
 				      fy_castp(&text, ""), fy_len(text));
 		*result = fy_null;
 		return 0;
 	}
-	if (file ? fyai_skill_export_file(call->ctx, name, file, dir) :
-		   fyai_skill_export(call->ctx, name, dir))
+	if (file ? fyai_skill_export_file(fyai_cmd_call_ctx(call), name, file, dir) :
+		   fyai_skill_export(fyai_cmd_call_ctx(call), name, dir))
 		return -1;
 	*result = fy_mapping(call->gb, "name", name, "dir", dir,
 			     "what", file ? fy_stringf(call->gb, "%s of %s",
@@ -308,7 +308,7 @@ err:
 
 int fyai_cmd_skill_files(struct fyai_cmd_call *call, fy_generic *result)
 {
-	*result = fyai_skill_file_rows(call->ctx, call->gb,
+	*result = fyai_skill_file_rows(fyai_cmd_call_ctx(call), call->gb,
 				       fyai_cmd_arg_str(call, "name"));
 	return fy_is_valid(*result) ? 0 : -1;
 }
@@ -337,7 +337,7 @@ static void skill_edit_cleanup(struct fyai_cmd_call *call)
 		return;
 	fyai_editor_destroy(e->editor);
 	if (e->ui_external)
-		(void)fyai_ui_external_end(call->ctx);
+		(void)fyai_ui_external_end(fyai_cmd_call_ctx(call));
 	free(e->name);
 	free(e->file);
 	free(e->path);
@@ -358,7 +358,7 @@ static void skill_edit_service(void *userdata)
 {
 	struct skill_edit *e = userdata;
 	struct fyai_cmd_call *call = e->call;
-	struct fyai_ctx *ctx = call->ctx;
+	struct fyai_ctx *ctx = fyai_cmd_call_ctx(call);
 	char *text;
 	int rc;
 
@@ -402,10 +402,10 @@ static void skill_edit_complete(struct fyai_editor_request *editor,
 	int rc;
 
 	(void)editor;
-	rc = fyai_event_defer(fyai_ctx_loop(e->call->ctx), skill_edit_service,
+	rc = fyai_event_defer(fyai_ctx_loop(fyai_cmd_call_ctx(e->call)), skill_edit_service,
 			      e);
 	if (rc) {
-		fyai_error(e->call->ctx, "cannot resume the edit of '%s'",
+		fyai_error(fyai_cmd_call_ctx(e->call), "cannot resume the edit of '%s'",
 			   e->name);
 		fyai_cmd_done(e->call, -1, fy_invalid);
 	}
@@ -415,7 +415,7 @@ static void skill_edit_complete(struct fyai_editor_request *editor,
 static int skill_edit_start(struct fyai_cmd_call *call, const char *name,
 			    const char *file, const char *text, bool create)
 {
-	struct fyai_ctx *ctx = call->ctx;
+	struct fyai_ctx *ctx = fyai_cmd_call_ctx(call);
 	struct skill_edit *e;
 	const char *tmpdir, *ext;
 	char tmpl[PATH_MAX];
@@ -478,7 +478,7 @@ err:
 
 int fyai_cmd_skill_edit(struct fyai_cmd_call *call, fy_generic *result)
 {
-	struct fyai_ctx *ctx = call->ctx;
+	struct fyai_ctx *ctx = fyai_cmd_call_ctx(call);
 	const char *name = fyai_cmd_arg_str(call, "name");
 	const char *file = fyai_cmd_arg_str(call, "file");
 	fy_generic skill, files, text;
@@ -507,7 +507,7 @@ err:
 
 int fyai_cmd_skill_new(struct fyai_cmd_call *call, fy_generic *result)
 {
-	struct fyai_ctx *ctx = call->ctx;
+	struct fyai_ctx *ctx = fyai_cmd_call_ctx(call);
 	const char *name = fyai_cmd_arg_str(call, "name");
 
 	(void)result;
@@ -529,7 +529,7 @@ static int skill_cmd_enable(struct fyai_cmd_call *call, fy_generic *result,
 {
 	fy_generic names = fy_get(call->args, "names", fy_seq_empty);
 
-	if (fyai_skill_set_enabled(call->ctx, names, enabled))
+	if (fyai_skill_set_enabled(fyai_cmd_call_ctx(call), names, enabled))
 		return -1;
 	*result = fy_mapping(call->gb, "names",
 			     fyai_skill_join(call->gb, names, ", "));
@@ -555,8 +555,8 @@ int fyai_cmd_skill_disable(struct fyai_cmd_call *call, fy_generic *result)
 int fyai_cmd_skill_exec(struct fyai_cmd_call *call, fy_generic *result)
 {
 	(void)result;
-	fyai_error(call->ctx, "no enabled skill '%s' on branch '%s'",
-		   fyai_cmd_arg_str(call, "name"), fyai_ctx_branch(call->ctx));
+	fyai_error(fyai_cmd_call_ctx(call), "no enabled skill '%s' on branch '%s'",
+		   fyai_cmd_arg_str(call, "name"), fyai_ctx_branch(fyai_cmd_call_ctx(call)));
 	return -1;
 }
 

@@ -85,6 +85,12 @@ struct fyai_term {
 	struct fyai_event_source *killer;
 };
 
+/* The context that this object stands on. */
+static inline struct fyai_ctx *fyai_term_ctx(const struct fyai_term *o)
+{
+	return o->ctx;
+}
+
 /* Describe the state of the program for the status row. */
 static void term_status_text(const struct fyai_term *t, char *buf, size_t len)
 {
@@ -173,7 +179,7 @@ static void term_frame(struct fyai_term *t)
 	/* The display paints; this only says that there is something to
 	 * paint. */
 	if (published)
-		fyai_ui_wake(t->ctx);
+		fyai_ui_wake(fyai_term_ctx(t));
 }
 
 /* Hand queued keys to the program, and watch for writability while any stay. */
@@ -223,7 +229,7 @@ static void term_cancel(struct fyai_term *t)
 	(void)kill(-t->pid, SIGHUP);
 	(void)kill(-t->pid, SIGTERM);
 
-	el = fyai_ctx_loop(t->ctx);
+	el = fyai_ctx_loop(fyai_term_ctx(t));
 	if (el && !t->killer)
 		(void)fyai_event_add_timer(el, FYAI_TERM_KILL_GRACE_MS, 0,
 					   term_kill, t, &t->killer);

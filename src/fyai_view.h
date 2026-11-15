@@ -39,6 +39,12 @@ struct fyai_view_request {
 	bool progress;
 };
 
+/* The context that this object stands on. */
+static inline struct fyai_ctx *fyai_view_request_ctx(const struct fyai_view_request *o)
+{
+	return o->ctx;
+}
+
 /*
  * Capture the project and store the view record under the name. On success the
  * record is built in the builder of the context. Return 0, or -1 with the cause

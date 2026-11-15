@@ -63,6 +63,12 @@ struct shell_capture {
 	struct fyai_ctx *ctx;
 };
 
+/* The context that this object stands on. */
+static inline struct fyai_ctx *shell_capture_ctx(const struct shell_capture *o)
+{
+	return o->ctx;
+}
+
 /*
  * Give the bytes that arrived to the capture. Until the program draws they are
  * the text of the result, and the live display shows them. From the first byte
@@ -92,7 +98,7 @@ static int read_shell_pipe(int fd, struct shell_capture *cap,
 		cap->output_fn(cap->userdata, cap->stream, tmp, (size_t)nread);
 	if (opts && opts->rows > 0 && opts->cols > 0 &&
 	    fyai_terminal_sniff(&cap->sniff, tmp, (size_t)nread)) {
-		cap->view = fyai_terminal_view_create(cap->ctx, opts->rows,
+		cap->view = fyai_terminal_view_create(shell_capture_ctx(cap), opts->rows,
 						      opts->cols, opts->max_bytes);
 		if (!cap->view)
 			return 1;
@@ -123,6 +129,12 @@ struct shell_capture_job {
 	int status;
 	bool done;
 };
+
+/* The context that this object stands on. */
+static inline struct fyai_ctx *shell_capture_job_ctx(const struct shell_capture_job *o)
+{
+	return o->ctx;
+}
 
 static void shell_capture_signal_group(struct shell_capture_job *job, int sig);
 
@@ -207,9 +219,9 @@ static enum fyai_event_action shell_capture_signal(const struct fyai_event *ev)
 	struct shell_capture_job *job = ev->userdata;
 
 	/* Treat SIGINT and SIGTERM as shell-capture interrupts. */
-	if (job && job->ctx &&
+	if (job && shell_capture_job_ctx(job) &&
 	    (ev->signo == SIGINT || ev->signo == SIGTERM))
-		job->ctx->loop->interrupt_pending = true;
+		shell_capture_job_ctx(job)->loop->interrupt_pending = true;
 	return FYAIEA_CONTINUE;
 }
 
@@ -251,7 +263,7 @@ static void shell_capture_cancel(pid_t pid, struct shell_capture_job *job)
 	shell_capture_signal_group(job, SIGTERM);
 	shell_capture_update_done(job);
 
-	el = job->ctx ? fyai_ctx_loop(job->ctx) : NULL;
+	el = shell_capture_job_ctx(job) ? fyai_ctx_loop(shell_capture_job_ctx(job)) : NULL;
 	if (el && !job->killer)
 		(void)fyai_event_add_timer(el, SHELL_CAPTURE_KILL_MS, 0,
 					   shell_capture_kill, job,

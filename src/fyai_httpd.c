@@ -266,6 +266,12 @@ struct fyai_httpd {
 	bool reap_queued;	/* a reap is deferred: a fact about the server */
 };
 
+/* The context that this object stands on. */
+static inline struct fyai_ctx *fyai_httpd_ctx(const struct fyai_httpd *o)
+{
+	return o->ctx;
+}
+
 static void httpd_log(struct fyai_httpd *h, const char *fmt, ...)
 	__attribute__((format(printf, 2, 3)));
 
@@ -393,7 +399,7 @@ static int httpd_arm(struct fyai_httpd_conn *c)
 
 int fyai_httpd_conn_write(struct fyai_httpd_conn *c, const void *data, size_t n)
 {
-	struct fyai_ctx *ctx = c->h->ctx;
+	struct fyai_ctx *ctx = fyai_httpd_ctx(c->h);
 	int rc;
 
 	if (c->state >= HTTPD_CONN_CLOSING)
@@ -418,7 +424,7 @@ err_kill:
 
 void fyai_httpd_conn_done(struct fyai_httpd_conn *c, bool close)
 {
-	struct fyai_ctx *ctx = c->h->ctx;
+	struct fyai_ctx *ctx = fyai_httpd_ctx(c->h);
 	int rc;
 
 	if (c->state >= HTTPD_CONN_UPGRADED)
@@ -667,7 +673,7 @@ static bool http_wants_close(const struct fyai_http_request *req)
 static void httpd_request(struct fyai_httpd_conn *c)
 {
 	struct fyai_httpd *h = c->h;
-	struct fyai_ctx *ctx = h->ctx;
+	struct fyai_ctx *ctx = fyai_httpd_ctx(h);
 	struct fyai_http_request req;
 	struct fyai_buf body = { 0 };
 	const char *base, *mark, *te, *cl, *expect, *why;
@@ -769,7 +775,7 @@ err_kill:
 static void httpd_read(struct fyai_httpd_conn *c)
 {
 	unsigned char chunk[16384];
-	struct fyai_ctx *ctx = c->h->ctx;
+	struct fyai_ctx *ctx = fyai_httpd_ctx(c->h);
 	struct fyai_ws_message msg;
 	size_t used, got, off;
 	ssize_t n;
@@ -920,7 +926,7 @@ err:
 
 int fyai_httpd_adopt(struct fyai_httpd *h, int fd, SSL_CTX *tls)
 {
-	struct fyai_ctx *ctx = h->ctx;
+	struct fyai_ctx *ctx = fyai_httpd_ctx(h);
 	struct httpd_listener *listener;
 	int rc, ref;
 
@@ -951,7 +957,7 @@ err:
 int fyai_httpd_listen(struct fyai_httpd *h, const char *address, SSL_CTX *tls,
 		      char *bound, size_t bound_size)
 {
-	int fd = fyai_net_listen(h->ctx, address, bound, bound_size);
+	int fd = fyai_net_listen(fyai_httpd_ctx(h), address, bound, bound_size);
 
 	if (fd < 0)
 		return -1;

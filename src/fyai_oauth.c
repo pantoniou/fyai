@@ -166,6 +166,12 @@ struct fyai_oauth_flow {
 	void *done_user;
 };
 
+/* The context that this object stands on. */
+static inline struct fyai_ctx *fyai_oauth_flow_ctx(const struct fyai_oauth_flow *o)
+{
+	return o->ctx;
+}
+
 static const char oauth_body_ok[] = "Login complete. You may close this window.\n";
 static const char oauth_body_bad[] = "Login failed.\n";
 static const char oauth_body_notfound[] = "Not found.\n";
@@ -211,20 +217,20 @@ void fyai_oauth_flow_redirect(struct fyai_oauth_flow *f, const char *request)
 
 	if (f->settled)
 		return;
-	got_state = fyai_oauth_query_value(f->ctx->link->curl, request, "state");
+	got_state = fyai_oauth_query_value(fyai_oauth_flow_ctx(f)->link->curl, request, "state");
 	if (!got_state || strcmp(got_state, f->expect_state)) {
 		free(got_state);
 		oauth_settle(f, FYAI_OAUTH_BAD_STATE);
 		return;
 	}
 	free(got_state);
-	f->error = fyai_oauth_query_value(f->ctx->link->curl, request, "error");
+	f->error = fyai_oauth_query_value(fyai_oauth_flow_ctx(f)->link->curl, request, "error");
 	if (f->error) {
 		oauth_settle(f, FYAI_OAUTH_FAILED);
 		return;
 	}
-	f->code = fyai_oauth_query_value(f->ctx->link->curl, request, "code");
-	f->client_id = fyai_oauth_query_value(f->ctx->link->curl, request, "client_id");
+	f->code = fyai_oauth_query_value(fyai_oauth_flow_ctx(f)->link->curl, request, "code");
+	f->client_id = fyai_oauth_query_value(fyai_oauth_flow_ctx(f)->link->curl, request, "client_id");
 	oauth_settle(f, f->code && *f->code ?
 		     FYAI_OAUTH_GOT_CODE : FYAI_OAUTH_FAILED);
 }

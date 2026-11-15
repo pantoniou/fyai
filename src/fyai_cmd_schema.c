@@ -103,7 +103,7 @@ static fy_generic schema_commands(struct fyai_cmd_call *call,
 	fy_generic doc, def, v, cmds;
 
 	doc = fyai_cmd_registry();
-	fyai_error_check(call->ctx, fy_is_valid(doc), err,
+	fyai_error_check(fyai_cmd_call_ctx(call), fy_is_valid(doc), err,
 			 "the command definitions do not load: %s",
 			 fyai_cmd_registry_why());
 	cmds = fy_seq_empty;

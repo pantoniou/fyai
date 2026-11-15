@@ -80,6 +80,12 @@ struct mock {
 	unsigned short port;
 };
 
+/* The context that this object stands on. */
+static inline struct fyai_ctx *mock_ctx(const struct mock *o)
+{
+	return o->ctx;
+}
+
 /* The state of one connection of the server: the reply in progress. */
 struct mock_conn {
 	struct mock *m;
@@ -836,7 +842,7 @@ static int mock_handle(struct mock_conn *c, const struct fyai_http_request *r)
 	f.body = post ? r->body : "";
 	step = mock_pick(m, &f);
 	if (m->log)
-		fyai_report(m->ctx, "mock: %s %s -> %s\n", r->method, r->target,
+		fyai_report(mock_ctx(m), "mock: %s %s -> %s\n", r->method, r->target,
 			    fy_is_valid(step) ? "step" : "exhausted");
 
 	if (post)
@@ -903,7 +909,7 @@ static void mock_request(void *data, struct fyai_httpd_conn *hc,
 
 	if (!c) {
 		c = calloc(1, sizeof(*c));
-		fyai_error_check(m->ctx, c, err_kill, "mock: out of memory");
+		fyai_error_check(mock_ctx(m), c, err_kill, "mock: out of memory");
 		c->m = m;
 		c->hc = hc;
 		colon = strrchr(fyai_httpd_conn_peer(hc), ':');
@@ -911,7 +917,7 @@ static void mock_request(void *data, struct fyai_httpd_conn *hc,
 		fyai_httpd_conn_set_user(hc, c);
 	}
 	rc = mock_handle(c, req);
-	fyai_error_check(m->ctx, !rc, err_kill, "mock: cannot build the reply");
+	fyai_error_check(mock_ctx(m), !rc, err_kill, "mock: cannot build the reply");
 	conn_pump(c);
 	return;
 err_kill:
@@ -932,7 +938,7 @@ static void mock_log(void *data, const char *line)
 	struct mock *m = data;
 
 	if (m->log)
-		fyai_report(m->ctx, "mock: %s\n", line);
+		fyai_report(mock_ctx(m), "mock: %s\n", line);
 }
 
 static enum fyai_event_action mock_on_term(const struct fyai_event *ev)
@@ -953,10 +959,10 @@ static int mock_publish_port(struct mock *m)
 	snprintf(tmp, sizeof(tmp), "%s.tmp", path);
 	len = snprintf(num, sizeof(num), "%u\n", m->port);
 	rc = file_write(tmp, O_TRUNC, num, (size_t)len);
-	fyai_error_check(m->ctx, !rc, err, "mock: cannot write %s: %s", tmp,
+	fyai_error_check(mock_ctx(m), !rc, err, "mock: cannot write %s: %s", tmp,
 			 strerror(errno));
 	rc = rename(tmp, path);
-	fyai_error_check(m->ctx, !rc, err, "mock: cannot publish %s: %s", path,
+	fyai_error_check(mock_ctx(m), !rc, err, "mock: cannot publish %s: %s", path,
 			 strerror(errno));
 	mock_notify(m, "port\n");
 	return 0;

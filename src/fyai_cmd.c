@@ -1535,8 +1535,8 @@ int fyai_cmd_machine_write(struct fyai_cmd_call *call, const char *buf,
 {
 	int rc;
 
-	rc = fyai_sink_write(call->ctx->front->sink, FYAI_SINK_MACHINE, buf, len);
-	fyai_error_check(call->ctx, !rc, err,
+	rc = fyai_sink_write(fyai_cmd_call_ctx(call)->front->sink, FYAI_SINK_MACHINE, buf, len);
+	fyai_error_check(fyai_cmd_call_ctx(call), !rc, err,
 			 "%s: cannot write the result", call->path);
 	return 0;
 err:
@@ -1558,7 +1558,7 @@ static int present_machine(struct fyai_cmd_call *call, fy_generic value)
 		flags |= FYOPEF_MODE_YAML_1_2 | FYOPEF_STYLE_PRETTY;
 	emitted = fy_emit(call->gb, value, flags, NULL);
 	if (!fy_is_string(emitted)) {
-		fyai_error(call->ctx, "%s: cannot write the result as %s",
+		fyai_error(fyai_cmd_call_ctx(call), "%s: cannot write the result as %s",
 			   call->path, call->format == FYAI_CMD_OUT_JSON ?
 			   "JSON" : "YAML");
 		return -1;
@@ -1647,23 +1647,23 @@ static int present_document(struct fyai_cmd_call *call, fy_generic value,
 		FYOPEF_WIDTH_INF | FYOPEF_BINARY_BASE64;
 	flags |= flow ? FYOPEF_STYLE_ONELINE : FYOPEF_STYLE_PRETTY;
 	emitted = fy_emit(call->gb, value, flags, NULL);
-	fyai_error_check(call->ctx, fy_is_string(emitted), err,
+	fyai_error_check(fyai_cmd_call_ctx(call), fy_is_string(emitted), err,
 			 "%s: cannot write the result as YAML", call->path);
 	text = fy_castp(&emitted, "");
 	if (call->surface == FYAI_CMD_CLI) {
-		(void)fyai_sink_write(call->ctx->front->sink, FYAI_SINK_MACHINE, text,
+		(void)fyai_sink_write(fyai_cmd_call_ctx(call)->front->sink, FYAI_SINK_MACHINE, text,
 				      strlen(text));
 		if (!*text || text[strlen(text) - 1] != '\n')
-			(void)fyai_sink_write(call->ctx->front->sink,
+			(void)fyai_sink_write(fyai_cmd_call_ctx(call)->front->sink,
 					      FYAI_SINK_MACHINE, "\n", 1);
 		return 0;
 	}
 	md = NULL;
 	rc = asprintf(&md, "```yaml\n%s%s```\n", text,
 		      *text && text[strlen(text) - 1] == '\n' ? "" : "\n");
-	fyai_error_check(call->ctx, rc >= 0, err,
+	fyai_error_check(fyai_cmd_call_ctx(call), rc >= 0, err,
 			 "%s: cannot format the result", call->path);
-	rc = fyai_result_md(call->ctx, md) < 0 ? -1 : 0;
+	rc = fyai_result_md(fyai_cmd_call_ctx(call), md) < 0 ? -1 : 0;
 	free(md);
 	return rc;
 err:
@@ -1672,7 +1672,7 @@ err:
 
 static int present_result(struct fyai_cmd_call *call, fy_generic result)
 {
-	struct fyai_ctx *ctx = call->ctx;
+	struct fyai_ctx *ctx = fyai_cmd_call_ctx(call);
 	struct fyai_buf text = { 0 };
 	fy_generic render, table, message, line, document;
 	const char *s;
@@ -1756,8 +1756,8 @@ int fyai_cmd_emit(struct fyai_cmd_call *call, fy_generic item)
 	}
 	s = fy_is_string(item) ? fy_castp(&item, "") : fy_str(item);
 	if (fy_equal(how, "markdown"))
-		return fyai_result_md(call->ctx, s ? s : "") < 0 ? -1 : 0;
-	return fyai_result(call->ctx, "%s\n", s ? s : "") < 0 ? -1 : 0;
+		return fyai_result_md(fyai_cmd_call_ctx(call), s ? s : "") < 0 ? -1 : 0;
+	return fyai_result(fyai_cmd_call_ctx(call), "%s\n", s ? s : "") < 0 ? -1 : 0;
 }
 
 void fyai_cmd_done(struct fyai_cmd_call *call, int rc, fy_generic result)
@@ -1794,7 +1794,7 @@ static int call_present(struct fyai_cmd_call *call)
 	    fy_len(call->rows)) {
 		table = fy_get(fy_get(call->def, "render", fy_invalid), "table",
 			       fy_map_empty);
-		if (fyai_generic_to_markdown(call->ctx, table, call->rows))
+		if (fyai_generic_to_markdown(fyai_cmd_call_ctx(call), table, call->rows))
 			return -1;
 	}
 	return present_result(call, call->result);
@@ -1853,11 +1853,11 @@ int fyai_cmd_call_run(struct fyai_cmd_call *call)
 
 	handler = fy_get(call->def, "handler", fy_invalid);
 	fn = fyai_cmd_handler(fy_castp(&handler, ""));
-	fyai_error_check(call->ctx, fn, err, "%s: no handler", call->path);
+	fyai_error_check(fyai_cmd_call_ctx(call), fn, err, "%s: no handler", call->path);
 	result = fy_invalid;
 	rc = fn(call, &result);
 	if (rc == FYAI_CMD_PENDING) {
-		fyai_error_check(call->ctx, call->mode == FYAI_CMD_MODE_ASYNC,
+		fyai_error_check(fyai_cmd_call_ctx(call), call->mode == FYAI_CMD_MODE_ASYNC,
 				 err, "%s: the command is not async",
 				 call->path);
 		return FYAI_CMD_PENDING;
@@ -2182,7 +2182,7 @@ bool fyai_cmd_session_immediate(const char *line)
 
 static void session_call_finish(struct fyai_cmd_call *call)
 {
-	struct fyai_ctx *ctx = call->ctx;
+	struct fyai_ctx *ctx = fyai_cmd_call_ctx(call);
 
 	/* The session presents between turns; wake its loop. */
 	fyai_ui_wake(ctx);

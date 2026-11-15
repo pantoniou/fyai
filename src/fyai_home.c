@@ -253,6 +253,12 @@ struct home_entry {
 	size_t deny_n;
 };
 
+/* The context that this object stands on. */
+static inline struct fyai_ctx *home_entry_ctx(const struct home_entry *o)
+{
+	return o->ctx;
+}
+
 static bool home_denied(const struct home_entry *e, const char *path)
 {
 	size_t i;
@@ -334,7 +340,7 @@ static void home_exit_remove(void *dir)
 static int home_dir_make(struct home_entry *e, fy_generic home, const char *root,
 			 bool private)
 {
-	struct fyai_ctx *ctx = e->ctx;
+	struct fyai_ctx *ctx = home_entry_ctx(e);
 	fy_generic dir = fy_get(home, "dir", fy_invalid);
 	const char *tmp;
 	char *path;
@@ -374,12 +380,12 @@ err_out:
 /* Keep the paths that a copy must not give: they are denied in the sandbox. */
 static int home_deny_load(struct home_entry *e, const char *root)
 {
-	fy_generic deny = fy_get(e->ctx->cfg->sandbox, "deny", fy_invalid), it;
+	fy_generic deny = fy_get(home_entry_ctx(e)->cfg->sandbox, "deny", fy_invalid), it;
 	const char *ps;
 	size_t n = 0;
 
 	e->deny = calloc(fy_is_sequence(deny) ? fy_len(deny) + 1 : 1, sizeof(*e->deny));
-	fyai_error_check(e->ctx, e->deny, err_out, "sandbox: could not allocate the deny list");
+	fyai_error_check(home_entry_ctx(e), e->deny, err_out, "sandbox: could not allocate the deny list");
 	fy_foreach(it, deny) {
 		ps = fy_castp(&it, "");
 		((char **)e->deny)[n] = fyai_sandbox_resolve_path(root, ps);
@@ -413,7 +419,7 @@ static const char *home_env_value(const char *entry, char *name, size_t size)
 /* Give the tool a private version of each path of `copy` and of each variable of `env`. */
 static int home_copy_entries(struct home_entry *e, fy_generic home, const char *root)
 {
-	struct fyai_ctx *ctx = e->ctx;
+	struct fyai_ctx *ctx = home_entry_ctx(e);
 	char name[FYAI_ENV_NAME_MAX];
 	const char *ps, *value;
 	fy_generic it;
@@ -449,7 +455,7 @@ err_out:
 /* What the sandbox grants under the home, the project and the scratch directory stay visible. */
 static int home_show_granted(struct home_entry *e, const char *root)
 {
-	struct fyai_ctx *ctx = e->ctx;
+	struct fyai_ctx *ctx = home_entry_ctx(e);
 	fy_generic it, pv;
 	char *res;
 
@@ -483,7 +489,7 @@ static int home_show_granted(struct home_entry *e, const char *root)
 /* The mounts of the profile follow the home, so a target under the home lands in it. */
 static int home_profile_mounts(struct home_entry *e, fy_generic mounts, const char *root)
 {
-	struct fyai_ctx *ctx = e->ctx;
+	struct fyai_ctx *ctx = home_entry_ctx(e);
 	const char *ps, *src, *target;
 	fy_generic it, kind, v;
 	char *res, *res2;
@@ -554,7 +560,7 @@ static int home_mask_proc(struct home_entry *e)
 				   home_proc_masked[i], NULL, NULL, true);
 		if (!r)
 			e->h->mount[e->h->mount_n - 1].late = true;
-		fyai_error_check(e->ctx, !r, err_out, "sandbox: could not add the mount of '%s'",
+		fyai_error_check(home_entry_ctx(e), !r, err_out, "sandbox: could not add the mount of '%s'",
 				 home_proc_masked[i]);
 	}
 	return 0;

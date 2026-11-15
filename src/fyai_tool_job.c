@@ -180,7 +180,7 @@ static void fyai_tool_job_settle(struct fyai_tool_job *job)
 		return;
 	job->phase = FYAI_JOB_DONE;
 
-	fyai_tools_work_update(job->ctx);
+	fyai_tools_work_update(fyai_tool_job_ctx(job));
 	fyai_tool_job_drop(&job->band_delay);
 	job->elapsed_ms = fyai_event_now_ms() - job->started_ms;
 	if (job->agent && job->timeout_ms &&
@@ -195,7 +195,7 @@ static void fyai_tool_job_settle(struct fyai_tool_job *job)
 		 * reports it queued, or a later turn asks the model about
 		 * an agent that ended.
 		 */
-		fyai_events_drop_agent(job->ctx, job->branch);
+		fyai_events_drop_agent(fyai_tool_job_ctx(job), job->branch);
 	}
 	if (job->stream.active) {
 		/*
@@ -299,15 +299,15 @@ static fy_generic fyai_ask_user_for_child(struct fyai_tool_job *job,
 	origin = fy_get(params, "branch", "");
 	if (*origin && (!job->branch || strcmp(origin, job->branch)))
 		who = origin;
-	result = fyai_ask_user_from(job->ctx, params, who);
+	result = fyai_ask_user_from(fyai_tool_job_ctx(job), params, who);
 	if (fy_is_string(result)) {
 		/* The question was not valid, or nobody can be asked. */
-		fyai_error(job->ctx, "agent: the questions of '%s' were not asked: %s",
+		fyai_error(fyai_tool_job_ctx(job), "agent: the questions of '%s' were not asked: %s",
 			   who, fy_castp(&result, ""));
-		result = fyai_ask_declined(job->ctx);
+		result = fyai_ask_declined(fyai_tool_job_ctx(job));
 	}
 	rc = jsonrpc_conn_respond(conn, id, result, fy_invalid);
-	fyai_error_check(job->ctx, !rc, err,
+	fyai_error_check(fyai_tool_job_ctx(job), !rc, err,
 			 "agent: could not return the user's answer to '%s'", who);
 
 err:
@@ -625,13 +625,13 @@ static int fyai_tool_job_attach(struct fyai_ctx *ctx,
 static void fyai_tool_job_close_channel(struct fyai_tool_job *job)
 {
 	if (job->agent && job->branch)
-		fyai_agents_message_branch_closed(job->ctx, job->branch);
+		fyai_agents_message_branch_closed(fyai_tool_job_ctx(job), job->branch);
 	if (job->run) {
 		jsonrpc_request_destroy(job->run);
 		job->run = NULL;
 	}
 	if (job->conn) {
-		fyai_agents_conn_closed(job->ctx, job->conn);
+		fyai_agents_conn_closed(fyai_tool_job_ctx(job), job->conn);
 		jsonrpc_conn_destroy(job->conn);
 		job->conn = NULL;
 	}
@@ -649,7 +649,7 @@ void fyai_tool_job_discard(struct fyai_tool_job *job)
 		return;
 	job->btw_panel = false;
 	if (job->inline_block) {
-		fyai_ui_inline_drop(job->ctx, (uintptr_t)job);
+		fyai_ui_inline_drop(fyai_tool_job_ctx(job), (uintptr_t)job);
 		job->inline_block = false;
 	}
 	fyai_tool_job_cancel(job);
@@ -658,7 +658,7 @@ void fyai_tool_job_discard(struct fyai_tool_job *job)
 	 * queued wait reports here: the branch answers no question after this.
 	 */
 	if (job->agent && job->branch)
-		fyai_events_drop_agent(job->ctx, job->branch);
+		fyai_events_drop_agent(fyai_tool_job_ctx(job), job->branch);
 	fyai_tool_job_close_channel(job);
 	fyai_tool_job_drop(&job->deadline);
 	fyai_tool_job_drop(&job->hang_deadline);
@@ -667,12 +667,12 @@ void fyai_tool_job_discard(struct fyai_tool_job *job)
 		while (waitpid(job->pid, NULL, 0) < 0 && errno == EINTR)
 			;
 	fyai_tool_job_live_close(job, false);
-	fyai_tool_job_unlink(job->ctx, job);
+	fyai_tool_job_unlink(fyai_tool_job_ctx(job), job);
 	/* A cancelled isolated agent still leaves what it wrote in its view. */
 	if (job->view_run) {
 		char *summary = NULL;
 
-		(void)fyai_view_run_finish(job->ctx, job->view_run, &summary);
+		(void)fyai_view_run_finish(fyai_tool_job_ctx(job), job->view_run, &summary);
 		free(summary);
 	}
 	fyai_view_run_free(job->view_run);
@@ -754,7 +754,7 @@ static size_t fyai_tool_history_lines(const struct fyai_ctx *ctx)
 
 static void fyai_tool_job_band_open(struct fyai_tool_job *job)
 {
-	struct fyai_ctx *ctx = job->ctx;
+	struct fyai_ctx *ctx = fyai_tool_job_ctx(job);
 	size_t lines = fyai_tool_history_lines(ctx);
 	int rc = -1;
 
@@ -1368,7 +1368,7 @@ static fy_generic fyai_tool_job_gate(struct fyai_tool_job *job,
 				     struct jsonrpc_conn *conn, fy_generic id,
 				     fy_generic params)
 {
-	struct fyai_ctx *ctx = job->ctx;
+	struct fyai_ctx *ctx = fyai_tool_job_ctx(job);
 	struct fy_generic_builder *gb = fyai_ctx_transient_gb(ctx);
 	bool after;
 	int rc;
@@ -1405,14 +1405,14 @@ static fy_generic fyai_tool_job_serve(struct jsonrpc_conn *conn,
 	char *bytes;
 	size_t len, n;
 
-	if (fyai_agents_serve(job->ctx, conn, method, params, id, &text, errorp))
+	if (fyai_agents_serve(fyai_tool_job_ctx(job), conn, method, params, id, &text, errorp))
 		return text;
 	if (job->agent && fy_is_valid(id) && !strcmp(method, "tool/gate"))
 		return fyai_tool_job_gate(job, conn, id, params);
 	if (job->agent && !strcmp(method, "turn/step")) {
-		if (job->ctx->turn->agent_observe)
-			job->ctx->turn->agent_observe(job->ctx, job->call, params,
-						job->ctx->turn->agent_observe_data);
+		if (fyai_tool_job_ctx(job)->turn->agent_observe)
+			fyai_tool_job_ctx(job)->turn->agent_observe(fyai_tool_job_ctx(job), job->call, params,
+						fyai_tool_job_ctx(job)->turn->agent_observe_data);
 		return fy_invalid;
 	}
 	/* Handle the question request a delegated child sends to its parent. */
@@ -1433,7 +1433,7 @@ static fy_generic fyai_tool_job_serve(struct jsonrpc_conn *conn,
 			/* It is drawing, thus it is not quiet. */
 			job->session->quiet_since = fyai_event_now_ms();
 			job->session->drew = true;
-			fyai_terminal_tap(job->ctx, job->session->view,
+			fyai_terminal_tap(fyai_tool_job_ctx(job), job->session->view,
 					  &job->session->model_text,
 					  job->session->name, bytes, n);
 			(void)fyai_terminal_view_feed(job->session->view,
@@ -1459,7 +1459,7 @@ static fy_generic fyai_tool_job_serve(struct jsonrpc_conn *conn,
 	}
 	if (!strcmp(method, "shell/exit")) {
 		/* What the program left is tracked before the session lets go of the scope. */
-		fyai_orphan_track(job->ctx, fy_get(params, "detached", fy_invalid));
+		fyai_orphan_track(fyai_tool_job_ctx(job), fy_get(params, "detached", fy_invalid));
 		if (job->session)
 			fyai_shell_session_exited(job->session,
 				(int)fy_get(params, "exit_code", 0LL),
@@ -1476,7 +1476,7 @@ static fy_generic fyai_tool_job_serve(struct jsonrpc_conn *conn,
 	if (data_is_binary(p, len))
 		return fy_invalid;
 	if (job->monitor)
-		fyai_monitor_output(job->ctx, job->monitor, p, len);
+		fyai_monitor_output(fyai_tool_job_ctx(job), job->monitor, p, len);
 	if (!job->agent && job->timeout_ms)
 		fyai_tool_job_progress_retain(job, p, len);
 	if (job->band_progress && job->stream.active)
@@ -1488,10 +1488,10 @@ static fy_generic fyai_tool_job_serve(struct jsonrpc_conn *conn,
 		job->pending_output.len += len;
 		job->pending_output.data[job->pending_output.len] = '\0';
 	}
-	else if (!job->agent && job->ctx->jobs->stream &&
-		 job->ctx->jobs->stream->active)
+	else if (!job->agent && fyai_tool_job_ctx(job)->jobs->stream &&
+		 fyai_tool_job_ctx(job)->jobs->stream->active)
 		/* Stream command output into the sub-agent's live shell region. */
-		(void)fyai_fenced_stream_push(job->ctx->jobs->stream, p, len);
+		(void)fyai_fenced_stream_push(fyai_tool_job_ctx(job)->jobs->stream, p, len);
 	return fy_invalid;
 }
 
@@ -1508,9 +1508,9 @@ static void fyai_tool_job_run_done(struct jsonrpc_request *req, void *userdata)
 		job->display = fy_get(r, "display", fy_invalid);
 		job->diag = fy_get(r, "diag", fy_invalid);
 		/* The scope keeps what the call left running. */
-		fyai_orphan_track(job->ctx, fy_get(r, "detached", fy_invalid));
-		if (job->ctx->cfg->sandbox_scope_kind == FYAI_SCOPE_CALL)
-			fyai_orphan_sweep(job->ctx);
+		fyai_orphan_track(fyai_tool_job_ctx(job), fy_get(r, "detached", fy_invalid));
+		if (fyai_tool_job_ctx(job)->cfg->sandbox_scope_kind == FYAI_SCOPE_CALL)
+			fyai_orphan_sweep(fyai_tool_job_ctx(job));
 		/*
 		 * The reply is in the transient builder, which the turn
 		 * releases when it ends. A retained call is collected later,
@@ -1524,7 +1524,7 @@ static void fyai_tool_job_run_done(struct jsonrpc_request *req, void *userdata)
 			job->diag = fy_gb_internalize(job->call_gb, job->diag);
 		}
 		if (fy_is_string(job->display))
-			fyai_patch_display_record(job->ctx, job->call,
+			fyai_patch_display_record(fyai_tool_job_ctx(job), job->call,
 					fy_castp(&job->display, ""));
 		job->have_result = true;
 	} else {
@@ -1564,7 +1564,7 @@ static int fyai_tool_job_attach(struct fyai_ctx *ctx,
 		fy_gb_mapping(gb, "call", job->call);
 	if (job->exec)
 		params = fy_assoc(gb, params, fy_value(gb, "spawn"),
-				     fyai_agent_spawn_state(job->ctx, gb, job->transport_exec));
+				     fyai_agent_spawn_state(fyai_tool_job_ctx(job), gb, job->transport_exec));
 	/* A sub-agent asks the gate of this process, and reports its steps. */
 	if (job->agent && ctx->turn->gate)
 		params = fy_assoc(gb, params, "gate", true);
@@ -1624,7 +1624,7 @@ void fyai_tool_job_cancel(struct fyai_tool_job *job)
 	job->terminating = true;
 	jsonrpc_conn_expect_close(job->conn);
 
-	el = fyai_ctx_loop(job->ctx);
+	el = fyai_ctx_loop(fyai_tool_job_ctx(job));
 	if (el) {
 		fyai_tool_job_drop(&job->csrc);
 		rc = fyai_event_add_child_terminate_group(el, job->pid, 0,
@@ -1981,7 +1981,7 @@ fy_generic fyai_tool_job_collect(struct fyai_ctx *ctx,
 	/* The result lives in the builder of the job, which goes with it. */
 	if (job->call_gb && fy_is_valid(result))
 		result = fy_gb_internalize(fyai_ctx_transient_gb(ctx), result);
-	fyai_tool_job_unlink(job->ctx, job);
+	fyai_tool_job_unlink(fyai_tool_job_ctx(job), job);
 	free(job->progress.data);
 	free(job->branch);
 	fy_generic_builder_destroy(job->call_gb);
@@ -2049,12 +2049,12 @@ fyai_tool_job_group_animation_sync(struct fyai_tool_job_group *group)
 	}
 	if (group->animation_timer)
 		return;
-	rc = fyai_event_add_timer(fyai_ctx_loop(group->ctx), interval,
+	rc = fyai_event_add_timer(fyai_ctx_loop(fyai_tool_job_group_ctx(group)), interval,
 				  interval,
 				  fyai_tool_job_group_animation_cb, group,
 				  &group->animation_timer);
 	if (rc)
-		fyai_warning(group->ctx,
+		fyai_warning(fyai_tool_job_group_ctx(group),
 			     "tool indicator animation timer could not start");
 }
 
@@ -2143,14 +2143,14 @@ int fyai_tool_job_group_add(struct fyai_tool_job_group *group,
 	rc = fyai_tool_job_group_reserve(group);
 	if (rc)
 		return -1;
-	parallel = fyai_tool_call_parallel_eligible(group->ctx, tool_call);
-	instant = fyai_tool_call_instant(group->ctx, tool_call);
+	parallel = fyai_tool_call_parallel_eligible(fyai_tool_job_group_ctx(group), tool_call);
+	instant = fyai_tool_call_instant(fyai_tool_job_group_ctx(group), tool_call);
 	if (group->phase == FYAITGP_OPEN && !parallel)
 		return 1;
 	if (group->count && (group->exclusive || !parallel))
 		return -1;
 	/* The job runs the call that the tool call expands to. */
-	tool_call = fyai_tool_call_effective(group->ctx, tool_call);
+	tool_call = fyai_tool_call_effective(fyai_tool_job_group_ctx(group), tool_call);
 	call = fy_gb_internalize(group->gb, tool_call);
 	if (fy_is_invalid(call))
 		return -1;
@@ -2190,17 +2190,17 @@ static void fyai_tool_job_group_dispatch(struct fyai_tool_job_group *group)
 	       group->active < group->max_parallel) {
 		entry = &group->entries[group->next++];
 		call = entry->call;
-		name = fyai_tool_call_name(group->ctx, call);
+		name = fyai_tool_call_name(fyai_tool_job_group_ctx(group), call);
 		if (name && (fyai_mcp_tool_name(name) ||
 			     !strcmp(name, "mcp_resource"))) {
-			args = fyai_tool_call_args(group->ctx, call);
+			args = fyai_tool_call_args(fyai_tool_job_group_ctx(group), call);
 			entry->mcp_request =
 				fy_is_valid(args) &&
-				fyai_skill_tool_allowed(group->ctx, name) ?
+				fyai_skill_tool_allowed(fyai_tool_job_group_ctx(group), name) ?
 				(!strcmp(name, "mcp_resource") ?
-				 fyai_mcp_resource_submit(group->ctx, args,
+				 fyai_mcp_resource_submit(fyai_tool_job_group_ctx(group), args,
 					fyai_tool_job_group_mcp_complete, group) :
-				 fyai_mcp_call_submit(group->ctx, name, args,
+				 fyai_mcp_call_submit(fyai_tool_job_group_ctx(group), name, args,
 					fyai_tool_job_group_mcp_complete, group)) :
 				NULL;
 			if (entry->mcp_request) {
@@ -2208,8 +2208,8 @@ static void fyai_tool_job_group_dispatch(struct fyai_tool_job_group *group)
 				group->active++;
 				continue;
 			}
-			result = fy_value(group->ctx->transient->gb,
-				fyai_skill_tool_allowed(group->ctx, name) ?
+			result = fy_value(fyai_tool_job_group_ctx(group)->transient->gb,
+				fyai_skill_tool_allowed(fyai_tool_job_group_ctx(group), name) ?
 				"tool error: MCP call failed" :
 				"tool error: tool is not allowed by this skill");
 			fyai_tool_group_entry_store(group, entry, result);
@@ -2217,12 +2217,12 @@ static void fyai_tool_job_group_dispatch(struct fyai_tool_job_group *group)
 			continue;
 		}
 		if (entry->parallel && name && !strcmp(name, "wait") &&
-		    fyai_wait_for_requested(fyai_tool_call_args(group->ctx,
+		    fyai_wait_for_requested(fyai_tool_call_args(fyai_tool_job_group_ctx(group),
 								  call))) {
 			/* A wait for an event runs beside the other calls. */
 			why = NULL;
-			entry->waiter = fyai_waiter_start(group->ctx,
-				fyai_tool_call_args(group->ctx, call),
+			entry->waiter = fyai_waiter_start(fyai_tool_job_group_ctx(group),
+				fyai_tool_call_args(fyai_tool_job_group_ctx(group), call),
 				fyai_tool_job_group_waiter_done, group, &why);
 			if (entry->waiter) {
 				entry->state = FYAITGS_RUNNING;
@@ -2235,7 +2235,7 @@ static void fyai_tool_job_group_dispatch(struct fyai_tool_job_group *group)
 				}
 				continue;
 			}
-			result = fy_value(group->ctx->transient->gb,
+			result = fy_value(fyai_tool_job_group_ctx(group)->transient->gb,
 					  why ? why : "tool error: the wait "
 					  "could not start");
 			free(why);
@@ -2245,8 +2245,8 @@ static void fyai_tool_job_group_dispatch(struct fyai_tool_job_group *group)
 		}
 		if (!entry->parallel && name && !strcmp(name, "ask_user")) {
 			/* The page answers it from a callback; nothing waits. */
-			entry->ask = fyai_ask_call_start(group->ctx,
-				fyai_tool_call_args(group->ctx, call),
+			entry->ask = fyai_ask_call_start(fyai_tool_job_group_ctx(group),
+				fyai_tool_call_args(fyai_tool_job_group_ctx(group), call),
 				fyai_tool_job_group_waiter_done, group);
 			if (entry->ask) {
 				entry->result_ok = true;
@@ -2256,18 +2256,18 @@ static void fyai_tool_job_group_dispatch(struct fyai_tool_job_group *group)
 			}
 		}
 		if (!entry->parallel) {
-			result = fyai_execute_tool_call(group->ctx, call,
+			result = fyai_execute_tool_call(fyai_tool_job_group_ctx(group), call,
 							&entry->result_ok);
 			fyai_tool_group_entry_store(group, entry, result);
 			group->parked++;
 			continue;
 		}
 		entry->job = fy_is_valid(call) ?
-			fyai_tool_job_submit(group->ctx, call) : NULL;
+			fyai_tool_job_submit(fyai_tool_job_group_ctx(group), call) : NULL;
 		if (!entry->job) {
 			/* Return a submission error as the tool result. */
-			result = fy_value(group->ctx->transient->gb,
-					  fyai_tool_submit_error(group->ctx));
+			result = fy_value(fyai_tool_job_group_ctx(group)->transient->gb,
+					  fyai_tool_submit_error(fyai_tool_job_group_ctx(group)));
 			fyai_tool_group_entry_store(group, entry, result);
 			entry->result_ok = false;
 			group->parked++;
@@ -2423,14 +2423,14 @@ fyai_tool_job_group_cancelled_result(struct fyai_tool_job_group *group,
 
 	call = entry->call;
 	if (fy_equal(fy_get(call, "type"), "shell_call"))
-		return fy_gb_internalize(group->ctx->transient->gb,
+		return fy_gb_internalize(fyai_tool_job_group_ctx(group)->transient->gb,
 			fy_sequence(fy_mapping(
 				"stdout", "",
 				"stderr", "",
 				"outcome", fy_mapping(
 					"type", "signal",
 					"signal", SIGTERM))));
-	return fy_value(group->ctx->transient->gb, "tool error: interrupted");
+	return fy_value(fyai_tool_job_group_ctx(group)->transient->gb, "tool error: interrupted");
 }
 
 int fyai_tool_job_group_collect(struct fyai_tool_job_group *group,
@@ -2446,17 +2446,17 @@ int fyai_tool_job_group_collect(struct fyai_tool_job_group *group,
 	    entry->state != FYAITGS_SUBMIT_FAILED)
 		return -1;
 	if (entry->job) {
-		*result = fyai_tool_job_collect(group->ctx, entry->job, okp);
+		*result = fyai_tool_job_collect(fyai_tool_job_group_ctx(group), entry->job, okp);
 		entry->job = NULL;
 	} else if (entry->waiter) {
 		text = fyai_waiter_result(entry->waiter, okp);
 		fyai_waiter_destroy(entry->waiter);
 		entry->waiter = NULL;
-		*result = fy_gb_internalize(group->ctx->transient->gb,
+		*result = fy_gb_internalize(fyai_tool_job_group_ctx(group)->transient->gb,
 					    fy_value(text ? text : ""));
 		free(text);
 	} else if (entry->ask) {
-		*result = fy_gb_internalize(group->ctx->transient->gb,
+		*result = fy_gb_internalize(fyai_tool_job_group_ctx(group)->transient->gb,
 					    fyai_ask_call_result(entry->ask));
 		*okp = entry->result_ok;
 		fyai_ask_call_destroy(entry->ask);
@@ -2466,7 +2466,7 @@ int fyai_tool_job_group_collect(struct fyai_tool_job_group *group,
 		fyai_mcp_call_destroy(entry->mcp_request);
 		entry->mcp_request = NULL;
 	} else if (entry->has_result) {
-		*result = fy_gb_internalize(group->ctx->transient->gb,
+		*result = fy_gb_internalize(fyai_tool_job_group_ctx(group)->transient->gb,
 					    entry->result);
 		*okp = entry->result_ok;
 	} else if (group->phase == FYAITGP_CANCELLED) {

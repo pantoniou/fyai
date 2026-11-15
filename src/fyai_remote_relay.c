@@ -188,7 +188,7 @@ out:
 
 int fyai_cmd_remote_relay(struct fyai_cmd_call *call, fy_generic *result)
 {
-	struct fyai_ctx *ctx = call->ctx;
+	struct fyai_ctx *ctx = fyai_cmd_call_ctx(call);
 	struct fyai_ws_client_opts opts = {
 		.path = FYAI_HTTP_SESSION_PATH,
 		.max_message = RELAY_MESSAGE_MAX,

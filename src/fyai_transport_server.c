@@ -143,6 +143,12 @@ struct fyai_transport_server {
 	size_t active;
 };
 
+/* The context that this object stands on. */
+static inline struct fyai_ctx *fyai_transport_server_ctx(const struct fyai_transport_server *o)
+{
+	return o->ctx;
+}
+
 /*
  * Write one event to the transport log, if it is on. Everything that the log
  * takes passes the redactor: the log never holds a credential, and the
@@ -151,14 +157,14 @@ struct fyai_transport_server {
 static void srv_event(struct fyai_transport_server *srv, uint64_t id,
 		      uint64_t request, const char *event, const char *detail)
 {
-	struct fyai_cfg *cfg = srv->ctx->cfg;
+	struct fyai_cfg *cfg = fyai_transport_server_ctx(srv)->cfg;
 	struct fy_generic_builder *gb;
 	char *safe;
 	fy_generic doc;
 
 	if (!cfg->transport_logging)
 		return;
-	gb = srv->ctx->transient->gb ? srv->ctx->transient->gb : cfg->gb;
+	gb = fyai_transport_server_ctx(srv)->transient->gb ? fyai_transport_server_ctx(srv)->transient->gb : cfg->gb;
 	safe = fyai_redact_dup(&srv->redactor, detail ? detail : "");
 	if (!safe)
 		return;
@@ -166,7 +172,7 @@ static void srv_event(struct fyai_transport_server *srv, uint64_t id,
 			 "t_ms", (long long)fyai_event_now_ms(),
 			 "exec", (long long)id, "request", (long long)request,
 			 "detail", safe);
-	(void)fyai_log_generic(srv->ctx, "transport", doc);
+	(void)fyai_log_generic(fyai_transport_server_ctx(srv), "transport", doc);
 	free(safe);
 }
 
@@ -422,7 +428,7 @@ static int req_debug_cb(CURL *easy, curl_infotype type, char *data, size_t size,
 {
 	struct req *rq = ud;
 	struct fyai_transport_server *srv = rq->chan->srv;
-	struct fyai_cfg *cfg = srv->ctx->cfg;
+	struct fyai_cfg *cfg = fyai_transport_server_ctx(srv)->cfg;
 	const char *name = debug_type_name(type);
 	struct fy_generic_builder *gb;
 	char *copy;
@@ -437,7 +443,7 @@ static int req_debug_cb(CURL *easy, curl_infotype type, char *data, size_t size,
 		return 0;
 	memcpy(copy, data, size);
 	copy[size] = '\0';
-	gb = srv->ctx->transient->gb ? srv->ctx->transient->gb : cfg->gb;
+	gb = fyai_transport_server_ctx(srv)->transient->gb ? fyai_transport_server_ctx(srv)->transient->gb : cfg->gb;
 	/* Wire logging keeps the standard curl record and its redaction setting. */
 	if (cfg->wire_logging) {
 		wire = cfg->whitewash_api_keys ? strdup(copy) : copy;
@@ -447,7 +453,7 @@ static int req_debug_cb(CURL *easy, curl_infotype type, char *data, size_t size,
 				fyai_redact(&srv->redactor, wire, size);
 			doc = fy_mapping(gb, "kind", "curl", "type", name,
 					 "data", fy_string_size(wire, size));
-			(void)fyai_log_generic(srv->ctx, "wire", doc);
+			(void)fyai_log_generic(fyai_transport_server_ctx(srv), "wire", doc);
 			if (wire != copy)
 				free(wire);
 		}
@@ -458,7 +464,7 @@ static int req_debug_cb(CURL *easy, curl_infotype type, char *data, size_t size,
 				 "exec", (long long)rq->chan->id,
 				 "request", (long long)rq->id,
 				 "data", fy_string_size(copy, size));
-		(void)fyai_log_generic(srv->ctx, "transport", doc);
+		(void)fyai_log_generic(fyai_transport_server_ctx(srv), "transport", doc);
 	}
 	free(copy);
 	return 0;
@@ -826,8 +832,8 @@ static void req_setup_curl(struct req *rq, const struct fyai_transport_request *
 	curl_easy_setopt(rq->easy, CURLOPT_WRITEDATA, rq);
 	curl_easy_setopt(rq->easy, CURLOPT_HEADERFUNCTION, req_header_cb);
 	curl_easy_setopt(rq->easy, CURLOPT_HEADERDATA, rq);
-	if (rq->chan->srv->ctx->cfg->transport_logging ||
-	    rq->chan->srv->ctx->cfg->wire_logging) {
+	if (fyai_transport_server_ctx(rq->chan->srv)->cfg->transport_logging ||
+	    fyai_transport_server_ctx(rq->chan->srv)->cfg->wire_logging) {
 		curl_easy_setopt(rq->easy, CURLOPT_VERBOSE, 1L);
 		curl_easy_setopt(rq->easy, CURLOPT_DEBUGFUNCTION, req_debug_cb);
 		curl_easy_setopt(rq->easy, CURLOPT_DEBUGDATA, rq);
@@ -945,7 +951,7 @@ static void req_run(struct req *rq, const uint8_t *payload, size_t plen,
 		rc = srv->prepare(srv->cred_ud, rq->profile, resumed);
 		if (rc > 0) {
 			rq->park = malloc(plen ? plen : 1);
-			fyai_error_check(srv->ctx, rq->park, err_park,
+			fyai_error_check(fyai_transport_server_ctx(srv), rq->park, err_park,
 					 "could not allocate pending transport request");
 			memcpy(rq->park, payload, plen);
 			rq->park_len = plen;
@@ -1010,7 +1016,7 @@ static void req_run(struct req *rq, const uint8_t *payload, size_t plen,
 		goto out;
 	}
 	req_setup_curl(rq, &r);
-	rq->xfer = fyai_curl_submit(srv->ctx, rq->easy, req_complete_cb, rq);
+	rq->xfer = fyai_curl_submit(fyai_transport_server_ctx(srv), rq->easy, req_complete_cb, rq);
 	if (!rq->xfer)
 		req_fail(rq, -1, "transfer could not be started", false);
 	goto out;

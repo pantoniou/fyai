@@ -733,28 +733,28 @@ int fyai_cmd_help(struct fyai_cmd_call *call, fy_generic *result)
 		rc = fyai_cmd_arg_bool(call, "man") ?
 		     fyai_cmd_reference_man(&out) :
 		     fyai_cmd_reference_markdown(&out);
-		fyai_error_check(call->ctx, !rc, err_free,
+		fyai_error_check(fyai_cmd_call_ctx(call), !rc, err_free,
 				 "help: cannot build the reference");
 		/* A document for a file, written as it stands. */
-		(void)fyai_sink_write(call->ctx->front->sink, FYAI_SINK_MACHINE,
+		(void)fyai_sink_write(fyai_cmd_call_ctx(call)->front->sink, FYAI_SINK_MACHINE,
 				      out.data, out.len);
 		free(out.data);
 		return 0;
 	}
 	n = 0;
 	fy_foreach(w, fy_get(call->args, "topic", fy_invalid)) {
-		fyai_error_check(call->ctx, n < ARRAY_SIZE(words), err,
+		fyai_error_check(fyai_cmd_call_ctx(call), n < ARRAY_SIZE(words), err,
 				 "help: too many words");
 		words[n++] = fy_gb_intern_string(call->gb, fy_castp(&w, ""));
 	}
 	/* A skill has help of its own when no command has the name. */
-	if (n == 1 && help_skill(call->ctx, &out, &fail, words[0])) {
+	if (n == 1 && help_skill(fyai_cmd_call_ctx(call), &out, &fail, words[0])) {
 		rc = fail ? -1 : 0;
 	} else {
-		rc = fyai_cmd_help_source(call->ctx->cfg, call->surface, n,
+		rc = fyai_cmd_help_source(fyai_cmd_call_ctx(call)->cfg, call->surface, n,
 					  words, &out);
 		if (!rc && !n)
-			help_skills(call->ctx, &out, &fail, call->surface);
+			help_skills(fyai_cmd_call_ctx(call), &out, &fail, call->surface);
 		rc = rc || fail ? -1 : 0;
 	}
 	if (!rc) {

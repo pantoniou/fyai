@@ -187,6 +187,12 @@ struct fyai_page_state {
 	struct fyai_page_keys *keys;
 };
 
+/* The context that this object stands on. */
+static inline struct fyai_ctx *fyai_page_state_ctx(const struct fyai_page_state *o)
+{
+	return o->ctx;
+}
+
 /* The keys that the active cases of a transcribed page bind. The names are
  * borrowed from the document, which lives as long as the page. */
 #define FYAI_PAGE_KEYS_MAX 32
@@ -225,6 +231,12 @@ struct fyai_page_tile {
 	/* Set by the page: the rows and the columns the screen was given. */
 	int granted_rows, granted_cols;
 };
+
+/* The context that this object stands on. */
+static inline struct fyai_ctx *fyai_page_tile_ctx(const struct fyai_page_tile *o)
+{
+	return o->ctx;
+}
 
 /* Rows the chrome of @st takes: the header, the prompt block, the status
  * rows and the cap row. */

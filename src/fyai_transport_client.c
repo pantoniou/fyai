@@ -53,6 +53,12 @@ struct fyai_tclient {
 	bool lost;
 };
 
+/* The context that this object stands on. */
+static inline struct fyai_ctx *fyai_tclient_ctx(const struct fyai_tclient *o)
+{
+	return o->ctx;
+}
+
 static void tcall_unlink(struct fyai_tcall *call)
 {
 	struct fyai_tcall **pp;
@@ -341,15 +347,15 @@ struct fyai_tcall *fyai_tclient_submit(struct fyai_tclient *c,
 	size_t len = 0;
 	int rc;
 
-	fyai_error_check(c->ctx, !c->lost, err,
+	fyai_error_check(fyai_tclient_ctx(c), !c->lost, err,
 			 "the credential transport is not available");
 	call = calloc(1, sizeof(*call));
-	fyai_error_check(c->ctx, call, err, "out of memory");
+	fyai_error_check(fyai_tclient_ctx(c), call, err, "out of memory");
 	gb = fy_generic_builder_create(&cfg);
-	fyai_error_check(c->ctx, gb, err_call, "out of memory");
+	fyai_error_check(fyai_tclient_ctx(c), gb, err_call, "out of memory");
 	rc = fyai_transport_request_encode(gb, rq, &payload, &len);
 	fy_generic_builder_destroy(gb);
-	fyai_error_check(c->ctx, !rc, err_call,
+	fyai_error_check(fyai_tclient_ctx(c), !rc, err_call,
 			 "the request cannot be encoded for the transport");
 
 	call->client = c;
@@ -365,7 +371,7 @@ struct fyai_tcall *fyai_tclient_submit(struct fyai_tclient *c,
 		tcall_unlink(call);
 	if (rc)
 		c->lost = true;
-	fyai_error_check(c->ctx, !rc, err_call,
+	fyai_error_check(fyai_tclient_ctx(c), !rc, err_call,
 			 "the credential transport did not take the request: %s",
 			 strerror(-rc));
 	return call;

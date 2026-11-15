@@ -83,12 +83,12 @@ err:
 int fyai_cmd_init(struct fyai_cmd_call *call, fy_generic *result)
 {
 	(void)result;
-	return fyai_init_storage(call->ctx);
+	return fyai_init_storage(fyai_cmd_call_ctx(call));
 }
 
 int fyai_cmd_dump(struct fyai_cmd_call *call, fy_generic *result)
 {
-	struct fyai_dump_args *args = &call->ctx->cfg->cmd.args.dump;
+	struct fyai_dump_args *args = &fyai_cmd_call_ctx(call)->cfg->cmd.args.dump;
 	const char *what = fyai_cmd_arg_str(call, "what");
 
 	(void)result;
@@ -99,7 +99,7 @@ int fyai_cmd_dump(struct fyai_cmd_call *call, fy_generic *result)
 	args->state = !strcmp(what, "state");
 	args->anchors = !strcmp(what, "anchors");
 	args->provider_stream = !strcmp(what, "providers");
-	return fyai_dump_view(call->ctx);
+	return fyai_dump_view(fyai_cmd_call_ctx(call));
 }
 
 static int import_source(struct fyai_cmd_call *call, const char *from,
@@ -112,7 +112,7 @@ static int import_source(struct fyai_cmd_call *call, const char *from,
 	else if (!strcmp(from, "codex"))
 		*sourcep = FYAI_FOREIGN_CODEX;
 	else {
-		fyai_error(call->ctx, "import: unknown source '%s'", from);
+		fyai_error(fyai_cmd_call_ctx(call), "import: unknown source '%s'", from);
 		return -1;
 	}
 	return 0;
@@ -124,7 +124,7 @@ static int import_source(struct fyai_cmd_call *call, const char *from,
  */
 int fyai_cmd_import(struct fyai_cmd_call *call, fy_generic *result)
 {
-	struct fyai_ctx *ctx = call->ctx;
+	struct fyai_ctx *ctx = fyai_cmd_call_ctx(call);
 	const char *path = fyai_cmd_arg_str(call, "input");
 	const char *from = fyai_cmd_arg_str(call, "from");
 	const char *root = fyai_cmd_arg_str(call, "source_root");
@@ -178,18 +178,18 @@ err:
 int fyai_cmd_replay(struct fyai_cmd_call *call, fy_generic *result)
 {
 	(void)result;
-	return fyai_replay_view(call->ctx,
+	return fyai_replay_view(fyai_cmd_call_ctx(call),
 				fyai_cmd_arg_bool(call, "ignore_compact"));
 }
 
 int fyai_cmd_tool(struct fyai_cmd_call *call, fy_generic *result)
 {
-	struct fyai_tool_args *args = &call->ctx->cfg->cmd.args.tool;
+	struct fyai_tool_args *args = &fyai_cmd_call_ctx(call)->cfg->cmd.args.tool;
 
 	(void)result;
 	args->name = fyai_cmd_arg_str(call, "name");
 	args->args_json = fyai_cmd_arg_str(call, "json");
-	return fyai_run_tool_verb(call->ctx);
+	return fyai_run_tool_verb(fyai_cmd_call_ctx(call));
 }
 
 /* term draws on the terminal, so the display is interactive from setup. */
@@ -214,7 +214,7 @@ int fyai_cmd_term_prepare(struct fyai_cfg *cfg, fy_generic args)
 int fyai_cmd_term(struct fyai_cmd_call *call, fy_generic *result)
 {
 	(void)result;
-	return fyai_term_verb(call->ctx);
+	return fyai_term_verb(fyai_cmd_call_ctx(call));
 }
 
 /*
@@ -258,7 +258,7 @@ err:
 int fyai_cmd_agent(struct fyai_cmd_call *call, fy_generic *result)
 {
 	(void)result;
-	return fyai_agent_verb(call->ctx);
+	return fyai_agent_verb(fyai_cmd_call_ctx(call));
 }
 
 /*

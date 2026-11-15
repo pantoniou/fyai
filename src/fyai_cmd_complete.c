@@ -51,6 +51,12 @@ struct complete_req {
 	size_t ngiven;
 };
 
+/* The context that this object stands on. */
+static inline struct fyai_ctx *complete_req_ctx(const struct complete_req *o)
+{
+	return o->ctx;
+}
+
 static void cand(struct complete_req *r, const char *value, const char *desc)
 {
 	size_t len;
@@ -78,9 +84,9 @@ static void kind_branch_filtered(struct complete_req *r, bool agents,
 	fy_generic entry;
 	const char *name;
 
-	if (!r->ctx || !fy_is_mapping(r->ctx->bstate->branches))
+	if (!complete_req_ctx(r) || !fy_is_mapping(complete_req_ctx(r)->bstate->branches))
 		return;
-	fy_foreach_key_value(name, entry, r->ctx->bstate->branches) {
+	fy_foreach_key_value(name, entry, complete_req_ctx(r)->bstate->branches) {
 		if (fy_str_empty(name) || !fyai_branch_decode(entry, &b))
 			continue;
 		if (fy_is_valid(b.agent) != agents)
@@ -102,7 +108,7 @@ static void kind_view(struct complete_req *r)
 	fy_generic view;
 	const char *name;
 
-	if (!r->ctx || !fyai_branch_decode(r->ctx->bstate->prev, &branch))
+	if (!complete_req_ctx(r) || !fyai_branch_decode(complete_req_ctx(r)->bstate->prev, &branch))
 		return;
 	fy_foreach_key_value(name, view, fy_get(branch.store, "views", fy_invalid)) {
 		if (!fy_str_empty(name) && fy_is_mapping(view))
@@ -132,7 +138,7 @@ static void kind_ref(struct complete_req *r)
 	cand(r, "HEAD", "the current branch");
 	kind_branch(r);
 	mark = strpbrk(r->partial, "~^@");
-	if (!mark || !r->ctx)
+	if (!mark || !complete_req_ctx(r))
 		return;
 	len = (size_t)(mark - r->partial);
 	if (len >= sizeof(base))
@@ -140,7 +146,7 @@ static void kind_ref(struct complete_req *r)
 	memcpy(base, r->partial, len);
 	base[len] = '\0';
 	if (strcmp(base, "HEAD") &&
-	    !fyai_branch_lookup(r->ctx->bstate->branches, base, &b))
+	    !fyai_branch_lookup(complete_req_ctx(r)->bstate->branches, base, &b))
 		return;
 	for (i = 1; i <= 4; i++) {
 		cand(r, fy_sprintfa("%s~%d", base, i),
@@ -153,7 +159,7 @@ static void kind_ref(struct complete_req *r)
 /* The catalogue of the branch, else the embedded one. */
 static fy_generic complete_catalog(struct complete_req *r)
 {
-	return fyai_catalog_effective(r->ctx ? r->ctx->cfg->catalog :
+	return fyai_catalog_effective(complete_req_ctx(r) ? complete_req_ctx(r)->cfg->catalog :
 				      fy_invalid, r->gb);
 }
 
@@ -520,9 +526,9 @@ static void kind_mcp_server(struct complete_req *r)
 {
 	fy_generic key;
 
-	if (!r->ctx)
+	if (!complete_req_ctx(r))
 		return;
-	fy_foreach(key, r->ctx->cfg->mcp_servers)
+	fy_foreach(key, complete_req_ctx(r)->cfg->mcp_servers)
 		cand(r, gstr(&key), NULL);
 }
 
@@ -531,9 +537,9 @@ static void kind_skill_file(struct complete_req *r, const char *name)
 {
 	fy_generic key, files;
 
-	if (!r->ctx)
+	if (!complete_req_ctx(r))
 		return;
-	files = fy_get(fyai_skill_get(r->ctx, name), "files", fy_invalid);
+	files = fy_get(fyai_skill_get(complete_req_ctx(r), name), "files", fy_invalid);
 	if (!fy_is_mapping(files))
 		return;
 	fy_foreach(key, files)
@@ -546,9 +552,9 @@ static void complete_skills(struct complete_req *r)
 	fy_generic names, item, name, desc, hint;
 	const char *n;
 
-	if (!r->ctx)
+	if (!complete_req_ctx(r))
 		return;
-	names = fyai_skill_user_names(r->ctx, r->gb);
+	names = fyai_skill_user_names(complete_req_ctx(r), r->gb);
 	fy_foreach(item, names) {
 		name = fy_get(item, "name", fy_invalid);
 		desc = fy_get(item, "description", fy_invalid);
@@ -568,9 +574,9 @@ static void kind_skill(struct complete_req *r)
 {
 	fy_generic key, skills;
 
-	if (!r->ctx)
+	if (!complete_req_ctx(r))
 		return;
-	skills = fyai_skills(r->ctx);
+	skills = fyai_skills(complete_req_ctx(r));
 	if (fy_is_invalid(skills))
 		return;
 	fy_foreach(key, skills)
@@ -603,7 +609,7 @@ static void page_layout_cand(void *arg, const char *name)
 static void kind_page_layout(struct complete_req *r)
 {
 	cand(r, "auto", "the first layout the terminal is large enough for");
-	(void)fyai_page_layout_names(r->ctx ? fyai_ui_page(r->ctx) : NULL,
+	(void)fyai_page_layout_names(complete_req_ctx(r) ? fyai_ui_page(complete_req_ctx(r)) : NULL,
 				     page_layout_cand, r);
 }
 
@@ -614,8 +620,8 @@ static void sandbox_profile_cand(void *arg, const char *name, const char *desc)
 
 static void kind_sandbox_profile(struct complete_req *r)
 {
-	if (r->ctx)
-		fyai_sandbox_profile_names(r->ctx->cfg, r->ctx->cfg->config_doc,
+	if (complete_req_ctx(r))
+		fyai_sandbox_profile_names(complete_req_ctx(r)->cfg, complete_req_ctx(r)->cfg->config_doc,
 					   sandbox_profile_cand, r);
 }
 
@@ -824,7 +830,7 @@ static void complete_subcommands(struct complete_req *r, fy_generic group,
 		    fy_get(sub, "hidden", false))
 			continue;
 		if (cmd_words_add(&ws, sub))
-			fyai_error(r->ctx, "cannot collect the commands to complete");
+			fyai_error(complete_req_ctx(r), "cannot collect the commands to complete");
 	}
 	free(subs);
 	cmd_words_emit(r, &ws);
@@ -1175,6 +1181,12 @@ struct machine_cands {
 	bool fail;
 };
 
+/* The context that this object stands on. */
+static inline struct fyai_ctx *machine_cands_ctx(const struct machine_cands *o)
+{
+	return o->ctx;
+}
+
 static void machine_cand(void *arg, const char *value, const char *desc)
 {
 	struct machine_cands *mc = arg;
@@ -1217,7 +1229,7 @@ int fyai_cmd_complete_verb(struct fyai_cmd_call *call, fy_generic *result)
 	(void)result;
 	n = 0;
 	fy_foreach(w, fy_get(call->args, "words", fy_invalid)) {
-		fyai_error_check(call->ctx, n < ARRAY_SIZE(words), err,
+		fyai_error_check(fyai_cmd_call_ctx(call), n < ARRAY_SIZE(words), err,
 				 "__complete: too many words");
 		words[n++] = fy_gb_intern_string(call->gb, fy_castp(&w, ""));
 	}
@@ -1225,13 +1237,13 @@ int fyai_cmd_complete_verb(struct fyai_cmd_call *call, fy_generic *result)
 	if (!n)
 		words[n++] = "";
 	memset(&mc, 0, sizeof(mc));
-	mc.ctx = call->ctx;
-	directives = fyai_cmd_complete(call->ctx, FYAI_CMD_CLI, n, words,
+	mc.ctx = fyai_cmd_call_ctx(call);
+	directives = fyai_cmd_complete(fyai_cmd_call_ctx(call), FYAI_CMD_CLI, n, words,
 				       machine_cand, &mc);
 	snprintf(tail, sizeof(tail), ":%u\n", directives);
 	if (!mc.fail && fyai_buf_append(&mc.out, tail))
 		mc.fail = true;
-	fyai_error_check(call->ctx, !mc.fail, err_free,
+	fyai_error_check(fyai_cmd_call_ctx(call), !mc.fail, err_free,
 			 "__complete: cannot build the candidates");
 	/* The protocol of the completion scripts: never rendered. */
 	rc = fyai_cmd_machine_write(call, mc.out.data, mc.out.len);

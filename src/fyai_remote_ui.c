@@ -102,13 +102,19 @@ struct fyai_remote_ui {
 	char *error;			/* the cause of the last failed turn */
 };
 
+/* The context that this object stands on. */
+static inline struct fyai_ctx *fyai_remote_ui_ctx(const struct fyai_remote_ui *o)
+{
+	return o->ctx;
+}
+
 static int remote_ui_sync(struct fyai_remote_ui *view);
 
 /* Send @subtype with the members of @fields as a request to the worker. */
 static int remote_ui_request(struct fyai_remote_ui *view, const char *subtype,
 			     fy_generic fields)
 {
-	struct fy_generic_builder *gb = fyai_ctx_transient_gb(view->ctx);
+	struct fy_generic_builder *gb = fyai_ctx_transient_gb(fyai_remote_ui_ctx(view));
 	const char *id;
 
 	/* A watcher asks for the model and the turns, which change nothing. */
@@ -156,7 +162,7 @@ static void remote_ui_term_free(struct fyai_ctx *ctx, struct remote_ui_term *t)
 static int remote_ui_term_feed(struct fyai_remote_ui *view,
 			       struct remote_ui_term *t)
 {
-	struct fyai_ctx *ctx = view->ctx;
+	struct fyai_ctx *ctx = fyai_remote_ui_ctx(view);
 	const char *text;
 	size_t len;
 
@@ -182,7 +188,7 @@ static int remote_ui_term_feed(struct fyai_remote_ui *view,
 static int remote_ui_term_open(struct fyai_remote_ui *view,
 			       struct remote_ui_term *t)
 {
-	struct fyai_ctx *ctx = view->ctx;
+	struct fyai_ctx *ctx = fyai_remote_ui_ctx(view);
 	int rc;
 
 	t->view = fyai_terminal_view_create(ctx, t->rows, t->cols, 0);
@@ -278,7 +284,7 @@ static bool remote_ui_term_keys(void *data, struct fytim_surface *sf,
 				const char *bytes, size_t len)
 {
 	struct fyai_remote_ui *view = data;
-	struct fyai_ctx *ctx = view->ctx;
+	struct fyai_ctx *ctx = fyai_remote_ui_ctx(view);
 	struct remote_ui_term *t;
 	size_t keylen;
 
@@ -330,7 +336,7 @@ static const struct fyai_uimodel_tile_ops remote_ui_tile_ops = {
 /* Show each terminal that the member "items" of the work store names. */
 static int remote_ui_terms(struct fyai_remote_ui *view, fy_generic root)
 {
-	struct fyai_ctx *ctx = view->ctx;
+	struct fyai_ctx *ctx = fyai_remote_ui_ctx(view);
 	struct remote_ui_term **tp, *t;
 	fy_generic items = fy_get(root, "items", fy_seq_empty), item, term;
 	const char *name;
@@ -449,7 +455,7 @@ err:
  */
 static int remote_ui_state(struct fyai_remote_ui *view, fy_generic root)
 {
-	struct fyai_ctx *ctx = view->ctx;
+	struct fyai_ctx *ctx = fyai_remote_ui_ctx(view);
 	struct fyai_cfg *cfg = ctx->cfg;
 	fy_generic display = fy_get(root, "display", fy_invalid), doc;
 	int rc;
@@ -474,7 +480,7 @@ err:
 /* Open the display, with the configuration that the state gave. */
 static int remote_ui_display_open(struct fyai_remote_ui *view)
 {
-	struct fyai_ctx *ctx = view->ctx;
+	struct fyai_ctx *ctx = fyai_remote_ui_ctx(view);
 	int rc;
 
 	rc = fyai_ui_open(ctx);
@@ -499,7 +505,7 @@ err:
 /* A store of the worker changed: apply it, then draw what follows from it. */
 static int remote_ui_store(struct fyai_remote_ui *view, fy_generic frame)
 {
-	struct fyai_ctx *ctx = view->ctx;
+	struct fyai_ctx *ctx = fyai_remote_ui_ctx(view);
 	const char *name = fy_get(frame, "store", "");
 	fy_generic root = fy_get(frame, "root", fy_invalid);
 	long long head;
@@ -542,7 +548,7 @@ static int remote_ui_store(struct fyai_remote_ui *view, fy_generic frame)
  */
 static int remote_ui_sync(struct fyai_remote_ui *view)
 {
-	struct fy_generic_builder *gb = fyai_ctx_transient_gb(view->ctx);
+	struct fy_generic_builder *gb = fyai_ctx_transient_gb(fyai_remote_ui_ctx(view));
 	fy_generic have = fy_seq_empty;
 	size_t back, i;
 
@@ -567,7 +573,7 @@ static int remote_ui_turns_push(struct fyai_remote_ui *view, const char *id,
 	if (view->nturns == view->turns_cap) {
 		cap = view->turns_cap ? view->turns_cap * 2 : 64;
 		v = realloc(view->turns, cap * sizeof(*v));
-		fyai_error_check(view->ctx, v, err,
+		fyai_error_check(fyai_remote_ui_ctx(view), v, err,
 				 "cannot keep the stored turns");
 		view->turns = v;
 		view->turns_cap = cap;
@@ -586,7 +592,7 @@ err:
  */
 static int remote_ui_history(struct fyai_remote_ui *view, fy_generic response)
 {
-	struct fyai_ctx *ctx = view->ctx;
+	struct fyai_ctx *ctx = fyai_remote_ui_ctx(view);
 	struct fy_generic_builder *gb = view->history_gb;
 	fy_generic head = fy_null, turn, base = fy_get(response, "base",
 						       fy_invalid);
@@ -701,7 +707,7 @@ err:
 
 static int remote_ui_response(struct fyai_remote_ui *view, fy_generic frame)
 {
-	struct fyai_ctx *ctx = view->ctx;
+	struct fyai_ctx *ctx = fyai_remote_ui_ctx(view);
 	fy_generic response = fy_get(frame, "response", fy_invalid);
 	const char *id = fy_get(response, "request_id", "");
 	bool init = !strncmp(id, "ui-initialize-", 14);
@@ -734,7 +740,7 @@ err:
 
 static int remote_ui_frame(struct fyai_remote_ui *view, fy_generic frame)
 {
-	struct fyai_ctx *ctx = view->ctx;
+	struct fyai_ctx *ctx = fyai_remote_ui_ctx(view);
 	struct remote_ui_term *t;
 	fy_generic type = fy_get(frame, "type", fy_invalid);
 	const char *subtype = fy_get(frame, "subtype", "");
@@ -772,7 +778,7 @@ static enum fyai_event_action remote_ui_timeout(const struct fyai_event *ev)
 	struct fyai_remote_ui *view = ev->userdata;
 
 	view->deadline = NULL;
-	fyai_error(view->ctx, "the worker did not answer the initialize");
+	fyai_error(fyai_remote_ui_ctx(view), "the worker did not answer the initialize");
 	view->failed = true;
 	return FYAIEA_CONTINUE;
 }
@@ -824,7 +830,7 @@ void fyai_remote_ui_receive(struct fyai_remote_ui *view, fy_generic frame)
 	inbox = fy_append(view->inbox_gb, view->inbox,
 			  fy_gb_internalize(view->inbox_gb, frame));
 	if (fy_is_invalid(inbox)) {
-		fyai_error(view->ctx, "cannot keep a frame of the worker");
+		fyai_error(fyai_remote_ui_ctx(view), "cannot keep a frame of the worker");
 		view->failed = true;
 		return;
 	}
@@ -838,13 +844,13 @@ void fyai_remote_ui_receive(struct fyai_remote_ui *view, fy_generic frame)
  */
 static int remote_ui_line(struct fyai_remote_ui *view, const char *line)
 {
-	struct fy_generic_builder *gb = fyai_ctx_transient_gb(view->ctx);
+	struct fy_generic_builder *gb = fyai_ctx_transient_gb(fyai_remote_ui_ctx(view));
 
 	if (view->watch)
 		return 0;
-	fyai_echo_user_turn(view->ctx, line);
-	fyai_ui_drain_output(view->ctx);
-	if (fyai_uidraw_echoed(view->ctx, line))
+	fyai_echo_user_turn(fyai_remote_ui_ctx(view), line);
+	fyai_ui_drain_output(fyai_remote_ui_ctx(view));
+	if (fyai_uidraw_echoed(fyai_remote_ui_ctx(view), line))
 		return -1;
 
 	return jsonrpc_conn_send_frame(view->conn, fy_mapping(gb,
@@ -869,7 +875,7 @@ static int remote_ui_hold(struct fyai_remote_ui *view, fy_generic frame)
 
 	held = fy_append(view->held_gb, view->held,
 			 fy_gb_internalize(view->held_gb, frame));
-	fyai_error_check(view->ctx, fy_is_valid(held), err,
+	fyai_error_check(fyai_remote_ui_ctx(view), fy_is_valid(held), err,
 			 "cannot keep a frame of the worker");
 	view->held = held;
 	return 0;
@@ -892,7 +898,7 @@ static int remote_ui_release(struct fyai_remote_ui *view)
 
 int fyai_remote_ui_step(struct fyai_remote_ui *view)
 {
-	struct fyai_ctx *ctx = view->ctx;
+	struct fyai_ctx *ctx = fyai_remote_ui_ctx(view);
 	fy_generic frame;
 	sig_atomic_t interrupt_seq;
 	bool delivered;
@@ -993,7 +999,7 @@ void fyai_remote_ui_close(struct fyai_remote_ui *view)
 
 	if (!view)
 		return;
-	ctx = view->ctx;
+	ctx = fyai_remote_ui_ctx(view);
 	fyai_event_source_remove(view->deadline);
 	fyai_uidraw_finish(ctx);
 	while ((t = view->terms)) {

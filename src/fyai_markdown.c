@@ -1952,7 +1952,7 @@ int fyai_fenced_stream_set_indicator(struct fyai_fenced_stream *fs,
  */
 static bool fenced_stream_banded(const struct fyai_fenced_stream *fs)
 {
-	return fyai_ui_active(fs->ctx) || fs->band || !fs->fp;
+	return fyai_ui_active(fyai_fenced_stream_ctx(fs)) || fs->band || !fs->fp;
 }
 
 
@@ -1987,17 +1987,17 @@ static int fenced_stream_flush_arm(struct fyai_fenced_stream *fs)
 	fyai_event_ms_t delay;
 	int rc;
 
-	assert(fs && fs->ctx);
+	assert(fs && fyai_fenced_stream_ctx(fs));
 	if (fs->flush_src)
 		return 0;
-	el = fyai_ctx_loop(fs->ctx);
+	el = fyai_ctx_loop(fyai_fenced_stream_ctx(fs));
 	assert(el);
 	delay = fs->next_render_ms - fyai_event_now_ms();
 	if (delay < 1)
 		delay = 1;
 	rc = fyai_event_add_timer(el, delay, 0, fenced_stream_flush_timer, fs,
 				  &fs->flush_src);
-	fyai_error_check(fs->ctx, !rc, err,
+	fyai_error_check(fyai_fenced_stream_ctx(fs), !rc, err,
 			 "failed to schedule a deferred Markdown render");
 	return 0;
 err:
@@ -2007,8 +2007,8 @@ err:
 /* Minimum interval between progressive repaints; zero repaints every push. */
 static int fenced_stream_interval_ms(const struct fyai_fenced_stream *fs)
 {
-	assert(fs && fs->ctx && fs->ctx->cfg);
-	return fs->ctx->cfg->tool_update_interval_ms;
+	assert(fs && fyai_fenced_stream_ctx(fs) && fyai_fenced_stream_ctx(fs)->cfg);
+	return fyai_fenced_stream_ctx(fs)->cfg->tool_update_interval_ms;
 }
 
 /* Read a fence marker and its information string. */
@@ -2111,7 +2111,7 @@ int fyai_fenced_stream_animate(struct fyai_fenced_stream *fs,
 		return 0;
 	if (fs->render_pending && now >= fs->next_render_ms) {
 		rc = fenced_stream_render(fs);
-		fyai_error_check(fs->ctx, !rc, err,
+		fyai_error_check(fyai_fenced_stream_ctx(fs), !rc, err,
 				 "failed to render deferred Markdown data");
 	}
 	if (fs->indicator_state != FYMD_INDICATOR_PENDING ||
@@ -2123,7 +2123,7 @@ int fyai_fenced_stream_animate(struct fyai_fenced_stream *fs,
 	}
 	rc = fyai_fenced_stream_set_indicator(fs, FYMD_INDICATOR_PENDING,
 					      fs->indicator_frame + 1);
-	fyai_error_check(fs->ctx, !rc, err,
+	fyai_error_check(fyai_fenced_stream_ctx(fs), !rc, err,
 			 "failed to advance the Markdown activity indicator");
 	fs->indicator_next_ms = now + fs->indicator_interval_ms;
 	fenced_stream_band_update(fs);
@@ -2176,14 +2176,14 @@ static bool fenced_stream_width_changed(struct fyai_fenced_stream *fs)
 	/* Shared and unpainted bands use the terminal width. */
 	cols = fyai_sink_band_cols(fs->band);
 	if (cols <= 0)
-		cols = markdown_effective_width(fs->ctx->cfg);
+		cols = markdown_effective_width(fyai_fenced_stream_ctx(fs)->cfg);
 	if (cols <= 0 || cols == fs->render_cols)
 		return false;
 
-	markdown_renderer_cfg_indented(fs->ctx->cfg, &rcfg, cols,
+	markdown_renderer_cfg_indented(fyai_fenced_stream_ctx(fs)->cfg, &rcfg, cols,
 				       fyai_indent_cols(fs->indent));
 
-	r = markdown_renderer_new(fs->ctx->cfg, &rcfg);
+	r = markdown_renderer_new(fyai_fenced_stream_ctx(fs)->cfg, &rcfg);
 	if (!r)
 		return false;	/* retain the old renderer */
 	markdown_set_line_limit(r, fs->max_lines);
@@ -2265,7 +2265,7 @@ static int fenced_stream_render(struct fyai_fenced_stream *fs)
 	if (mark && mark->in_fence) {
 		rc = fyai_buf_reserve(&reopen,
 					     slen + sizeof(mark->info) + 8);
-		fyai_error_check(fs->ctx, !rc, err_out,
+		fyai_error_check(fyai_fenced_stream_ctx(fs), !rc, err_out,
 				 "could not reserve the reopened Markdown fence");
 		reopen.len = (size_t)snprintf(reopen.data,
 					      sizeof(mark->info) + 8, "```%s\n",
@@ -2284,7 +2284,7 @@ static int fenced_stream_render(struct fyai_fenced_stream *fs)
 				lines++;
 		qlen = slen + lines * 2;
 		rc = fyai_buf_reserve(&quoted, qlen + 1);
-		fyai_error_check(fs->ctx, !rc, err_out,
+		fyai_error_check(fyai_fenced_stream_ctx(fs), !rc, err_out,
 				 "could not reserve the quoted Markdown window");
 		p = source;
 		end = p + slen;
@@ -2300,7 +2300,7 @@ static int fenced_stream_render(struct fyai_fenced_stream *fs)
 		quoted.data[quoted.len] = '\0';
 		rc = fymd_render(fs->r, quoted.data, quoted.len,
 				 &rendered, &rlen);
-		fyai_error_check(fs->ctx, !rc, err_out,
+		fyai_error_check(fyai_fenced_stream_ctx(fs), !rc, err_out,
 				 "could not render the quoted Markdown window");
 	} else {
 		memset(&opts, 0, sizeof(opts));
@@ -2309,24 +2309,24 @@ static int fenced_stream_render(struct fyai_fenced_stream *fs)
 				FYMD_FBF_HIGHLIGHT : 0;
 		rc = fymd_render_fenced_block(fs->r, source, slen, &opts,
 					      &rendered, &rlen);
-		fyai_error_check(fs->ctx, !rc, err_out,
+		fyai_error_check(fyai_fenced_stream_ctx(fs), !rc, err_out,
 				 "could not render the fenced Markdown window");
 	}
 	/* Add the omitted source-line count before the rendered tail. */
 	if (omitted) {
 		n = snprintf(sep, sizeof(sep), "%s⋯ %zu more lines\n",
 			     fs->markdown_quote ? "> " : "", omitted);
-		fyai_error_check(fs->ctx, n >= 0, err_out,
+		fyai_error_check(fyai_fenced_stream_ctx(fs), n >= 0, err_out,
 				 "could not format the Markdown omission line");
 		rc = fyai_buf_reserve(&out, rlen + (size_t)n + 1);
-		fyai_error_check(fs->ctx, !rc, err_out,
+		fyai_error_check(fyai_fenced_stream_ctx(fs), !rc, err_out,
 				 "could not reserve the rendered Markdown window");
 		memcpy(out.data, sep, (size_t)n);
 		memcpy(out.data + n, rendered, rlen);
 		out.len = rlen + (size_t)n;
 	} else {
 		rc = fyai_buf_reserve(&out, rlen + 1);
-		fyai_error_check(fs->ctx, !rc, err_out,
+		fyai_error_check(fyai_fenced_stream_ctx(fs), !rc, err_out,
 				 "could not reserve the rendered Markdown window");
 		memcpy(out.data, rendered, rlen);
 		out.len = rlen;
@@ -2335,17 +2335,17 @@ static int fenced_stream_render(struct fyai_fenced_stream *fs)
 
 	if (fenced_stream_banded(fs)) {
 		mf = open_memstream(&indented, &ilen);
-		fyai_error_check(fs->ctx, mf, err_out,
+		fyai_error_check(fyai_fenced_stream_ctx(fs), mf, err_out,
 				 "could not open the Markdown indent buffer");
 		fyai_fwrite_indented(mf, fs->indent, out.data, out.len);
 		close_rc = fclose(mf);
 		mf = NULL;
-		fyai_error_check(fs->ctx, !close_rc, err_out,
+		fyai_error_check(fyai_fenced_stream_ctx(fs), !close_rc, err_out,
 				 "could not close the Markdown indent buffer");
 		/* Keep the body for indicator repaints. */
 		fs->body.len = 0;
 		rc = fyai_buf_reserve(&fs->body, ilen + 1);
-		fyai_error_check(fs->ctx, !rc, err_out,
+		fyai_error_check(fyai_fenced_stream_ctx(fs), !rc, err_out,
 				 "failed to reserve the Markdown band buffer");
 		memcpy(fs->body.data, indented, ilen);
 		fs->body.len = ilen;
@@ -2354,7 +2354,7 @@ static int fenced_stream_render(struct fyai_fenced_stream *fs)
 			fenced_stream_band_update(fs);
 		else
 			fyai_sink_band_paint(
-				fyai_sink_band_shared(fs->ctx->front->sink), NULL,
+				fyai_sink_band_shared(fyai_fenced_stream_ctx(fs)->front->sink), NULL,
 				NULL, fs->body.data, fs->body.len, NULL);
 		rc = 0;
 		goto out;
@@ -2378,7 +2378,7 @@ static int fenced_stream_render(struct fyai_fenced_stream *fs)
 
 	fs->shown.len = 0;
 	rc = fyai_buf_reserve(&fs->shown, out.len + 1);
-	fyai_error_check(fs->ctx, !rc, err_out,
+	fyai_error_check(fyai_fenced_stream_ctx(fs), !rc, err_out,
 			 "could not reserve the displayed Markdown buffer");
 	memcpy(fs->shown.data, out.data, out.len);
 	fs->shown.len = out.len;
@@ -2411,10 +2411,10 @@ static void fenced_stream_tap(struct fyai_fenced_stream *fs,
 	struct fyai_sink_band *band = fs->band;
 
 	if (!band && fs->live)
-		band = fyai_sink_band_shared(fs->ctx->front->sink);
+		band = fyai_sink_band_shared(fyai_fenced_stream_ctx(fs)->front->sink);
 	if (!band)
 		return;
-	fyai_uiwork_band_source(fs->ctx, band, fs,
+	fyai_uiwork_band_source(fyai_fenced_stream_ctx(fs), band, fs,
 				fs->markdown_quote ? "markdown" :
 				fs->lang ? "code" : "terminal",
 				fs->lang, fs->max_lines, fs->indent != NULL,
@@ -2431,7 +2431,7 @@ int fyai_fenced_stream_push(struct fyai_fenced_stream *fs,
 	if (len) {
 		rc = fyai_buf_reserve(&fs->accum,
 					     fs->accum.len + len + 1);
-		fyai_error_check(fs->ctx, !rc, err,
+		fyai_error_check(fyai_fenced_stream_ctx(fs), !rc, err,
 				 "failed to reserve the Markdown input buffer");
 		memcpy(fs->accum.data + fs->accum.len, data, len);
 		fs->accum.len += len;
@@ -2446,12 +2446,12 @@ int fyai_fenced_stream_push(struct fyai_fenced_stream *fs,
 	    fyai_event_now_ms() < fs->next_render_ms) {
 		fs->render_pending = true;
 		rc = fenced_stream_flush_arm(fs);
-		fyai_error_check(fs->ctx, !rc, err,
+		fyai_error_check(fyai_fenced_stream_ctx(fs), !rc, err,
 				 "failed to defer the Markdown render");
 		return 0;
 	}
 	rc = fenced_stream_render(fs);
-	fyai_error_check(fs->ctx, !rc, err, "failed to render Markdown data");
+	fyai_error_check(fyai_fenced_stream_ctx(fs), !rc, err, "failed to render Markdown data");
 	return 0;
 err:
 	return -1;
@@ -2475,9 +2475,9 @@ void fyai_fenced_stream_finish(struct fyai_fenced_stream *fs)
 		 * before the band close creates the final commit payload.
 		 */
 		fymd_renderer_destroy(fs->r);
-		markdown_renderer_cfg_indented(fs->ctx->cfg, &rcfg, 0,
+		markdown_renderer_cfg_indented(fyai_fenced_stream_ctx(fs)->cfg, &rcfg, 0,
 					       fyai_indent_cols(fs->indent));
-		fs->r = markdown_renderer_new(fs->ctx->cfg, &rcfg);
+		fs->r = markdown_renderer_new(fyai_fenced_stream_ctx(fs)->cfg, &rcfg);
 		if (fs->r) {
 			markdown_set_line_limit(fs->r, fs->max_lines);
 			/* Render the full block for the commit payload. */

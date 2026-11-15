@@ -1263,10 +1263,16 @@ struct fyai_ask_call {
 	bool failed;
 };
 
+/* The context that this object stands on. */
+static inline struct fyai_ctx *fyai_ask_call_ctx(const struct fyai_ask_call *o)
+{
+	return o->ctx;
+}
+
 /* Build the result of the call from the replies, or from none. */
 static void fyai_ask_call_settle(struct fyai_ask_call *c)
 {
-	struct fyai_ctx *ctx = c->ctx;
+	struct fyai_ctx *ctx = fyai_ask_call_ctx(c);
 	const char *text;
 	char *echo;
 
@@ -1364,7 +1370,7 @@ void fyai_ask_call_cancel(struct fyai_ask_call *c)
 {
 	if (!c || c->done)
 		return;
-	fyai_ask_close(c->ctx, c);
+	fyai_ask_close(fyai_ask_call_ctx(c), c);
 	c->notify = NULL;
 	fyai_ask_call_settle(c);
 }
@@ -1374,7 +1380,7 @@ void fyai_ask_call_destroy(struct fyai_ask_call *c)
 	if (!c)
 		return;
 	if (!c->done)
-		fyai_ask_close(c->ctx, c);
+		fyai_ask_close(fyai_ask_call_ctx(c), c);
 	fyai_ask_replies_free(c->replies, c->n);
 	if (c->gb)
 		fy_generic_builder_destroy(c->gb);

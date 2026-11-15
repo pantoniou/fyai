@@ -51,6 +51,12 @@ struct fyai_remote_http {
 	struct fyai_remote_http_ops ops;
 };
 
+/* The context that this object stands on. */
+static inline struct fyai_ctx *fyai_remote_http_ctx(const struct fyai_remote_http *o)
+{
+	return o->ctx;
+}
+
 /* One client: its WebSocket, and the socket of lines that the server has. */
 struct remote_client {
 	struct fyai_remote_http *http;
@@ -257,7 +263,7 @@ static void remote_upgrade(struct fyai_remote_http *http, struct fyai_httpd_conn
 	fyai_httpd_conn_set_user(c, cl);
 	if (fyai_httpd_ws_accept(c, req))
 		return;
-	rc = fyai_event_add_fd(fyai_ctx_loop(http->ctx), sv[0], FYAIEV_READ,
+	rc = fyai_event_add_fd(fyai_ctx_loop(fyai_remote_http_ctx(http)), sv[0], FYAIEV_READ,
 			       client_sock_cb, cl, &cl->src);
 	if (rc) {
 		fyai_httpd_kill(c);

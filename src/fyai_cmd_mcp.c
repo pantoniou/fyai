@@ -29,14 +29,14 @@
  */
 int fyai_cmd_mcp_status(struct fyai_cmd_call *call, fy_generic *result)
 {
-	struct fyai_cfg *cfg = call->ctx->cfg;
+	struct fyai_cfg *cfg = fyai_cmd_call_ctx(call)->cfg;
 	struct fy_generic_builder *gb = call->gb;
 	fy_generic rows, key, server, command;
 	const char *name;
 
 	/* The live connections, when the session has started them. */
-	if (call->ctx->mcp->conns) {
-		*result = fyai_mcp_status_data(call->ctx, gb);
+	if (fyai_cmd_call_ctx(call)->mcp->conns) {
+		*result = fyai_mcp_status_data(fyai_cmd_call_ctx(call), gb);
 		call->renderopts = fy_mapping(gb,
 			"title", "MCP endpoints",
 			"keys", fy_sequence(gb, "server", "state", "transport",
@@ -44,7 +44,7 @@ int fyai_cmd_mcp_status(struct fyai_cmd_call *call, fy_generic *result)
 					    "endpoint", "error"),
 			"columns", fy_mapping(gb,
 				"error", fy_mapping(gb, "name", "Last error")));
-		fyai_error_check(call->ctx, fy_is_valid(*result), err,
+		fyai_error_check(fyai_cmd_call_ctx(call), fy_is_valid(*result), err,
 				 "mcp: cannot build the status");
 		return 0;
 	}
@@ -73,7 +73,7 @@ int fyai_cmd_mcp_status(struct fyai_cmd_call *call, fy_generic *result)
 					cfg->mcp_protocol_version : "-",
 					cfg->mcp_timeout));
 	*result = rows;
-	fyai_error_check(call->ctx, fy_is_valid(rows) &&
+	fyai_error_check(fyai_cmd_call_ctx(call), fy_is_valid(rows) &&
 			 fy_is_valid(call->renderopts), err,
 			 "mcp: cannot build the status");
 	return 0;
@@ -87,8 +87,8 @@ int fyai_cmd_mcp_login(struct fyai_cmd_call *call, fy_generic *result)
 	bool login;
 
 	login = fy_equal(fy_get(call->def, "command", fy_invalid), "login");
-	if (login ? fyai_mcp_login(call->ctx, name) :
-		    fyai_mcp_logout(call->ctx, name))
+	if (login ? fyai_mcp_login(fyai_cmd_call_ctx(call), name) :
+		    fyai_mcp_logout(fyai_cmd_call_ctx(call), name))
 		return -1;
 	*result = fy_mapping(call->gb, "server", name, "login", login);
 	return 0;
@@ -97,7 +97,7 @@ int fyai_cmd_mcp_login(struct fyai_cmd_call *call, fy_generic *result)
 /* Turn the MCP servers of the session on or off, and store the setting. */
 int fyai_cmd_mcp_enable(struct fyai_cmd_call *call, fy_generic *result)
 {
-	struct fyai_ctx *ctx = call->ctx;
+	struct fyai_ctx *ctx = fyai_cmd_call_ctx(call);
 	struct fyai_cfg *cfg = ctx->cfg;
 	bool on, was;
 
@@ -119,7 +119,7 @@ int fyai_cmd_mcp_enable(struct fyai_cmd_call *call, fy_generic *result)
 
 int fyai_cmd_mcp_import_client(struct fyai_cmd_call *call, fy_generic *result)
 {
-	struct fyai_mcp_args *args = &call->ctx->cfg->cmd.args.mcp;
+	struct fyai_mcp_args *args = &fyai_cmd_call_ctx(call)->cfg->cmd.args.mcp;
 	const char *scopes[64];
 	fy_generic s;
 	size_t n;
@@ -128,7 +128,7 @@ int fyai_cmd_mcp_import_client(struct fyai_cmd_call *call, fy_generic *result)
 	(void)result;
 	n = 0;
 	fy_foreach(s, fy_get(call->args, "scope", fy_invalid)) {
-		fyai_error_check(call->ctx, n < ARRAY_SIZE(scopes), err,
+		fyai_error_check(fyai_cmd_call_ctx(call), n < ARRAY_SIZE(scopes), err,
 				 "mcp: at most %zu scopes", ARRAY_SIZE(scopes));
 		scopes[n++] = fy_gb_intern_string(call->gb, fy_castp(&s, ""));
 	}
@@ -140,7 +140,7 @@ int fyai_cmd_mcp_import_client(struct fyai_cmd_call *call, fy_generic *result)
 	args->scopes = scopes;
 	args->scope_count = n;
 	args->force = fyai_cmd_arg_bool(call, "force");
-	rc = fyai_mcp_import_client(call->ctx);
+	rc = fyai_mcp_import_client(fyai_cmd_call_ctx(call));
 	/* The scopes are on this stack. */
 	args->scopes = NULL;
 	args->scope_count = 0;

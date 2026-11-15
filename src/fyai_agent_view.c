@@ -137,7 +137,7 @@ static void fyai_agent_apply_grant(void *owner, int rows, int cols)
 		return;
 	}
 	(void)fyai_ui_surface_resize(job->surface, rows, cols);
-	fyai_workpane_grid_resized(job->ctx->front->workpane, job->surface, rows, cols);
+	fyai_workpane_grid_resized(fyai_tool_job_ctx(job)->front->workpane, job->surface, rows, cols);
 }
 
 static void fyai_agent_focus_changed(void *owner, bool focused)
@@ -160,7 +160,7 @@ static void fyai_agent_present(void *owner, enum fyai_workpane_present p)
 		fyai_terminal_view_damage_all(job->view);
 		(void)fyai_ui_surface_publish(job->surface, job->view);
 	}
-	fyai_ui_wake(job->ctx);
+	fyai_ui_wake(fyai_tool_job_ctx(job));
 }
 
 static const struct fyai_workpane_tile_ops fyai_agent_tile_ops = {
@@ -183,23 +183,23 @@ void fyai_agent_inline_paint(struct fyai_tool_job *job, bool done,
 	if (!job->view)
 		return;
 	(void)fyai_terminal_view_take_damage(job->view, &first, &last);
-	job->inline_sep = fyai_inline_sep(job->ctx);
-	indent = markdown_tool_output_indent(job->ctx->cfg);
-	if (!done && fyai_ui_inline_focused(job->ctx) == (uintptr_t)job)
-		indent = fyai_ui_inline_margin(job->ctx, indent, edge,
+	job->inline_sep = fyai_inline_sep(fyai_tool_job_ctx(job));
+	indent = markdown_tool_output_indent(fyai_tool_job_ctx(job)->cfg);
+	if (!done && fyai_ui_inline_focused(fyai_tool_job_ctx(job)) == (uintptr_t)job)
+		indent = fyai_ui_inline_margin(fyai_tool_job_ctx(job), indent, edge,
 					       sizeof(edge));
 	rc = fyai_terminal_view_rows_sgr(job->view, indent, false, &screen);
-	fyai_error_check(job->ctx, !rc, out,
+	fyai_error_check(fyai_tool_job_ctx(job), !rc, out,
 			 "agent: cannot draw the screen of a sub-agent");
 	if (done)
-		screen.len = fyai_inline_screen_trim(job->ctx, screen.data,
+		screen.len = fyai_inline_screen_trim(fyai_tool_job_ctx(job), screen.data,
 						     screen.len);
-	if (fyai_ui_inline_terminal(job->ctx, (uintptr_t)job,
+	if (fyai_ui_inline_terminal(fyai_tool_job_ctx(job), (uintptr_t)job,
 				    job->title ? job->title : "**agent**",
 				    NULL, screen.data, screen.len,
 				    job->pty_rows, job->animation_frame, done,
 				    ok))
-		fyai_warning(job->ctx,
+		fyai_warning(fyai_tool_job_ctx(job),
 			     "agent: cannot draw a sub-agent in the transcript");
 out:
 	free(screen.data);
@@ -208,7 +208,7 @@ out:
 /* A sub-agent drawn in the transcript follows the width of the transcript. */
 static void fyai_agent_inline_follow(struct fyai_tool_job *job)
 {
-	int want = fyai_shell_inline_cols(job->ctx);
+	int want = fyai_shell_inline_cols(fyai_tool_job_ctx(job));
 
 	if (want != job->pty_cols)
 		fyai_agent_apply_grant(job, job->pty_rows, want);
@@ -285,7 +285,7 @@ void fyai_agent_view_refresh(struct fyai_tool_job *job)
 	if (!job->surface || !job->view)
 		return;
 	if (fyai_ui_surface_publish(job->surface, job->view) > 0)
-		fyai_ui_wake(job->ctx);
+		fyai_ui_wake(fyai_tool_job_ctx(job));
 }
 
 /*
@@ -308,13 +308,13 @@ static char *fyai_agent_head_title(struct fyai_tool_job *job)
 	end = base + strlen(base);
 	while (end > base && (end[-1] == '\n' || end[-1] == '\r'))
 		end--;
-	(void)fyai_agents_branch_identity(job->ctx, job->branch, &model,
+	(void)fyai_agents_branch_identity(fyai_tool_job_ctx(job), job->branch, &model,
 					  &execution, &started);
 	leaf = job->branch ? strstr(job->branch, FYAI_BRANCH_AGENT_PREFIX) : NULL;
 	leaf = leaf ? leaf + sizeof(FYAI_BRANCH_AGENT_PREFIX) - 1 : job->branch;
 	/* The call title already names the agent. */
 	if (!fy_str_empty(leaf) && job->agent && fy_is_valid(job->call)) {
-		call_args = fyai_tool_call_args(job->ctx, job->call);
+		call_args = fyai_tool_call_args(fyai_tool_job_ctx(job), job->call);
 		call_name = fy_get(call_args, "name");
 		if (fy_equal(call_name, leaf))
 			leaf = NULL;
@@ -325,7 +325,7 @@ static char *fyai_agent_head_title(struct fyai_tool_job *job)
 	text = fy_sprintfa("%.*s%s%s%s\n", (int)(end - base), base,
 			   leaf_part, model_part, id);
 	title = strdup(text);
-	fyai_error_check(job->ctx, title, err_out,
+	fyai_error_check(fyai_tool_job_ctx(job), title, err_out,
 			 "cannot format the tile title of agent %s",
 			 job->branch ? job->branch : "");
 	return title;
@@ -343,13 +343,13 @@ void fyai_agent_head_paint(struct fyai_tool_job *job)
 	char *title;
 
 	/* The elapsed time of a running agent stands at the right edge. */
-	(void)fyai_agents_branch_identity(job->ctx, job->branch, &model,
+	(void)fyai_agents_branch_identity(fyai_tool_job_ctx(job), job->branch, &model,
 					  &execution, &started);
 	fyai_event_elapsed_format(elapsed, sizeof(elapsed), started);
 	right = fy_sprintfa("%s%s", job->overdue ? "overdue " : "",
 			    elapsed[0] == ' ' ? elapsed + 1 : elapsed);
 	title = fyai_agent_head_title(job);
-	(void)fyai_chrome_update(job->ctx, job->surface,
+	(void)fyai_chrome_update(fyai_tool_job_ctx(job), job->surface,
 		&(struct fyai_chrome_spec){
 			.title = title ? title :
 				 job->title ? job->title : "**agent**",
@@ -358,7 +358,7 @@ void fyai_agent_head_paint(struct fyai_tool_job *job)
 			.frame = job->animation_frame,
 		}, NULL);
 	free(title);
-	fyai_ui_wake(job->ctx);
+	fyai_ui_wake(fyai_tool_job_ctx(job));
 }
 
 /* Repaint an active agent header after its width changes. */
@@ -371,7 +371,7 @@ static void fyai_agent_head_repaint(void *owner)
 		fyai_agent_head_paint(job);
 	else if (job->surface && job->btw_panel) {
 		title = fyai_agent_head_title(job);
-		(void)fyai_chrome_update(job->ctx, job->surface,
+		(void)fyai_chrome_update(fyai_tool_job_ctx(job), job->surface,
 			&(struct fyai_chrome_spec){
 				.title = title ? title : "**btw**",
 				.mark = job->verdict == FYAI_JOB_OK ?
@@ -418,7 +418,7 @@ static enum fyai_event_action fyai_agent_pty_read(const struct fyai_event *ev)
 		if (n > 0) {
 			/* It wrote: whatever it waited for, it has it. */
 			job->wants_input = false;
-			fyai_terminal_tap(job->ctx, job->view,
+			fyai_terminal_tap(fyai_tool_job_ctx(job), job->view,
 					  &job->model_text, job->branch ?
 					  job->branch : "agent", buf,
 					  (size_t)n);
@@ -492,14 +492,14 @@ static enum fyai_event_action fyai_agent_wait_poll(const struct fyai_event *ev)
 	owner = strdup(job->branch);
 	if (!owner) {
 		free(text);
-		fyai_warning(job->ctx,
+		fyai_warning(fyai_tool_job_ctx(job),
 			     "the sub-agent '%s' asked for input, which was lost",
 			     who);
 		return FYAIEA_CONTINUE;
 	}
-	if (fyai_event_inject_owned(job->ctx, text,
+	if (fyai_event_inject_owned(fyai_tool_job_ctx(job), text,
 					  FYAI_EVENT_OWNER_AGENT, owner)) {
-		fyai_warning(job->ctx,
+		fyai_warning(fyai_tool_job_ctx(job),
 			     "the sub-agent '%s' asked for input, which was lost",
 			     who);
 	}
@@ -675,11 +675,11 @@ void fyai_agent_view_close(struct fyai_tool_job *job, bool ok,
 	if (job->inline_block) {
 		fyai_agent_inline_paint(job, true, ok);
 		job->inline_block = false;
-		fyai_ui_wake(job->ctx);
+		fyai_ui_wake(fyai_tool_job_ctx(job));
 	}
 	if (job->btw && !job->btw_panel) {
 		if (job->surface) {
-			fyai_ui_surface_close(job->ctx, job->surface);
+			fyai_ui_surface_close(fyai_tool_job_ctx(job), job->surface);
 			job->surface = NULL;
 		}
 		if (job->pty >= 0) {
@@ -687,7 +687,7 @@ void fyai_agent_view_close(struct fyai_tool_job *job, bool ok,
 			job->pty = -1;
 		}
 		if (job->model_text)
-			fyai_uimodel_text_close(job->ctx, job->model_text);
+			fyai_uimodel_text_close(fyai_tool_job_ctx(job), job->model_text);
 		job->model_text = 0;
 		fyai_terminal_view_destroy(job->view);
 		job->view = NULL;
@@ -696,7 +696,7 @@ void fyai_agent_view_close(struct fyai_tool_job *job, bool ok,
 	if (job->surface) {
 		fyai_agent_view_refresh(job);
 		title = fyai_agent_head_title(job);
-		(void)fyai_chrome_update(job->ctx, job->surface,
+		(void)fyai_chrome_update(fyai_tool_job_ctx(job), job->surface,
 			&(struct fyai_chrome_spec){
 				.title = title ? title :
 					 job->title ? job->title : "**agent**",
@@ -706,11 +706,11 @@ void fyai_agent_view_close(struct fyai_tool_job *job, bool ok,
 			}, NULL);
 		free(title);
 		if (!job->btw_panel) {
-			fyai_surface_retire_zoom(job->ctx, job->surface);
-			fyai_ui_surface_commit(job->ctx, job->surface);
+			fyai_surface_retire_zoom(fyai_tool_job_ctx(job), job->surface);
+			fyai_ui_surface_commit(fyai_tool_job_ctx(job), job->surface);
 			job->surface = NULL;
 		}
-		fyai_ui_wake(job->ctx);
+		fyai_ui_wake(fyai_tool_job_ctx(job));
 	}
 	if (job->pty >= 0) {
 		close(job->pty);
@@ -718,7 +718,7 @@ void fyai_agent_view_close(struct fyai_tool_job *job, bool ok,
 	}
 	if (!job->btw_panel) {
 		if (job->model_text)
-			fyai_uimodel_text_close(job->ctx, job->model_text);
+			fyai_uimodel_text_close(fyai_tool_job_ctx(job), job->model_text);
 		job->model_text = 0;
 		fyai_terminal_view_destroy(job->view);
 		job->view = NULL;

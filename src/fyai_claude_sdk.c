@@ -213,6 +213,12 @@ struct sdk_server {
 	const char *model;		/* the model the session started with */
 };
 
+/* The context that this object stands on. */
+static inline struct fyai_ctx *sdk_server_ctx(const struct sdk_server *o)
+{
+	return o->ctx;
+}
+
 /*
  * The fyai tools of a Claude Code tool name. A name of no entry names a fyai
  * tool or an MCP tool itself, or nothing.
@@ -769,7 +775,7 @@ int fyai_cmd_claude_sdk_prepare(struct fyai_cfg *cfg, fy_generic args)
  */
 static void sdk_report_branch(struct sdk_server *srv)
 {
-	const char *branch = fyai_ctx_branch(srv->ctx);
+	const char *branch = fyai_ctx_branch(sdk_server_ctx(srv));
 	char *copy;
 	int rc;
 
@@ -777,13 +783,13 @@ static void sdk_report_branch(struct sdk_server *srv)
 				    !strcmp(srv->reported_branch, branch)))
 		return;
 	copy = strdup(branch);
-	fyai_error_check(srv->ctx, copy, err,
+	fyai_error_check(sdk_server_ctx(srv), copy, err,
 			 "claude-sdk: cannot keep the worker branch");
 	rc = jsonrpc_conn_send_frame(srv->conn,
 		fy_mapping("type", "fyai_worker", "branch", branch));
 	free(srv->reported_branch);
 	srv->reported_branch = copy;
-	fyai_error_check(srv->ctx, !rc, err,
+	fyai_error_check(sdk_server_ctx(srv), !rc, err,
 			 "claude-sdk: cannot report the worker branch");
 	return;
 err:
@@ -798,7 +804,7 @@ static void sdk_send(struct sdk_server *srv, fy_generic frame)
 	if (srv->failed)
 		return;
 	if (fy_is_invalid(frame) || jsonrpc_conn_send_frame(srv->conn, frame)) {
-		fyai_error(srv->ctx, "claude-sdk: cannot send a frame");
+		fyai_error(sdk_server_ctx(srv), "claude-sdk: cannot send a frame");
 		srv->failed = true;
 	}
 }
@@ -806,7 +812,7 @@ static void sdk_send(struct sdk_server *srv, fy_generic frame)
 static void sdk_respond(struct sdk_server *srv, fy_generic request_id,
 			fy_generic response, const char *error)
 {
-	struct fy_generic_builder *gb = fyai_ctx_transient_gb(srv->ctx);
+	struct fy_generic_builder *gb = fyai_ctx_transient_gb(sdk_server_ctx(srv));
 
 	if (error)
 		sdk_send(srv, fy_mapping(gb,
@@ -1067,14 +1073,14 @@ static void sdk_pending_free(struct sdk_pending *p)
 static struct sdk_pending *sdk_request(struct sdk_server *srv,
 				       fy_generic request, sdk_done_fn done)
 {
-	struct fy_generic_builder *gb = fyai_ctx_transient_gb(srv->ctx);
+	struct fy_generic_builder *gb = fyai_ctx_transient_gb(sdk_server_ctx(srv));
 	struct sdk_pending *p;
 
 	if (srv->failed)
 		return NULL;
 	p = calloc(1, sizeof(*p));
 	if (!p) {
-		fyai_error(srv->ctx, "claude-sdk: cannot keep a request");
+		fyai_error(sdk_server_ctx(srv), "claude-sdk: cannot keep a request");
 		return NULL;
 	}
 	snprintf(p->id, sizeof(p->id), "fyai_%llu", ++srv->requests);
@@ -1106,7 +1112,7 @@ static void sdk_response(struct sdk_server *srv, fy_generic frame)
 		if (!strcmp(p->id, id))
 			break;
 	if (!p) {
-		fyai_debug(srv->ctx, "claude-sdk: a response to '%s' is "
+		fyai_debug(sdk_server_ctx(srv), "claude-sdk: a response to '%s' is "
 			   "ignored", id);
 		return;
 	}
@@ -1164,14 +1170,14 @@ static const char *sdk_hooks_parse(struct sdk_server *srv, fy_generic hooks)
 				    regcomp(&h->re, fy_sprintfa("^(%s)$", matcher),
 					    REG_EXTENDED | REG_NOSUB))
 					return fy_gb_intern_string(
-						fyai_ctx_transient_gb(srv->ctx),
+						fyai_ctx_transient_gb(sdk_server_ctx(srv)),
 						fy_sprintfa("the matcher '%s' "
 							    "is not a regular "
 							    "expression",
 							    matcher));
 				srv->nhooks++;
-				h->event = fyai_ctx_keep_str(srv->ctx, ev);
-				h->callback_id = fyai_ctx_keep_str(srv->ctx,
+				h->event = fyai_ctx_keep_str(sdk_server_ctx(srv), ev);
+				h->callback_id = fyai_ctx_keep_str(sdk_server_ctx(srv),
 						fy_castp(&id, ""));
 				if (!h->event || !h->callback_id)
 					return "cannot keep the hooks";
@@ -1202,7 +1208,7 @@ static bool sdk_has_hooks(const struct sdk_server *srv, const char *event)
 /* The fields that each hook input has, with @event. */
 static fy_generic sdk_hook_input(struct sdk_server *srv, const char *event)
 {
-	struct fy_generic_builder *gb = fyai_ctx_transient_gb(srv->ctx);
+	struct fy_generic_builder *gb = fyai_ctx_transient_gb(sdk_server_ctx(srv));
 	char cwd[PATH_MAX];
 
 	return fy_mapping(gb,
@@ -1220,7 +1226,7 @@ static struct sdk_pending *sdk_hook_call(struct sdk_server *srv,
 					 const char *tool_use_id,
 					 sdk_done_fn done)
 {
-	struct fy_generic_builder *gb = fyai_ctx_transient_gb(srv->ctx);
+	struct fy_generic_builder *gb = fyai_ctx_transient_gb(sdk_server_ctx(srv));
 
 	return sdk_request(srv, fy_mapping(gb,
 		"subtype", "hook_callback",
@@ -1291,7 +1297,7 @@ static void sdk_decision_update(struct sdk_decision *d, fy_generic updated)
 
 static void sdk_allow(struct sdk_server *srv, struct sdk_decision *d)
 {
-	struct fyai_ctx *ctx = srv->ctx;
+	struct fyai_ctx *ctx = sdk_server_ctx(srv);
 	struct fy_generic_builder *gb = fyai_ctx_transient_gb(ctx);
 	fy_generic args = fy_invalid, input;
 
@@ -1307,7 +1313,7 @@ static void sdk_allow(struct sdk_server *srv, struct sdk_decision *d)
 static void sdk_deny(struct sdk_server *srv, struct sdk_decision *d,
 		     const char *message, bool stop)
 {
-	struct fy_generic_builder *gb = fyai_ctx_transient_gb(srv->ctx);
+	struct fy_generic_builder *gb = fyai_ctx_transient_gb(sdk_server_ctx(srv));
 
 	if (srv->busy)
 		srv->denials = fy_append(gb, srv->denials, fy_mapping(gb,
@@ -1315,7 +1321,7 @@ static void sdk_deny(struct sdk_server *srv, struct sdk_decision *d,
 			"tool_use_id", d->tool_use_id,
 			"tool_input", sdk_decision_input(d, gb)));
 	d->answered = true;
-	fyai_tool_gate_deny(srv->ctx, d->gate_id, d->index, message, stop);
+	fyai_tool_gate_deny(sdk_server_ctx(srv), d->gate_id, d->index, message, stop);
 }
 
 /*
@@ -1383,7 +1389,7 @@ static void sdk_permission_answered(void *user,
 static int sdk_permission_question(struct sdk_server *srv,
 				   struct sdk_decision *d, fy_generic input)
 {
-	struct fy_generic_builder *gb = fyai_ctx_transient_gb(srv->ctx);
+	struct fy_generic_builder *gb = fyai_ctx_transient_gb(sdk_server_ctx(srv));
 	struct sdk_permission_ask *ask;
 	const char *json = emit_json_string(gb, input);
 	fy_generic questions, question, options, allow, deny;
@@ -1409,7 +1415,7 @@ static int sdk_permission_question(struct sdk_server *srv,
 		"options", options);
 	questions = fy_sequence(gb, question);
 	d->waiting++;
-	if (fyai_ask_open(srv->ctx, questions, NULL, sdk_permission_answered,
+	if (fyai_ask_open(sdk_server_ctx(srv), questions, NULL, sdk_permission_answered,
 			  ask)) {
 		d->waiting--;
 		free(ask);
@@ -1425,7 +1431,7 @@ static int sdk_permission_question(struct sdk_server *srv,
 static void sdk_permission(struct sdk_server *srv, struct sdk_decision *d,
 			   bool ask)
 {
-	struct fy_generic_builder *gb = fyai_ctx_transient_gb(srv->ctx);
+	struct fy_generic_builder *gb = fyai_ctx_transient_gb(sdk_server_ctx(srv));
 	struct sdk_pending *p;
 	fy_generic input;
 	const char *mode = srv->permission_mode;
@@ -1530,7 +1536,7 @@ static struct sdk_decision *sdk_decision_new(struct sdk_server *srv,
 					     uint64_t id, size_t index,
 					     fy_generic call, bool after)
 {
-	struct fyai_ctx *ctx = srv->ctx;
+	struct fyai_ctx *ctx = sdk_server_ctx(srv);
 	struct fy_generic_builder *gb = fyai_ctx_transient_gb(ctx);
 	struct sdk_decision *d;
 	struct fy_generic_builder_cfg bcfg = {
@@ -1622,7 +1628,7 @@ static void sdk_gate_before(struct fyai_ctx *ctx, uint64_t id, size_t index,
 static void sdk_post_answer(struct sdk_server *srv, struct sdk_decision *d)
 {
 	d->answered = true;
-	fyai_tool_gate_done(srv->ctx, d->gate_id, d->index,
+	fyai_tool_gate_done(sdk_server_ctx(srv), d->gate_id, d->index,
 			    d->stop ? (d->stop_reason ? d->stop_reason :
 				       "a hook stopped the turn") : d->context,
 			    d->stop);
@@ -1647,7 +1653,7 @@ static void sdk_post_hook_done(struct sdk_server *srv, struct sdk_pending *p,
 				     fy_get(out, "stopReason", ""));
 		}
 	} else {
-		fyai_warning(srv->ctx, "claude-sdk: a PostToolUse hook failed: "
+		fyai_warning(sdk_server_ctx(srv), "claude-sdk: a PostToolUse hook failed: "
 			     "%s", error);
 	}
 	if (d->waiting)
@@ -1741,7 +1747,7 @@ static void sdk_wait_done(struct sdk_server *srv, struct sdk_pending *p,
 
 	w->waiting--;
 	if (error) {
-		fyai_warning(srv->ctx, "claude-sdk: a hook failed: %s", error);
+		fyai_warning(sdk_server_ctx(srv), "claude-sdk: a hook failed: %s", error);
 		return;
 	}
 	specific = fy_get(out, "hookSpecificOutput", fy_invalid);
@@ -1764,7 +1770,7 @@ static void sdk_wait_done(struct sdk_server *srv, struct sdk_pending *p,
 static int sdk_hooks_wait(struct sdk_server *srv, const char *event,
 			  fy_generic input, struct sdk_wait *w)
 {
-	struct fyai_event_loop *el = fyai_ctx_loop(srv->ctx);
+	struct fyai_event_loop *el = fyai_ctx_loop(sdk_server_ctx(srv));
 	struct sdk_pending *p;
 	size_t i;
 	int rc;
@@ -1782,7 +1788,7 @@ static int sdk_hooks_wait(struct sdk_server *srv, const char *event,
 	}
 	while (w->waiting && !srv->failed && !jsonrpc_conn_closed(srv->conn)) {
 		rc = fyai_event_loop_step(el, -1);
-		fyai_error_check(srv->ctx, rc >= 0, err,
+		fyai_error_check(sdk_server_ctx(srv), rc >= 0, err,
 				 "claude-sdk: the event loop stopped");
 	}
 	return w->waiting ? -1 : 0;
@@ -1795,7 +1801,7 @@ err:
 static void sdk_mcp_done(struct sdk_server *srv, struct sdk_pending *p,
 			 fy_generic response, const char *error)
 {
-	struct fy_generic_builder *gb = fyai_ctx_transient_gb(srv->ctx);
+	struct fy_generic_builder *gb = fyai_ctx_transient_gb(sdk_server_ctx(srv));
 	fy_generic reply, id;
 
 	if (!p->tunnel->conn)
@@ -1817,7 +1823,7 @@ static int sdk_mcp_send(void *userdata, fy_generic frame)
 {
 	struct sdk_tunnel *t = userdata;
 	struct sdk_server *srv = t->srv;
-	struct fy_generic_builder *gb = fyai_ctx_transient_gb(srv->ctx);
+	struct fy_generic_builder *gb = fyai_ctx_transient_gb(sdk_server_ctx(srv));
 	struct sdk_pending *p;
 	fy_generic id;
 	const char *json;
@@ -1885,7 +1891,7 @@ static fy_generic sdk_model_turn(struct fy_generic_builder *gb, fy_generic turn)
  */
 static fy_generic sdk_model_sync(struct sdk_server *srv, fy_generic req)
 {
-	struct fyai_ctx *ctx = srv->ctx;
+	struct fyai_ctx *ctx = sdk_server_ctx(srv);
 	struct fy_generic_builder *gb = fyai_ctx_transient_gb(ctx);
 	struct fyai_turn_stack stack = { 0 };
 	long long depth = fy_get(req, "depth", 64LL);
@@ -1983,7 +1989,7 @@ static void sdk_model_command(struct sdk_server *srv, fy_generic id,
  */
 static void sdk_model_command_run(struct sdk_server *srv, struct sdk_input *in)
 {
-	struct fyai_ctx *ctx = srv->ctx;
+	struct fyai_ctx *ctx = sdk_server_ctx(srv);
 	struct fy_generic_builder *gb = fyai_ctx_transient_gb(ctx);
 	int rc;
 
@@ -2006,7 +2012,7 @@ static void sdk_mcp_started(struct sdk_server *srv)
 	srv->mcp_starting = false;
 	if (!srv->init_id)
 		return;
-	sdk_respond_init(srv, fy_value(fyai_ctx_transient_gb(srv->ctx),
+	sdk_respond_init(srv, fy_value(fyai_ctx_transient_gb(sdk_server_ctx(srv)),
 				       srv->init_id));
 	free(srv->init_id);
 	srv->init_id = NULL;
@@ -2015,7 +2021,7 @@ static void sdk_mcp_started(struct sdk_server *srv)
 /* Start the servers of --mcp-config and wait until each has settled. */
 static int sdk_mcp_start(struct sdk_server *srv, const char *config)
 {
-	struct fyai_ctx *ctx = srv->ctx;
+	struct fyai_ctx *ctx = sdk_server_ctx(srv);
 	struct fy_generic_builder *gb = fyai_ctx_transient_gb(ctx);
 	struct fyai_event_loop *el = fyai_ctx_loop(ctx);
 	struct sdk_tunnel *t;
@@ -2085,7 +2091,7 @@ static fy_generic sdk_mcp_status(struct sdk_server *srv,
 	const char *state;
 
 	out = fy_seq_empty;
-	rows = fyai_mcp_status_data(srv->ctx, gb);
+	rows = fyai_mcp_status_data(sdk_server_ctx(srv), gb);
 	fy_foreach(row, rows) {
 		state = fy_get(row, "state", "");
 		out = fy_append(gb, out, fy_mapping(gb,
@@ -2102,7 +2108,7 @@ static fy_generic sdk_mcp_status(struct sdk_server *srv,
 /* Store @model for the session, or the default model for NULL. */
 static const char *sdk_set_model(struct sdk_server *srv, const char *model)
 {
-	struct fyai_ctx *ctx = srv->ctx;
+	struct fyai_ctx *ctx = sdk_server_ctx(srv);
 	fy_generic saved;
 	bool own;
 	int rc;
@@ -2153,7 +2159,7 @@ static const char *sdk_set_model(struct sdk_server *srv, const char *model)
  */
 static const char *sdk_agents(struct sdk_server *srv, fy_generic agents)
 {
-	struct fyai_ctx *ctx = srv->ctx;
+	struct fyai_ctx *ctx = sdk_server_ctx(srv);
 	struct fy_generic_builder *gb = fyai_ctx_transient_gb(ctx);
 	fy_generic name, agent, persona, tools, tool, allow;
 	const char *nm, *model, *word;
@@ -2202,7 +2208,7 @@ static const char *sdk_agents(struct sdk_server *srv, fy_generic agents)
 static fy_generic sdk_context_usage(struct sdk_server *srv,
 				    struct fy_generic_builder *gb)
 {
-	struct fyai_ctx *ctx = srv->ctx;
+	struct fyai_ctx *ctx = sdk_server_ctx(srv);
 	long long used, window;
 
 	used = ctx->usage->last_call_input + ctx->usage->last_call_output;
@@ -2259,7 +2265,7 @@ static void sdk_model_text(void *data, long long id, size_t offset,
  */
 static void sdk_model_start(struct sdk_server *srv, fy_generic id)
 {
-	struct fyai_ctx *ctx = srv->ctx;
+	struct fyai_ctx *ctx = sdk_server_ctx(srv);
 	enum fyai_ui_store store;
 	fy_generic root;
 
@@ -2300,7 +2306,7 @@ static void sdk_model_start(struct sdk_server *srv, fy_generic id)
 
 static void sdk_respond_init(struct sdk_server *srv, fy_generic id)
 {
-	struct fy_generic_builder *gb = fyai_ctx_transient_gb(srv->ctx);
+	struct fy_generic_builder *gb = fyai_ctx_transient_gb(sdk_server_ctx(srv));
 	fy_generic response;
 
 	response = fy_mapping(gb,
@@ -2348,13 +2354,13 @@ static const char *sdk_model_answer(struct sdk_server *srv, fy_generic req)
 						  (const char *)NULL);
 		n++;
 	}
-	fyai_ask_settle(srv->ctx, qid, n ? replies : NULL, n);
+	fyai_ask_settle(sdk_server_ctx(srv), qid, n ? replies : NULL, n);
 	return NULL;
 }
 
 static void sdk_control(struct sdk_server *srv, fy_generic frame)
 {
-	struct fy_generic_builder *gb = fyai_ctx_transient_gb(srv->ctx);
+	struct fy_generic_builder *gb = fyai_ctx_transient_gb(sdk_server_ctx(srv));
 	fy_generic id, req, model;
 	const char *subtype, *mode, *why;
 
@@ -2362,7 +2368,7 @@ static void sdk_control(struct sdk_server *srv, fy_generic frame)
 	req = fy_get(frame, "request", fy_invalid);
 	subtype = fy_get(req, "subtype", "");
 	if (!fy_is_string(id)) {
-		fyai_warning(srv->ctx, "claude-sdk: a control request has no ID");
+		fyai_warning(sdk_server_ctx(srv), "claude-sdk: a control request has no ID");
 		return;
 	}
 	if (!strcmp(subtype, "initialize")) {
@@ -2414,7 +2420,7 @@ static void sdk_control(struct sdk_server *srv, fy_generic frame)
 	if (!strcmp(subtype, "fyai_bang") && srv->model_stream) {
 		why = fy_str_empty(fy_get(req, "command", "")) ?
 			"the command of the user is empty" :
-			fyai_tools_bang(srv->ctx, fy_get(req, "command", ""),
+			fyai_tools_bang(sdk_server_ctx(srv), fy_get(req, "command", ""),
 					fy_get(req, "rows", 0),
 					fy_get(req, "cols", 0)) ?
 			"the command of the user could not start" : NULL;
@@ -2423,7 +2429,7 @@ static void sdk_control(struct sdk_server *srv, fy_generic frame)
 	}
 	if (!strcmp(subtype, "fyai_terminal_size") && srv->model_stream) {
 		sdk_respond(srv, id, fy_invalid, fyai_tools_session_resize(
-			srv->ctx, fy_get(req, "name", ""),
+			sdk_server_ctx(srv), fy_get(req, "name", ""),
 			fy_get(req, "rows", 0),
 			fy_get(req, "cols", 0)) ?
 			"no live terminal session has the name and the size" :
@@ -2432,21 +2438,21 @@ static void sdk_control(struct sdk_server *srv, fy_generic frame)
 	}
 	if (!strcmp(subtype, "fyai_terminal_close") && srv->model_stream) {
 		sdk_respond(srv, id, fy_invalid, fyai_tools_session_close(
-			srv->ctx, fy_get(req, "name", ""),
+			sdk_server_ctx(srv), fy_get(req, "name", ""),
 			fy_get(req, "force", false)) ?
 			"no terminal session has the name" : NULL);
 		return;
 	}
 	if (!strcmp(subtype, "fyai_terminal_dismiss") && srv->model_stream) {
 		sdk_respond(srv, id, fy_invalid, fyai_tools_session_dismiss(
-			srv->ctx, fy_get(req, "name", "")) ?
+			sdk_server_ctx(srv), fy_get(req, "name", "")) ?
 			"no ended terminal session has the name" : NULL);
 		return;
 	}
 		if (!strcmp(subtype, "fyai_terminal_input") && srv->model_stream) {
 		model = fy_get(req, "data", fy_invalid);
 		sdk_respond(srv, id, fy_invalid, fyai_tools_session_input(
-			srv->ctx, fy_get(req, "name", ""), fy_castp(&model, ""),
+			sdk_server_ctx(srv), fy_get(req, "name", ""), fy_castp(&model, ""),
 			strlen(fy_castp(&model, ""))) ?
 			"no live terminal session has the name" : NULL);
 		return;
@@ -2469,7 +2475,7 @@ static void sdk_control(struct sdk_server *srv, fy_generic frame)
 	}
 		if (!strcmp(subtype, "interrupt")) {
 		if (srv->busy)
-			srv->ctx->loop->interrupt_pending = true;
+			sdk_server_ctx(srv)->loop->interrupt_pending = true;
 		sdk_respond(srv, id, fy_invalid, NULL);
 		return;
 	}
@@ -2481,7 +2487,7 @@ static void sdk_control(struct sdk_server *srv, fy_generic frame)
 						"permission mode '%s'", mode));
 			return;
 		}
-		srv->permission_mode = fy_gb_intern_string(srv->ctx->cfg->gb,
+		srv->permission_mode = fy_gb_intern_string(sdk_server_ctx(srv)->cfg->gb,
 							   mode);
 		sdk_respond(srv, id, fy_invalid, NULL);
 		return;
@@ -2542,18 +2548,18 @@ static int sdk_user_images(struct sdk_server *srv, fy_generic content,
 		type = fy_get(source, "type", "");
 		data = fy_get(source, "data", (const char *)NULL);
 		if (strcmp(type, "base64") || !data) {
-			fyai_warning(srv->ctx, "claude-sdk: an image block with "
+			fyai_warning(sdk_server_ctx(srv), "claude-sdk: an image block with "
 				     "the source '%s' is not supported; it is "
 				     "left out", *type ? type : "?");
 			continue;
 		}
 		img = calloc(1, sizeof(*img));
-		fyai_error_check(srv->ctx, img, err,
+		fyai_error_check(sdk_server_ctx(srv), img, err,
 				 "claude-sdk: cannot keep an image");
 		img->data = fyai_base64_decode(data, &img->len);
 		img->media_type = strdup(fy_get(source, "media_type", ""));
 		img->name = strdup(fy_get(block, "name", "image"));
-		fyai_error_check(srv->ctx, img->data && img->media_type &&
+		fyai_error_check(sdk_server_ctx(srv), img->data && img->media_type &&
 				 img->name, err_free,
 				 "claude-sdk: an image block holds no valid "
 				 "base64 data");
@@ -2583,7 +2589,7 @@ static char *sdk_user_text(struct sdk_server *srv, fy_generic content)
 		if (fy_equal(type, "image"))	/* see sdk_user_images() */
 			continue;
 		if (!fy_equal(type, "text")) {
-			fyai_warning(srv->ctx,
+			fyai_warning(sdk_server_ctx(srv),
 				     "claude-sdk: a '%s' block of a user message "
 				     "is not supported; it is left out",
 				     fy_str(type) ? fy_str(type) : "?");
@@ -2633,7 +2639,7 @@ static char *sdk_mention_path(const char *start, size_t len)
  */
 static const char *sdk_mentions(struct sdk_server *srv, const char *prompt)
 {
-	struct fyai_ctx *ctx = srv->ctx;
+	struct fyai_ctx *ctx = sdk_server_ctx(srv);
 	struct fy_generic_builder *gb = fyai_ctx_transient_gb(ctx);
 	const struct fyai_tool_def *read = fyai_tool_find("read_file");
 	struct fyai_buf out = { 0 };
@@ -2696,13 +2702,13 @@ static void sdk_user(struct sdk_server *srv, fy_generic frame)
 		return;
 	}
 	if ((!text || !*text) && !images) {
-		fyai_warning(srv->ctx, "claude-sdk: a user message has no text");
+		fyai_warning(sdk_server_ctx(srv), "claude-sdk: a user message has no text");
 		free(text);
 		return;
 	}
 	in = calloc(1, sizeof(*in));
 	if (!in) {
-		fyai_error(srv->ctx, "claude-sdk: cannot queue a user message");
+		fyai_error(sdk_server_ctx(srv), "claude-sdk: cannot queue a user message");
 		sdk_images_free(images);
 		free(text);
 		srv->failed = true;
@@ -2711,7 +2717,7 @@ static void sdk_user(struct sdk_server *srv, fy_generic frame)
 	in->text = text ? text : strdup("");
 	in->images = images;
 	if (!in->text) {
-		fyai_error(srv->ctx, "claude-sdk: cannot queue a user message");
+		fyai_error(sdk_server_ctx(srv), "claude-sdk: cannot queue a user message");
 		sdk_images_free(images);
 		free(in);
 		free(text);
@@ -2721,7 +2727,7 @@ static void sdk_user(struct sdk_server *srv, fy_generic frame)
 	in->composed = fy_get(frame, "client_composed", false);
 	origin = fy_get(frame, "origin", fy_invalid);
 	if (fy_is_mapping(origin)) {
-		json = emit_json_string(fyai_ctx_transient_gb(srv->ctx), origin);
+		json = emit_json_string(fyai_ctx_transient_gb(sdk_server_ctx(srv)), origin);
 		in->origin_json = json ? strdup(json) : NULL;
 	}
 	*srv->tail = in;
@@ -2742,14 +2748,14 @@ static void sdk_frame(struct jsonrpc_conn *conn, fy_generic frame, void *data)
 	else if (fy_equal(type, "control_response"))
 		sdk_response(srv, frame);
 	else if (!fy_equal(type, "control_cancel_request"))
-		fyai_debug(srv->ctx, "claude-sdk: a '%s' frame is ignored",
+		fyai_debug(sdk_server_ctx(srv), "claude-sdk: a '%s' frame is ignored",
 			   fy_str(type) ? fy_str(type) : "?");
 }
 
 /* A new UUID in the transient builder: a frame takes it at once. */
 static const char *sdk_new_uuid(struct sdk_server *srv)
 {
-	struct fy_generic_builder *gb = fyai_ctx_transient_gb(srv->ctx);
+	struct fy_generic_builder *gb = fyai_ctx_transient_gb(sdk_server_ctx(srv));
 	const char *s;
 	char id[40];
 
@@ -2795,7 +2801,7 @@ static void sdk_keep_text(struct sdk_server *srv, fy_generic content)
 
 static void sdk_stream_event(struct sdk_server *srv, fy_generic event)
 {
-	struct fy_generic_builder *gb = fyai_ctx_transient_gb(srv->ctx);
+	struct fy_generic_builder *gb = fyai_ctx_transient_gb(sdk_server_ctx(srv));
 
 	sdk_send(srv, fy_mapping(gb,
 		"type", "stream_event",
@@ -2847,7 +2853,7 @@ static void sdk_text(struct fyai_ctx *ctx, const char *text, size_t len,
 static void sdk_stream_close(struct sdk_server *srv, bool tools,
 			     long long output)
 {
-	struct fy_generic_builder *gb = fyai_ctx_transient_gb(srv->ctx);
+	struct fy_generic_builder *gb = fyai_ctx_transient_gb(sdk_server_ctx(srv));
 
 	if (!srv->stream_open)
 		return;
@@ -2896,7 +2902,7 @@ static void sdk_send_step(struct sdk_server *srv, fy_generic messages,
 			  fy_generic usage, const char *model,
 			  const char *parent)
 {
-	struct fyai_ctx *ctx = srv->ctx;
+	struct fyai_ctx *ctx = sdk_server_ctx(srv);
 	struct fy_generic_builder *gb = fyai_ctx_transient_gb(ctx);
 	fy_generic blocks, m, content, parent_id;
 	char msgid[48];
@@ -2983,7 +2989,7 @@ static void sdk_agent_observe(struct fyai_ctx *ctx, fy_generic call,
 
 static void sdk_send_init(struct sdk_server *srv)
 {
-	struct fyai_ctx *ctx = srv->ctx;
+	struct fyai_ctx *ctx = sdk_server_ctx(srv);
 	struct fy_generic_builder *gb = fyai_ctx_transient_gb(ctx);
 	fy_generic tools, tool, names, input;
 	const char *name;
@@ -3031,7 +3037,7 @@ static long long sdk_elapsed_ms(const struct timespec *start)
 /* Add a user message of @text to the conversation and store it. */
 static int sdk_add_user(struct sdk_server *srv, const char *text)
 {
-	struct fyai_ctx *ctx = srv->ctx;
+	struct fyai_ctx *ctx = sdk_server_ctx(srv);
 	struct fy_generic_builder *gb = fyai_ctx_transient_gb(ctx);
 	fy_generic user, turn;
 	const char *shown;
@@ -3068,7 +3074,7 @@ err:
  */
 static char *sdk_run(struct sdk_server *srv, bool *okp)
 {
-	struct fyai_ctx *ctx = srv->ctx;
+	struct fyai_ctx *ctx = sdk_server_ctx(srv);
 	fy_generic turn, diag, value;
 	char *cause = NULL;
 	int rc;
@@ -3113,7 +3119,7 @@ static void sdk_turn(struct sdk_server *srv, const struct sdk_input *in)
 {
 	const char *text = in->text;
 	const struct sdk_image *img;
-	struct fyai_ctx *ctx = srv->ctx;
+	struct fyai_ctx *ctx = sdk_server_ctx(srv);
 	struct fyai_cfg *cfg = ctx->cfg;
 	struct fy_generic_builder *gb;
 	struct timespec start;
@@ -3304,7 +3310,7 @@ done:
  */
 static int sdk_system_seed(struct sdk_server *srv)
 {
-	struct fyai_ctx *ctx = srv->ctx;
+	struct fyai_ctx *ctx = sdk_server_ctx(srv);
 	struct fy_generic_builder *gb = fyai_ctx_transient_gb(ctx);
 	const char *text = ctx->cfg->system_prompt;
 	fy_generic turn;
@@ -3329,7 +3335,7 @@ err:
  */
 static int sdk_system_append(struct sdk_server *srv)
 {
-	struct fyai_ctx *ctx = srv->ctx;
+	struct fyai_ctx *ctx = sdk_server_ctx(srv);
 	int rc;
 
 	if (!srv->append || !*srv->append)
@@ -3355,7 +3361,7 @@ err:
  */
 static void sdk_clear(struct sdk_server *srv)
 {
-	struct fyai_ctx *ctx = srv->ctx;
+	struct fyai_ctx *ctx = sdk_server_ctx(srv);
 	struct fy_generic_builder *gb = fyai_ctx_transient_gb(ctx);
 	const char *name;
 	char *old, *sid;
@@ -3424,7 +3430,7 @@ static bool sdk_is_clear(const char *text)
 /* Take the session, the settings, the rules and the system prompt. */
 static int sdk_cmd_setup(struct fyai_cmd_call *call, struct sdk_server *srv)
 {
-	struct fyai_ctx *ctx = call->ctx;
+	struct fyai_ctx *ctx = fyai_cmd_call_ctx(call);
 	struct fyai_event_loop *el = fyai_ctx_loop(ctx);
 	const char *branch, *mode, *text, *session_type;
 	bool found;
@@ -3499,7 +3505,7 @@ out:
 /* Open the channel of the session and the observers of the turns. */
 static int sdk_cmd_channel(struct sdk_server *srv)
 {
-	struct fyai_ctx *ctx = srv->ctx;
+	struct fyai_ctx *ctx = sdk_server_ctx(srv);
 	int chan_out, chan_in, devnull;
 	int rc;
 
@@ -3547,7 +3553,7 @@ out:
 /* Start the MCP servers, limit the tools and take the schema and the budget. */
 static int sdk_cmd_tools(struct fyai_cmd_call *call, struct sdk_server *srv)
 {
-	struct fyai_ctx *ctx = srv->ctx;
+	struct fyai_ctx *ctx = sdk_server_ctx(srv);
 	fy_generic allowed, names, tool;
 	const char *text;
 	double budget;
@@ -3616,7 +3622,7 @@ out:
 /* Serve the inputs of the client until the channel closes. */
 static int sdk_cmd_serve(struct sdk_server *srv)
 {
-	struct fyai_ctx *ctx = srv->ctx;
+	struct fyai_ctx *ctx = sdk_server_ctx(srv);
 	struct fyai_event_loop *el = fyai_ctx_loop(ctx);
 	struct sdk_input *in;
 	int rc;
@@ -3738,7 +3744,7 @@ static void sdk_cmd_cleanup(struct fyai_ctx *ctx, struct sdk_server *srv)
 
 int fyai_cmd_claude_sdk(struct fyai_cmd_call *call, fy_generic *result)
 {
-	struct fyai_ctx *ctx = call->ctx;
+	struct fyai_ctx *ctx = fyai_cmd_call_ctx(call);
 	struct sdk_server srv;
 	int rc;
 

@@ -27,10 +27,10 @@
 
 int fyai_cmd_branch_list(struct fyai_cmd_call *call, fy_generic *result)
 {
-	*result = fyai_branch_list_data(call->ctx, call->gb,
+	*result = fyai_branch_list_data(fyai_cmd_call_ctx(call), call->gb,
 					fyai_cmd_arg_str(call, "under"),
 					fyai_cmd_arg_bool(call, "all"));
-	fyai_error_check(call->ctx, fy_is_valid(*result), err,
+	fyai_error_check(fyai_cmd_call_ctx(call), fy_is_valid(*result), err,
 			 "%s: cannot build the branch list", call->path);
 	return 0;
 err:
@@ -39,7 +39,7 @@ err:
 
 int fyai_cmd_branch_show(struct fyai_cmd_call *call, fy_generic *result)
 {
-	return fyai_branch_show_data(call->ctx, call->gb,
+	return fyai_branch_show_data(fyai_cmd_call_ctx(call), call->gb,
 				     fyai_cmd_arg_str(call, "name"), result);
 }
 
@@ -50,7 +50,7 @@ int fyai_cmd_branch_new(struct fyai_cmd_call *call, fy_generic *result)
 	int rc;
 
 	/* A session goes on the branch it creates. */
-	rc = fyai_branch_create(call->ctx, name, fyai_cmd_arg_str(call, "ref"),
+	rc = fyai_branch_create(fyai_cmd_call_ctx(call), name, fyai_cmd_arg_str(call, "ref"),
 				NULL, session);
 	if (rc)
 		return -1;
@@ -64,7 +64,7 @@ int fyai_cmd_branch_delete(struct fyai_cmd_call *call, fy_generic *result)
 {
 	const char *name = fyai_cmd_arg_str(call, "name");
 
-	if (fyai_branch_delete(call->ctx, name,
+	if (fyai_branch_delete(fyai_cmd_call_ctx(call), name,
 			       fyai_cmd_arg_bool(call, "force")))
 		return -1;
 	*result = fy_mapping(call->gb, "branch", name);
@@ -76,7 +76,7 @@ int fyai_cmd_branch_rename(struct fyai_cmd_call *call, fy_generic *result)
 	const char *from = fyai_cmd_arg_str(call, "name");
 	const char *to = fyai_cmd_arg_str(call, "new_name");
 
-	if (fyai_branch_rename(call->ctx, from, to))
+	if (fyai_branch_rename(fyai_cmd_call_ctx(call), from, to))
 		return -1;
 	*result = fy_mapping(call->gb, "from", from, "to", to);
 	return 0;
@@ -87,7 +87,7 @@ int fyai_cmd_branch_describe(struct fyai_cmd_call *call, fy_generic *result)
 	const char *name = fyai_cmd_arg_str(call, "name");
 	const char *text = fyai_cmd_arg_str(call, "text");
 
-	if (fyai_branch_describe(call->ctx, name, text ? text : ""))
+	if (fyai_branch_describe(fyai_cmd_call_ctx(call), name, text ? text : ""))
 		return -1;
 	*result = fy_mapping(call->gb, "branch", name, "description",
 			     text ? text : "");
@@ -101,9 +101,9 @@ int fyai_cmd_branch_switch(struct fyai_cmd_call *call, fy_generic *result)
 	bool found;
 	int rc;
 
-	found = fyai_branch_lookup(call->ctx->bstate->branches, name, &b);
-	rc = fyai_session_branch_switch(call->ctx, name, true, false);
-	fyai_error_check(call->ctx, !rc, err, "branch: could not switch to "
+	found = fyai_branch_lookup(fyai_cmd_call_ctx(call)->bstate->branches, name, &b);
+	rc = fyai_session_branch_switch(fyai_cmd_call_ctx(call), name, true, false);
+	fyai_error_check(fyai_cmd_call_ctx(call), !rc, err, "branch: could not switch to "
 			 "'%s'", name);
 	*result = found ? fy_mapping(call->gb, "branch", name) :
 			  fy_mapping(call->gb, "branch", name, "created", name);
@@ -118,8 +118,8 @@ int fyai_cmd_branch_attach(struct fyai_cmd_call *call, fy_generic *result)
 	const char *zoomed;
 
 	(void)result;
-	zoomed = fyai_agents_zoom(call->ctx, name, true);
-	fyai_error_check(call->ctx, zoomed,
+	zoomed = fyai_agents_zoom(fyai_cmd_call_ctx(call), name, true);
+	fyai_error_check(fyai_cmd_call_ctx(call), zoomed,
 			 err, "branch attach: '%s' is not a reachable live "
 			 "agent", name);
 	return 0;
@@ -130,7 +130,7 @@ err:
 int fyai_cmd_branch_detach(struct fyai_cmd_call *call, fy_generic *result)
 {
 	(void)result;
-	fyai_agents_detach(call->ctx);
+	fyai_agents_detach(fyai_cmd_call_ctx(call));
 	return 0;
 }
 
@@ -142,7 +142,7 @@ static int checkout_session(struct fyai_cmd_call *call, const char *target,
 			    bool create, const char *start,
 			    const char **branchp, const char **createdp)
 {
-	struct fyai_ctx *ctx = call->ctx;
+	struct fyai_ctx *ctx = fyai_cmd_call_ctx(call);
 	char name[FYAI_BRANCH_NAME_MAX + 1], ref_name[FYAI_BRANCH_NAME_MAX + 1];
 	long long n;
 	int kind, rc;
@@ -205,10 +205,10 @@ int fyai_cmd_checkout(struct fyai_cmd_call *call, fy_generic *result)
 				     &created))
 			return -1;
 	} else {
-		if (create && !fyai_branch_lookup(call->ctx->bstate->branches,
+		if (create && !fyai_branch_lookup(fyai_cmd_call_ctx(call)->bstate->branches,
 						  target, &b))
 			created = target;
-		if (fyai_branch_checkout(call->ctx, target, create, start))
+		if (fyai_branch_checkout(fyai_cmd_call_ctx(call), target, create, start))
 			return -1;
 	}
 	*result = created ? fy_mapping(call->gb, "branch", branch,
@@ -219,7 +219,7 @@ int fyai_cmd_checkout(struct fyai_cmd_call *call, fy_generic *result)
 
 int fyai_cmd_model(struct fyai_cmd_call *call, fy_generic *result)
 {
-	struct fyai_ctx *ctx = call->ctx;
+	struct fyai_ctx *ctx = fyai_cmd_call_ctx(call);
 	struct fyai_cfg *cfg = ctx->cfg;
 	const char *name = fyai_cmd_arg_str(call, "name");
 	const char *old = cfg->model ? cfg->model : "";

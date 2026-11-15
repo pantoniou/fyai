@@ -285,8 +285,8 @@ static int sink_page_publish(struct fyai_sink *s, struct fytim_surface *surface,
 	size_t i;
 	int rc;
 
-	view = fyai_terminal_view_create(s->ctx, rows, cols, 0);
-	fyai_error_check(s->ctx, view, err_out, "cannot make the page view");
+	view = fyai_terminal_view_create(fyai_sink_ctx(s), rows, cols, 0);
+	fyai_error_check(fyai_sink_ctx(s), view, err_out, "cannot make the page view");
 	/* Rows are hard-wrapped at their pane width; autowrap would leak into
 	 * the pane beside them. */
 	rc = fyai_terminal_view_feed(view, "\033[?7l", 5);
@@ -297,7 +297,7 @@ static int sink_page_publish(struct fyai_sink *s, struct fytim_surface *surface,
 	if (!rc)
 		rc = fyai_terminal_view_feed(view, "\033[0m", 4);
 	if (rc)
-		fyai_warning(s->ctx, "the page is drawn without some of its rows");
+		fyai_warning(fyai_sink_ctx(s), "the page is drawn without some of its rows");
 	fyai_terminal_view_damage_all(view);
 	rc = fyai_ui_surface_publish(surface, view);
 	fyai_terminal_view_destroy(view);
@@ -319,7 +319,7 @@ static int sink_render(struct fyai_sink *s, const char *md, const char *source,
 	const char *p, *e;
 	int rc;
 
-	fyai_cfg_copy_muted(&cfg, s->ctx->cfg);
+	fyai_cfg_copy_muted(&cfg, fyai_sink_ctx(s)->cfg);
 	cfg.render_width = cols;
 	rc = markdown_render(&cfg, md, strlen(md), out,
 			     markdown_color_enabled(cfg.color), cfg.theme_variant);
@@ -381,7 +381,7 @@ int fyai_sink_markdown_measure(struct fyai_sink *s, const char *md, int cols)
 
 	if (!s || !md || cols < 1)
 		return -1;
-	fyai_cfg_copy_muted(&cfg, s->ctx->cfg);
+	fyai_cfg_copy_muted(&cfg, fyai_sink_ctx(s)->cfg);
 	cfg.render_width = cols;
 	if (markdown_render(&cfg, md, strlen(md), &out,
 			    markdown_color_enabled(cfg.color), cfg.theme_variant)) {
@@ -428,8 +428,8 @@ static int sink_page(struct fyai_sink *s, struct fytim_surface *surface,
 
 	if (!s || !surface || !page || !page->markdown)
 		return -1;
-	rows = fyai_ui_surface_granted_rows(s->ctx, surface);
-	cols = fyai_ui_surface_granted_cols(s->ctx, surface);
+	rows = fyai_ui_surface_granted_rows(fyai_sink_ctx(s), surface);
+	cols = fyai_ui_surface_granted_cols(fyai_sink_ctx(s), surface);
 	if (rows < 1 || cols < 1)
 		return 0;
 	extent = fyai_sink_page_extent(page, rows, cols, &split);
@@ -474,8 +474,8 @@ static int sink_page(struct fyai_sink *s, struct fytim_surface *surface,
 			.rows = split == FYAI_SINK_SPLIT_BOTTOM ? extent : rows,
 			.cols = split == FYAI_SINK_SPLIT_RIGHT ? extent : cols,
 		};
-		ascii = s->ctx->cfg->diagram_charset &&
-			!strcmp(s->ctx->cfg->diagram_charset, "ascii");
+		ascii = fyai_sink_ctx(s)->cfg->diagram_charset &&
+			!strcmp(fyai_sink_ctx(s)->cfg->diagram_charset, "ascii");
 		rule.vertical = split == FYAI_SINK_SPLIT_RIGHT;
 		rule.glyph = rule.vertical ? (ascii ? "|" : "\u2502") :
 			(ascii ? "-" : "\u2500");
@@ -567,9 +567,9 @@ static int sink_term_markdown_ui(struct fyai_sink *s,
 /* Present only when descriptor 1 is not a JSON-RPC channel. */
 static bool sink_may_present(const struct fyai_sink *s)
 {
-	if (s->ctx->cfg->agent_pty)
+	if (fyai_sink_ctx(s)->cfg->agent_pty)
 		return true;
-	return !s->ctx->cfg->tool_child && !fyai_agent_delegated(s->ctx);
+	return !fyai_sink_ctx(s)->cfg->tool_child && !fyai_agent_delegated(fyai_sink_ctx(s));
 }
 
 static struct sink_term *sink_term_state(const struct fyai_sink *s)
@@ -580,7 +580,7 @@ static struct sink_term *sink_term_state(const struct fyai_sink *s)
 static bool sink_term_wants_live(const struct fyai_sink *s,
 				 enum fyai_sink_doc_kind kind)
 {
-	struct fyai_ctx *ctx = s->ctx;
+	struct fyai_ctx *ctx = fyai_sink_ctx(s);
 	const struct sink_term *t = s->state;
 
 	return (t->mode == SINK_DOC_ONESHOT || t->mode == SINK_DOC_PAUSED) &&
@@ -593,7 +593,7 @@ static bool sink_term_wants_live(const struct fyai_sink *s,
 static int sink_term_renderer_start(struct fyai_sink *s)
 {
 	struct sink_term *t = sink_term_state(s);
-	struct fyai_ctx *ctx = s->ctx;
+	struct fyai_ctx *ctx = fyai_sink_ctx(s);
 	int rc;
 
 	if (!sink_term_wants_live(s, t->kind))
@@ -616,11 +616,11 @@ static void sink_term_apply(struct fyai_sink *s,
 {
 	struct sink_term *t = sink_term_state(s);
 	size_t backtrack = update->backtrack;
-	bool ui = fyai_ui_active(s->ctx);
+	bool ui = fyai_ui_active(fyai_sink_ctx(s));
 
 	/* Track active rows for direct output and display-owned tails. */
 	if (ui)
-		(void)fyai_ui_tail_apply(s->ctx, update);
+		(void)fyai_ui_tail_apply(fyai_sink_ctx(s), update);
 	else if (backtrack) {
 		fprintf(sink_term_out(t), FYAI_ANSI_CURSOR_UP_FMT, backtrack);
 		fputs(FYAI_ANSI_ERASE_DOWN, sink_term_out(t));
@@ -674,10 +674,10 @@ static int sink_term_render_finish(struct fyai_sink *s)
 	}
 	end = terminal_trim_blank_rows(rendered.data, rendered.len);
 	line_start = terminal_text_at_line_start(rendered.data, end);
-	if (fyai_ui_active(s->ctx)) {
-		fyai_ui_tail_finish(s->ctx, rendered.data, end);
+	if (fyai_ui_active(fyai_sink_ctx(s))) {
+		fyai_ui_tail_finish(fyai_sink_ctx(s), rendered.data, end);
 		if (!line_start)
-			(void)fyai_ui_commit(s->ctx, "\n", 1);
+			(void)fyai_ui_commit(fyai_sink_ctx(s), "\n", 1);
 	} else {
 		if (t->active_rows) {
 			fprintf(sink_term_out(t), FYAI_ANSI_CURSOR_UP_FMT,
@@ -705,7 +705,7 @@ static int sink_term_doc_begin(struct fyai_sink *s,
 			       const struct fyai_sink_doc *doc)
 {
 	struct sink_term *t = sink_term_state(s);
-	struct fyai_ctx *ctx = s->ctx;
+	struct fyai_ctx *ctx = fyai_sink_ctx(s);
 
 	t->kind = doc->kind;
 	t->active_rows = 0;
@@ -744,11 +744,11 @@ static bool sink_term_wants_draw(struct fyai_sink *s, const char *text,
 	struct sink_term *t = sink_term_state(s);
 	int64_t now;
 
-	if (!strcmp(s->ctx->cfg->markdown_mode, "line"))
+	if (!strcmp(fyai_sink_ctx(s)->cfg->markdown_mode, "line"))
 		return memchr(text, '\n', len) != NULL;
 	now = fyai_event_now_ms();
 	if (now - t->last_draw_ms <
-	    s->ctx->cfg->markdown_update_interval_ms)
+	    fyai_sink_ctx(s)->cfg->markdown_update_interval_ms)
 		return false;
 	t->last_draw_ms = now;
 	return true;
@@ -759,7 +759,7 @@ static int sink_term_doc_append(struct fyai_sink *s, const char *text,
 {
 
 	struct sink_term *t = sink_term_state(s);
-	struct fyai_ctx *ctx = s->ctx;
+	struct fyai_ctx *ctx = fyai_sink_ctx(s);
 	int rc;
 
 	if (!len)
@@ -800,7 +800,7 @@ err:
 static void sink_term_present_oneshot(struct fyai_sink *s)
 {
 	struct sink_term *t = sink_term_state(s);
-	struct fyai_cfg *cfg = s->ctx->cfg;
+	struct fyai_cfg *cfg = fyai_sink_ctx(s)->cfg;
 
 	if (t->mode == SINK_DOC_PASSTHROUGH) {
 		/* Close the row the passthrough text was written on. */
@@ -861,7 +861,7 @@ static void sink_term_doc_discard(struct fyai_sink *s)
 static void sink_term_reflow(struct fyai_sink *s)
 {
 	struct sink_term *t = sink_term_state(s);
-	struct fyai_ctx *ctx = s->ctx;
+	struct fyai_ctx *ctx = fyai_sink_ctx(s);
 	struct markdown_renderer r;
 	struct markdown_update update;
 	struct markdown_update repaint;
@@ -898,7 +898,7 @@ static void sink_term_reflow(struct fyai_sink *s)
 static int sink_term_doc_pause(struct fyai_sink *s)
 {
 	struct sink_term *t = sink_term_state(s);
-	struct fyai_ctx *ctx = s->ctx;
+	struct fyai_ctx *ctx = fyai_sink_ctx(s);
 	int rc;
 
 	if (t->mode != SINK_DOC_LIVE)
@@ -915,7 +915,7 @@ err:
 static int sink_term_doc_resume(struct fyai_sink *s)
 {
 	struct sink_term *t = sink_term_state(s);
-	struct fyai_ctx *ctx = s->ctx;
+	struct fyai_ctx *ctx = fyai_sink_ctx(s);
 	int rc;
 
 	if (t->mode != SINK_DOC_PAUSED)
@@ -997,6 +997,12 @@ struct fyai_sink_band {
 	void *repaint_arg;
 };
 
+/* The context that this object stands on. */
+static inline struct fyai_ctx *fyai_sink_band_ctx(const struct fyai_sink_band *o)
+{
+	return o->ctx;
+}
+
 static void sink_term_band_repaint(void *owner);
 
 static const struct fyai_workpane_tile_ops sink_term_band_ops = {
@@ -1006,18 +1012,18 @@ static const struct fyai_workpane_tile_ops sink_term_band_ops = {
 /* The renderer of the UI model draws the bands of the producers. */
 static bool sink_term_shadowing(const struct fyai_sink *s)
 {
-	return !s->drawing && s == s->ctx->front->sink && fyai_uidraw_bands(s->ctx);
+	return !s->drawing && s == fyai_sink_ctx(s)->front->sink && fyai_uidraw_bands(fyai_sink_ctx(s));
 }
 
 /* A process with no display has bands when a client reads its model. */
 static bool sink_term_bands_headless(const struct fyai_sink *s)
 {
-	return !fyai_ui_active(s->ctx) && fyai_uimodel_consumed(s->ctx);
+	return !fyai_ui_active(fyai_sink_ctx(s)) && fyai_uimodel_consumed(fyai_sink_ctx(s));
 }
 
 static bool sink_term_bands_available(const struct fyai_sink *s)
 {
-	return fyai_ui_active(s->ctx) || sink_term_bands_headless(s);
+	return fyai_ui_active(fyai_sink_ctx(s)) || sink_term_bands_headless(s);
 }
 
 static struct fyai_sink_band *sink_term_band_open(struct fyai_sink *s,
@@ -1039,8 +1045,8 @@ static struct fyai_sink_band *sink_term_band_open(struct fyai_sink *s,
 	b = calloc(1, sizeof(*b));
 	if (!b)
 		return NULL;
-	b->ctx = s->ctx;
-	if (!fyai_ui_active(s->ctx) || s->band_shadow) {
+	b->ctx = fyai_sink_ctx(s);
+	if (!fyai_ui_active(fyai_sink_ctx(s)) || s->band_shadow) {
 		b->kind = s->band_shadow ? SINK_BAND_SHADOW : SINK_BAND_HEADLESS;
 		if (shared)
 			*slot = b;
@@ -1048,28 +1054,28 @@ static struct fyai_sink_band *sink_term_band_open(struct fyai_sink *s,
 	}
 	if (shared) {
 		if (command)
-			fyai_ui_shell_begin(s->ctx, title, command);
+			fyai_ui_shell_begin(fyai_sink_ctx(s), title, command);
 		else
-			fyai_ui_tool_begin(s->ctx, title);
+			fyai_ui_tool_begin(fyai_sink_ctx(s), title);
 		b->kind = SINK_BAND_SHARED;
 		t->shared_band = b;
 		return b;
 	}
 	/* Draw independent work at its call in the transcript, or in a tile
 	 * of the work pane. */
-	if (fyai_ui_tools_inline(s->ctx)) {
+	if (fyai_ui_tools_inline(fyai_sink_ctx(s))) {
 		b->kind = SINK_BAND_INLINE;
 		b->inline_next = t->inline_bands;
 		t->inline_bands = b;
 		return b;
 	}
-	b->wb = fyai_ui_work_tile_create(s->ctx);
+	b->wb = fyai_ui_work_tile_create(fyai_sink_ctx(s));
 	if (!b->wb) {
 		free(b);
 		return NULL;
 	}
 	b->kind = SINK_BAND_TILE;
-	fyai_workpane_band_set_ops(s->ctx->front->workpane, b->wb,
+	fyai_workpane_band_set_ops(fyai_sink_ctx(s)->front->workpane, b->wb,
 				   &sink_term_band_ops, b);
 	return b;
 }
@@ -1079,19 +1085,19 @@ static void sink_term_band_present(struct fyai_sink_band *b)
 {
 	b->paint = SINK_PAINT_SHOWN;
 	if (b->kind == SINK_BAND_INLINE) {
-		if (fyai_ui_inline_update(b->ctx, (uintptr_t)b, false, b->title,
+		if (fyai_ui_inline_update(fyai_sink_band_ctx(b), (uintptr_t)b, false, b->title,
 					  b->command, b->body.data,
 					  b->body.len, b->margin))
-			fyai_warning(b->ctx,
+			fyai_warning(fyai_sink_band_ctx(b),
 				     "cannot draw the output of a call in the transcript");
 		return;
 	}
 	if (b->command)
-		fyai_ui_shell_workband_update(b->ctx, b->wb, b->title,
+		fyai_ui_shell_workband_update(fyai_sink_band_ctx(b), b->wb, b->title,
 					      b->command, b->body.data,
 					      b->body.len, b->margin);
 	else
-		fyai_ui_workband_update(b->ctx, b->wb, b->title, b->body.data,
+		fyai_ui_workband_update(fyai_sink_band_ctx(b), b->wb, b->title, b->body.data,
 					b->body.len, b->margin);
 }
 
@@ -1123,28 +1129,28 @@ static void sink_term_band_paint(struct fyai_sink_band *b, const char *title,
 	/* The shared band keeps the title it opened with; only the body moves. */
 	if (b->kind == SINK_BAND_SHARED || b->kind == SINK_BAND_SHADOW) {
 		rc = fyai_buf_reserve(&b->body, len + 1);
-		fyai_error_check(b->ctx, !rc, err_out,
+		fyai_error_check(fyai_sink_band_ctx(b), !rc, err_out,
 				 "cannot keep the body of a work band");
 		if (len)
 			memcpy(b->body.data, body, len);
 		b->body.len = len;
 		b->body.data[len] = '\0';
 		if (b->kind == SINK_BAND_SHARED && len)
-			fyai_ui_tool_update(b->ctx, body, len);
+			fyai_ui_tool_update(fyai_sink_band_ctx(b), body, len);
 		return;
 	}
 	/* A paint that cannot be kept is not presented. */
-	rc = sink_term_band_keep_string(b->ctx, &b->title, title);
+	rc = sink_term_band_keep_string(fyai_sink_band_ctx(b), &b->title, title);
 	if (rc)
 		goto err_out;
-	rc = sink_term_band_keep_string(b->ctx, &b->command, command);
+	rc = sink_term_band_keep_string(fyai_sink_band_ctx(b), &b->command, command);
 	if (rc)
 		goto err_out;
-	rc = sink_term_band_keep_string(b->ctx, &b->margin, margin);
+	rc = sink_term_band_keep_string(fyai_sink_band_ctx(b), &b->margin, margin);
 	if (rc)
 		goto err_out;
 	rc = fyai_buf_reserve(&b->body, len + 1);
-	fyai_error_check(b->ctx, !rc, err_out,
+	fyai_error_check(fyai_sink_band_ctx(b), !rc, err_out,
 			 "cannot keep the body of a work band");
 	if (len)
 		memcpy(b->body.data, body, len);
@@ -1152,7 +1158,7 @@ static void sink_term_band_paint(struct fyai_sink_band *b, const char *title,
 	b->body.data[len] = '\0';
 	/* Hold the paint until the first grant gives the width. */
 	if (b->kind == SINK_BAND_TILE &&
-	    fyai_ui_work_tile_cols(b->ctx, b->wb) <= 0) {
+	    fyai_ui_work_tile_cols(fyai_sink_band_ctx(b), b->wb) <= 0) {
 		b->paint = SINK_PAINT_HELD;
 		return;
 	}
@@ -1176,7 +1182,7 @@ static void sink_term_band_repaint(void *owner)
 
 static void sink_term_band_free(struct fyai_sink_band *b)
 {
-	struct sink_term *t = sink_term_state(b->ctx->front->sink);
+	struct sink_term *t = sink_term_state(fyai_sink_band_ctx(b)->front->sink);
 	struct fyai_sink_band **pp;
 
 	for (pp = t ? &t->inline_bands : NULL;
@@ -1205,7 +1211,7 @@ static void sink_term_band_close(struct fyai_sink *s, bool ok,
 		t->shadow_shared = NULL;
 		return;
 	}
-	if (!fyai_ui_active(s->ctx)) {
+	if (!fyai_ui_active(fyai_sink_ctx(s))) {
 		if (t->shared_band &&
 		    t->shared_band->kind == SINK_BAND_HEADLESS) {
 			sink_term_band_free(t->shared_band);
@@ -1213,7 +1219,7 @@ static void sink_term_band_close(struct fyai_sink *s, bool ok,
 		}
 		return;
 	}
-	fyai_ui_tool_end(s->ctx, ok, cause);
+	fyai_ui_tool_end(fyai_sink_ctx(s), ok, cause);
 	if (t->shared_band)
 		sink_term_band_free(t->shared_band);
 	t->shared_band = NULL;
@@ -1251,15 +1257,15 @@ static void sink_term_band_commit(struct fyai_sink_band *b)
 		sink_term_band_present(b);
 	/* The block gives its place to the rows of the whole band. */
 	if (b->kind == SINK_BAND_INLINE && b->paint != SINK_PAINT_NONE &&
-	    fyai_ui_inline_update(b->ctx, (uintptr_t)b, true, b->title,
+	    fyai_ui_inline_update(fyai_sink_band_ctx(b), (uintptr_t)b, true, b->title,
 				  b->command, b->body.data, b->body.len,
 				  b->margin))
-		fyai_warning(b->ctx,
+		fyai_warning(fyai_sink_band_ctx(b),
 			     "cannot commit the output of a call to the transcript");
 	if (b->kind == SINK_BAND_INLINE)
-		fyai_ui_inline_drop(b->ctx, (uintptr_t)b);
+		fyai_ui_inline_drop(fyai_sink_band_ctx(b), (uintptr_t)b);
 	if (b->wb)
-		fyai_ui_work_tile_destroy(b->ctx, b->wb, true);
+		fyai_ui_work_tile_destroy(fyai_sink_band_ctx(b), b->wb, true);
 	sink_term_band_free(b);
 }
 
@@ -1268,9 +1274,9 @@ static void sink_term_band_destroy(struct fyai_sink_band *b)
 	if (!b)
 		return;
 	if (b->wb)
-		fyai_ui_work_tile_destroy(b->ctx, b->wb, false);
+		fyai_ui_work_tile_destroy(fyai_sink_band_ctx(b), b->wb, false);
 	if (b->kind == SINK_BAND_INLINE)
-		fyai_ui_inline_drop(b->ctx, (uintptr_t)b);
+		fyai_ui_inline_drop(fyai_sink_band_ctx(b), (uintptr_t)b);
 	sink_term_band_free(b);
 }
 
@@ -1281,7 +1287,7 @@ static FILE *sink_term_stream_file(const struct fyai_sink *s,
 	const struct sink_term *t = s->state;
 
 	/* A protocol server reserves standard output for its frames. */
-	if (s->ctx->cfg->protocol_stdout && stream != FYAI_SINK_MACHINE)
+	if (fyai_sink_ctx(s)->cfg->protocol_stdout && stream != FYAI_SINK_MACHINE)
 		return stream == FYAI_SINK_DIAG ? stderr : NULL;
 
 	switch (stream) {
@@ -1307,12 +1313,12 @@ static int sink_term_markdown_ui(struct fyai_sink *s,
 	int rc;
 
 	mf = open_memstream(&text, &len);
-	fyai_error_check(s->ctx, mf, err,
+	fyai_error_check(fyai_sink_ctx(s), mf, err,
 			 "could not open the display render buffer");
-	if (fyai_fprint_markdown(mf, md, s->ctx->cfg, 0))
+	if (fyai_fprint_markdown(mf, md, fyai_sink_ctx(s)->cfg, 0))
 		fputs(md, mf);
 	rc = fclose(mf);
-	fyai_error_check(s->ctx, !rc, err,
+	fyai_error_check(fyai_sink_ctx(s), !rc, err,
 			 "could not render output for the display");
 	rc = sink_term_put(s, stream, text, len);
 	free(text);
@@ -1325,7 +1331,7 @@ err:
 static int sink_term_markdown(struct fyai_sink *s, enum fyai_sink_stream stream,
 			      const char *md)
 {
-	struct fyai_cfg *cfg = s->ctx->cfg;
+	struct fyai_cfg *cfg = fyai_sink_ctx(s)->cfg;
 	FILE *fp = sink_term_stream_file(s, stream);
 
 	if (!md || !*md || !fp)
@@ -1357,7 +1363,7 @@ static int sink_term_write_failed(struct fyai_sink *s, FILE *fp)
 	if (t->write_failed)
 		return -1;
 	t->write_failed = true;
-	fyai_error(s->ctx, "output could not be written: %s", strerror(err));
+	fyai_error(fyai_sink_ctx(s), "output could not be written: %s", strerror(err));
 	return -1;
 }
 
@@ -1371,7 +1377,7 @@ static bool sink_term_via_ui(const struct fyai_sink *s,
 {
 	const struct sink_term *t = s->state;
 
-	return !t->out && sink_may_present(s) && fyai_ui_active(s->ctx) &&
+	return !t->out && sink_may_present(s) && fyai_ui_active(fyai_sink_ctx(s)) &&
 	       (stream == FYAI_SINK_TRANSCRIPT || stream == FYAI_SINK_NOTICE);
 }
 
@@ -1386,7 +1392,7 @@ static int sink_term_put(struct fyai_sink *s, enum fyai_sink_stream stream,
 	if (!buf || !len)
 		return 0;
 	if (sink_term_via_ui(s, stream))
-		return fyai_ui_present(s->ctx, buf, len);
+		return fyai_ui_present(fyai_sink_ctx(s), buf, len);
 	fp = sink_term_stream_file(s, stream);
 	if (!fp)
 		return 0;
@@ -1648,9 +1654,9 @@ void fyai_sink_destroy(struct fyai_sink *s)
 	if (!s)
 		return;
 	/* The bands of the display go with the sink that holds them. */
-	if (s->ctx && s == s->ctx->front->sink) {
-		fyai_uidraw_bands_release(s->ctx);
-		fyai_uiwork_release(s->ctx);
+	if (fyai_sink_ctx(s) && s == fyai_sink_ctx(s)->front->sink) {
+		fyai_uidraw_bands_release(fyai_sink_ctx(s));
+		fyai_uiwork_release(fyai_sink_ctx(s));
 	}
 	if (s->ops->destroy)
 		s->ops->destroy(s);
@@ -1732,13 +1738,13 @@ struct fyai_sink_band *fyai_sink_band_open(struct fyai_sink *s, bool shared,
 		return NULL;
 	/* The band of a producer is a shadow while the renderer of the UI
 	 * model draws the bands from the work store. */
-	s->band_shadow = !s->drawing && s == s->ctx->front->sink &&
-			 fyai_uidraw_bands(s->ctx);
+	s->band_shadow = !s->drawing && s == fyai_sink_ctx(s)->front->sink &&
+			 fyai_uidraw_bands(fyai_sink_ctx(s));
 	b = s->ops->band_open(s, shared, title, command);
 	s->band_shadow = false;
 	/* The work store takes the bands of the display at their input. */
-	if (b && s == s->ctx->front->sink && !s->drawing)
-		fyai_uiwork_band_open(s->ctx, b, shared, title, command);
+	if (b && s == fyai_sink_ctx(s)->front->sink && !s->drawing)
+		fyai_uiwork_band_open(fyai_sink_ctx(s), b, shared, title, command);
 	return b;
 }
 
@@ -1746,17 +1752,17 @@ void fyai_sink_band_paint(struct fyai_sink_band *b, const char *title,
 			  const char *command, const char *body, size_t len,
 			  const char *margin)
 {
-	if (b && b->ctx)
-		fyai_uiwork_band_paint(b->ctx, b, title, command, body, len);
-	if (b && b->ctx && b->ctx->front->sink && b->ctx->front->sink->ops->band_paint)
-		b->ctx->front->sink->ops->band_paint(b, title, command, body, len,
+	if (b && fyai_sink_band_ctx(b))
+		fyai_uiwork_band_paint(fyai_sink_band_ctx(b), b, title, command, body, len);
+	if (b && fyai_sink_band_ctx(b) && fyai_sink_band_ctx(b)->front->sink && fyai_sink_band_ctx(b)->front->sink->ops->band_paint)
+		fyai_sink_band_ctx(b)->front->sink->ops->band_paint(b, title, command, body, len,
 					      margin);
 }
 
 void fyai_sink_band_close(struct fyai_sink *s, bool ok, const char *cause)
 {
-	if (s && s == s->ctx->front->sink && !s->drawing)
-		fyai_uiwork_band_end(s->ctx, NULL, FYAI_UIWORK_CLOSED, ok,
+	if (s && s == fyai_sink_ctx(s)->front->sink && !s->drawing)
+		fyai_uiwork_band_end(fyai_sink_ctx(s), NULL, FYAI_UIWORK_CLOSED, ok,
 				     cause);
 	if (s && s->ops->band_close)
 		s->ops->band_close(s, ok, cause);
@@ -1768,10 +1774,10 @@ int fyai_sink_band_cols(const struct fyai_sink_band *b)
 	/* A shadow renders at the width of the band that the renderer of the
 	 * UI model draws for it. */
 	if (b && b->kind == SINK_BAND_SHADOW)
-		return fyai_uidraw_band_cols(b->ctx, b);
+		return fyai_uidraw_band_cols(fyai_sink_band_ctx(b), b);
 	if (!b || b->kind != SINK_BAND_TILE || !b->wb)
 		return 0;
-	return fyai_ui_work_tile_cols(b->ctx, b->wb);
+	return fyai_ui_work_tile_cols(fyai_sink_band_ctx(b), b->wb);
 }
 
 void fyai_sink_band_set_repaint(struct fyai_sink_band *b,
@@ -1785,20 +1791,20 @@ void fyai_sink_band_set_repaint(struct fyai_sink_band *b,
 
 void fyai_sink_band_commit(struct fyai_sink_band *b)
 {
-	if (b && b->ctx)
-		fyai_uiwork_band_end(b->ctx, b, FYAI_UIWORK_COMMITTED, true,
+	if (b && fyai_sink_band_ctx(b))
+		fyai_uiwork_band_end(fyai_sink_band_ctx(b), b, FYAI_UIWORK_COMMITTED, true,
 				     NULL);
-	if (b && b->ctx && b->ctx->front->sink && b->ctx->front->sink->ops->band_commit)
-		b->ctx->front->sink->ops->band_commit(b);
+	if (b && fyai_sink_band_ctx(b) && fyai_sink_band_ctx(b)->front->sink && fyai_sink_band_ctx(b)->front->sink->ops->band_commit)
+		fyai_sink_band_ctx(b)->front->sink->ops->band_commit(b);
 }
 
 void fyai_sink_band_destroy(struct fyai_sink_band *b)
 {
-	if (b && b->ctx)
-		fyai_uiwork_band_end(b->ctx, b, FYAI_UIWORK_DESTROYED, true,
+	if (b && fyai_sink_band_ctx(b))
+		fyai_uiwork_band_end(fyai_sink_band_ctx(b), b, FYAI_UIWORK_DESTROYED, true,
 				     NULL);
-	if (b && b->ctx && b->ctx->front->sink && b->ctx->front->sink->ops->band_destroy)
-		b->ctx->front->sink->ops->band_destroy(b);
+	if (b && fyai_sink_band_ctx(b) && fyai_sink_band_ctx(b)->front->sink && fyai_sink_band_ctx(b)->front->sink->ops->band_destroy)
+		fyai_sink_band_ctx(b)->front->sink->ops->band_destroy(b);
 }
 
 void fyai_sink_bands_reflow(struct fyai_sink *s)
@@ -1822,7 +1828,7 @@ int fyai_sink_markdown(struct fyai_sink *s, enum fyai_sink_stream stream,
 	if (!s || !s->ops->markdown)
 		return 0;
 	if (md && *md)
-		fyai_uilog_sink(s->ctx, stream, true, md, strlen(md));
+		fyai_uilog_sink(fyai_sink_ctx(s), stream, true, md, strlen(md));
 	rc = s->ops->markdown(s, stream, md);
 	/* A rendered block closes its last row. */
 	if (!rc && (stream == FYAI_SINK_TRANSCRIPT || stream == FYAI_SINK_NOTICE)) {
@@ -1841,7 +1847,7 @@ int fyai_sink_markdown_source(struct fyai_sink *s,
 	if (!s || !s->ops->write || !len)
 		return 0;
 	/* The model takes Markdown; the medium takes it as written. */
-	fyai_uilog_sink_source(s->ctx, stream, md, len);
+	fyai_uilog_sink_source(fyai_sink_ctx(s), stream, md, len);
 	rc = s->ops->write(s, stream, md, len);
 	if (!rc && (stream == FYAI_SINK_TRANSCRIPT ||
 		    stream == FYAI_SINK_NOTICE))
@@ -1857,7 +1863,7 @@ int fyai_sink_write(struct fyai_sink *s, enum fyai_sink_stream stream,
 	if (!s || !s->ops->write)
 		return 0;
 	if (buf && len)
-		fyai_uilog_sink(s->ctx, stream, false, buf, len);
+		fyai_uilog_sink(fyai_sink_ctx(s), stream, false, buf, len);
 	rc = s->ops->write(s, stream, buf, len);
 	/* Only the scrollback streams share this medium. */
 	if (!rc && len && (stream == FYAI_SINK_TRANSCRIPT ||

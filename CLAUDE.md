@@ -182,7 +182,9 @@ initialize each generic field explicitly.
   pointer to the context: its accessor uses `container_of()` on the app
   (`fyai_cred_ctx()`). An object of which many stand on one context (a
   connection, a request, a tile) keeps a pointer of its own and gives it
-  through an accessor of its own (`mcp_ctx()`).
+  through an accessor of its own, `NAME_ctx()` for `struct NAME`, defined
+  next to the struct. Set the field where the object is made and read it
+  nowhere else; `tests/ctx-accessor.sh` fails on a direct read.
 - `src/fyai_arena.c`: `struct fyai_arena`, the durable and working builders of
   the canonical state. `ctx->arena` points at the one in the app; read
   `ctx->arena->gb` where you need the working builder.

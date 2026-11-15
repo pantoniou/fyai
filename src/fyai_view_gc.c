@@ -62,6 +62,12 @@ struct gc {
 	struct fyai_view_gc_stats *stats;
 };
 
+/* The context that this object stands on. */
+static inline struct fyai_ctx *gc_ctx(const struct gc *o)
+{
+	return o->ctx;
+}
+
 static int strv_add(struct strv *v, const char *text)
 {
 	char **items;
@@ -217,7 +223,7 @@ static int gc_collect_branch(struct gc *gc, fy_generic entry)
 				rc = roots && !strv_add(&roots->runtimes, runtime) ? 0 : -1;
 			}
 		}
-		if (!fyai_branch_entry_contained(gc->ctx->arena->durable_allocator, b.prev, 1))
+		if (!fyai_branch_entry_contained(gc_ctx(gc)->arena->durable_allocator, b.prev, 1))
 			break;
 		entry = b.prev;
 	}
@@ -257,7 +263,7 @@ static int gc_live(struct gc *gc, struct storage_roots *roots, int manifests, st
 	for (i = 0; i < roots->manifests.count; i++) {
 		memset(&manifest, 0, sizeof(manifest));
 		if (fyai_manifest_open_at(&manifest, manifests, roots->manifests.items[i])) {
-			fyai_warning(gc->ctx, "gc: cannot read the manifest %s of %s: %s; its objects "
+			fyai_warning(gc_ctx(gc), "gc: cannot read the manifest %s of %s: %s; its objects "
 					      "are kept",
 				     roots->manifests.items[i], roots->path, strerror(errno));
 			*complete = false;
@@ -402,7 +408,7 @@ static void gc_sweep_runtimes(struct gc *gc, struct storage_roots *roots)
 		if (!fyai_view_runtime_remove(path))
 			gc->stats->runtimes++;
 		else
-			fyai_warning(gc->ctx, "gc: cannot remove %s: %s", path, strerror(errno));
+			fyai_warning(gc_ctx(gc), "gc: cannot remove %s: %s", path, strerror(errno));
 		if (fd >= 0)
 			close(fd);
 		free(path);
@@ -419,8 +425,8 @@ static void gc_sweep_storage(struct gc *gc, struct storage_roots *roots)
 
 	/* A storage that has an arena of its own may hold the references of that arena. */
 	path = fy_sprintfa("%s/arena", roots->path);
-	if (!access(path, F_OK) && !fyai_view_same_arena(gc->ctx, path)) {
-		fyai_warning(gc->ctx, "gc: %s belongs to another arena; it was not collected",
+	if (!access(path, F_OK) && !fyai_view_same_arena(gc_ctx(gc), path)) {
+		fyai_warning(gc_ctx(gc), "gc: %s belongs to another arena; it was not collected",
 			     roots->path);
 		return;
 	}
@@ -430,7 +436,7 @@ static void gc_sweep_storage(struct gc *gc, struct storage_roots *roots)
 		return;
 	rc = flock(lock, LOCK_EX | LOCK_NB);
 	if (rc) {
-		fyai_warning(gc->ctx, "gc: %s is in use; it was not collected", roots->path);
+		fyai_warning(gc_ctx(gc), "gc: %s is in use; it was not collected", roots->path);
 		close(lock);
 		return;
 	}

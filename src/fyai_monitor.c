@@ -51,6 +51,12 @@ struct fyai_monitor_run {
 	bool quiet;		/* a command in the background: only its end is reported */
 };
 
+/* The context that this object stands on. */
+static inline struct fyai_ctx *fyai_monitor_run_ctx(const struct fyai_monitor_run *o)
+{
+	return o->ctx;
+}
+
 static struct fyai_monitor_run *monitor_find(struct fyai_ctx *ctx,
 					     const char *name)
 {
@@ -64,7 +70,7 @@ static struct fyai_monitor_run *monitor_find(struct fyai_ctx *ctx,
 
 static void monitor_unlink(struct fyai_monitor_run *run)
 {
-	struct fyai_monitor_run **link = &run->ctx->jobs->monitors;
+	struct fyai_monitor_run **link = &fyai_monitor_run_ctx(run)->jobs->monitors;
 
 	while (*link && *link != run)
 		link = &(*link)->next;
@@ -75,7 +81,7 @@ static void monitor_unlink(struct fyai_monitor_run *run)
 static void monitor_free(struct fyai_monitor_run *run)
 {
 	fyai_tool_job_group_destroy(run->group);
-	fyai_scope_unpin(run->ctx, &run->pin);
+	fyai_scope_unpin(fyai_monitor_run_ctx(run), &run->pin);
 	free(run->partial);
 	free(run);
 }
@@ -101,10 +107,10 @@ static void monitor_event(struct fyai_monitor_run *run, const char *fmt, ...)
 	int rc;
 
 	va_start(ap, fmt);
-	rc = fyai_event_vinjectf(run->ctx, fmt, ap);
+	rc = fyai_event_vinjectf(fyai_monitor_run_ctx(run), fmt, ap);
 	va_end(ap);
 	if (rc)
-		fyai_warning(run->ctx, "an event of the monitor '%s' was lost",
+		fyai_warning(fyai_monitor_run_ctx(run), "an event of the monitor '%s' was lost",
 			     run->name);
 }
 
@@ -190,7 +196,7 @@ static const char *monitor_status(const char *text, bool failed, char *buf,
 static void monitor_finish(void *userdata)
 {
 	struct fyai_monitor_run *run = userdata;
-	struct fyai_ctx *ctx = run->ctx;
+	struct fyai_ctx *ctx = fyai_monitor_run_ctx(run);
 	fy_generic result = fy_invalid;
 	const char *text;
 	char status[32];
@@ -234,7 +240,7 @@ static void monitor_complete(struct fyai_tool_job_group *group, void *userdata)
 	struct fyai_monitor_run *run = userdata;
 
 	(void)group;
-	(void)fyai_event_defer(fyai_ctx_loop(run->ctx), monitor_finish, run);
+	(void)fyai_event_defer(fyai_ctx_loop(fyai_monitor_run_ctx(run)), monitor_finish, run);
 }
 
 /*

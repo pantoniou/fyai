@@ -324,12 +324,18 @@ struct skill_import {
 	bool lenient;
 };
 
+/* The context that this object stands on. */
+static inline struct fyai_ctx *skill_import_ctx(const struct skill_import *o)
+{
+	return o->ctx;
+}
+
 /*
  * Report why a skill of the import cannot be read: a warning when the import
  * skips it and goes on, else the error that stops the import.
  */
 #define skill_fail(_im, _fmt, ...) \
-	fyai_diag_type(fyai_ctx_diag((_im)->ctx), \
+	fyai_diag_type(fyai_ctx_diag(skill_import_ctx(_im)), \
 		       (_im)->lenient ? FYAIET_WARNING : FYAIET_ERROR, \
 		       (_fmt) , ## __VA_ARGS__)
 
@@ -341,7 +347,7 @@ static int skill_read_files(struct skill_import *im, const char *dir,
 			    const char *rel, int depth, fy_generic *filesp,
 			    fy_generic *execsp, size_t *totalp)
 {
-	struct fyai_ctx *ctx = im->ctx;
+	struct fyai_ctx *ctx = skill_import_ctx(im);
 	struct dirent *de;
 	struct stat st;
 	char path[PATH_MAX], sub[PATH_MAX];
@@ -459,7 +465,7 @@ static void skill_import_notes(struct fyai_ctx *ctx, const char *name,
 static int skill_import_one(struct skill_import *im, const char *md,
 			    const char *dir)
 {
-	struct fyai_ctx *ctx = im->ctx;
+	struct fyai_ctx *ctx = skill_import_ctx(im);
 	struct fy_generic_builder *gb = im->gb;
 	fy_generic parsed, fm, name_v, files, execs, entry, item;
 	char why[1024], base[PATH_MAX], absdir[PATH_MAX];
@@ -690,7 +696,7 @@ static int skill_import_try(struct skill_import *im, const char *md,
 	int rc;
 
 	rc = skill_import_one(im, md, dir);
-	if (rc && !fyai_diag_got_error(fyai_ctx_diag(im->ctx)))
+	if (rc && !fyai_diag_got_error(fyai_ctx_diag(skill_import_ctx(im))))
 		return 0;
 	return rc;
 }
@@ -810,7 +816,7 @@ static int skill_scan_synced(struct skill_import *im, const char *base)
  */
 static int skill_scan_plugins(struct skill_import *im, const char *base)
 {
-	struct fyai_ctx *ctx = im->ctx;
+	struct fyai_ctx *ctx = skill_import_ctx(im);
 	fy_generic doc, plugins, key, installs, inst, ipath;
 	char path[PATH_MAX], prefix[FYAI_SKILL_NAME_MAX + 1];
 	const char *name, *at, *dir;

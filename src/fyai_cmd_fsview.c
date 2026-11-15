@@ -283,6 +283,12 @@ struct view_capture_progress {
 	bool shown;
 };
 
+/* The context that this object stands on. */
+static inline struct fyai_ctx *view_capture_progress_ctx(const struct view_capture_progress *o)
+{
+	return o->ctx;
+}
+
 static void view_capture_progress(void *arg, const struct fyai_project_capture_stats *stats)
 {
 	static const char *const phases[] = { "scanning",  "capturing",		 "materializing",
@@ -318,7 +324,7 @@ static void view_capture_progress(void *arg, const struct fyai_project_capture_s
 	if (progress->band)
 		fyai_sink_band_paint(progress->band, title, NULL, body, length, NULL);
 	else
-		fyai_report(progress->ctx, "%s: %s\n", title, body);
+		fyai_report(view_capture_progress_ctx(progress), "%s: %s\n", title, body);
 }
 
 
@@ -343,6 +349,12 @@ struct view_capture {
 	bool complete, unstable;
 };
 
+/* The context that this object stands on. */
+static inline struct fyai_ctx *view_capture_ctx(const struct view_capture *o)
+{
+	return o->ctx;
+}
+
 /*
  * Check the request, and lock the view that is updated. Returns 1 when the
  * request is refused with nothing to release, -1 on a failure.
@@ -350,7 +362,7 @@ struct view_capture {
 static int view_capture_prepare(struct view_capture *c)
 {
 	const struct fyai_view_request *request = c->request;
-	struct fyai_ctx *ctx = c->ctx;
+	struct fyai_ctx *ctx = view_capture_ctx(c);
 	const char *name = c->name;
 	bool replace = c->replace;
 	fy_generic stored_project;
@@ -404,7 +416,7 @@ static int view_capture_prepare(struct view_capture *c)
 /* Resolve the project and the storage, and hold the collection lock. */
 static int view_capture_paths(struct view_capture *c)
 {
-	struct fyai_ctx *ctx = c->ctx;
+	struct fyai_ctx *ctx = view_capture_ctx(c);
 	int rc;
 
 	c->resolved = realpath(c->project, NULL);
@@ -438,7 +450,7 @@ static int view_capture_paths(struct view_capture *c)
 static int view_capture_attempt(struct view_capture *c)
 {
 	const struct fyai_view_request *request = c->request;
-	struct fyai_ctx *ctx = c->ctx;
+	struct fyai_ctx *ctx = view_capture_ctx(c);
 	const char *name = c->name;
 	bool replace = c->replace;
 	const char *lockpath;
@@ -540,7 +552,7 @@ static int view_capture_attempt(struct view_capture *c)
 /* Publish the manifest, make the upper layer and save the record. */
 static int view_capture_publish(struct view_capture *c)
 {
-	struct fyai_ctx *ctx = c->ctx;
+	struct fyai_ctx *ctx = view_capture_ctx(c);
 	const char *name = c->name;
 	char manifest_name[FYAI_MANIFEST_NAME_SIZE];
 	fy_generic snapshot;
@@ -582,7 +594,7 @@ static int view_capture_publish(struct view_capture *c)
 /* Release what the capture holds, and say why it failed. */
 static void view_capture_release(struct view_capture *c)
 {
-	struct fyai_ctx *ctx = c->ctx;
+	struct fyai_ctx *ctx = view_capture_ctx(c);
 	const char *name = c->name;
 	int rc, saved;
 
@@ -643,7 +655,7 @@ static void view_capture_release(struct view_capture *c)
 int fyai_view_capture(const struct fyai_view_request *request, fy_generic *record)
 {
 	struct view_capture c = { .request = request,
-				  .ctx = request->ctx,
+				  .ctx = fyai_view_request_ctx(request),
 				  .name = request->name,
 				  .project = request->project,
 				  .durability = request->durability,
@@ -1164,14 +1176,14 @@ int fyai_cmd_view_diff(struct fyai_cmd_call *call, fy_generic *result)
 	size_t i;
 
 	/* One scope narrows both sides; two that differ name two different things. */
-	if (view_scope_split(call->ctx, given, names[0], sizeof(names[0]), scopes[0], sizeof(scopes[0])) ||
-	    (given_other && view_scope_split(call->ctx, given_other, names[1], sizeof(names[1]),
+	if (view_scope_split(fyai_cmd_call_ctx(call), given, names[0], sizeof(names[0]), scopes[0], sizeof(scopes[0])) ||
+	    (given_other && view_scope_split(fyai_cmd_call_ctx(call), given_other, names[1], sizeof(names[1]),
 					     scopes[1], sizeof(scopes[1]))))
 		return -1;
 	if (!given_other)
 		*scopes[1] = '\0';
 	if (*scopes[0] && *scopes[1] && strcmp(scopes[0], scopes[1])) {
-		fyai_error(call->ctx, "view diff: the paths '%s' and '%s' differ; name one", scopes[0],
+		fyai_error(fyai_cmd_call_ctx(call), "view diff: the paths '%s' and '%s' differ; name one", scopes[0],
 			   scopes[1]);
 		return -1;
 	}
@@ -1179,12 +1191,12 @@ int fyai_cmd_view_diff(struct fyai_cmd_call *call, fy_generic *result)
 		strcpy(scopes[0], scopes[1]);
 	name = names[0];
 	other = given_other ? names[1] : NULL;
-	if (view_state_resolve(call->ctx, name, &left) ||
-	    (other && view_state_resolve(call->ctx, other, &right)))
+	if (view_state_resolve(fyai_cmd_call_ctx(call), name, &left) ||
+	    (other && view_state_resolve(fyai_cmd_call_ctx(call), other, &right)))
 		return -1;
 	if (!other && !left.is_view) {
 		/* A reference alone is compared with the head of the branch. */
-		if (view_state_resolve(call->ctx, "HEAD", &right))
+		if (view_state_resolve(fyai_cmd_call_ctx(call), "HEAD", &right))
 			return -1;
 	} else if (!other) {
 		right = left;
@@ -1216,12 +1228,12 @@ int fyai_cmd_view_diff(struct fyai_cmd_call *call, fy_generic *result)
 							      strlen(scopes[0]), &probe, NULL) &&
 		    !fyai_manifest_lookup(&manifests[1], (const unsigned char *)scopes[0],
 					  strlen(scopes[0]), &probe, NULL)) {
-			fyai_error(call->ctx, "view diff: no path '%s' in either side", scopes[0]);
+			fyai_error(fyai_cmd_call_ctx(call), "view diff: no path '%s' in either side", scopes[0]);
 			goto out;
 		}
 	}
 	/* What the project ignores is not a change that the user is asked about. */
-	tree = view_ignore_tree(call->ctx, call->gb, *right.project ? right.project : left.project,
+	tree = view_ignore_tree(fyai_cmd_call_ctx(call), call->gb, *right.project ? right.project : left.project,
 				&ignore);
 	changes = view_changes_visible(call->gb, tree, changes);
 	fyai_ignore_tree_close(tree);
@@ -1289,7 +1301,7 @@ int fyai_cmd_view_diff(struct fyai_cmd_call *call, fy_generic *result)
 	*result = fy_assoc(call->gb, *result, "patch", patch);
 	rc = 0;
 	if (call->format == FYAI_CMD_OUT_MARKDOWN) {
-		rc = fyai_present_diff(call->ctx, fy_castp(&patch, ""),
+		rc = fyai_present_diff(fyai_cmd_call_ctx(call), fy_castp(&patch, ""),
 				       fyai_cmd_arg_bool(call, "unified"));
 		*result = fy_invalid;
 	}
@@ -1302,7 +1314,7 @@ out:
 	}
 	free(listing.data);
 	if (rc)
-		fyai_error(call->ctx, "view '%s': cannot diff%s%s: %s", name,
+		fyai_error(fyai_cmd_call_ctx(call), "view '%s': cannot diff%s%s: %s", name,
 			   *error_path ? " at " : "", error_path, strerror(saved));
 	return rc ? -1 : 0;
 }
@@ -1433,12 +1445,12 @@ int fyai_cmd_view_apply(struct fyai_cmd_call *call, fy_generic *result)
 
 	selected = calloc(count + 1, sizeof(*selected));
 	if (!selected) {
-		fyai_error(call->ctx, "could not allocate the path list");
+		fyai_error(fyai_cmd_call_ctx(call), "could not allocate the path list");
 		return -1;
 	}
 	fy_foreach(path, paths)
 		selected[index++] = path;
-	rc = fyai_view_pull(call->ctx, call->gb, fyai_cmd_arg_str(call, "name"),
+	rc = fyai_view_pull(fyai_cmd_call_ctx(call), call->gb, fyai_cmd_arg_str(call, "name"),
 			    fyai_cmd_arg_str(call, "base"), selected, count,
 			    fyai_cmd_arg_bool(call, "dry_run") ? FYAI_VIEW_PULL_DRY_RUN :
 								 FYAI_VIEW_PULL_APPLY,
@@ -1474,7 +1486,7 @@ int fyai_view_pull_agent(struct fyai_ctx *ctx, struct fy_generic_builder *gb, co
 static int view_capture(struct fyai_cmd_call *call, fy_generic *result, bool replace)
 {
 	struct fyai_view_request request = {
-		.ctx = call->ctx,
+		.ctx = fyai_cmd_call_ctx(call),
 		.name = fyai_cmd_arg_str(call, "name"),
 		.project = fyai_cmd_arg_str(call, "project"),
 		.durability = fyai_cmd_arg_str(call, "durability"),
@@ -1488,7 +1500,7 @@ static int view_capture(struct fyai_cmd_call *call, fy_generic *result, bool rep
 
 	/* The views of sub-agents are made by the agent tool, never by a user. */
 	if (!replace && fyai_view_name_is_agent(request.name)) {
-		fyai_error(call->ctx, "view '%s': the name is reserved for sub-agent views",
+		fyai_error(fyai_cmd_call_ctx(call), "view '%s': the name is reserved for sub-agent views",
 			   request.name);
 		return -1;
 	}
@@ -1516,9 +1528,9 @@ int fyai_cmd_view_show(struct fyai_cmd_call *call, fy_generic *result)
 	const char *name = fyai_cmd_arg_str(call, "name");
 	fy_generic view;
 
-	view = view_find(call->ctx, name);
+	view = view_find(fyai_cmd_call_ctx(call), name);
 	if (!fy_is_mapping(view)) {
-		fyai_error(call->ctx, "view '%s' does not exist", name);
+		fyai_error(fyai_cmd_call_ctx(call), "view '%s' does not exist", name);
 		return -1;
 	}
 	*result = view_summary(call->gb, name, view);
@@ -1530,7 +1542,7 @@ int fyai_cmd_view_list(struct fyai_cmd_call *call, fy_generic *result)
 	const char *name;
 	fy_generic view, views, row, yaml;
 
-	views = fy_get(view_store(call->ctx), "views", fy_map_empty);
+	views = fy_get(view_store(fyai_cmd_call_ctx(call)), "views", fy_map_empty);
 	*result = fy_sequence(call->gb);
 	fy_foreach_key_value(name, view, views) {
 		row = fyai_cmd_arg_bool(call, "full") ?
@@ -1656,6 +1668,12 @@ struct view_session_link {
 	bool restart;			/* the session asked for a fresh view */
 	bool leave;			/* the restart is outside any view */
 };
+
+/* The context that this object stands on. */
+static inline struct fyai_ctx *view_session_link_ctx(const struct view_session_link *o)
+{
+	return o->ctx;
+}
 
 static enum fyai_event_action view_session_request(const struct fyai_event *ev);
 
@@ -1926,26 +1944,26 @@ static int view_enter_terminal(struct fyai_cmd_call *call)
 	ssize_t length;
 	int rc;
 
-	if (view_writable(call->ctx))
+	if (view_writable(fyai_cmd_call_ctx(call)))
 		return -1;
 	length = fyai_host_executable(executable, sizeof(executable) - 1);
 	if (length <= 0 || length == sizeof(executable) - 1) {
-		fyai_error(call->ctx, "view: cannot locate the executable for "
+		fyai_error(fyai_cmd_call_ctx(call), "view: cannot locate the executable for "
 				      "the terminal child");
 		return -1;
 	}
 	executable[length] = '\0';
-	arena = fy_emit(call->gb, fy_value(call->gb, call->ctx->cfg->arena_dir),
+	arena = fy_emit(call->gb, fy_value(call->gb, fyai_cmd_call_ctx(call)->cfg->arena_dir),
 			FYOPEF_DISABLE_DIRECTORY | FYOPEF_MODE_JSON | FYOPEF_NO_ENDING_NEWLINE,
 			NULL);
 	if (!fy_is_string(arena)) {
-		fyai_error(call->ctx, "view: cannot encode the terminal child's arena path");
+		fyai_error(fyai_cmd_call_ctx(call), "view: cannot encode the terminal child's arena path");
 		return -1;
 	}
 	rc = fyai_shell_quote(&line, executable) || fyai_buf_append(&line, " --set ") ||
 	     fyai_shell_quote(&line, fy_sprintfa("arena_dir=%s", fy_castp(&arena, ""))) ||
 	     fyai_buf_append(&line, " --branch ") ||
-	     fyai_shell_quote(&line, fyai_ctx_branch(call->ctx)) ||
+	     fyai_shell_quote(&line, fyai_ctx_branch(fyai_cmd_call_ctx(call))) ||
 	     fyai_buf_append(&line, " view enter ");
 	if (!rc && fyai_cmd_arg_bool(call, "verify"))
 		rc = fyai_buf_append(&line, "--verify ");
@@ -1963,12 +1981,12 @@ static int view_enter_terminal(struct fyai_cmd_call *call)
 			rc = fyai_buf_append(&line, " ") ||
 			     fyai_shell_quote(&line, argument);
 	if (rc) {
-		fyai_error(call->ctx, "view: cannot allocate the terminal command");
+		fyai_error(fyai_cmd_call_ctx(call), "view: cannot allocate the terminal command");
 		free(line.data);
 		return -1;
 	}
-	session = fyai_tools_config_program(call->ctx, line.data, "view", fy_seq_empty,
-					    view_terminal_exited, call->ctx);
+	session = fyai_tools_config_program(fyai_cmd_call_ctx(call), line.data, "view", fy_seq_empty,
+					    view_terminal_exited, fyai_cmd_call_ctx(call));
 	free(line.data);
 	return session ? 0 : -1;
 }
@@ -2097,13 +2115,13 @@ int fyai_cmd_view_enter(struct fyai_cmd_call *call, fy_generic *result)
 	if (!fyai_fsview_sessions_supported() &&
 	    (call->surface == FYAI_CMD_SESSION || (profile && *profile) ||
 	     fyai_cmd_arg_bool(call, "lockdown"))) {
-		fyai_error(call->ctx, "view enter: this system supports standalone "
+		fyai_error(fyai_cmd_call_ctx(call), "view enter: this system supports standalone "
 			   "commands without --profile or --lockdown only");
 		return -1;
 	}
 	if (call->surface == FYAI_CMD_SESSION)
 		return view_enter_terminal(call);
-	if (view_writable(call->ctx))
+	if (view_writable(fyai_cmd_call_ctx(call)))
 		return -1;
 	/* What a tool of a session under that profile gets in its view. */
 	if (fyai_cmd_arg_bool(call, "lockdown"))
@@ -2111,23 +2129,23 @@ int fyai_cmd_view_enter(struct fyai_cmd_call *call, fy_generic *result)
 	lockdown = profile && *profile;
 	if (lockdown) {
 		if (!fyai_sandbox_available()) {
-			fyai_error(call->ctx, "view '%s': --profile needs Landlock, which this "
+			fyai_error(fyai_cmd_call_ctx(call), "view '%s': --profile needs Landlock, which this "
 				   "kernel lacks", name);
 			return -1;
 		}
-		if (fyai_config_sandbox_select(call->ctx->cfg, profile))
+		if (fyai_config_sandbox_select(fyai_cmd_call_ctx(call)->cfg, profile))
 			return -1;
 		if (!fyai_sandbox_net_restrictable(-1))
-			fyai_warning(call->ctx, "view '%s': this kernel cannot restrict network "
+			fyai_warning(fyai_cmd_call_ctx(call), "view '%s': this kernel cannot restrict network "
 				     "egress: it stays open", name);
-		udp = fy_get(fy_get(call->ctx->cfg->sandbox, "network", fy_invalid), "udp",
+		udp = fy_get(fy_get(fyai_cmd_call_ctx(call)->cfg->sandbox, "network", fy_invalid), "udp",
 			     fy_invalid);
 		if (fyai_sandbox_udp_open(udp))
-			fyai_warning(call->ctx, "view '%s': UDP egress remains open; Landlock "
+			fyai_warning(fyai_cmd_call_ctx(call), "view '%s': UDP egress remains open; Landlock "
 				     "ABI 10 is unavailable", name);
 	}
 	run.spec.verify = fyai_cmd_arg_bool(call, "verify");
-	rc = view_open_run(call->ctx, name, &run, error, sizeof(error));
+	rc = view_open_run(fyai_cmd_call_ctx(call), name, &run, error, sizeof(error));
 	if (rc == -1) {
 		view_run_release(&run);
 		return -1;
@@ -2140,42 +2158,42 @@ int fyai_cmd_view_enter(struct fyai_cmd_call *call, fy_generic *result)
 		goto out;
 	fy_foreach(argument, arguments)
 		argv[index++] = (char *)argument;
-	rc = view_exec(call->ctx, &run.spec, argv, false, lockdown, -1, -1, NULL, NULL, &output);
+	rc = view_exec(fyai_cmd_call_ctx(call), &run.spec, argv, false, lockdown, -1, -1, NULL, NULL, &output);
 	if (rc)
 		goto out;
 	why = fyai_child_start_text(&output.start, NULL, run.spec.project, startup, sizeof(startup));
 	if (why) {
 		rc = fyai_fsview_verify(&run.spec, error, sizeof(error));
 		if (!rc || !*error)
-			fyai_error(call->ctx, "view '%s': %s", name, why);
+			fyai_error(fyai_cmd_call_ctx(call), "view '%s': %s", name, why);
 		rc = -1;
 		goto out;
 	}
-	snapshot = fyai_fsview_snapshot(call->ctx->arena->gb, &run.spec, error, sizeof(error));
+	snapshot = fyai_fsview_snapshot(fyai_cmd_call_ctx(call)->arena->gb, &run.spec, error, sizeof(error));
 	if (!fy_is_valid(snapshot)) {
 		rc = -1;
 		goto out;
 	}
-	updated = fy_assoc(call->ctx->arena->gb, run.view, "result", snapshot);
-	updated = fy_assoc(call->ctx->arena->gb, updated, "state", "ready");
-	updated = fy_assoc(call->ctx->arena->gb, updated, "synchronized", (bool)!run.spec.lazy);
-	rc = view_save(call->ctx, name, updated);
+	updated = fy_assoc(fyai_cmd_call_ctx(call)->arena->gb, run.view, "result", snapshot);
+	updated = fy_assoc(fyai_cmd_call_ctx(call)->arena->gb, updated, "state", "ready");
+	updated = fy_assoc(fyai_cmd_call_ctx(call)->arena->gb, updated, "synchronized", (bool)!run.spec.lazy);
+	rc = view_save(fyai_cmd_call_ctx(call), name, updated);
 	if (rc)
 		goto out;
-	call->ctx->cfg->exit_status = output.exit_code;
+	fyai_cmd_call_ctx(call)->cfg->exit_status = output.exit_code;
 	*result = fy_invalid;
 	complete = true;
 out:
 	saved = errno;
 	if (run.started && !complete) {
-		updated = fy_assoc(call->ctx->arena->gb, run.view, "state", "incomplete");
-		view_save(call->ctx, name, updated);
+		updated = fy_assoc(fyai_cmd_call_ctx(call)->arena->gb, run.view, "state", "incomplete");
+		view_save(fyai_cmd_call_ctx(call), name, updated);
 	}
 	free(argv);
 	view_run_release(&run);
 	shell_command_result_cleanup(&output);
 	if (!complete)
-		fyai_error(call->ctx, "view '%s': cannot complete execution%s%s: %s", name,
+		fyai_error(fyai_cmd_call_ctx(call), "view '%s': cannot complete execution%s%s: %s", name,
 			   *error ? " at " : "", error, strerror(saved));
 	return complete ? 0 : -1;
 }
@@ -2312,7 +2330,7 @@ static long view_fs_fill_stdin(void *arg, void *data, size_t length)
  */
 int fyai_cmd_view_fs(struct fyai_cmd_call *call, fy_generic *result)
 {
-	struct fyai_ctx *ctx = call->ctx;
+	struct fyai_ctx *ctx = fyai_cmd_call_ctx(call);
 	const char *op = fyai_cmd_arg_str(call, "op"), *argument, **paths, **names;
 	fy_generic list = fy_get(call->args, "paths", fy_seq_empty);
 	char error[PATH_MAX] = "", clean[PATH_MAX];
@@ -2378,6 +2396,12 @@ struct view_cp {
 	char error[PATH_MAX];
 };
 
+/* The context that this object stands on. */
+static inline struct fyai_ctx *view_cp_ctx(const struct view_cp *o)
+{
+	return o->ctx;
+}
+
 static int view_cp_emit(void *arg, const void *data, size_t length)
 {
 	struct view_cp *cp = arg;
@@ -2439,23 +2463,23 @@ static int view_cp_start(void *arg, const struct fyai_fsview *spec, int *in_fd, 
 
 	cp->project_fd = open(spec->project, O_RDONLY | O_DIRECTORY | O_CLOEXEC);
 	if (cp->project_fd < 0) {
-		fyai_error(cp->ctx, "view cp: cannot open the project %s: %s", spec->project,
+		fyai_error(view_cp_ctx(cp), "view cp: cannot open the project %s: %s", spec->project,
 			   strerror(errno));
 		return -1;
 	}
 	/* Walk the sources first: a path that is absent fails before the view changes. */
 	if (cp->to_view && fyai_view_fs_pack(cp->project_fd, cp->sources, cp->names, cp->count, NULL,
 					     NULL, cp->error, sizeof(cp->error))) {
-		fyai_error(cp->ctx, "view cp: %s: %s", cp->error, strerror(errno));
+		fyai_error(view_cp_ctx(cp), "view cp: %s: %s", cp->error, strerror(errno));
 		return -1;
 	}
 	if (fyai_host_pipe(cp->pipe_fd)) {
-		fyai_error(cp->ctx, "view cp: cannot make a pipe: %s", strerror(errno));
+		fyai_error(view_cp_ctx(cp), "view cp: cannot make a pipe: %s", strerror(errno));
 		return -1;
 	}
 	rc = pthread_create(&cp->thread, NULL, view_cp_thread, cp);
 	if (rc) {
-		fyai_error(cp->ctx, "view cp: cannot start the copy: %s", strerror(rc));
+		fyai_error(view_cp_ctx(cp), "view cp: cannot start the copy: %s", strerror(rc));
 		return -1;
 	}
 	cp->threaded = true;
@@ -2504,7 +2528,7 @@ static bool view_dest_is_top(const char *path)
 
 int fyai_cmd_view_cp(struct fyai_cmd_call *call, fy_generic *result)
 {
-	struct fyai_ctx *ctx = call->ctx;
+	struct fyai_ctx *ctx = fyai_cmd_call_ctx(call);
 	fy_generic list = fy_get(call->args, "paths", fy_seq_empty);
 	struct view_cp cp = { .ctx = ctx, .project_fd = -1, .pipe_fd = { -1, -1 } };
 	struct view_job job = { .record = true };
@@ -2643,7 +2667,7 @@ out:
 
 int fyai_cmd_view_rm(struct fyai_cmd_call *call, fy_generic *result)
 {
-	struct fyai_ctx *ctx = call->ctx;
+	struct fyai_ctx *ctx = fyai_cmd_call_ctx(call);
 	fy_generic list = fy_get(call->args, "paths", fy_seq_empty);
 	struct view_job job = { .record = true };
 	const char **given = NULL, **argv = NULL, *argument, *path;
@@ -2779,7 +2803,7 @@ static int view_ls_add(struct view_ls_entry **list, size_t *count, size_t *capac
  */
 int fyai_cmd_view_ls(struct fyai_cmd_call *call, fy_generic *result)
 {
-	struct fyai_ctx *ctx = call->ctx;
+	struct fyai_ctx *ctx = fyai_cmd_call_ctx(call);
 	fy_generic list = fy_get(call->args, "paths", fy_seq_empty), rows;
 	bool all = fyai_cmd_arg_bool(call, "all");
 	struct fyai_manifest manifest;
@@ -2923,15 +2947,15 @@ int fyai_cmd_view_remove(struct fyai_cmd_call *call, fy_generic *result)
 	const char *lockpath;
 	int lock = -1, rc, saved;
 
-	if (view_writable(call->ctx))
+	if (view_writable(fyai_cmd_call_ctx(call)))
 		return -1;
-	view = view_find(call->ctx, name);
+	view = view_find(fyai_cmd_call_ctx(call), name);
 	if (!fy_is_mapping(view)) {
-		fyai_error(call->ctx, "view '%s' does not exist", name);
+		fyai_error(fyai_cmd_call_ctx(call), "view '%s' does not exist", name);
 		return -1;
 	}
 	if (fy_is_valid(fy_get(view, "mount", fy_invalid))) {
-		fyai_error(call->ctx, "view '%s' is mounted; unmount it first", name);
+		fyai_error(fyai_cmd_call_ctx(call), "view '%s' is mounted; unmount it first", name);
 		return -1;
 	}
 	rc = view_mount_paths(view, &spec);
@@ -2949,7 +2973,7 @@ int fyai_cmd_view_remove(struct fyai_cmd_call *call, fy_generic *result)
 	}
 	/* Retained branch history can still name this runtime and its CAS
 	 * objects. */
-	rc = view_save(call->ctx, name, fy_invalid);
+	rc = view_save(fyai_cmd_call_ctx(call), name, fy_invalid);
 	if (!rc)
 		*result = fy_mapping(call->gb, "name", fy_value(call->gb, name), "removed", true);
 out:
@@ -2957,7 +2981,7 @@ out:
 	if (lock >= 0)
 		close(lock);
 	if (rc)
-		fyai_error(call->ctx, "view '%s': cannot remove: %s", name, strerror(saved));
+		fyai_error(fyai_cmd_call_ctx(call), "view '%s': cannot remove: %s", name, strerror(saved));
 	return rc ? -1 : 0;
 }
 
@@ -2970,11 +2994,11 @@ int fyai_cmd_view_sync(struct fyai_cmd_call *call, fy_generic *result)
 	const char *lockpath;
 	int lock = -1, rc, saved;
 
-	if (view_writable(call->ctx))
+	if (view_writable(fyai_cmd_call_ctx(call)))
 		return -1;
-	view = view_find(call->ctx, name);
+	view = view_find(fyai_cmd_call_ctx(call), name);
 	if (!fy_is_mapping(view)) {
-		fyai_error(call->ctx, "view '%s' does not exist", name);
+		fyai_error(fyai_cmd_call_ctx(call), "view '%s' does not exist", name);
 		return -1;
 	}
 	rc = view_mount_paths(view, &spec);
@@ -2989,13 +3013,13 @@ int fyai_cmd_view_sync(struct fyai_cmd_call *call, fy_generic *result)
 	rc = flock(lock, LOCK_EX | LOCK_NB);
 	if (rc)
 		goto out;
-	rc = view_recover(call->ctx, &view, &spec, error, sizeof(error));
+	rc = view_recover(fyai_cmd_call_ctx(call), &view, &spec, error, sizeof(error));
 	if (!rc)
 		rc = fyai_fsview_sync_backing(spec.runtime, spec.storage);
 	if (rc)
 		goto out;
-	view = fy_assoc(call->ctx->arena->gb, view, "synchronized", true);
-	rc = view_save(call->ctx, name, view);
+	view = fy_assoc(fyai_cmd_call_ctx(call)->arena->gb, view, "synchronized", true);
+	rc = view_save(fyai_cmd_call_ctx(call), name, view);
 	if (!rc)
 		*result = view_summary(call->gb, name, view);
 out:
@@ -3003,7 +3027,7 @@ out:
 	if (lock >= 0)
 		close(lock);
 	if (rc)
-		fyai_error(call->ctx, "view '%s': cannot synchronize%s%s: %s", name,
+		fyai_error(fyai_cmd_call_ctx(call), "view '%s': cannot synchronize%s%s: %s", name,
 			   *error ? " at " : "", error, strerror(saved));
 	return rc ? -1 : 0;
 }
@@ -3029,15 +3053,15 @@ int fyai_cmd_view_mount(struct fyai_cmd_call *call, fy_generic *result)
 	int lock = -1, rc = -1, saved;
 	bool complete = false, mounted = false;
 
-	if (view_writable(call->ctx))
+	if (view_writable(fyai_cmd_call_ctx(call)))
 		return -1;
-	view = view_find(call->ctx, name);
+	view = view_find(fyai_cmd_call_ctx(call), name);
 	if (!fy_is_mapping(view)) {
-		fyai_error(call->ctx, "view '%s' does not exist", name);
+		fyai_error(fyai_cmd_call_ctx(call), "view '%s' does not exist", name);
 		return -1;
 	}
 	if (fy_is_valid(fy_get(view, "mount", fy_invalid))) {
-		fyai_error(call->ctx, "view '%s' is already mounted; unmount it first", name);
+		fyai_error(fyai_cmd_call_ctx(call), "view '%s' is already mounted; unmount it first", name);
 		return -1;
 	}
 	rc = view_mount_paths(view, &spec);
@@ -3053,8 +3077,8 @@ int fyai_cmd_view_mount(struct fyai_cmd_call *call, fy_generic *result)
 	    view_path_contains(resolved, spec.project) ||
 	    view_path_contains(spec.storage, resolved) ||
 	    view_path_contains(resolved, spec.storage) ||
-	    view_path_contains(call->ctx->cfg->arena_dir, resolved) ||
-	    view_path_contains(resolved, call->ctx->cfg->arena_dir)) {
+	    view_path_contains(fyai_cmd_call_ctx(call)->cfg->arena_dir, resolved) ||
+	    view_path_contains(resolved, fyai_cmd_call_ctx(call)->cfg->arena_dir)) {
 		errno = EINVAL;
 		goto out;
 	}
@@ -3083,17 +3107,17 @@ int fyai_cmd_view_mount(struct fyai_cmd_call *call, fy_generic *result)
 	rc = flock(lock, LOCK_EX | LOCK_NB);
 	if (rc)
 		goto out;
-	rc = view_recover(call->ctx, &view, &spec, error, sizeof(error));
+	rc = view_recover(fyai_cmd_call_ctx(call), &view, &spec, error, sizeof(error));
 	if (rc)
 		goto out;
 	rc = fyai_fsview_mount(&spec, resolved, &identity);
 	if (rc)
 		goto out;
 	mounted = true;
-	updated = fy_assoc(call->ctx->arena->gb, view, "mount",
-			   view_mount_record(call->ctx->arena->gb, resolved, &identity));
-	updated = fy_assoc(call->ctx->arena->gb, updated, "state", "mounted");
-	rc = view_save(call->ctx, name, updated);
+	updated = fy_assoc(fyai_cmd_call_ctx(call)->arena->gb, view, "mount",
+			   view_mount_record(fyai_cmd_call_ctx(call)->arena->gb, resolved, &identity));
+	updated = fy_assoc(fyai_cmd_call_ctx(call)->arena->gb, updated, "state", "mounted");
+	rc = view_save(fyai_cmd_call_ctx(call), name, updated);
 	if (rc)
 		goto out;
 	*result = view_summary(call->gb, name, updated);
@@ -3108,14 +3132,14 @@ out:
 		close(lock);
 	if (!complete) {
 		if (saved == EPERM || saved == EACCES)
-			fyai_error(call->ctx,
+			fyai_error(fyai_cmd_call_ctx(call),
 				   "view '%s': mount at '%s' requires mount "
 				   "privileges in the current namespace; for "
 				   "rootless inspection start unshare -Urnm "
 				   "sh: %s",
 				   name, target, strerror(saved));
 		else
-			fyai_error(call->ctx, "view '%s': cannot mount at '%s'%s%s: %s", name,
+			fyai_error(fyai_cmd_call_ctx(call), "view '%s': cannot mount at '%s'%s%s: %s", name,
 				   target, *error ? " at " : "", error, strerror(saved));
 	}
 	free(resolved);
@@ -3132,13 +3156,13 @@ int fyai_cmd_view_unmount(struct fyai_cmd_call *call, fy_generic *result)
 	int lock = -1, rc = -1, saved;
 	bool complete = false;
 
-	if (view_writable(call->ctx))
+	if (view_writable(fyai_cmd_call_ctx(call)))
 		return -1;
-	view = view_find(call->ctx, name);
+	view = view_find(fyai_cmd_call_ctx(call), name);
 	mount = fy_get(view, "mount", fy_invalid);
 	path = fy_get(mount, "path", fy_invalid);
 	if (!fy_is_mapping(view) || !fy_is_mapping(mount) || !fy_is_string(path)) {
-		fyai_error(call->ctx, "view '%s' has no recorded mount", name);
+		fyai_error(fyai_cmd_call_ctx(call), "view '%s' has no recorded mount", name);
 		return -1;
 	}
 	rc = view_mount_paths(view, &spec);
@@ -3167,16 +3191,16 @@ int fyai_cmd_view_unmount(struct fyai_cmd_call *call, fy_generic *result)
 		saved = errno;
 		if (identity.cover_id != (uint64_t)fy_get(mount, "cover_id", 0LL)) {
 			updated = fy_assoc(
-				call->ctx->arena->gb, view, "mount",
-				view_mount_record(call->ctx->arena->gb, fy_castp(&path, ""), &identity));
-			view_save(call->ctx, name, updated);
+				fyai_cmd_call_ctx(call)->arena->gb, view, "mount",
+				view_mount_record(fyai_cmd_call_ctx(call)->arena->gb, fy_castp(&path, ""), &identity));
+			view_save(fyai_cmd_call_ctx(call), name, updated);
 		}
 		errno = saved;
 		goto out;
 	}
-	updated = fy_disassoc(call->ctx->arena->gb, view, "mount");
-	updated = fy_assoc(call->ctx->arena->gb, updated, "state", "ready");
-	rc = view_save(call->ctx, name, updated);
+	updated = fy_disassoc(fyai_cmd_call_ctx(call)->arena->gb, view, "mount");
+	updated = fy_assoc(fyai_cmd_call_ctx(call)->arena->gb, updated, "state", "ready");
+	rc = view_save(fyai_cmd_call_ctx(call), name, updated);
 	if (rc)
 		goto out;
 	*result = view_summary(call->gb, name, updated);
@@ -3186,7 +3210,7 @@ out:
 	if (lock >= 0)
 		close(lock);
 	if (!complete)
-		fyai_error(call->ctx,
+		fyai_error(fyai_cmd_call_ctx(call),
 			   "view '%s': cannot unmount the recorded inspection "
 			   "mount: %s",
 			   name, strerror(saved));
@@ -3383,7 +3407,7 @@ static fy_generic view_session_failure(struct fyai_ctx *ctx, struct fy_generic_b
 static fy_generic view_session_push(struct view_session_link *link, struct fy_generic_builder *gb,
 				    fy_generic m)
 {
-	struct fyai_ctx *ctx = link->ctx;
+	struct fyai_ctx *ctx = view_session_link_ctx(link);
 	long long seq = fy_get(m, "seq", 0LL);
 	fy_generic list = fy_get(m, "paths", fy_seq_empty), path, result, rows, kept;
 	const char **paths = NULL;
@@ -3429,7 +3453,7 @@ static fy_generic view_session_push(struct view_session_link *link, struct fy_ge
 static fy_generic view_session_pull(struct view_session_link *link, struct fy_generic_builder *gb,
 				    fy_generic m)
 {
-	struct fyai_ctx *ctx = link->ctx;
+	struct fyai_ctx *ctx = view_session_link_ctx(link);
 	long long seq = fy_get(m, "seq", 0LL), pending;
 	int status = ctx->cfg->exit_status;
 	fy_generic result;
@@ -3464,7 +3488,7 @@ static fy_generic view_session_pull(struct view_session_link *link, struct fy_ge
 static fy_generic view_session_restart(struct view_session_link *link, struct fy_generic_builder *gb,
 				       fy_generic m)
 {
-	struct fyai_ctx *ctx = link->ctx;
+	struct fyai_ctx *ctx = view_session_link_ctx(link);
 	long long seq = fy_get(m, "seq", 0LL), conflicts;
 	int status = ctx->cfg->exit_status;
 	fy_generic result;
@@ -3983,7 +4007,7 @@ out:
 
 int fyai_cmd_undo(struct fyai_cmd_call *call, fy_generic *result)
 {
-	return fyai_tool_change_undo(call->ctx, call->gb, fy_get(call->args, "back", 1LL), result);
+	return fyai_tool_change_undo(fyai_cmd_call_ctx(call), call->gb, fy_get(call->args, "back", 1LL), result);
 }
 
 bool fyai_tool_diff_enabled(struct fyai_ctx *ctx)
@@ -4304,104 +4328,104 @@ out:
 int fyai_cmd_view_apply(struct fyai_cmd_call *call, fy_generic *result)
 {
 	(void)result;
-	fyai_error(call->ctx, "view: filesystem views require Linux");
+	fyai_error(fyai_cmd_call_ctx(call), "view: filesystem views require Linux");
 	return -1;
 }
 
 int fyai_cmd_view_diff(struct fyai_cmd_call *call, fy_generic *result)
 {
 	(void)result;
-	fyai_error(call->ctx, "view: filesystem views require Linux");
+	fyai_error(fyai_cmd_call_ctx(call), "view: filesystem views require Linux");
 	return -1;
 }
 
 int fyai_cmd_view_remove(struct fyai_cmd_call *call, fy_generic *result)
 {
 	(void)result;
-	fyai_error(call->ctx, "view: filesystem views require Linux");
+	fyai_error(fyai_cmd_call_ctx(call), "view: filesystem views require Linux");
 	return -1;
 }
 
 int fyai_cmd_view_sync(struct fyai_cmd_call *call, fy_generic *result)
 {
 	(void)result;
-	fyai_error(call->ctx, "view: filesystem views require Linux");
+	fyai_error(fyai_cmd_call_ctx(call), "view: filesystem views require Linux");
 	return -1;
 }
 int fyai_cmd_view_create(struct fyai_cmd_call *call, fy_generic *result)
 {
 	(void)result;
-	fyai_error(call->ctx, "view: filesystem views require Linux");
+	fyai_error(fyai_cmd_call_ctx(call), "view: filesystem views require Linux");
 	return -1;
 }
 
 int fyai_cmd_view_show(struct fyai_cmd_call *call, fy_generic *result)
 {
 	(void)result;
-	fyai_error(call->ctx, "view: filesystem views require Linux");
+	fyai_error(fyai_cmd_call_ctx(call), "view: filesystem views require Linux");
 	return -1;
 }
 
 int fyai_cmd_view_list(struct fyai_cmd_call *call, fy_generic *result)
 {
 	(void)result;
-	fyai_error(call->ctx, "view: filesystem views require Linux");
+	fyai_error(fyai_cmd_call_ctx(call), "view: filesystem views require Linux");
 	return -1;
 }
 
 int fyai_cmd_view_update(struct fyai_cmd_call *call, fy_generic *result)
 {
 	(void)result;
-	fyai_error(call->ctx, "view: filesystem views require Linux");
+	fyai_error(fyai_cmd_call_ctx(call), "view: filesystem views require Linux");
 	return -1;
 }
 
 int fyai_cmd_view_enter(struct fyai_cmd_call *call, fy_generic *result)
 {
 	(void)result;
-	fyai_error(call->ctx, "view: filesystem views require Linux");
+	fyai_error(fyai_cmd_call_ctx(call), "view: filesystem views require Linux");
 	return -1;
 }
 
 int fyai_cmd_view_mount(struct fyai_cmd_call *call, fy_generic *result)
 {
 	(void)result;
-	fyai_error(call->ctx, "view: filesystem views require Linux");
+	fyai_error(fyai_cmd_call_ctx(call), "view: filesystem views require Linux");
 	return -1;
 }
 
 int fyai_cmd_view_unmount(struct fyai_cmd_call *call, fy_generic *result)
 {
 	(void)result;
-	fyai_error(call->ctx, "view: filesystem views require Linux");
+	fyai_error(fyai_cmd_call_ctx(call), "view: filesystem views require Linux");
 	return -1;
 }
 
 int fyai_cmd_view_ls(struct fyai_cmd_call *call, fy_generic *result)
 {
 	(void)result;
-	fyai_error(call->ctx, "view: filesystem views require Linux");
+	fyai_error(fyai_cmd_call_ctx(call), "view: filesystem views require Linux");
 	return -1;
 }
 
 int fyai_cmd_view_rm(struct fyai_cmd_call *call, fy_generic *result)
 {
 	(void)result;
-	fyai_error(call->ctx, "view: filesystem views require Linux");
+	fyai_error(fyai_cmd_call_ctx(call), "view: filesystem views require Linux");
 	return -1;
 }
 
 int fyai_cmd_view_cp(struct fyai_cmd_call *call, fy_generic *result)
 {
 	(void)result;
-	fyai_error(call->ctx, "view: filesystem views require Linux");
+	fyai_error(fyai_cmd_call_ctx(call), "view: filesystem views require Linux");
 	return -1;
 }
 
 int fyai_cmd_view_fs(struct fyai_cmd_call *call, fy_generic *result)
 {
 	(void)result;
-	fyai_error(call->ctx, "view: filesystem views require Linux");
+	fyai_error(fyai_cmd_call_ctx(call), "view: filesystem views require Linux");
 	return -1;
 }
 
@@ -4517,7 +4541,7 @@ int fyai_tool_change_undo(struct fyai_ctx *ctx, struct fy_generic_builder *gb, l
 
 int fyai_cmd_undo(struct fyai_cmd_call *call, fy_generic *result)
 {
-	return fyai_tool_change_undo(call->ctx, call->gb, 1, result);
+	return fyai_tool_change_undo(fyai_cmd_call_ctx(call), call->gb, 1, result);
 }
 
 int fyai_project_state_diff(struct fyai_ctx *ctx, struct fy_generic_builder *gb, fy_generic before,

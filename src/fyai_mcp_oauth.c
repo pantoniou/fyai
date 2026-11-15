@@ -59,6 +59,12 @@ struct fyai_mcp_oauth_refresh {
 	long timeout;
 };
 
+/* The context that this object stands on. */
+static inline struct fyai_ctx *fyai_mcp_oauth_refresh_ctx(const struct fyai_mcp_oauth_refresh *o)
+{
+	return o->ctx;
+}
+
 static void secret_free(char **p)
 {
 	size_t len;
@@ -128,7 +134,7 @@ static void refresh_finish(struct fyai_mcp_oauth_refresh *r,
 static void refresh_fail(struct fyai_mcp_oauth_refresh *r, const char *message)
 {
 	if (!r->detached)
-		fyai_error(r->ctx, "MCP server '%s' OAuth refresh failed: %s",
+		fyai_error(fyai_mcp_oauth_refresh_ctx(r), "MCP server '%s' OAuth refresh failed: %s",
 			   r->server, message);
 	refresh_finish(r, FYAI_MCP_OAUTH_FAILED, NULL, NULL, 0, message);
 }
@@ -136,7 +142,7 @@ static void refresh_fail(struct fyai_mcp_oauth_refresh *r, const char *message)
 static int record_save(struct fyai_mcp_oauth_refresh *r, const char *access,
 		       const char *refresh, time_t expires_at)
 {
-	struct fy_generic_builder *gb = fyai_ctx_transient_gb(r->ctx);
+	struct fy_generic_builder *gb = fyai_ctx_transient_gb(fyai_mcp_oauth_refresh_ctx(r));
 	const char *json, *name;
 	fy_generic doc;
 
@@ -152,7 +158,7 @@ static int record_save(struct fyai_mcp_oauth_refresh *r, const char *access,
 	if (!json)
 		return -1;
 	name = fy_sprintfa("mcp-auth-%s.json", r->server);
-	return fyai_auth_store_write(r->ctx, name, json);
+	return fyai_auth_store_write(fyai_mcp_oauth_refresh_ctx(r), name, json);
 }
 
 static void token_complete(struct fyai_curl_transfer *transfer, void *ud)
@@ -180,7 +186,7 @@ static void token_complete(struct fyai_curl_transfer *transfer, void *ud)
 				  curl_easy_strerror(code), status);
 		goto fail;
 	}
-	gb = fyai_ctx_transient_gb(r->ctx);
+	gb = fyai_ctx_transient_gb(fyai_mcp_oauth_refresh_ctx(r));
 	doc = gb ? parse_json_string(gb, r->response.data ?
 				     r->response.data : "") : fy_invalid;
 	access = "";
@@ -240,8 +246,8 @@ static int token_submit(struct fyai_mcp_oauth_refresh *r)
 	curl_easy_setopt(r->curl, CURLOPT_WRITEFUNCTION, write_response);
 	curl_easy_setopt(r->curl, CURLOPT_WRITEDATA, &r->response);
 	curl_easy_setopt(r->curl, CURLOPT_TIMEOUT, r->timeout);
-	if (r->ctx->link->user_agent)
-		curl_easy_setopt(r->curl, CURLOPT_USERAGENT, r->ctx->link->user_agent);
+	if (fyai_mcp_oauth_refresh_ctx(r)->link->user_agent)
+		curl_easy_setopt(r->curl, CURLOPT_USERAGENT, fyai_mcp_oauth_refresh_ctx(r)->link->user_agent);
 	if (r->auth == FYAI_MCP_CLIENT_BASIC) {
 		curl_easy_setopt(r->curl, CURLOPT_HTTPAUTH, CURLAUTH_BASIC);
 		curl_easy_setopt(r->curl, CURLOPT_USERNAME, r->client_id);
@@ -249,7 +255,7 @@ static int token_submit(struct fyai_mcp_oauth_refresh *r)
 	}
 	curl_easy_setopt(r->curl, CURLOPT_POSTFIELDS, r->body);
 	curl_easy_setopt(r->curl, CURLOPT_HTTPHEADER, r->headers);
-	r->transfer = fyai_curl_submit(r->ctx, r->curl, token_complete, r);
+	r->transfer = fyai_curl_submit(fyai_mcp_oauth_refresh_ctx(r), r->curl, token_complete, r);
 	rc = r->transfer ? 0 : -1;
 out:
 	curl_free(e_refresh);
@@ -267,14 +273,14 @@ out:
  */
 static void refresh_locked(struct fyai_mcp_oauth_refresh *r)
 {
-	struct fy_generic_builder *gb = fyai_ctx_transient_gb(r->ctx);
+	struct fy_generic_builder *gb = fyai_ctx_transient_gb(fyai_mcp_oauth_refresh_ctx(r));
 	const char *name, *s_access, *s_refresh;
 	char *text;
 	fy_generic doc;
 	long long s_expires;
 
 	name = fy_sprintfa("mcp-auth-%s.json", r->server);
-	text = fyai_auth_store_read(r->ctx, name);
+	text = fyai_auth_store_read(fyai_mcp_oauth_refresh_ctx(r), name);
 	doc = text && gb ? parse_json_string(gb, text) : fy_invalid;
 	free(text);
 	if (fy_is_mapping(doc) &&
@@ -315,7 +321,7 @@ static enum fyai_event_action refresh_timer(const struct fyai_event *ev)
 	int rc;
 
 	r->timer = NULL;
-	r->lockfd = fyai_auth_store_lock(r->ctx, true);
+	r->lockfd = fyai_auth_store_lock(fyai_mcp_oauth_refresh_ctx(r), true);
 	if (r->lockfd == -2) {
 		rc = fyai_event_add_timer(ev->loop, 50, 0, refresh_timer, r,
 					  &r->timer);

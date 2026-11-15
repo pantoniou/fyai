@@ -691,12 +691,12 @@ static fy_generic messages_stream_finish(struct fyai_stream_parse *p)
 		doc = fy_assoc(doc, "usage", p->usage);
 
 	if (fy_is_invalid(doc)) {
-		fyai_error(p->ctx, "could not build the streamed message");
+		fyai_error(fyai_stream_parse_ctx(p), "could not build the streamed message");
 		return fy_invalid;
 	}
 	doc = fy_gb_internalize(gb, doc);
 	if (fy_is_invalid(doc))
-		fyai_error(p->ctx, "could not retain the streamed message");
+		fyai_error(fyai_stream_parse_ctx(p), "could not retain the streamed message");
 	return doc;
 }
 

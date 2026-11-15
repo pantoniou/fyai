@@ -145,6 +145,12 @@ struct fyai_tool_job {
 	bool view_entry_failed;		/* the child could not enter that view */
 };
 
+/* The context that this object stands on. */
+static inline struct fyai_ctx *fyai_tool_job_ctx(const struct fyai_tool_job *o)
+{
+	return o->ctx;
+}
+
 /*
  * Why a session was asked to end. A request is never withdrawn, and it stays
  * after the program ends, because the cause of the end reads it. A stop for
@@ -221,6 +227,12 @@ struct fyai_shell_session {
 	void *remote_data;
 };
 
+/* The context that this object stands on. */
+static inline struct fyai_ctx *fyai_shell_session_ctx(const struct fyai_shell_session *o)
+{
+	return o->ctx;
+}
+
 #define FYAI_TOOL_TERM_MS 2000
 
 enum fyai_tool_group_state {
@@ -276,6 +288,12 @@ struct fyai_tool_job_group {
 	fyai_tool_group_complete_fn complete;
 	void *userdata;
 };
+
+/* The context that this object stands on. */
+static inline struct fyai_ctx *fyai_tool_job_group_ctx(const struct fyai_tool_job_group *o)
+{
+	return o->ctx;
+}
 
 /* fyai_tools.c */
 bool fyai_shell_args_lack_command(const char *name, fy_generic args);

@@ -85,7 +85,7 @@ static int frames_send(struct fyai_sink *s, fy_generic frame)
 	return 0;
 err:
 	f->failed = true;
-	fyai_error(s->ctx, "cannot send the output to the client: %s",
+	fyai_error(fyai_sink_ctx(s), "cannot send the output to the client: %s",
 		   strerror(errno));
 	return -1;
 }
@@ -113,9 +113,9 @@ static int frames_greet(struct fyai_sink *s)
 	f->greeted = true;
 	if (!f->greet_gb)
 		f->greet_gb = fy_generic_builder_create(NULL);
-	fyai_error_check(s->ctx, f->greet_gb, err,
+	fyai_error_check(fyai_sink_ctx(s), f->greet_gb, err,
 			 "cannot make the builder of the display frame");
-	display = fy_get(s->ctx->cfg->config_doc, "display", fy_invalid);
+	display = fy_get(fyai_sink_ctx(s)->cfg->config_doc, "display", fy_invalid);
 	frame = fy_mapping(f->greet_gb, "type", "fyai", "subtype", "display",
 			   "config", fy_is_mapping(display) ?
 			   fy_gb_internalize(f->greet_gb, display) :

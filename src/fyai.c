@@ -474,11 +474,17 @@ struct fyai_spinner {
 	unsigned int frame;
 };
 
+/* The context that this object stands on. */
+static inline struct fyai_ctx *fyai_spinner_ctx(const struct fyai_spinner *o)
+{
+	return o->ctx;
+}
+
 static void fyai_spinner_erase(struct fyai_spinner *sp)
 {
 	if (!sp->visible)
 		return;
-	(void)fyai_report(sp->ctx, "\r\033[K");
+	(void)fyai_report(fyai_spinner_ctx(sp), "\r\033[K");
 	sp->visible = false;
 }
 
@@ -498,7 +504,7 @@ static int fyai_spinner_xferinfo(void *p, curl_off_t dltotal, curl_off_t dlnow,
 
 	/* ^C: abort the transfer (curl returns CURLE_ABORTED_BY_CALLBACK).
 	 * Checked for the whole transfer, not just while the spinner shows. */
-	if (fyai_interrupt_pending(sp->ctx)) {
+	if (fyai_interrupt_pending(fyai_spinner_ctx(sp))) {
 		fyai_spinner_erase(sp);
 		return 1;
 	}
@@ -520,7 +526,7 @@ static int fyai_spinner_xferinfo(void *p, curl_off_t dltotal, curl_off_t dlnow,
 		return 0;
 	sp->last = now;
 
-	(void)fyai_report(sp->ctx, "\r%s",
+	(void)fyai_report(fyai_spinner_ctx(sp), "\r%s",
 			  frames[sp->frame++ % ARRAY_SIZE(frames)]);
 	sp->visible = true;
 	return 0;
@@ -531,6 +537,12 @@ struct fyai_stream_tool_sink {
 	struct fyai_tool_job_group *group;
 	bool separated;
 };
+
+/* The context that this object stands on. */
+static inline struct fyai_ctx *fyai_stream_tool_sink_ctx(const struct fyai_stream_tool_sink *o)
+{
+	return o->ctx;
+}
 
 struct fyai_model_step {
 	struct fyai_ctx *ctx;
@@ -550,6 +562,12 @@ struct fyai_model_step {
 	bool notified;
 	bool cancel_requested;
 };
+
+/* The context that this object stands on. */
+static inline struct fyai_ctx *fyai_model_step_ctx(const struct fyai_model_step *o)
+{
+	return o->ctx;
+}
 
 static bool fyai_model_step_terminal(enum fyai_model_step_state state)
 {
@@ -609,7 +627,7 @@ fyai_model_step_transition(struct fyai_model_step *step,
 			   enum fyai_model_step_state state)
 {
 	if (!fyai_model_step_transition_valid(step->state, state)) {
-		fyai_error(step->ctx,
+		fyai_error(fyai_model_step_ctx(step),
 			   "invalid model step transition %s -> %s",
 			   fyai_model_step_state_name(step->state),
 			   fyai_model_step_state_name(state));
@@ -617,8 +635,8 @@ fyai_model_step_transition(struct fyai_model_step *step,
 			step->state = FYAIMSS_FAILED;
 		return -1;
 	}
-	if (step->ctx->cfg->debug)
-		fyai_debug(step->ctx, "model step state %s -> %s",
+	if (fyai_model_step_ctx(step)->cfg->debug)
+		fyai_debug(fyai_model_step_ctx(step), "model step state %s -> %s",
 			   fyai_model_step_state_name(step->state),
 			   fyai_model_step_state_name(state));
 	step->state = state;
@@ -641,9 +659,9 @@ static void fyai_stream_tool_ready(fyai_stream_request *request,
 	checkpointed = false;
 	rc = 0;
 	if (!sink->separated) {
-		rc = fyai_output_start_block(sink->ctx);
-		if (!rc && fyai_output_renders_live(sink->ctx)) {
-			rc = fyai_output_checkpoint(sink->ctx);
+		rc = fyai_output_start_block(fyai_stream_tool_sink_ctx(sink));
+		if (!rc && fyai_output_renders_live(fyai_stream_tool_sink_ctx(sink))) {
+			rc = fyai_output_checkpoint(fyai_stream_tool_sink_ctx(sink));
 			checkpointed = !rc;
 		}
 		if (!rc)
@@ -652,7 +670,7 @@ static void fyai_stream_tool_ready(fyai_stream_request *request,
 	if (!rc)
 		rc = fyai_tool_job_group_add(sink->group, tool_call);
 	if (checkpointed) {
-		resume_rc = fyai_output_resume(sink->ctx);
+		resume_rc = fyai_output_resume(fyai_stream_tool_sink_ctx(sink));
 		if (!rc)
 			rc = resume_rc;
 	}
@@ -680,7 +698,7 @@ static int fyai_model_step_submit_request(struct fyai_model_step *step,
 	struct fyai_stream_callbacks callbacks;
 	int rc;
 
-	ctx = step->ctx;
+	ctx = fyai_model_step_ctx(step);
 	cfg = ctx->cfg;
 	/* A body that the request cache made needs no value. */
 	if (!request_body)
@@ -795,7 +813,7 @@ static int fyai_model_step_start(struct fyai_model_step *step)
 	int cached;
 	int rc;
 
-	ctx = step->ctx;
+	ctx = fyai_model_step_ctx(step);
 	cfg = ctx->cfg;
 	grammar = fyai_grammar(cfg);
 	turn = step->turn;
@@ -958,7 +976,7 @@ static void fyai_model_step_request_complete(struct fyai_model_step *step,
 	long status;
 	int rc;
 
-	ctx = step->ctx;
+	ctx = fyai_model_step_ctx(step);
 	cfg = ctx->cfg;
 	fyai_prof_since("request_roundtrip", &step->send_started);
 
@@ -1047,7 +1065,7 @@ static void fyai_model_step_buffered_complete(
 	step = userdata;
 	response_doc = fyai_buffered_request_collect(request);
 	if (fy_is_valid(response_doc))
-		response_doc = fyai_response_canonical(step->ctx,
+		response_doc = fyai_response_canonical(fyai_model_step_ctx(step),
 						       response_doc);
 	fyai_buffered_request_destroy(request);
 	step->buffered_request = NULL;
@@ -1124,8 +1142,8 @@ void fyai_model_step_destroy(struct fyai_model_step *step)
 	if (step->buffered_request)
 		fyai_buffered_request_destroy(step->buffered_request);
 	fyai_spinner_erase(&step->spinner);
-	curl_easy_setopt(step->ctx->link->curl, CURLOPT_NOPROGRESS, 1L);
-	curl_easy_setopt(step->ctx->link->curl, CURLOPT_XFERINFODATA, NULL);
+	curl_easy_setopt(fyai_model_step_ctx(step)->link->curl, CURLOPT_NOPROGRESS, 1L);
+	curl_easy_setopt(fyai_model_step_ctx(step)->link->curl, CURLOPT_XFERINFODATA, NULL);
 	free(step);
 }
 
@@ -1193,6 +1211,12 @@ struct fyai_turn_run {
 	size_t gate_next;
 };
 
+/* The context that this object stands on. */
+static inline struct fyai_ctx *fyai_turn_run_ctx(const struct fyai_turn_run *o)
+{
+	return o->ctx;
+}
+
 /* The answer of the tool gate for one call of a round. */
 struct fyai_gate_answer {
 	bool answered;
@@ -1253,7 +1277,7 @@ fyai_turn_run_transition_valid(enum fyai_turn_run_state from,
 
 static void fyai_turn_run_observe(struct fyai_turn_run *run)
 {
-	struct fyai_ctx *ctx = run->ctx;
+	struct fyai_ctx *ctx = fyai_turn_run_ctx(run);
 
 	if (ctx->turn->observe)
 		ctx->turn->observe(ctx, run->turn, ctx->turn->observe_data);
@@ -1268,13 +1292,13 @@ static void fyai_turn_run_diff_begin(struct fyai_turn_run *run)
 {
 	int rc;
 
-	rc = fyai_project_state_capture(run->ctx, &run->diff_before);
-	run->ctx->bstate->tool_diff_tracking = !rc && fy_is_mapping(run->diff_before);
+	rc = fyai_project_state_capture(fyai_turn_run_ctx(run), &run->diff_before);
+	fyai_turn_run_ctx(run)->bstate->tool_diff_tracking = !rc && fy_is_mapping(run->diff_before);
 }
 
 static void fyai_turn_run_diff_end(struct fyai_turn_run *run)
 {
-	run->ctx->bstate->tool_diff_tracking = false;
+	fyai_turn_run_ctx(run)->bstate->tool_diff_tracking = false;
 }
 
 static int
@@ -1282,7 +1306,7 @@ fyai_turn_run_transition(struct fyai_turn_run *run,
 			 enum fyai_turn_run_state state)
 {
 	if (!fyai_turn_run_transition_valid(run->state, state)) {
-		fyai_error(run->ctx, "invalid turn transition %s -> %s",
+		fyai_error(fyai_turn_run_ctx(run), "invalid turn transition %s -> %s",
 			   fyai_turn_run_state_name(run->state),
 			   fyai_turn_run_state_name(state));
 		if (!fyai_turn_run_done(run))
@@ -1290,15 +1314,15 @@ fyai_turn_run_transition(struct fyai_turn_run *run,
 		fyai_turn_run_diff_end(run);
 		return -1;
 	}
-	if (run->ctx->cfg->debug)
-		fyai_debug(run->ctx, "turn state %s -> %s",
+	if (fyai_turn_run_ctx(run)->cfg->debug)
+		fyai_debug(fyai_turn_run_ctx(run), "turn state %s -> %s",
 			   fyai_turn_run_state_name(run->state),
 			   fyai_turn_run_state_name(state));
 	run->state = state;
 	if (state == FYAITRS_DONE || state == FYAITRS_FAILED)
 		fyai_turn_run_diff_end(run);
 	if (state == FYAITRS_MODEL)
-		fyai_agents_activity(run->ctx, "running");
+		fyai_agents_activity(fyai_turn_run_ctx(run), "running");
 	return 0;
 }
 
@@ -1310,7 +1334,7 @@ static void fyai_turn_run_model_complete(struct fyai_model_step *step,
 	struct fyai_turn_run *run = userdata;
 
 	(void)step;
-	(void)fyai_event_defer(fyai_ctx_loop(run->ctx),
+	(void)fyai_event_defer(fyai_ctx_loop(fyai_turn_run_ctx(run)),
 			       fyai_turn_run_service, run);
 }
 
@@ -1320,7 +1344,7 @@ fyai_turn_run_tool_complete(struct fyai_tool_job_group *group, void *userdata)
 	struct fyai_turn_run *run = userdata;
 
 	(void)group;
-	(void)fyai_event_defer(fyai_ctx_loop(run->ctx),
+	(void)fyai_event_defer(fyai_ctx_loop(fyai_turn_run_ctx(run)),
 			       fyai_turn_run_service, run);
 }
 
@@ -1341,7 +1365,7 @@ static void fyai_turn_run_drop_tool_group(struct fyai_turn_run *run)
  */
 static void fyai_turn_run_abort_output(struct fyai_turn_run *run)
 {
-	struct fyai_ctx *ctx = run->ctx;
+	struct fyai_ctx *ctx = fyai_turn_run_ctx(run);
 	fy_generic result;
 
 	if (!fyai_turn_run_done(run) && fy_is_valid(run->settled) &&
@@ -1369,7 +1393,7 @@ static void fyai_turn_run_stop(struct fyai_turn_run *run, const char *msg)
 	struct fyai_ctx *ctx;
 	fy_generic result;
 
-	ctx = run->ctx;
+	ctx = fyai_turn_run_ctx(run);
 	if (fy_is_valid(run->turn) && run->turn.v != run->turn_in.v) {
 		result = fyai_output_finalize(ctx, run->turn, true);
 		result = fy_gb_internalize(ctx->arena->gb, result);
@@ -1390,7 +1414,7 @@ fyai_turn_run_finish(struct fyai_turn_run *run, fy_generic result,
 {
 	struct fyai_ctx *ctx;
 
-	ctx = run->ctx;
+	ctx = fyai_turn_run_ctx(run);
 	if (finalize) {
 		result = fyai_output_finalize(ctx, result, false);
 		result = fy_gb_internalize(ctx->arena->gb, result);
@@ -1412,7 +1436,7 @@ fyai_turn_run_request_failed(struct fyai_turn_run *run, fy_generic response)
 	fy_generic diag;
 	const char *msg;
 
-	run->ctx->turn->stop = FYAI_TURN_STOP_REQUEST;
+	fyai_turn_run_ctx(run)->turn->stop = FYAI_TURN_STOP_REQUEST;
 	diag = fy_generic_get_diag(response);
 	msg = fy_is_valid(diag) &&
 	      !fy_is_null(diag) ?
@@ -1444,7 +1468,7 @@ fy_generic fyai_turn_append_event(struct fyai_ctx *ctx, fy_generic turn,
 
 static int fyai_turn_run_append_user(struct fyai_turn_run *run, const char *text)
 {
-	struct fyai_ctx *ctx = run->ctx;
+	struct fyai_ctx *ctx = fyai_turn_run_ctx(run);
 	const char *shown;
 
 	shown = fyai_media_pending_display(ctx, text);
@@ -1464,7 +1488,7 @@ static int fyai_turn_run_append_user(struct fyai_turn_run *run, const char *text
  */
 static int fyai_turn_run_take_pending_user(struct fyai_turn_run *run)
 {
-	struct fyai_ctx *ctx = run->ctx;
+	struct fyai_ctx *ctx = fyai_turn_run_ctx(run);
 	const char *head;
 	char *line;
 	struct fyai_event_input event = {};
@@ -1521,7 +1545,7 @@ static int fyai_turn_run_submit_model(struct fyai_turn_run *run)
 	bool open_group;
 	int rc;
 
-	ctx = run->ctx;
+	ctx = fyai_turn_run_ctx(run);
 	cfg = ctx->cfg;
 	/* Every call of the turn so far has its result. */
 	if (fy_is_valid(run->turn))
@@ -1599,7 +1623,7 @@ fyai_turn_run_submit_exclusive(struct fyai_turn_run *run, size_t start)
 	size_t total;
 	int rc;
 
-	ctx = run->ctx;
+	ctx = fyai_turn_run_ctx(run);
 	total = fy_len(run->tool_calls);
 	for (i = start; i < total; i++) {
 		tool_call = fy_get_at(run->tool_calls, i);
@@ -1641,7 +1665,7 @@ err:
  */
 static void fyai_turn_run_tool_diff(struct fyai_turn_run *run)
 {
-	struct fyai_ctx *ctx = run->ctx;
+	struct fyai_ctx *ctx = fyai_turn_run_ctx(run);
 	fy_generic after, text;
 	const char *patch;
 	int rc;
@@ -1676,8 +1700,8 @@ static void fyai_turn_run_gate_clear(struct fyai_turn_run *run)
 	run->gate_pending = 0;
 	run->gate_phase = FYAI_GATE_IDLE;
 	run->gate_items = fy_invalid;
-	if (run->ctx->turn->gate_run == run)
-		run->ctx->turn->gate_run = NULL;
+	if (fyai_turn_run_ctx(run)->turn->gate_run == run)
+		fyai_turn_run_ctx(run)->turn->gate_run = NULL;
 }
 
 /*
@@ -1689,7 +1713,7 @@ static void fyai_turn_run_gate_clear(struct fyai_turn_run *run)
 static int fyai_turn_run_gate_open(struct fyai_turn_run *run, fy_generic items,
 				   bool after, size_t next)
 {
-	struct fyai_ctx *ctx = run->ctx;
+	struct fyai_ctx *ctx = fyai_turn_run_ctx(run);
 	const struct fyai_tool_gate_ops *ops = ctx->turn->gate;
 	fy_generic item;
 	uint64_t id;
@@ -1756,11 +1780,11 @@ static void fyai_tool_gate_answered(struct fyai_turn_run *run,
 	if (text && *text) {
 		a->text = strdup(text);
 		if (!a->text)
-			fyai_error(run->ctx, "could not keep the answer of the "
+			fyai_error(fyai_turn_run_ctx(run), "could not keep the answer of the "
 				   "tool gate");
 	}
 	if (!--run->gate_pending)
-		(void)fyai_event_defer(fyai_ctx_loop(run->ctx),
+		(void)fyai_event_defer(fyai_ctx_loop(fyai_turn_run_ctx(run)),
 				       fyai_turn_run_service, run);
 }
 
@@ -1920,7 +1944,7 @@ void fyai_tool_gate_done(struct fyai_ctx *ctx, uint64_t id, size_t index,
 static int fyai_turn_run_gate_refuse(struct fyai_turn_run *run,
 				     const char *why)
 {
-	struct fyai_ctx *ctx = run->ctx;
+	struct fyai_ctx *ctx = fyai_turn_run_ctx(run);
 	size_t i;
 
 	for (i = 0; i < run->gate_count &&
@@ -1943,7 +1967,7 @@ err:
 static void fyai_turn_run_gate_finish(struct fyai_turn_run *run,
 				      const char *cause)
 {
-	struct fyai_ctx *ctx = run->ctx;
+	struct fyai_ctx *ctx = fyai_turn_run_ctx(run);
 	fy_generic result;
 
 	fyai_turn_run_gate_clear(run);
@@ -1955,7 +1979,7 @@ static void fyai_turn_run_gate_finish(struct fyai_turn_run *run,
 /* Act on the answers of a round that has all of them. */
 static int fyai_turn_run_gate_resolve(struct fyai_turn_run *run)
 {
-	struct fyai_ctx *ctx = run->ctx;
+	struct fyai_ctx *ctx = fyai_turn_run_ctx(run);
 	struct fyai_gate_answer *a;
 	fy_generic item, calls;
 	char *cause = NULL;
@@ -2054,7 +2078,7 @@ static int fyai_turn_run_collect_tools(struct fyai_turn_run *run)
 	bool ok;
 	int rc, effect;
 
-	ctx = run->ctx;
+	ctx = fyai_turn_run_ctx(run);
 	total = fy_len(run->tool_calls);
 	group_index = 0;
 	effect = 0;
@@ -2144,7 +2168,7 @@ fyai_turn_run_append_response(struct fyai_turn_run *run, fy_generic response)
 	const char *text;
 	int rc;
 
-	ctx = run->ctx;
+	ctx = fyai_turn_run_ctx(run);
 	cfg = ctx->cfg;
 	response_id = fyai_response_id(ctx, response);
 	if (!cfg->stream) {
@@ -2181,7 +2205,7 @@ fyai_turn_run_parallel_count(struct fyai_turn_run *run)
 
 	count = 0;
 	fy_foreach(tool_call, run->tool_calls)
-		if (fyai_tool_call_parallel_eligible(run->ctx, tool_call))
+		if (fyai_tool_call_parallel_eligible(fyai_turn_run_ctx(run), tool_call))
 			count++;
 	return count;
 }
@@ -2194,7 +2218,7 @@ static int fyai_turn_run_submit_parallel(struct fyai_turn_run *run,
 	bool streamed;
 	int rc;
 
-	ctx = run->ctx;
+	ctx = fyai_turn_run_ctx(run);
 	fyai_error_check(ctx, !run->tool_group ||
 			 fyai_tool_job_group_count(run->tool_group) ==
 				parallel_total,
@@ -2245,10 +2269,10 @@ static int fyai_turn_run_dispatch_tools(struct fyai_turn_run *run)
 static int
 fyai_turn_run_start_tools(struct fyai_turn_run *run, fy_generic response)
 {
-	if (run->ctx->cfg->response_chain)
+	if (fyai_turn_run_ctx(run)->cfg->response_chain)
 		run->previous = run->turn;
-	run->tool_calls = fyai_response_tool_calls(run->ctx, response);
-	if (run->ctx->turn->gate) {
+	run->tool_calls = fyai_response_tool_calls(fyai_turn_run_ctx(run), response);
+	if (fyai_turn_run_ctx(run)->turn->gate) {
 		fyai_turn_run_drop_tool_group(run);
 		return fyai_turn_run_gate_open(run, run->tool_calls, false, 0);
 	}
@@ -2261,7 +2285,7 @@ static int fyai_turn_run_process_model(struct fyai_turn_run *run)
 	fy_generic response;
 	int rc;
 
-	ctx = run->ctx;
+	ctx = fyai_turn_run_ctx(run);
 	response = fyai_turn_run_take_model_response(run);
 	if (run->cancel_requested) {
 		fyai_turn_run_drop_tool_group(run);
@@ -2385,7 +2409,7 @@ static void fyai_turn_run_cancel(struct fyai_turn_run *run)
 	if (run->tool_group)
 		fyai_tool_job_group_cancel(run->tool_group);
 	/* Stop terminal sessions owned by the interrupted turn. */
-	fyai_shell_sessions_release_turn(run->ctx);
+	fyai_shell_sessions_release_turn(fyai_turn_run_ctx(run));
 }
 
 static fy_generic fyai_turn_run_collect(const struct fyai_turn_run *run)
@@ -2398,7 +2422,7 @@ static void fyai_turn_run_destroy(struct fyai_turn_run *run)
 	if (!run)
 		return;
 	/* Drop a deferred service still pointing at the run we are freeing. */
-	fyai_event_defer_cancel(fyai_ctx_loop(run->ctx), fyai_turn_run_service,
+	fyai_event_defer_cancel(fyai_ctx_loop(fyai_turn_run_ctx(run)), fyai_turn_run_service,
 				run);
 	fyai_model_step_destroy(run->model_step);
 	fyai_turn_run_drop_tool_group(run);
@@ -2406,7 +2430,7 @@ static void fyai_turn_run_destroy(struct fyai_turn_run *run)
 	fyai_turn_run_diff_end(run);
 	fyai_diag_tracef("turn", "end, %s, %d rounds",
 			 fyai_turn_run_state_name(run->state), run->iteration);
-	fyai_scope_exchange(run->ctx, false);
+	fyai_scope_exchange(fyai_turn_run_ctx(run), false);
 	free(run);
 }
 

@@ -83,6 +83,12 @@ struct fyai_transport_verb {
 	volatile bool done;
 };
 
+/* The context that this object stands on. */
+static inline struct fyai_ctx *fyai_transport_verb_ctx(const struct fyai_transport_verb *o)
+{
+	return o->ctx;
+}
+
 /* Hardening, before anything is read. */
 
 /*
@@ -152,7 +158,7 @@ static int verb_cred(void *ud, const struct fyai_transport_profile *pr,
 {
 	struct fyai_transport_verb *v = ud;
 
-	return fyai_cred_get(v->ctx, pr->credential, secret, extra);
+	return fyai_cred_get(fyai_transport_verb_ctx(v), pr->credential, secret, extra);
 }
 
 /* The refresh of the login ended: run the requests that waited for it. */
@@ -174,7 +180,7 @@ static int verb_prepare(void *ud, const struct fyai_transport_profile *pr,
 {
 	struct fyai_transport_verb *v = ud;
 
-	return fyai_cred_prepare(v->ctx, pr->credential, &v->waiter, resumed);
+	return fyai_cred_prepare(fyai_transport_verb_ctx(v), pr->credential, &v->waiter, resumed);
 }
 
 /*
@@ -186,7 +192,7 @@ static int verb_reject(void *ud, const struct fyai_transport_profile *pr,
 {
 	struct fyai_transport_verb *v = ud;
 
-	return fyai_cred_reject(v->ctx, pr->credential, &v->waiter, tag, probe);
+	return fyai_cred_reject(fyai_transport_verb_ctx(v), pr->credential, &v->waiter, tag, probe);
 }
 
 /* Events go to the supervisor if it is listening; a full socket drops them. */
@@ -232,7 +238,7 @@ static int op_init(struct fyai_transport_verb *v, fy_generic m)
 			fy_castp(&cg, "") : NULL);
 	if (!reg)
 		return -EINVAL;
-	srv = fyai_transport_server_create(v->ctx, reg, verb_cred, v,
+	srv = fyai_transport_server_create(fyai_transport_verb_ctx(v), reg, verb_cred, v,
 					   verb_event, v);
 	if (!srv) {
 		fyai_transport_registry_destroy(reg);
@@ -244,9 +250,9 @@ static int op_init(struct fyai_transport_verb *v, fy_generic m)
 	fyai_transport_server_set_reject(srv, verb_reject);
 	v->reg = reg;
 	v->srv = srv;
-	v->ctx->cfg->transport_logging = fy_get(m, "log", false);
-	v->ctx->cfg->wire_logging = fy_get(m, "wire", false);
-	v->ctx->cfg->whitewash_api_keys = fy_get(m, "whitewash", true);
+	fyai_transport_verb_ctx(v)->cfg->transport_logging = fy_get(m, "log", false);
+	fyai_transport_verb_ctx(v)->cfg->wire_logging = fy_get(m, "wire", false);
+	fyai_transport_verb_ctx(v)->cfg->whitewash_api_keys = fy_get(m, "whitewash", true);
 	v->inited = true;
 	return 0;
 }
@@ -301,8 +307,8 @@ static int op_status(struct fyai_transport_verb *v, struct fy_generic_builder *g
 		"pid", (long long)getpid(),
 		"executions", execs, "profiles", profiles,
 		"active", (long long)fyai_transport_server_active(v->srv),
-		"log", v->ctx->cfg->transport_logging,
-		"wire", v->ctx->cfg->wire_logging);
+		"log", fyai_transport_verb_ctx(v)->cfg->transport_logging,
+		"wire", fyai_transport_verb_ctx(v)->cfg->wire_logging);
 	return 0;
 }
 
@@ -403,7 +409,7 @@ static int op_cmd(struct fyai_transport_conn *c, struct fy_generic_builder *gb,
 		}
 		argv[n++] = w;
 	}
-	rc = fyai_cmd_parse(v->ctx->cfg, gb, FYAI_CMD_CLI, n, argv, NULL, NULL,
+	rc = fyai_cmd_parse(fyai_transport_verb_ctx(v)->cfg, gb, FYAI_CMD_CLI, n, argv, NULL, NULL,
 			    &parsed);
 	if (rc || parsed.help) {
 		rc = -EINVAL;
@@ -418,16 +424,16 @@ static int op_cmd(struct fyai_transport_conn *c, struct fy_generic_builder *gb,
 		*detail = "the transport does not run this command";
 		return -EPERM;
 	}
-	if (forwarded[i].idle && fyai_cred_refresh_pending(v->ctx)) {
+	if (forwarded[i].idle && fyai_cred_refresh_pending(fyai_transport_verb_ctx(v))) {
 		*detail = "a token refresh is running; retry the command";
 		return -EBUSY;
 	}
-	if (!fyai_ctx_transient_gb(v->ctx)) {
+	if (!fyai_ctx_transient_gb(fyai_transport_verb_ctx(v))) {
 		rc = -ENOMEM;
 		goto fail;
 	}
 	parsed.format = (enum fyai_cmd_format)fy_get(m, "format", 0LL);
-	rc = fyai_cmd_call_init(&call, v->ctx, &parsed, FYAI_CMD_CLI);
+	rc = fyai_cmd_call_init(&call, fyai_transport_verb_ctx(v), &parsed, FYAI_CMD_CLI);
 	if (rc) {
 		rc = -ENOMEM;
 		goto fail;
@@ -442,10 +448,10 @@ static int op_cmd(struct fyai_transport_conn *c, struct fy_generic_builder *gb,
 		return 0;
 	rc = -EIO;
 fail:
-	text = fyai_diag_string(fyai_ctx_diag(v->ctx));
+	text = fyai_diag_string(fyai_ctx_diag(fyai_transport_verb_ctx(v)));
 	*detail = fy_gb_intern_string(gb, text && *text ? text : "the command failed");
 	free(text);
-	fyai_diag_reset(fyai_ctx_diag(v->ctx));
+	fyai_diag_reset(fyai_ctx_diag(fyai_transport_verb_ctx(v)));
 	return rc;
 }
 
@@ -604,7 +610,7 @@ static int op_ctl(struct fyai_transport_conn *sender, fy_generic m, int fd,
 	c->v = v;
 	c->fd = fd;
 	c->exec = id;
-	rc = fyai_event_add_fd(fyai_ctx_loop(v->ctx), fd, FYAIEV_READ,
+	rc = fyai_event_add_fd(fyai_ctx_loop(fyai_transport_verb_ctx(v)), fd, FYAIEV_READ,
 			       conn_on_event, c, &c->src);
 	if (rc) {
 		free(c);
@@ -780,7 +786,7 @@ static int verb_dispatch(struct fyai_transport_conn *c, struct fy_generic_builde
 			detail = "a credential needs a name and a value";
 			rc = -EINVAL;
 		} else
-			rc = fyai_cred_mem_set(v->ctx, fy_castp(&name, ""), fy_castp(&value, ""));
+			rc = fyai_cred_mem_set(fyai_transport_verb_ctx(v), fy_castp(&name, ""), fy_castp(&value, ""));
 		goto out;
 	}
 	if (!strcmp(op, "shutdown")) {
@@ -827,9 +833,9 @@ static int verb_dispatch(struct fyai_transport_conn *c, struct fy_generic_builde
 			detail = "only the primary connection changes the logs";
 			rc = -EPERM;
 		} else {
-			v->ctx->cfg->transport_logging = fy_get(m, "on", false);
-			v->ctx->cfg->wire_logging = fy_get(m, "wire", false);
-			v->ctx->cfg->whitewash_api_keys = fy_get(m, "whitewash", true);
+			fyai_transport_verb_ctx(v)->cfg->transport_logging = fy_get(m, "on", false);
+			fyai_transport_verb_ctx(v)->cfg->wire_logging = fy_get(m, "wire", false);
+			fyai_transport_verb_ctx(v)->cfg->whitewash_api_keys = fy_get(m, "whitewash", true);
 		}
 	} else {
 		detail = "unknown op";
@@ -871,7 +877,7 @@ static void conn_drop(struct fyai_transport_conn *c)
 	}
 	c->next = v->dead;
 	v->dead = c;
-	fyai_event_defer(fyai_ctx_loop(v->ctx), conn_reap, v);
+	fyai_event_defer(fyai_ctx_loop(fyai_transport_verb_ctx(v)), conn_reap, v);
 }
 
 static int verb_message(struct fyai_transport_conn *c)
@@ -959,7 +965,7 @@ static void verb_cleanup(struct fyai_transport_verb *v)
 		free(c);
 	}
 	conn_reap(v);
-	fyai_cred_release(v->ctx);
+	fyai_cred_release(fyai_transport_verb_ctx(v));
 	fyai_transport_server_destroy(v->srv);
 	fyai_transport_registry_destroy(v->reg);
 }
@@ -1010,5 +1016,5 @@ err:
 int fyai_cmd_transport(struct fyai_cmd_call *call, fy_generic *result)
 {
 	(void)result;
-	return fyai_transport_verb(call->ctx);
+	return fyai_transport_verb(fyai_cmd_call_ctx(call));
 }

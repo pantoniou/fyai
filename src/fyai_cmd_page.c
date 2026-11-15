@@ -28,14 +28,14 @@
 int fyai_cmd_page(struct fyai_cmd_call *call, fy_generic *result)
 {
 	(void)result;
-	return fyai_ui_page_report(call->ctx);
+	return fyai_ui_page_report(fyai_cmd_call_ctx(call));
 }
 
 int fyai_cmd_page_review(struct fyai_cmd_call *call, fy_generic *result)
 {
 	bool on;
 
-	if (fyai_ui_page_review(call->ctx, fyai_cmd_arg_str(call, "how"), &on))
+	if (fyai_ui_page_review(fyai_cmd_call_ctx(call), fyai_cmd_arg_str(call, "how"), &on))
 		return -1;
 	*result = fy_mapping(call->gb, "review", on ? "on" : "off");
 	return 0;
@@ -129,7 +129,7 @@ static int page_sample_tiles(struct fyai_ctx *ctx,
 int fyai_cmd_page_review_sample(struct fyai_cmd_call *call,
 				fy_generic *result)
 {
-	struct fyai_ctx *ctx = call->ctx;
+	struct fyai_ctx *ctx = fyai_cmd_call_ctx(call);
 	struct fyai_buf picture = {0}, grid = {0};
 	struct fyai_page_layout lay;
 	const struct fyai_page_action *actions;

@@ -70,6 +70,12 @@ struct settings_walk {
 	bool full;		/* each key with its scope and its default */
 };
 
+/* The context that this object stands on. */
+static inline struct fyai_ctx *settings_walk_ctx(const struct settings_walk *o)
+{
+	return o->ctx;
+}
+
 /*
  * A path names keys of the schema and of user mappings, such as server,
  * persona and key names; a segment `*` stands for any such name, and "~1"
@@ -175,7 +181,7 @@ static fy_generic settings_schema_default(struct fy_generic_builder *gb,
 static fy_generic settings_value(struct settings_walk *w, const char *path,
 				 const char **layerp)
 {
-	struct fyai_cfg *cfg = w->ctx->cfg;
+	struct fyai_cfg *cfg = settings_walk_ctx(w)->cfg;
 	fy_generic v, stored;
 
 	v = *path ? fy_get_at_pathstr(w->gb, cfg->config_doc, path) :
@@ -191,9 +197,9 @@ static fy_generic settings_value(struct settings_walk *w, const char *path,
 		*layerp = "session";
 		return v;
 	}
-	stored = !*path ? w->ctx->bstate->config :
-		 fy_is_mapping(w->ctx->bstate->config) ?
-		 fy_get_at_pathstr(w->gb, w->ctx->bstate->config, path) :
+	stored = !*path ? settings_walk_ctx(w)->bstate->config :
+		 fy_is_mapping(settings_walk_ctx(w)->bstate->config) ?
+		 fy_get_at_pathstr(w->gb, settings_walk_ctx(w)->bstate->config, path) :
 		 fy_invalid;
 	*layerp = fy_is_valid(stored) && !fy_compare(stored, v) ? "branch" :
 		  "invocation";
@@ -737,7 +743,7 @@ static int settings_change_diff(struct settings_walk *w,
 		if (!*part) {
 			free(part);
 			old_layer = settings_changed_values(w,
-				w->ctx->bstate->config, c->changes);
+				settings_walk_ctx(w)->bstate->config, c->changes);
 			new_layer = settings_changed_values(w, c->stored,
 				c->changes);
 			if (!fy_is_valid(old_layer) || !fy_is_valid(new_layer))
@@ -764,7 +770,7 @@ static int settings_change_diff(struct settings_walk *w,
 		if (!*part) {
 			free(part);
 			old_layer = settings_changed_values(w,
-				w->ctx->cfg->config_session, c->changes);
+				settings_walk_ctx(w)->cfg->config_session, c->changes);
 			new_layer = settings_changed_values(w, c->session,
 				c->changes);
 			if (!fy_is_valid(old_layer) || !fy_is_valid(new_layer))
@@ -818,7 +824,7 @@ static int settings_change_build(struct settings_walk *w,
 				 struct settings_change *c,
 				 char *why, size_t why_size)
 {
-	struct fyai_ctx *ctx = w->ctx;
+	struct fyai_ctx *ctx = settings_walk_ctx(w);
 	struct fyai_cfg *cfg = ctx->cfg;
 	fy_generic stored0, session0, stored, session, item, value, problems, p;
 	bool in_session, any_stored = false, any_session = false;
@@ -1235,12 +1241,12 @@ static int settings_proposal_prepare(struct settings_walk *w, const char *id,
 	char why[1024];
 
 	memset(c, 0, sizeof(*c));
-	entry = settings_log_find(fyai_settings_log(w->ctx,
+	entry = settings_log_find(fyai_settings_log(settings_walk_ctx(w),
 					"config_proposals"), id);
-	fyai_error_check(w->ctx, fy_is_mapping(entry), err_out,
+	fyai_error_check(settings_walk_ctx(w), fy_is_mapping(entry), err_out,
 			 "no proposal '%s' on branch '%s'", id,
-			 fyai_ctx_branch(w->ctx));
-	fyai_error_check(w->ctx, fy_equal(fy_get(entry, "status", fy_invalid),
+			 fyai_ctx_branch(settings_walk_ctx(w)));
+	fyai_error_check(settings_walk_ctx(w), fy_equal(fy_get(entry, "status", fy_invalid),
 					  "pending"), err_out,
 			 "proposal '%s' is %s, not pending", id,
 			 fy_get(entry, "status", "?"));
@@ -1257,7 +1263,7 @@ static int settings_proposal_prepare(struct settings_walk *w, const char *id,
 		if (settings_catalog_prepare(w,
 			fy_get(entry, "changes", fy_invalid),
 			fy_get(entry, "source", ""), c, why, sizeof(why))) {
-			fyai_error(w->ctx, "proposal '%s' cannot be applied: %s",
+			fyai_error(settings_walk_ctx(w), "proposal '%s' cannot be applied: %s",
 				   id, why);
 			return -1;
 		}
@@ -1266,7 +1272,7 @@ static int settings_proposal_prepare(struct settings_walk *w, const char *id,
 	if (settings_change_normalize(w, fy_get(entry, "changes", fy_invalid),
 				      c, why, sizeof(why)) ||
 	    settings_change_build(w, c, why, sizeof(why))) {
-		fyai_error(w->ctx, "proposal '%s' cannot be applied: %s", id,
+		fyai_error(settings_walk_ctx(w), "proposal '%s' cannot be applied: %s", id,
 			   why);
 		return -1;
 	}
@@ -1364,7 +1370,7 @@ static fy_generic settings_present(struct settings_walk *w,
 				   struct settings_change *c,
 				   const char *explanation, bool *okp)
 {
-	struct fyai_ctx *ctx = w->ctx;
+	struct fyai_ctx *ctx = settings_walk_ctx(w);
 	struct fyai_cfg *cfg = ctx->cfg;
 	enum fyai_model_access access;
 	const char *id = NULL, *status = "rejected";
@@ -1433,7 +1439,7 @@ static int settings_revert_build(struct settings_walk *w, fy_generic entry,
 				 fy_generic *conflictsp, char *why,
 				 size_t why_size)
 {
-	struct fyai_ctx *ctx = w->ctx;
+	struct fyai_ctx *ctx = settings_walk_ctx(w);
 	fy_generic before, after, item, cur, out, paths, conflicts, b;
 	const char *path;
 	bool in_session;
@@ -1512,7 +1518,7 @@ err_out:
 static fy_generic settings_revert_run(struct settings_walk *w,
 				      fy_generic args, bool *okp)
 {
-	struct fyai_ctx *ctx = w->ctx;
+	struct fyai_ctx *ctx = settings_walk_ctx(w);
 	struct settings_change c;
 	fy_generic entry, conflicts;
 	const char *id = fy_get(args, "id", "");
@@ -1651,7 +1657,7 @@ static fy_generic settings_proposals_run(struct settings_walk *w)
 	fy_generic rows, item;
 
 	rows = fy_sequence(w->gb);
-	fy_foreach(item, fyai_settings_log(w->ctx, "config_proposals"))
+	fy_foreach(item, fyai_settings_log(settings_walk_ctx(w), "config_proposals"))
 		rows = fy_append(w->gb, rows, fy_mapping(w->gb,
 			"id", fy_get(item, "name", ""),
 			"document", fy_get(item, "document", "config"),
@@ -1670,6 +1676,12 @@ struct fyai_settings_review {
 	const char *explanation;
 	fy_generic questions;
 };
+
+/* The context that this object stands on. */
+static inline struct fyai_ctx *fyai_settings_review_ctx(const struct fyai_settings_review *o)
+{
+	return o->ctx;
+}
 
 struct fyai_settings_review *
 fyai_settings_review_open(struct fyai_ctx *ctx, struct fy_generic_builder *gb,
@@ -1711,7 +1723,7 @@ int fyai_settings_review_apply(struct fyai_settings_review *r,
 			       const struct fyai_ask_reply *replies, size_t n,
 			       bool notify, fy_generic *resultp)
 {
-	struct fyai_ctx *ctx = r->ctx;
+	struct fyai_ctx *ctx = fyai_settings_review_ctx(r);
 	struct fy_generic_builder *gb = r->gb;
 	fy_generic proposals, event;
 	const char *cid = NULL;
@@ -1754,7 +1766,7 @@ void fyai_settings_review_free(struct fyai_settings_review *r)
 static fy_generic settings_change_run(struct settings_walk *w, fy_generic args,
 				      bool *okp)
 {
-	struct fyai_ctx *ctx = w->ctx;
+	struct fyai_ctx *ctx = settings_walk_ctx(w);
 	struct fyai_cfg *cfg = ctx->cfg;
 	struct settings_change c;
 	const char *explanation;
@@ -1848,7 +1860,7 @@ static fy_generic catalog_search(struct settings_walk *w, fy_generic cat,
 	if (!nwords)
 		return fy_value(w->gb, "settings: search needs a query");
 	offered = catalog_offered_by(w->gb, cat);
-	current = w->ctx->cfg->model ? w->ctx->cfg->model : "";
+	current = settings_walk_ctx(w)->cfg->model ? settings_walk_ctx(w)->cfg->model : "";
 	by_name = fy_sequence(w->gb);
 	by_text = fy_sequence(w->gb);
 	fy_foreach(model, fy_get(cat, "models", fy_invalid)) {
@@ -1982,12 +1994,12 @@ static int settings_catalog_prepare(struct settings_walk *w,
 			return -1;
 		}
 		paths = fy_append(w->gb, paths, path);
-		old = fyai_catalog_at(w->ctx, path);
+		old = fyai_catalog_at(settings_walk_ctx(w), path);
 		c->before = fy_assoc(w->gb, c->before, path,
 				     fyai_generic_or_null(old));
 	}
 	c->paths = paths;
-	if (fyai_catalog_patch_models_prepare(w->ctx, changes,
+	if (fyai_catalog_patch_models_prepare(settings_walk_ctx(w), changes,
 					      &c->catalog_doc)) {
 		snprintf(why, why_size, "the catalogue change is invalid");
 		return -1;
@@ -2028,9 +2040,9 @@ static fy_generic settings_catalog_change(struct settings_walk *w,
 	char why[1024];
 
 	*okp = false;
-	if (!w->ctx->arena->gb)
+	if (!settings_walk_ctx(w)->arena->gb)
 		return fy_value(w->gb, "settings: no arena; run fyai init");
-	if (w->ctx->cfg->model_access < FYAI_MODEL_REVIEW)
+	if (settings_walk_ctx(w)->cfg->model_access < FYAI_MODEL_REVIEW)
 		return fy_value(w->gb, "settings: model_access allows reads only");
 	explanation = fy_get(args, "explanation", "");
 	if (strlen(explanation) > SETTINGS_EXPLANATION_MAX)
@@ -2059,7 +2071,7 @@ static fy_generic settings_catalog_run(struct settings_walk *w,
 {
 	fy_generic cat, v;
 
-	cat = fyai_catalog_effective(w->ctx->bstate->catalog, NULL);
+	cat = fyai_catalog_effective(settings_walk_ctx(w)->bstate->catalog, NULL);
 	if (!fy_is_mapping(cat))
 		return fy_value(w->gb, "settings: the catalogue cannot be "
 				"read");
@@ -2075,7 +2087,7 @@ static fy_generic settings_catalog_run(struct settings_walk *w,
 	if (!fy_any_equal(action, "get", "list"))
 		return fy_value(w->gb, "settings: catalogue actions are search, "
 				"get, list, select, export and change");
-	v = *path ? fyai_catalog_at(w->ctx, path) : cat;
+	v = *path ? fyai_catalog_at(settings_walk_ctx(w), path) : cat;
 	if (!fy_is_valid(v))
 		return fy_value(w->gb, fy_sprintfa("settings: the catalogue "
 				"has nothing at %s", path));
@@ -2578,11 +2590,11 @@ static fy_generic settings_export(struct settings_walk *w, bool catalog,
 		return fy_value(w->gb, "settings: the catalogue is a tree; "
 				"select gives rows of it");
 	if (catalog)
-		doc = fyai_catalog_effective(w->ctx->bstate->catalog, NULL);
+		doc = fyai_catalog_effective(settings_walk_ctx(w)->bstate->catalog, NULL);
 	else if (!strcmp(shape, "rows"))
 		doc = settings_config_rows(w, "", fyai_config_schema(NULL));
 	else
-		doc = settings_redact(w, "", w->ctx->cfg->config_doc, 0);
+		doc = settings_redact(w, "", settings_walk_ctx(w)->cfg->config_doc, 0);
 	if (!fy_is_valid(doc))
 		return fy_value(w->gb, "settings: the document cannot be read");
 	if (!strcmp(format, "json")) {
@@ -2596,7 +2608,7 @@ static fy_generic settings_export(struct settings_walk *w, bool catalog,
 	if (!text)
 		return fy_value(w->gb, "settings: the document could not be "
 				"written");
-	dir = settings_export_dir(w->ctx);
+	dir = settings_export_dir(settings_walk_ctx(w));
 	if (!dir)
 		return fy_value(w->gb, "settings: there is no directory to "
 				"write to");

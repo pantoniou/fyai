@@ -47,7 +47,7 @@
 
 int fyai_cmd_reset(struct fyai_cmd_call *call, fy_generic *result)
 {
-	struct fyai_ctx *ctx = call->ctx;
+	struct fyai_ctx *ctx = fyai_cmd_call_ctx(call);
 	const char *ref = fyai_cmd_arg_str(call, "ref");
 	const char *branch;
 	fy_generic project;
@@ -90,9 +90,9 @@ err:
 
 int fyai_cmd_clear(struct fyai_cmd_call *call, fy_generic *result)
 {
-	if (fyai_session_clear(call->ctx))
+	if (fyai_session_clear(fyai_cmd_call_ctx(call)))
 		return -1;
-	*result = fy_mapping(call->gb, "branch", fyai_ctx_branch(call->ctx));
+	*result = fy_mapping(call->gb, "branch", fyai_ctx_branch(fyai_cmd_call_ctx(call)));
 	return 0;
 }
 
@@ -102,7 +102,7 @@ int fyai_cmd_clear(struct fyai_cmd_call *call, fy_generic *result)
  */
 int fyai_cmd_api(struct fyai_cmd_call *call, fy_generic *result)
 {
-	struct fyai_ctx *ctx = call->ctx;
+	struct fyai_ctx *ctx = fyai_cmd_call_ctx(call);
 	struct fyai_cfg *cfg = ctx->cfg;
 	const char *mode = fyai_cmd_arg_str(call, "mode");
 	enum fyai_api_mode before = cfg->api_mode;
@@ -122,8 +122,8 @@ int fyai_cmd_api(struct fyai_cmd_call *call, fy_generic *result)
 
 int fyai_cmd_context(struct fyai_cmd_call *call, fy_generic *result)
 {
-	*result = fyai_session_context_data(call->ctx, call->gb);
-	fyai_error_check(call->ctx, fy_is_valid(*result), err,
+	*result = fyai_session_context_data(fyai_cmd_call_ctx(call), call->gb);
+	fyai_error_check(fyai_cmd_call_ctx(call), fy_is_valid(*result), err,
 			 "context: cannot build the report");
 	return 0;
 err:
@@ -137,19 +137,19 @@ err:
  */
 int fyai_cmd_stats(struct fyai_cmd_call *call, fy_generic *result)
 {
-	struct fyai_stats_args *args = &call->ctx->cfg->cmd.args.stats;
+	struct fyai_stats_args *args = &fyai_cmd_call_ctx(call)->cfg->cmd.args.stats;
 	struct fyai_stats_args saved = *args;
 	int rc;
 
 	if (call->format != FYAI_CMD_OUT_MARKDOWN) {
-		*result = fyai_stats_data(call->ctx, call->gb);
-		fyai_error_check(call->ctx, fy_is_valid(*result), err,
+		*result = fyai_stats_data(fyai_cmd_call_ctx(call), call->gb);
+		fyai_error_check(fyai_cmd_call_ctx(call), fy_is_valid(*result), err,
 				 "stats: cannot build the report");
 		return 0;
 	}
 	args->format = fyai_cmd_arg_bool(call, "raw") ? FYAIOF_RAW :
 		       FYAIOF_MARKDOWN;
-	rc = fyai_show_stats(call->ctx);
+	rc = fyai_show_stats(fyai_cmd_call_ctx(call));
 	*args = saved;
 	return rc;
 err:
@@ -164,7 +164,7 @@ static bool list_provider_active(struct fyai_cfg *cfg, const char *name)
 /* The providers of the catalogue and the models each serves. */
 static fy_generic list_providers(struct fyai_cmd_call *call)
 {
-	struct fyai_cfg *cfg = call->ctx->cfg;
+	struct fyai_cfg *cfg = fyai_cmd_call_ctx(call)->cfg;
 	struct fy_generic_builder *gb = call->gb;
 	fy_generic p, o, rows, models, active_model, name, canon;
 	bool active;
@@ -215,7 +215,7 @@ static bool list_model_active(struct fyai_cfg *cfg, fy_generic provider,
 /* The models of the catalogue and the providers that serve each. */
 static fy_generic list_models(struct fyai_cmd_call *call, bool full)
 {
-	struct fyai_cfg *cfg = call->ctx->cfg;
+	struct fyai_cfg *cfg = fyai_cmd_call_ctx(call)->cfg;
 	struct fy_generic_builder *gb = call->gb;
 	fy_generic cat, m, p, o, rows, names, name;
 	bool active;
@@ -265,7 +265,7 @@ static fy_generic list_strong(struct fy_generic_builder *gb, fy_generic v)
 static fy_generic list_decorate(struct fyai_cmd_call *call, fy_generic rows,
 				const char *what)
 {
-	struct fyai_cfg *cfg = call->ctx->cfg;
+	struct fyai_cfg *cfg = fyai_cmd_call_ctx(call)->cfg;
 	struct fy_generic_builder *gb = call->gb;
 	fy_generic row, out, items, item, list;
 	const char *key, *active_provider;
@@ -393,7 +393,7 @@ static int list_finish(struct fyai_cmd_call *call, fy_generic rows,
 	const char *what = fyai_cmd_arg_str(call, "what");
 	bool full = fyai_cmd_arg_bool(call, "full");
 
-	fyai_error_check(call->ctx, fy_is_valid(rows), err, "list: cannot "
+	fyai_error_check(fyai_cmd_call_ctx(call), fy_is_valid(rows), err, "list: cannot "
 			 "build the %s", what);
 	call->renderopts = list_renderopts(call->gb, what, full);
 	if (fyai_cmd_arg_bool(call, "raw"))
@@ -437,7 +437,7 @@ static void list_models_cleanup(struct fyai_cmd_call *call)
 
 int fyai_cmd_list(struct fyai_cmd_call *call, fy_generic *result)
 {
-	struct fyai_ctx *ctx = call->ctx;
+	struct fyai_ctx *ctx = fyai_cmd_call_ctx(call);
 	const char *what = fyai_cmd_arg_str(call, "what");
 	bool full = fyai_cmd_arg_bool(call, "full");
 	struct fyai_auth_models_request *request;
@@ -475,14 +475,14 @@ err:
 int fyai_cmd_diff(struct fyai_cmd_call *call, fy_generic *result)
 {
 	(void)result;
-	return fyai_export_diff(call->ctx, fyai_cmd_arg_str(call, "from"),
+	return fyai_export_diff(fyai_cmd_call_ctx(call), fyai_cmd_arg_str(call, "from"),
 				fyai_cmd_arg_str(call, "to"),
 				fyai_cmd_arg_bool(call, "unified"));
 }
 
 int fyai_cmd_root(struct fyai_cmd_call *call, fy_generic *result)
 {
-	return fyai_root_data(call->ctx, call->gb,
+	return fyai_root_data(fyai_cmd_call_ctx(call), call->gb,
 			      fyai_cmd_arg_str(call, "ref"),
 			      fy_equal(fy_get(call->def, "command", fy_invalid),
 				       "show"), result);
@@ -494,24 +494,24 @@ int fyai_cmd_join(struct fyai_cmd_call *call, fy_generic *result)
 
 	(void)result;
 	rebase = fy_equal(fy_get(call->def, "command", fy_invalid), "rebase");
-	return fyai_branch_join(call->ctx, fyai_cmd_arg_str(call, "branch"),
+	return fyai_branch_join(fyai_cmd_call_ctx(call), fyai_cmd_arg_str(call, "branch"),
 				rebase ? FYAI_JOIN_REBASE : FYAI_JOIN_MERGE,
 				fyai_cmd_arg_bool(call, "allow_unrelated"));
 }
 
 int fyai_cmd_gc(struct fyai_cmd_call *call, fy_generic *result)
 {
-	struct fyai_gc_args *args = &call->ctx->cfg->cmd.args.gc;
+	struct fyai_gc_args *args = &fyai_cmd_call_ctx(call)->cfg->cmd.args.gc;
 	int rc;
 
 	args->keep_reflogs = fy_get(call->args, "keep_reflogs", -1LL);
 	if (fy_get(call->args, "tips", false))
 		args->keep_reflogs = 1;
 	args->grace = (unsigned int)fy_get(call->args, "grace", 3600LL);
-	rc = fyai_gc_storage(call->ctx);
+	rc = fyai_gc_storage(fyai_cmd_call_ctx(call));
 	if (rc < 0)
 		return -1;
-	*result = fy_mapping(call->gb, "arena", call->ctx->cfg->arena_dir,
+	*result = fy_mapping(call->gb, "arena", fyai_cmd_call_ctx(call)->cfg->arena_dir,
 			     "compacted", (bool)(rc == 0), "missing", (bool)(rc == 1),
 			     "project", fy_stringf(call->gb, "removed %zu manifests, %zu objects "
 						   "and %zu view trees (%llu bytes)",
@@ -523,7 +523,7 @@ int fyai_cmd_gc(struct fyai_cmd_call *call, fy_generic *result)
 int fyai_cmd_export(struct fyai_cmd_call *call, fy_generic *result)
 {
 	(void)result;
-	return fyai_export_view(call->ctx, fyai_cmd_arg_str(call, "file"),
+	return fyai_export_view(fyai_cmd_call_ctx(call), fyai_cmd_arg_str(call, "file"),
 				fyai_cmd_arg_str(call, "ref"));
 }
 
@@ -542,7 +542,7 @@ static fy_generic log_words(struct fy_generic_builder *gb, fy_generic data)
 /* The action is the subcommand; the target is the argument of the group. */
 int fyai_cmd_log(struct fyai_cmd_call *call, fy_generic *result)
 {
-	struct fyai_ctx *ctx = call->ctx;
+	struct fyai_ctx *ctx = fyai_cmd_call_ctx(call);
 	fy_generic action = fy_get(call->def, "command", fy_invalid);
 	const char *target = fyai_cmd_arg_str(call, "target");
 	fy_generic data;
@@ -576,16 +576,16 @@ int fyai_cmd_secret(struct fyai_cmd_call *call, fy_generic *result)
 	if (command == FYAI_SECRET_STATUS) {
 		/* A backend that is not there is the answer, not a failure:
 		 * the status says so. */
-		*result = fyai_secret_status_data(call->ctx, call->gb,
+		*result = fyai_secret_status_data(fyai_cmd_call_ctx(call), call->gb,
 						  fyai_cmd_arg_str(call,
 								   "name"));
-		fyai_error_check(call->ctx, fy_is_valid(*result), err,
+		fyai_error_check(fyai_cmd_call_ctx(call), fy_is_valid(*result), err,
 				 "secret: cannot build the status");
 		return 0;
 	}
 	/* A value is read from the terminal, or from standard input with
 	 * --stdin: never from the command line. */
-	return fyai_secret_action(call->ctx, command,
+	return fyai_secret_action(fyai_cmd_call_ctx(call), command,
 				  fyai_cmd_arg_str(call, "name"),
 				  fyai_cmd_arg_bool(call, "stdin"));
 err:
@@ -595,7 +595,7 @@ err:
 int fyai_cmd_compact(struct fyai_cmd_call *call, fy_generic *result)
 {
 	(void)result;
-	return fyai_session_compact(call->ctx, fyai_cmd_arg_str(call, "hint"));
+	return fyai_session_compact(fyai_cmd_call_ctx(call), fyai_cmd_arg_str(call, "hint"));
 }
 
 int fyai_cmd_render(struct fyai_cmd_call *call, fy_generic *result)
@@ -607,12 +607,12 @@ int fyai_cmd_render(struct fyai_cmd_call *call, fy_generic *result)
 		md = read_all_stdin();
 	else
 		md = read_text_file(file);
-	fyai_error_check(call->ctx, md, err,
+	fyai_error_check(fyai_cmd_call_ctx(call), md, err,
 			 "render: cannot read %s", fy_str_empty(file) ||
 			 !strcmp(file, "-") ? "standard input" : file);
 	*result = fy_value(call->gb, (const char *)md);
 	free(md);
-	fyai_error_check(call->ctx, fy_is_valid(*result), err,
+	fyai_error_check(fyai_cmd_call_ctx(call), fy_is_valid(*result), err,
 			 "render: cannot keep the Markdown text");
 	return 0;
 err:
@@ -625,7 +625,7 @@ int fyai_cmd_mock_server(struct fyai_cmd_call *call, fy_generic *result)
 	const char *rundir = fyai_cmd_arg_str(call, "rundir");
 
 	*result = fy_invalid;
-	return fyai_mock_serve(call->ctx, call->gb, scenario, rundir ? rundir : ".",
+	return fyai_mock_serve(fyai_cmd_call_ctx(call), call->gb, scenario, rundir ? rundir : ".",
 			       fyai_cmd_arg_bool(call, "log"));
 }
 
@@ -653,8 +653,8 @@ int fyai_cmd_pty_driver(struct fyai_cmd_call *call, fy_generic *result)
 	int rc = -1;
 
 	*result = fy_invalid;
-	fyai_error_check(call->ctx, argv && env, out, "pty: out of memory");
-	rc = fyai_ptydrv_run(call->ctx, call->gb,
+	fyai_error_check(fyai_cmd_call_ctx(call), argv && env, out, "pty: out of memory");
+	rc = fyai_ptydrv_run(fyai_cmd_call_ctx(call), call->gb,
 			     fyai_cmd_arg_str(call, "script"),
 			     fyai_cmd_arg_str(call, "output"), argv,
 			     (char *const *)env, fyai_cmd_arg_str(call, "cast"));
@@ -667,5 +667,5 @@ out:
 int fyai_cmd_check_builtins(struct fyai_cmd_call *call, fy_generic *result)
 {
 	*result = fy_invalid;
-	return fyai_builtin_check(call->ctx);
+	return fyai_builtin_check(fyai_cmd_call_ctx(call));
 }

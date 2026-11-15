@@ -85,6 +85,12 @@ struct fyai_import {
 	bool request_ready;
 };
 
+/* The context that this object stands on. */
+static inline struct fyai_ctx *fyai_import_ctx(const struct fyai_import *o)
+{
+	return o->ctx;
+}
+
 /* Remove one escape 'x' from an opener at column zero. */
 static void fyai_import_unescape(char *text)
 {
@@ -136,7 +142,7 @@ static struct fyai_import_publish *fyai_import_publish_add(struct fyai_import *i
 	if (im->count == im->capacity) {
 		capacity = im->capacity ? im->capacity * 2 : 8;
 		items = realloc(im->publishes, capacity * sizeof(*items));
-		fyai_error_check(im->ctx, items, err, "import: out of memory");
+		fyai_error_check(fyai_import_ctx(im), items, err, "import: out of memory");
 		im->publishes = items;
 		im->capacity = capacity;
 	}
@@ -157,7 +163,7 @@ static struct fyai_import_turn *fyai_import_turn_add(struct fyai_import *im,
 	if (pu->turn_count == pu->turn_capacity) {
 		capacity = pu->turn_capacity ? pu->turn_capacity * 2 : 8;
 		items = realloc(pu->turns, capacity * sizeof(*items));
-		fyai_error_check(im->ctx, items, err, "import: out of memory");
+		fyai_error_check(fyai_import_ctx(im), items, err, "import: out of memory");
 		pu->turns = items;
 		pu->turn_capacity = capacity;
 	}
@@ -233,7 +239,7 @@ static int fyai_import_tool_call(struct fyai_import *im,
 	args_text = fy_gb_emit(im->gb, args,
 			       FYOPEF_DISABLE_DIRECTORY | FYOPEF_MODE_JSON |
 			       FYOPEF_STYLE_COMPACT | FYOPEF_WIDTH_INF, NULL);
-	fyai_error_check(im->ctx, fy_is_valid(args_text), err,
+	fyai_error_check(fyai_import_ctx(im), fy_is_valid(args_text), err,
 			 "import: cannot encode tool arguments");
 	/*
 	 * The export stores no provider tool-call ID, so import mints one. It
@@ -246,14 +252,14 @@ static int fyai_import_tool_call(struct fyai_import *im,
 			  "name", name,
 			  "arguments", args_text);
 	rc = fyai_import_message_add(im, turn, call);
-	fyai_error_check(im->ctx, !rc, err, "import: cannot add a tool call");
+	fyai_error_check(fyai_import_ctx(im), !rc, err, "import: cannot add a tool call");
 	result = fy_get(directive, "result", fy_invalid);
 	if (fy_is_invalid(result))
 		return 0;
 	im->pending = fy_append(im->gb, im->pending,
 		fy_mapping(im->gb, "type", "function_call_output",
 			   "call_id", call_id, "output", result));
-	fyai_error_check(im->ctx, fy_is_valid(im->pending), err,
+	fyai_error_check(fyai_import_ctx(im), fy_is_valid(im->pending), err,
 			 "import: cannot add a tool result");
 	return 0;
 err:
@@ -328,7 +334,7 @@ static bool fyai_import_is_directive(const char *line)
  */
 static int fyai_import_parse(struct fyai_import *im, char *text)
 {
-	struct fyai_ctx *ctx = im->ctx;
+	struct fyai_ctx *ctx = fyai_import_ctx(im);
 	struct fyai_import_publish *pu;
 	struct fyai_import_turn *turn;
 	fy_generic directive;
@@ -507,7 +513,7 @@ err:
 /* Build the request machinery the first time a compaction needs it. */
 static int fyai_import_request_setup(struct fyai_import *im)
 {
-	struct fyai_ctx *ctx = im->ctx;
+	struct fyai_ctx *ctx = fyai_import_ctx(im);
 	struct fy_generic_builder *gb;
 	int rc;
 
@@ -540,7 +546,7 @@ err:
 static int fyai_import_publish(struct fyai_import *im,
 			       struct fyai_import_publish *pu, fy_generic head)
 {
-	struct fyai_ctx *ctx = im->ctx;
+	struct fyai_ctx *ctx = fyai_import_ctx(im);
 	struct fyai_branch s;
 	fy_generic config;
 	bool decoded;
@@ -573,7 +579,7 @@ static int fyai_import_compact(struct fyai_import *im,
 			       struct fyai_import_turn *turn,
 			       fy_generic head, fy_generic *headp)
 {
-	struct fyai_ctx *ctx = im->ctx;
+	struct fyai_ctx *ctx = fyai_import_ctx(im);
 	const char *hint;
 	int rc;
 
@@ -600,7 +606,7 @@ err:
 /* Replay all publish boundaries. */
 static int fyai_import_replay(struct fyai_import *im)
 {
-	struct fyai_ctx *ctx = im->ctx;
+	struct fyai_ctx *ctx = fyai_import_ctx(im);
 	struct fyai_import_publish *pu;
 	fy_generic head;
 	fy_generic turn;

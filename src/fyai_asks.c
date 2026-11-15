@@ -24,6 +24,12 @@ struct fyai_ask_pending {
 	fy_generic questions;
 };
 
+/* The context that this object stands on. */
+static inline struct fyai_ctx *fyai_ask_pending_ctx(const struct fyai_ask_pending *o)
+{
+	return o->ctx;
+}
+
 static bool asks_name_valid(const char *name)
 {
 	size_t i;
@@ -102,7 +108,7 @@ static void asks_done(void *user, const struct fyai_ask_reply *replies,
 		      size_t n)
 {
 	struct fyai_ask_pending *p = user;
-	struct fyai_ctx *ctx = p->ctx;
+	struct fyai_ctx *ctx = fyai_ask_pending_ctx(p);
 	char *text;
 
 	if (!asks_live(ctx, p))

@@ -62,22 +62,22 @@ int fyai_cmd_turn_selection(struct fyai_cmd_call *call,
 	}
 	if (n)
 		given++;
-	fyai_error_check(call->ctx, given <= 1, usage, "%s: give one "
+	fyai_error_check(fyai_cmd_call_ctx(call), given <= 1, usage, "%s: give one "
 			 "selection", call->path);
 	if (!n && !range)
 		return 0;
 	if (n) {
-		fyai_error_check(call->ctx, n <= 2, usage, "%s: too many words",
+		fyai_error_check(fyai_cmd_call_ctx(call), n <= 2, usage, "%s: too many words",
 				 call->path);
 		if (!strcmp(kind, "all") && n == 1)
 			return 0;
-		fyai_error_check(call->ctx, n == 2, usage,
+		fyai_error_check(fyai_cmd_call_ctx(call), n == 2, usage,
 				 "%s: '%s' needs a count", call->path, kind);
 		if (!strcmp(kind, "range")) {
 			range = count;
 		} else {
 			a = strtoul(count, &end, 10);
-			fyai_error_check(call->ctx, *count && !*end, usage,
+			fyai_error_check(fyai_cmd_call_ctx(call), *count && !*end, usage,
 					 "%s: invalid count '%s'", call->path,
 					 count);
 			if (!strcmp(kind, "first")) {
@@ -93,19 +93,19 @@ int fyai_cmd_turn_selection(struct fyai_cmd_call *call,
 		}
 	}
 	a = strtoul(range, &end, 10);
-	fyai_error_check(call->ctx, end != range && (*end == ',' ||
+	fyai_error_check(fyai_cmd_call_ctx(call), end != range && (*end == ',' ||
 						      *end == ':'),
 			 usage, "%s: invalid range '%s'", call->path, range);
 	range = end + 1;
 	b = strtoul(range, &end, 10);
-	fyai_error_check(call->ctx, end != range && !*end, usage,
+	fyai_error_check(fyai_cmd_call_ctx(call), end != range && !*end, usage,
 			 "%s: invalid range", call->path);
 	sel->type = FYAITST_RANGE;
 	sel->range_lo = a;
 	sel->range_hi = b;
 	return 0;
 usage:
-	fyai_error(call->ctx, "%s: use all, first N, last N, or range A,B",
+	fyai_error(fyai_cmd_call_ctx(call), "%s: use all, first N, last N, or range A,B",
 		   call->path);
 	return -1;
 }
@@ -127,7 +127,7 @@ static int history_emit_turn(void *arg, fy_generic turn)
  */
 int fyai_cmd_history(struct fyai_cmd_call *call, fy_generic *result)
 {
-	struct fyai_ctx *ctx = call->ctx;
+	struct fyai_ctx *ctx = fyai_cmd_call_ctx(call);
 	struct fyai_display_args *args = &ctx->cfg->cmd.args.display;
 	struct fyai_display_args saved = *args;
 	struct fyai_turn_selector_args sel;

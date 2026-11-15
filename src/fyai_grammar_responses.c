@@ -397,7 +397,7 @@ static int responses_stream_event(struct fyai_stream_parse *p,
 {
 	struct responses_stream *rs = responses_stream(p);
 	struct fy_generic_builder *gb = p->gb;
-	struct fyai_cfg *cfg = p->ctx->cfg;
+	struct fyai_cfg *cfg = fyai_stream_parse_ctx(p)->cfg;
 	fy_generic item;
 	fy_generic type;
 	const char *delta;

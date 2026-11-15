@@ -256,6 +256,12 @@ struct fyai_ui {
 	fyai_event_ms_t next_frame_ms;
 };
 
+/* The context that this object stands on. */
+static inline struct fyai_ctx *fyai_ui_ctx(const struct fyai_ui *o)
+{
+	return o->ctx;
+}
+
 static void ui_act(struct fyai_ui *ui, const struct fytim_event *ev);
 static void ui_tile_act(struct fyai_ui *ui, struct fytim_surface *sf,
 			const char *id);
@@ -282,7 +288,7 @@ static char *ui_indicator(struct fyai_ui *ui,
 			  enum fymd_indicator_state state, size_t frame,
 			  unsigned int *interval_msp)
 {
-	return markdown_indicator_margin(ui->ctx ? ui->ctx->cfg : NULL,
+	return markdown_indicator_margin(fyai_ui_ctx(ui) ? fyai_ui_ctx(ui)->cfg : NULL,
 					 ui->chrome_renderer, state, frame,
 					 interval_msp);
 }
@@ -393,12 +399,12 @@ static int ui_tool_render(struct fyai_ui *ui, const char *first_margin,
 	title = ui->tool_title && *ui->tool_title ? ui->tool_title : "tool";
 	title_len = strlen(title);
 	/* Render the failure mark and cause in the shared title row. */
-	if (markdown_render_tool_head(ui->ctx->cfg, title, title_len,
+	if (markdown_render_tool_head(fyai_ui_ctx(ui)->cfg, title, title_len,
 			ui->tool_error,
-			first_margin, markdown_gutter_blank(ui->ctx->cfg), &head))
+			first_margin, markdown_gutter_blank(fyai_ui_ctx(ui)->cfg), &head))
 		goto out;
 	if (ui->tool_command &&
-	    fyai_ui_append_shell_command(ui->ctx->cfg, &head, ui->tool_command))
+	    fyai_ui_append_shell_command(fyai_ui_ctx(ui)->cfg, &head, ui->tool_command))
 		goto out;
 	fyai_buf_trim(&head);
 	if (ui->tool_mode == UI_TOOL_INLINE) {
@@ -408,12 +414,12 @@ static int ui_tool_render(struct fyai_ui *ui, const char *first_margin,
 			body++;
 			body_len--;
 		}
-		preview = ui->ctx->cfg->tool_preview_lines;
+		preview = fyai_ui_ctx(ui)->cfg->tool_preview_lines;
 		rc = ui_inline_set(ui, (uintptr_t)&ui->tool_band, head.data,
 				   head.len, body, body_len,
 				   preview > 0 ? preview : 1, commit, true);
 		if (!rc && commit)
-			fyai_flow_emitted(fyai_sink_flow(ui->ctx->front->sink),
+			fyai_flow_emitted(fyai_sink_flow(fyai_ui_ctx(ui)->front->sink),
 					  FYAI_FLOW_TOOL_HEAD, true);
 		goto out;
 	}
@@ -427,7 +433,7 @@ static int ui_tool_render(struct fyai_ui *ui, const char *first_margin,
 		body++;
 		body_len--;
 	}
-	preview = ui->ctx->cfg->tool_preview_lines;
+	preview = fyai_ui_ctx(ui)->cfg->tool_preview_lines;
 	(void)fytim_workband_set_max_rows(ui->tool_band,
 					  preview > 0 ? preview : 1);
 	if (fytim_workband_set(ui->tool_band, body, body_len) != FYTIM_OK)
@@ -449,13 +455,13 @@ static int ui_tool_render(struct fyai_ui *ui, const char *first_margin,
 	fyai_buf_trim(&out);
 	/* The separation above the band was drawn when it opened. */
 	trc = fytim_workband_set_commit(ui->tool_band, out.data, out.len);
-	if (ui->ctx)
-		fyai_flow_observe(fyai_sink_flow(ui->ctx->front->sink), out.data,
+	if (fyai_ui_ctx(ui))
+		fyai_flow_observe(fyai_sink_flow(fyai_ui_ctx(ui)->front->sink), out.data,
 				  out.len);
-	fyai_error_check(ui->ctx, trc == FYTIM_OK, out,
+	fyai_error_check(fyai_ui_ctx(ui), trc == FYTIM_OK, out,
 			 "could not commit a tool row");
-	if (ui->ctx)
-		fyai_flow_emitted(fyai_sink_flow(ui->ctx->front->sink),
+	if (fyai_ui_ctx(ui))
+		fyai_flow_emitted(fyai_sink_flow(fyai_ui_ctx(ui)->front->sink),
 				  FYAI_FLOW_TOOL_HEAD, true);
 	rc = 0;
 out:
@@ -580,7 +586,7 @@ static void ui_pending_refresh(struct fyai_ui *ui)
 	if (ui->page) {
 		source = count ? ui_pending_source(ui, count, 0) : NULL;
 		if (count && !source)
-			fyai_warning(ui->ctx, "cannot show the pending lines");
+			fyai_warning(fyai_ui_ctx(ui), "cannot show the pending lines");
 		ui_band_close(ui, &ui->pending_band);
 		/* A take of a line that changes nothing needs no frame. */
 		if (source && ui->pending_source &&
@@ -606,9 +612,9 @@ static void ui_pending_refresh(struct fyai_ui *ui)
 						5);
 		if (!ui->pending_band) return;
 	}
-	mark = markdown_role_on(ui->ctx ? ui->ctx->cfg : NULL, "chrome",
+	mark = markdown_role_on(fyai_ui_ctx(ui) ? fyai_ui_ctx(ui)->cfg : NULL, "chrome",
 				"\033[36m");
-	off = markdown_role_off(ui->ctx ? ui->ctx->cfg : NULL, "chrome",
+	off = markdown_role_off(fyai_ui_ctx(ui) ? fyai_ui_ctx(ui)->cfg : NULL, "chrome",
 				 "\033[0m");
 	header = fy_sprintfa("\n%s●%s \033[1mpending\033[0m (%zu)",
 			    mark, off, count);
@@ -876,7 +882,7 @@ static void ui_log_rebuild(struct fyai_ui *ui)
 err_view:
 	fyai_transcript_view_destroy(view);
 err:
-	fyai_warning(ui->ctx, "cannot show the log of the session");
+	fyai_warning(fyai_ui_ctx(ui), "cannot show the log of the session");
 }
 
 /* The rows of @text of @len bytes, a last row without a newline included. */
@@ -906,7 +912,7 @@ static void ui_note_set(struct fyai_ui *ui, const char *heading,
 		if (asprintf(&ui->note[i], "%s%s%.*s", i ? "" : heading,
 			     i ? "" : "  ", (int)(nl - line), line) < 0) {
 			ui->note[i] = NULL;
-			fyai_warning(ui->ctx, "cannot show the result");
+			fyai_warning(fyai_ui_ctx(ui), "cannot show the result");
 			break;
 		}
 		ui->note_nlines = i + 1;
@@ -985,7 +991,7 @@ static void ui_popup_append(struct fyai_ui *ui, enum fyai_error_type level,
 		 strndup(text, len);
 	if (!e.heading || !e.text) {
 		ui_log_entry_free(&e);
-		fyai_warning(ui->ctx, "cannot keep the result in the log");
+		fyai_warning(fyai_ui_ctx(ui), "cannot keep the result in the log");
 		return;
 	}
 	if (ui->nlog == UI_LOG_MAX) {
@@ -997,7 +1003,7 @@ static void ui_popup_append(struct fyai_ui *ui, enum fyai_error_type level,
 	grown = realloc(ui->log, (size_t)(ui->nlog + 1) * sizeof(*ui->log));
 	if (!grown) {
 		ui_log_entry_free(&e);
-		fyai_warning(ui->ctx, "cannot keep the result in the log");
+		fyai_warning(fyai_ui_ctx(ui), "cannot keep the result in the log");
 		return;
 	}
 	ui->log = grown;
@@ -1010,7 +1016,7 @@ static void ui_popup_append(struct fyai_ui *ui, enum fyai_error_type level,
 	if (shown && rows > UI_NOTE_ROWS && ui->popup_state == UI_POPUP_HIDDEN)
 		ui_popup_set(ui, UI_POPUP_COMPACT);
 	ui_log_rebuild(ui);
-	fyai_ui_panel_update(ui->ctx);
+	fyai_ui_panel_update(fyai_ui_ctx(ui));
 }
 
 /*
@@ -1136,7 +1142,7 @@ static void spool_drain(struct fyai_ui *ui, struct ui_spool *s)
 	if (out.len) {
 		/* Spooled bytes continue the current unit and take no separation. */
 		(void)ui_present(ui, out.data, out.len);
-		fyai_flow_observe(fyai_sink_flow(ui->ctx ? ui->ctx->front->sink : NULL),
+		fyai_flow_observe(fyai_sink_flow(fyai_ui_ctx(ui) ? fyai_ui_ctx(ui)->front->sink : NULL),
 				  out.data, out.len);
 	}
 	free(out.data);
@@ -1268,14 +1274,14 @@ static void ui_edit_complete_service(void *userdata)
 		(void)fytim_set_input(ui->ft, edited);
 	}
 	if (fyai_editor_collect(ui->editor_request))
-		fyai_error(ui->ctx, "editor exited unsuccessfully");
+		fyai_error(fyai_ui_ctx(ui), "editor exited unsuccessfully");
 	fyai_editor_destroy(ui->editor_request);
 	ui->editor_request = NULL;
 	(void)unlink(ui->editor_path);
 	free(ui->editor_path);
 	ui->editor_path = NULL;
 	if (ui->editor_external)
-		(void)fyai_ui_external_end(ui->ctx);
+		(void)fyai_ui_external_end(fyai_ui_ctx(ui));
 	ui->editor_external = false;
 	free(edited);
 }
@@ -1288,10 +1294,10 @@ static void ui_edit_complete(struct fyai_editor_request *request,
 
 	(void)request;
 	ui = userdata;
-	rc = fyai_event_defer(fyai_ctx_loop(ui->ctx),
+	rc = fyai_event_defer(fyai_ctx_loop(fyai_ui_ctx(ui)),
 			      ui_edit_complete_service, ui);
 	if (rc)
-		fyai_error(ui->ctx, "could not resume from external editor");
+		fyai_error(fyai_ui_ctx(ui), "could not resume from external editor");
 }
 
 static int ui_edit_begin(struct fyai_ui *ui)
@@ -1307,39 +1313,39 @@ static int ui_edit_begin(struct fyai_ui *ui)
 	if (!tmpdir || !*tmpdir)
 		tmpdir = "/tmp";
 	rc = snprintf(path, sizeof(path), "%s/fyai-XXXXXX.md", tmpdir);
-	fyai_error_check(ui->ctx, rc >= 0 && rc < (int)sizeof(path),
+	fyai_error_check(fyai_ui_ctx(ui), rc >= 0 && rc < (int)sizeof(path),
 			 err_out, "could not format editor path");
 	fd = mkstemps(path, 3);
-	fyai_error_check(ui->ctx, fd >= 0, err_out,
+	fyai_error_check(fyai_ui_ctx(ui), fd >= 0, err_out,
 			 "could not create editor file");
 	current = fytim_input(ui->ft);
 	if (current && *current) {
 		rc = write(fd, current, strlen(current));
-		fyai_error_check(ui->ctx, rc == (int)strlen(current), err_fd,
+		fyai_error_check(fyai_ui_ctx(ui), rc == (int)strlen(current), err_fd,
 				 "could not write editor file");
 	}
 	close(fd);
 	fd = -1;
 	copy = strdup(path);
-	fyai_error_check(ui->ctx, copy, err_file,
+	fyai_error_check(fyai_ui_ctx(ui), copy, err_file,
 			 "could not retain editor path");
 	/* An editor in the work pane keeps the UI; one on the terminal takes it. */
-	ui->editor_external = !fyai_editor_in_pane(ui->ctx);
+	ui->editor_external = !fyai_editor_in_pane(fyai_ui_ctx(ui));
 	if (ui->editor_external) {
-		rc = fyai_ui_external_begin(ui->ctx);
-		fyai_error_check(ui->ctx, !rc, err_copy,
+		rc = fyai_ui_external_begin(fyai_ui_ctx(ui));
+		fyai_error_check(fyai_ui_ctx(ui), !rc, err_copy,
 				 "could not suspend terminal UI");
 	}
-	ui->editor_request = fyai_editor_submit(ui->ctx, path, false,
+	ui->editor_request = fyai_editor_submit(fyai_ui_ctx(ui), path, false,
 						ui_edit_complete, ui);
-	fyai_error_check(ui->ctx, ui->editor_request, err_external,
+	fyai_error_check(fyai_ui_ctx(ui), ui->editor_request, err_external,
 			 "could not start editor");
 	ui->editor_path = copy;
 	return 0;
 
 err_external:
 	if (ui->editor_external)
-		(void)fyai_ui_external_end(ui->ctx);
+		(void)fyai_ui_external_end(fyai_ui_ctx(ui));
 err_copy:
 	ui->editor_external = false;
 	free(copy);
@@ -1371,7 +1377,7 @@ static void ui_frame_throttled(struct fyai_ui *ui)
 	fyai_event_ms_t now = fyai_event_now_ms();
 
 	ui->frame_pending = true;
-	if (!ui->ctx->cfg->tool_update_interval_ms || now >= ui->next_frame_ms)
+	if (!fyai_ui_ctx(ui)->cfg->tool_update_interval_ms || now >= ui->next_frame_ms)
 		ui->next_frame_ms = now;
 }
 
@@ -1403,7 +1409,7 @@ static void ui_rearm(struct fyai_ui *ui)
 	else if (ms < 1)
 		ms = 1;
 	rc = fyai_event_timer_rearm(ui->timer_src, ms, UI_HEAL_MS);
-	fyai_error_check(ui->ctx, !rc, err_out,
+	fyai_error_check(fyai_ui_ctx(ui), !rc, err_out,
 			 "could not rearm the UI timer");
 	return;
 
@@ -1418,7 +1424,7 @@ err_out:
  */
 static void ui_apply_resize(struct fyai_ui *ui, int rows, int width)
 {
-	struct fyai_ctx *ctx = ui->ctx;
+	struct fyai_ctx *ctx = fyai_ui_ctx(ui);
 	int cols;
 
 	cols = width > 1 ? width - 1 : 0;
@@ -1491,7 +1497,7 @@ static int ui_glyph_width(unsigned int base)
 /* The prompt marker of the configuration, e.g. an arrow and a blank. */
 static const char *ui_ready_marker(const struct fyai_ui *ui)
 {
-	const char *marker = ui->ctx->cfg->prompt_marker;
+	const char *marker = fyai_ui_ctx(ui)->cfg->prompt_marker;
 
 	return marker && *marker ? marker : "\u276f ";
 }
@@ -1499,7 +1505,7 @@ static const char *ui_ready_marker(const struct fyai_ui *ui)
 /* The glyph of the busy marker: the setting, else the theme, else NULL. */
 static const char *ui_busy_glyph(const struct fyai_ui *ui)
 {
-	const struct fyai_cfg *cfg = ui->ctx->cfg;
+	const struct fyai_cfg *cfg = fyai_ui_ctx(ui)->cfg;
 
 	if (cfg->prompt_busy && *cfg->prompt_busy)
 		return cfg->prompt_busy;
@@ -1528,7 +1534,7 @@ static void ui_marker_update(struct fyai_ui *ui, bool force)
 	marker = fyai_marker_busy(ui_ready_marker(ui), ui_busy_glyph(ui),
 				  ui_glyph_width);
 	if (!marker) {
-		fyai_warning(ui->ctx, "cannot draw the busy prompt marker");
+		fyai_warning(fyai_ui_ctx(ui), "cannot draw the busy prompt marker");
 		return;
 	}
 	(void)fytim_set_marker(ui->ft, marker);
@@ -1548,7 +1554,7 @@ static void ui_side_width(struct fyai_ui *ui, int cols)
 	if (cols == ui->side_cols)
 		return;
 	ui->side_cols = cols;
-	ui->ctx->cfg->render_width = cols ? cols : ui->render_cols;
+	fyai_ui_ctx(ui)->cfg->render_width = cols ? cols : ui->render_cols;
 	ui->reflow_pending = true;
 	ui->repaint_pending = true;
 	ui->frame_pending = true;
@@ -1563,7 +1569,7 @@ static void ui_page_actions_get(const struct fyai_page_action **actions,
 
 static void ui_page_configure(struct fyai_ui *ui)
 {
-	struct fyai_ctx *ctx = ui->ctx;
+	struct fyai_ctx *ctx = fyai_ui_ctx(ui);
 	const struct fyai_page_action *actions = NULL;
 	const char *made_for, *path;
 	size_t nactions = 0;
@@ -1762,7 +1768,7 @@ static bool ui_questions_open(fy_generic open, const char *qid)
  */
 static void ui_questions_sync(struct fyai_ui *ui)
 {
-	struct fyai_ctx *ctx = ui->ctx;
+	struct fyai_ctx *ctx = fyai_ui_ctx(ui);
 	struct ui_question **qp, *q;
 	fy_generic open, item;
 	const char *qid;
@@ -1824,9 +1830,9 @@ static void ui_question_finish(struct fyai_ui *ui, bool answered)
 	ui->frame_pending = true;
 	(void)fytim_set_input(ui->ft, NULL);
 	/* The answer goes to the engine, which owns the set. */
-	fyai_ask_settle(ui->ctx, q->qid, answered ? q->replies : NULL, q->nq);
+	fyai_ask_settle(fyai_ui_ctx(ui), q->qid, answered ? q->replies : NULL, q->nq);
 	ui_question_free(q);
-	fyai_ui_wake(ui->ctx);
+	fyai_ui_wake(fyai_ui_ctx(ui));
 }
 
 /* True when every question has an answer and the review step is showing. The
@@ -2152,10 +2158,10 @@ static void ui_page_action(struct fyai_ui *ui, const char *id)
 
 	a = fyai_page_action_find(ui_page_actions, ui_page_nactions, id, len);
 	if (!a) {
-		fyai_warning(ui->ctx, "the page has no action for '%s'", id);
+		fyai_warning(fyai_ui_ctx(ui), "the page has no action for '%s'", id);
 		return;
 	}
-	a->fn(ui->ctx, colon ? colon + 1 : "");
+	a->fn(fyai_ui_ctx(ui), colon ? colon + 1 : "");
 }
 
 /* A key that the page bound: call the action that the active mode gives it. */
@@ -2173,17 +2179,17 @@ static void ui_page_key(struct fyai_ui *ui, const struct fytim_event *ev)
 		/* The prompt is on the page again. */
 		if (ui->tile_full) {
 			ui->tile_full = NULL;
-			(void)fyai_ui_surface_zoom(ui->ctx, NULL);
+			(void)fyai_ui_surface_zoom(fyai_ui_ctx(ui), NULL);
 		}
-		fyai_tools_keys_to_prompt(ui->ctx);
-		fyai_ui_wake(ui->ctx);
+		fyai_tools_keys_to_prompt(fyai_ui_ctx(ui));
+		fyai_ui_wake(fyai_ui_ctx(ui));
 		return;
 	}
 
 	if (ev->text && ev->text_len == strlen(UI_ACT_MESSAGES) &&
 	    !strncmp(ev->text, UI_ACT_MESSAGES, ev->text_len)) {
 		ui_popup_toggle(ui);
-		fyai_ui_wake(ui->ctx);
+		fyai_ui_wake(fyai_ui_ctx(ui));
 		return;
 	}
 
@@ -2193,7 +2199,7 @@ static void ui_page_key(struct fyai_ui *ui, const struct fytim_event *ev)
 			ui_page_action(ui, ui->page_keys.key[i].action);
 			return;
 		}
-	fyai_warning(ui->ctx, "the page has no binding for the key '%.*s'",
+	fyai_warning(fyai_ui_ctx(ui), "the page has no binding for the key '%.*s'",
 		     (int)ev->text_len, ev->text ? ev->text : "");
 }
 
@@ -2226,7 +2232,7 @@ static void ui_page_keys_bind(struct fyai_ui *ui,
 	    fytim_mode_set_parent(ui->ft, UI_PAGE_MODE, "prompt") != FYTIM_OK ||
 	    fytim_set_mode(ui->ft, keys->count ? UI_PAGE_MODE : NULL) !=
 	    FYTIM_OK) {
-		fyai_warning(ui->ctx, "the terminal library rejected the keys "
+		fyai_warning(fyai_ui_ctx(ui), "the terminal library rejected the keys "
 			     "of the page");
 		return;
 	}
@@ -2283,7 +2289,7 @@ static int ui_rendered_rows(struct fyai_ui *ui, struct ui_rendered *r,
 	int n = 0;
 
 	r->rows = calloc((size_t)cap, sizeof(*r->rows));
-	fyai_error_check(ui->ctx, r->rows, err_out,
+	fyai_error_check(fyai_ui_ctx(ui), r->rows, err_out,
 			 "cannot keep the rows of a question");
 	while (line < end && n < cap) {
 		nl = memchr(line, '\n', (size_t)(end - line));
@@ -2297,7 +2303,7 @@ static int ui_rendered_rows(struct fyai_ui *ui, struct ui_rendered *r,
 				  UI_PREVIEW_INDENT, "", (int)(nl - line),
 				  line) < 0)
 			r->rows[n] = NULL;
-		fyai_error_check(ui->ctx, r->rows[n], err_out,
+		fyai_error_check(fyai_ui_ctx(ui), r->rows[n], err_out,
 				 "cannot keep the rows of a question");
 		r->n = ++n;
 		line = nl < end ? nl + 1 : end;
@@ -2318,7 +2324,7 @@ static int ui_rendered_update(struct fyai_ui *ui, struct ui_rendered *r,
 			      const char *text, int cols, int cap)
 {
 	struct fyai_buf out = { 0 };
-	struct fyai_cfg *cfg = ui->ctx->cfg;
+	struct fyai_cfg *cfg = fyai_ui_ctx(ui)->cfg;
 	int saved, rc;
 
 	if (fy_str_empty(text) || cap < 3) {
@@ -2335,7 +2341,7 @@ static int ui_rendered_update(struct fyai_ui *ui, struct ui_rendered *r,
 			     cfg->theme_variant);
 	fyai_width_reserve_end(cfg, saved);
 	if (rc) {
-		fyai_warning(ui->ctx, "cannot render the text of a question");
+		fyai_warning(fyai_ui_ctx(ui), "cannot render the text of a question");
 		free(out.data);
 		return 0;
 	}
@@ -2348,7 +2354,7 @@ static int ui_rendered_update(struct fyai_ui *ui, struct ui_rendered *r,
 		return 0;
 	r->src = strdup(text);
 	if (!r->src) {
-		fyai_warning(ui->ctx, "cannot keep the text of a question");
+		fyai_warning(fyai_ui_ctx(ui), "cannot keep the text of a question");
 		ui_rendered_clear(r);
 		return 0;
 	}
@@ -2501,7 +2507,7 @@ static void ui_pending_fit(struct fyai_ui *ui, struct fyai_page_state *st,
 	for (skip = 1; skip <= ui->pending_count; skip++) {
 		source = ui_pending_source(ui, ui->pending_count, skip);
 		if (!source) {
-			fyai_warning(ui->ctx, "cannot show the pending lines");
+			fyai_warning(fyai_ui_ctx(ui), "cannot show the pending lines");
 			return;
 		}
 		n = ui_markup_rows(source, cols);
@@ -2562,7 +2568,7 @@ static int ui_page_frame_header(struct fyai_ui *ui, struct ui_page_frame *f)
 {
 	struct fyai_page_state *st = &f->st;
 	struct fyai_page_layout *layout = &f->layout;
-	struct fyai_ctx *ctx = ui->ctx;
+	struct fyai_ctx *ctx = fyai_ui_ctx(ui);
 	struct fyai_transcript_view *blocks;
 	fy_generic turn;
 	int rc;
@@ -2631,7 +2637,7 @@ static int ui_page_frame_ask(struct fyai_ui *ui, struct ui_page_frame *f)
 	struct fyai_page_state *st = &f->st;
 	struct fyai_page_ask *ask = &f->ask;
 	int cols = f->cols, rows = f->rows;
-	struct fyai_ctx *ctx = ui->ctx;
+	struct fyai_ctx *ctx = fyai_ui_ctx(ui);
 	struct ui_question *q, *w;
 	const char *typed;
 
@@ -2673,7 +2679,7 @@ static int ui_page_frame_pane(struct fyai_ui *ui, struct ui_page_frame *f)
 	struct fyai_page_layout *layout = &f->layout;
 	struct fyai_page_keys *keys = &f->keys;
 	int cols = f->cols;
-	struct fyai_ctx *ctx = ui->ctx;
+	struct fyai_ctx *ctx = fyai_ui_ctx(ui);
 	struct fytim_workpane *pane;
 	const char *rule_off;
 	int n, rc;
@@ -2757,7 +2763,7 @@ static int ui_page_frame_fit(struct fyai_ui *ui, struct ui_page_frame *f)
 	struct fyai_page_state *st = &f->st;
 	struct fyai_page_tile *tiles = f->tiles;
 	int cols = f->cols, rows = f->rows;
-	struct fyai_ctx *ctx = ui->ctx;
+	struct fyai_ctx *ctx = fyai_ui_ctx(ui);
 	const char *typed;
 	int rc;
 
@@ -2842,7 +2848,7 @@ static int ui_page_frame_content(struct fyai_ui *ui, struct ui_page_frame *f)
 	struct fyai_page_state *st = &f->st;
 	struct fyai_page_layout *layout = &f->layout;
 	int cols = f->cols;
-	struct fyai_ctx *ctx = ui->ctx;
+	struct fyai_ctx *ctx = fyai_ui_ctx(ui);
 	const char *tail;
 	int rc;
 
@@ -2894,7 +2900,7 @@ err_page:
 
 static void ui_page_update(struct fyai_ui *ui)
 {
-	struct fyai_ctx *ctx = ui->ctx;
+	struct fyai_ctx *ctx = fyai_ui_ctx(ui);
 	struct ui_page_frame f;
 	int rc, i;
 
@@ -2957,14 +2963,14 @@ static bool ui_band_wheel(struct fyai_ui *ui, const char *text, size_t len,
 	slot = strtoul(id + 5, &end, 10);
 	if (end == id + 5 || *end)
 		return false;
-	return fyai_workpane_band_scroll(ui->ctx->front->workpane,
+	return fyai_workpane_band_scroll(fyai_ui_ctx(ui)->front->workpane,
 					 (unsigned int)slot, delta, false);
 }
 
 /* True when the work pane controls take the wheel over a tile. */
 static bool ui_tile_scrolls(const struct fyai_ui *ui)
 {
-	return fyai_chrome_level(ui->ctx) != FYAI_CHROME_NONE;
+	return fyai_chrome_level(fyai_ui_ctx(ui)) != FYAI_CHROME_NONE;
 }
 
 /*
@@ -2992,7 +2998,7 @@ static struct fytim_surface *ui_slot_surface(struct fyai_ui *ui,
 			continue;
 		slot = strtoul(id + plen, &end, 10);
 		if (end != id + plen && !*end)
-			sf = fyai_workpane_slot_surface(ui->ctx->front->workpane,
+			sf = fyai_workpane_slot_surface(fyai_ui_ctx(ui)->front->workpane,
 							(unsigned int)slot);
 	}
 	return sf;
@@ -3007,22 +3013,22 @@ static void ui_click_off_tiles(struct fyai_ui *ui, const struct fytim_event *ev)
 	struct fytim_surface *sf;
 
 	sf = ui_slot_surface(ui, ev->text, ev->text_len);
-	if (sf && fyai_workpane_minimized(ui->ctx->front->workpane, sf)) {
+	if (sf && fyai_workpane_minimized(fyai_ui_ctx(ui)->front->workpane, sf)) {
 		ui_tile_act(ui, sf, NULL);
 		return;
 	}
-	if (sf && fyai_tools_focus_tile(ui->ctx, sf))
+	if (sf && fyai_tools_focus_tile(fyai_ui_ctx(ui), sf))
 		return;
 	if (ev->text && ev->text_len == 6 && !memcmp(ev->text, "prompt", 6))
-		ui_page_focus(ui->ctx, "prompt");
+		ui_page_focus(fyai_ui_ctx(ui), "prompt");
 	else if (ev->text && ev->text_len > 6 && !memcmp(ev->text, "panel:", 6)) {
 		const char *focus = fyai_page_panel_focus(ui->page,
 			fy_sprintfa("%.*s", (int)ev->text_len - 6, ev->text + 6));
 
 		if (focus)
-			ui_page_focus(ui->ctx, focus);
+			ui_page_focus(fyai_ui_ctx(ui), focus);
 	}
-	fyai_tools_focus_prompt(ui->ctx);
+	fyai_tools_focus_prompt(fyai_ui_ctx(ui));
 }
 
 /*
@@ -3031,25 +3037,25 @@ static void ui_click_off_tiles(struct fyai_ui *ui, const struct fytim_event *ev)
  */
 static void ui_tile_maximize(struct fyai_ui *ui, struct fytim_surface *sf)
 {
-	struct fyai_workpane_manager *wm = ui->ctx->front->workpane;
+	struct fyai_workpane_manager *wm = fyai_ui_ctx(ui)->front->workpane;
 	int rc;
 
 	if (fyai_workpane_zoomed(wm) == sf) {
 		ui->tile_full = NULL;
-		(void)fyai_ui_surface_zoom(ui->ctx, NULL);
+		(void)fyai_ui_surface_zoom(fyai_ui_ctx(ui), NULL);
 		ui->frame_pending = true;
 		return;
 	}
-	rc = fyai_ui_surface_zoom(ui->ctx, sf);
+	rc = fyai_ui_surface_zoom(fyai_ui_ctx(ui), sf);
 	if (rc) {
-		fyai_warning(ui->ctx, "cannot maximize the tile");
+		fyai_warning(fyai_ui_ctx(ui), "cannot maximize the tile");
 		return;
 	}
 	if (!ui->fullscreen)
 		return;
 	ui->tile_full = sf;
-	if (!fyai_tools_focus_tile(ui->ctx, sf))
-		fyai_warning(ui->ctx,
+	if (!fyai_tools_focus_tile(fyai_ui_ctx(ui), sf))
+		fyai_warning(fyai_ui_ctx(ui),
 			     "cannot give the maximized tile the keys");
 	ui->frame_pending = true;
 }
@@ -3059,7 +3065,7 @@ static void ui_tile_maximize(struct fyai_ui *ui, struct fytim_surface *sf)
 static bool ui_tile_full(struct fyai_ui *ui)
 {
 	if (ui->tile_full &&
-	    fyai_workpane_zoomed(ui->ctx->front->workpane) != ui->tile_full)
+	    fyai_workpane_zoomed(fyai_ui_ctx(ui)->front->workpane) != ui->tile_full)
 		ui->tile_full = NULL;
 	return ui->tile_full != NULL;
 }
@@ -3071,7 +3077,7 @@ static bool ui_tile_full(struct fyai_ui *ui)
 static void ui_tile_act(struct fyai_ui *ui, struct fytim_surface *sf,
 			const char *id)
 {
-	struct fyai_workpane_manager *wm = ui->ctx->front->workpane;
+	struct fyai_workpane_manager *wm = fyai_ui_ctx(ui)->front->workpane;
 	bool minimized = fyai_workpane_minimized(wm, sf);
 
 	if (id && !strcmp(id, "tile:minimize")) {
@@ -3084,7 +3090,7 @@ static void ui_tile_act(struct fyai_ui *ui, struct fytim_surface *sf,
 		ui_tile_maximize(ui, sf);
 		return;
 	}
-	(void)fyai_tools_focus_tile(ui->ctx, sf);
+	(void)fyai_tools_focus_tile(fyai_ui_ctx(ui), sf);
 }
 
 /* A click on the head of @sf that the band stack drew, at its (@row, @col). */
@@ -3095,10 +3101,10 @@ static void ui_head_click(struct fyai_ui *ui, struct fytim_surface *sf,
 
 	if (!sf || row < 0)
 		return;
-	id = fyai_workpane_tile_region_at(ui->ctx->front->workpane, sf, (size_t)row,
+	id = fyai_workpane_tile_region_at(fyai_ui_ctx(ui)->front->workpane, sf, (size_t)row,
 					  col);
 	if (id && !strcmp(id, "tile:close"))
-		fyai_tools_surface_request(ui->ctx, sf, 0);
+		fyai_tools_surface_request(fyai_ui_ctx(ui), sf, 0);
 	else
 		ui_tile_act(ui, sf, id);
 }
@@ -3125,13 +3131,13 @@ static void ui_select(struct fyai_ui *ui, const struct fytim_event *ev)
 		return;
 	}
 	if (!text) {
-		fyai_warning(ui->ctx, "cannot copy the selection");
+		fyai_warning(fyai_ui_ctx(ui), "cannot copy the selection");
 		return;
 	}
 	if (*text) {
 		res = fytim_copy(ui->ft, text, strlen(text));
 		if (res != FYTIM_OK)
-			fyai_warning(ui->ctx, "the terminal did not take the "
+			fyai_warning(fyai_ui_ctx(ui), "the terminal did not take the "
 				     "selection: %s", fytim_result_string(res));
 	}
 	free(text);
@@ -3156,7 +3162,7 @@ static enum fyai_event_action ui_service_frame(struct fyai_ui *ui)
 		if (terminal_window_size(ui->tty_fd, &rows, &width))
 			ui_apply_resize(ui, rows, width);
 	}
-	fyai_ui_drain_output(ui->ctx);
+	fyai_ui_drain_output(fyai_ui_ctx(ui));
 	if (ui_activity_refresh(ui))
 		return FYAIEA_ABORT;
 	painted_frame = ui->frame_pending;
@@ -3164,22 +3170,22 @@ static enum fyai_event_action ui_service_frame(struct fyai_ui *ui)
 	if (painted_frame)
 		ui->frame_pending = false;
 	/* A block takes the separation of the rows the frame presents. */
-	fyai_tools_inline_refence(ui->ctx);
+	fyai_tools_inline_refence(fyai_ui_ctx(ui));
 	/* Update layout state before reconciliation. */
-	fyai_workpane_reconcile(ui->ctx->front->workpane);
+	fyai_workpane_reconcile(fyai_ui_ctx(ui)->front->workpane);
 	ui_page_update(ui);
 	ui_marker_update(ui, false);
 	if (fytim_pump(ui->ft) != FYTIM_OK)
 		return FYAIEA_ABORT;
 	/* Apply grants through each tile owner. */
-	fyai_workpane_layout_complete(ui->ctx->front->workpane);
-	fyai_tool_surfaces_publish(ui->ctx);
-	fyai_browser_service(ui->ctx);
-	fyai_agents_present(ui->ctx);
+	fyai_workpane_layout_complete(fyai_ui_ctx(ui)->front->workpane);
+	fyai_tool_surfaces_publish(fyai_ui_ctx(ui));
+	fyai_browser_service(fyai_ui_ctx(ui));
+	fyai_agents_present(fyai_ui_ctx(ui));
 	if (painted_frame) {
 		ui->next_frame_ms =
 			fyai_event_now_ms() +
-			ui->ctx->cfg->tool_update_interval_ms;
+			fyai_ui_ctx(ui)->cfg->tool_update_interval_ms;
 	}
 	return FYAIEA_CONTINUE;
 }
@@ -3190,21 +3196,21 @@ static void ui_event_line(struct fyai_ui *ui, const struct fytim_event *ev)
 	ui_message_clear(ui);
 	/* A line of a mirror is for the process that owns the
 	 * model: it is queued for the client. */
-	if (fyai_uimodel_mirrored(ui->ctx))
+	if (fyai_uimodel_mirrored(fyai_ui_ctx(ui)))
 		goto queue;
-	if (fyai_cmd_session_input(ui->ctx, ev->text))
+	if (fyai_cmd_session_input(fyai_ui_ctx(ui), ev->text))
 		return;
-	if (fyai_browser_input(ui->ctx, ev->text))
+	if (fyai_browser_input(fyai_ui_ctx(ui), ev->text))
 		return;
-	if (fyai_agents_input(ui->ctx, ev->text))
+	if (fyai_agents_input(fyai_ui_ctx(ui), ev->text))
 		return;
 	if (ui->busy && !strcmp(ev->text, "/branches")) {
-		(void)fyai_browser_open(ui->ctx);
+		(void)fyai_browser_open(fyai_ui_ctx(ui));
 		return;
 	}
 	if (ui->busy && !strncmp(ev->text, "/branch attach ", 15)) {
-		if (!fyai_agents_zoom(ui->ctx, ev->text + 15, true))
-			fyai_report(ui->ctx, "no reachable live agent named %s", ev->text + 15);
+		if (!fyai_agents_zoom(fyai_ui_ctx(ui), ev->text + 15, true))
+			fyai_report(fyai_ui_ctx(ui), "no reachable live agent named %s", ev->text + 15);
 		return;
 	}
 queue:
@@ -3238,7 +3244,7 @@ static void ui_event_scrollback(struct fyai_ui *ui,
 			ev->delta > 0 ? "up" : "down");
 
 		for (step = 0; step < n; step++)
-			ui_panel_scroll_act(ui->ctx, arg);
+			ui_panel_scroll_act(fyai_ui_ctx(ui), arg);
 	} else if (ui_tile_scrolls(ui) &&
 		   ui_band_wheel(ui, ev->text, ev->text_len,
 				 ev->delta)) {
@@ -3249,7 +3255,7 @@ static void ui_event_scrollback(struct fyai_ui *ui,
 		/* The wheel over a tile the page draws is
 		 * that tile's, as the library gives it the
 		 * wheel over a tile it draws. */
-		fyai_tools_surface_request(ui->ctx, sf,
+		fyai_tools_surface_request(fyai_ui_ctx(ui), sf,
 					   ev->delta);
 	} else if (ui->fullscreen &&
 		   (!ev->text || (ev->text_len == 10 &&
@@ -3272,7 +3278,7 @@ static void ui_event(struct fyai_ui *ui, struct fytim_event *ev)
 		ui_event_scrollback(ui, ev);
 		break;
 	case FYTIM_EVENT_INTERRUPT:
-		if (fyai_tools_btw_dismiss_focused(ui->ctx))
+		if (fyai_tools_btw_dismiss_focused(fyai_ui_ctx(ui)))
 			break;
 		/* Escape only now; ^C arrives as SIGINT. Both mean
 		 * the same thing to the session, except that Escape
@@ -3280,12 +3286,12 @@ static void ui_event(struct fyai_ui *ui, struct fytim_event *ev)
 		if (ui->note_nlines && !ui->busy)
 			ui_note_clear(ui);
 		else
-			(void)ui_interrupt(ui->ctx, false);
+			(void)ui_interrupt(fyai_ui_ctx(ui), false);
 		break;
 	case FYTIM_EVENT_QUIT:
 		ui->quit = true;
 		ui->ready = true;
-		ui->ctx->loop->interrupt_pending = true;
+		fyai_ui_ctx(ui)->loop->interrupt_pending = true;
 		break;
 	case FYTIM_EVENT_EDIT:
 		ui_message_clear(ui);
@@ -3294,17 +3300,17 @@ static void ui_event(struct fyai_ui *ui, struct fytim_event *ev)
 		break;
 	case FYTIM_EVENT_FOCUS_NEXT:
 		/* Ctrl-Tab or Ctrl-T cycles terminal keyboard focus. */
-		(void)fyai_tools_focus_next(ui->ctx);
+		(void)fyai_tools_focus_next(fyai_ui_ctx(ui));
 		/* What was typed after the key waits for the next
 		 * frame, which reads it for the new owner. */
-		fyai_ui_wake(ui->ctx);
+		fyai_ui_wake(fyai_ui_ctx(ui));
 		break;
 	case FYTIM_EVENT_KEYS_LOST:
-		fyai_warning(ui->ctx, "keys typed after a focus key "
+		fyai_warning(fyai_ui_ctx(ui), "keys typed after a focus key "
 			     "were lost: too many in one frame");
 		break;
 	case FYTIM_EVENT_ZOOM_ROWS_NEXT:
-		fyai_workpane_cycle_disposition(ui->ctx->front->workpane);
+		fyai_workpane_cycle_disposition(fyai_ui_ctx(ui)->front->workpane);
 		break;
 	case FYTIM_EVENT_RESIZE: {
 		int rows = ev->height;
@@ -3337,13 +3343,13 @@ static void ui_event(struct fyai_ui *ui, struct fytim_event *ev)
 			ui->keys_fn(ui->keys_data, ev->text,
 				    ev->text_len);
 		else
-			(void)fyai_ui_keys_return(ui->ctx, ev->text,
+			(void)fyai_ui_keys_return(fyai_ui_ctx(ui), ev->text,
 						  ev->text_len);
 		break;
 	case FYTIM_EVENT_SURFACE_ZOOM:
 		/* Toggle zoom for the selected tile. */
-		(void)fyai_ui_surface_zoom(ui->ctx,
-			fyai_workpane_zoomed(ui->ctx->front->workpane) ==
+		(void)fyai_ui_surface_zoom(fyai_ui_ctx(ui),
+			fyai_workpane_zoomed(fyai_ui_ctx(ui)->front->workpane) ==
 				ev->surface ? NULL : ev->surface);
 		break;
 	case FYTIM_EVENT_SURFACE_CLICK:
@@ -3351,7 +3357,7 @@ static void ui_event(struct fyai_ui *ui, struct fytim_event *ev)
 		break;
 	case FYTIM_EVENT_SURFACE_FOCUS:
 		/* Clicking a tile gives it keyboard focus. */
-		(void)fyai_tools_focus_tile(ui->ctx, ev->surface);
+		(void)fyai_tools_focus_tile(fyai_ui_ctx(ui), ev->surface);
 		break;
 	case FYTIM_EVENT_FOCUS_PROMPT:
 		ui_click_off_tiles(ui, ev);
@@ -3368,7 +3374,7 @@ static void ui_event(struct fyai_ui *ui, struct fytim_event *ev)
 	case FYTIM_EVENT_SURFACE_CLOSE:
 	case FYTIM_EVENT_SURFACE_SCROLL:
 		/* Route tile controls to the component that owns the work. */
-		fyai_tools_surface_request(ui->ctx, ev->surface,
+		fyai_tools_surface_request(fyai_ui_ctx(ui), ev->surface,
 					   ev->type ==
 					   FYTIM_EVENT_SURFACE_CLOSE
 						? 0 : ev->delta);
@@ -3382,7 +3388,7 @@ static void ui_event(struct fyai_ui *ui, struct fytim_event *ev)
 static void ui_service_settle(struct fyai_ui *ui)
 {
 	/* Delegated agents repaint only their live result. */
-	if (ui->repaint_pending && fyai_agent_delegated(ui->ctx))
+	if (ui->repaint_pending && fyai_agent_delegated(fyai_ui_ctx(ui)))
 		ui->repaint_pending = false;
 	/* A fullscreen page has no screen of committed rows to clear: its view
 	 * is made again at the new width on the next frame. */
@@ -3392,21 +3398,21 @@ static void ui_service_settle(struct fyai_ui *ui)
 	}
 	/* Clear live surfaces before transcript reflow. */
 	if (ui->repaint_pending &&
-	    fyai_tool_surfaces_active(ui->ctx)) {
+	    fyai_tool_surfaces_active(fyai_ui_ctx(ui))) {
 		ui->repaint_pending = false;
-		fyai_ui_clear_screen(ui->ctx);
+		fyai_ui_clear_screen(fyai_ui_ctx(ui));
 		ui->frame_pending = true;
 	}
 	if (ui->reflow_pending) {
 		ui->reflow_pending = false;
-		fyai_sink_reflow(ui->ctx->front->sink);
-		fyai_sink_bands_reflow(ui->ctx->front->sink);
+		fyai_sink_reflow(fyai_ui_ctx(ui)->front->sink);
+		fyai_sink_bands_reflow(fyai_ui_ctx(ui)->front->sink);
 		ui->frame_pending = true;
 	}
 	if (ui->repaint_pending && !ui->busy) {
 		ui->repaint_pending = false;
-		fyai_ui_clear_screen(ui->ctx);
-		(void)fyai_display_repaint(ui->ctx, 0);
+		fyai_ui_clear_screen(fyai_ui_ctx(ui));
+		(void)fyai_display_repaint(fyai_ui_ctx(ui), 0);
 		ui->frame_pending = true;
 	}
 }
@@ -3518,7 +3524,7 @@ static void ui_trace_tap(const char *kind, const char *text, void *user)
 
 static void ui_cast_open(struct fyai_ui *ui, int cols, int rows)
 {
-	struct fyai_ctx *ctx = ui->ctx;
+	struct fyai_ctx *ctx = fyai_ui_ctx(ui);
 	const char *path = ctx->cfg->cast_path;
 	fy_generic props;
 
@@ -3798,7 +3804,7 @@ void fyai_ui_pane_begin(struct fyai_ctx *ctx)
 /* The heading of the output of a command. The caller frees it. */
 static char *ui_pane_heading(struct fyai_ui *ui, const char *title, bool error)
 {
-	struct fyai_cfg *cfg = ui->ctx ? ui->ctx->cfg : NULL;
+	struct fyai_cfg *cfg = fyai_ui_ctx(ui) ? fyai_ui_ctx(ui)->cfg : NULL;
 	const char *color, *off;
 	char *heading;
 	size_t len;
@@ -3826,16 +3832,16 @@ static char *ui_pane_heading(struct fyai_ui *ui, const char *title, bool error)
 static void ui_pane_to_transcript(struct fyai_ui *ui,
 				  struct fyai_buf *out)
 {
-	struct fyai_flow *flow = fyai_sink_flow(ui->ctx->front->sink);
+	struct fyai_flow *flow = fyai_sink_flow(fyai_ui_ctx(ui)->front->sink);
 	struct fyai_buf washed = {0};
 	uint32_t bg;
 	int rc;
 
-	(void)ui_flow_fence(ui->ctx, FYAI_FLOW_NOTICE);
+	(void)ui_flow_fence(fyai_ui_ctx(ui), FYAI_FLOW_NOTICE);
 	/* The output stands on a ground of its own; the record keeps the rows
 	 * without it, so a replay draws the ground of its own settings. */
-	if (markdown_command_ground(ui->ctx->cfg, &bg)) {
-		rc = markdown_ground_rows(ui->ctx->cfg, bg, out->data, out->len,
+	if (markdown_command_ground(fyai_ui_ctx(ui)->cfg, &bg)) {
+		rc = markdown_ground_rows(fyai_ui_ctx(ui)->cfg, bg, out->data, out->len,
 					  &washed);
 		if (!rc && washed.len)
 			rc = ui_present(ui, washed.data, washed.len);
@@ -3843,13 +3849,13 @@ static void ui_pane_to_transcript(struct fyai_ui *ui,
 		rc = ui_present(ui, out->data, out->len);
 	}
 	if (rc || (out->data[out->len - 1] != '\n' && ui_present(ui, "\n", 1)))
-		fyai_warning(ui->ctx, "could not draw the output of a command");
+		fyai_warning(fyai_ui_ctx(ui), "could not draw the output of a command");
 	free(washed.data);
 	fyai_flow_emitted(flow, FYAI_FLOW_NOTICE, true);
 	free(ui->pane_kept);
 	ui->pane_kept = strndup(out->data, out->len);
 	if (!ui->pane_kept)
-		fyai_warning(ui->ctx, "could not keep the output of a command");
+		fyai_warning(fyai_ui_ctx(ui), "could not keep the output of a command");
 }
 
 /* Keep an asynchronous notice distinct from conversation prose. */
@@ -3857,16 +3863,16 @@ static void ui_notice_to_transcript(struct fyai_ui *ui,
 				    const char *heading,
 				    struct fyai_buf *out)
 {
-	struct fyai_flow *flow = fyai_sink_flow(ui->ctx->front->sink);
+	struct fyai_flow *flow = fyai_sink_flow(fyai_ui_ctx(ui)->front->sink);
 	int rc;
 
 	/* The published turn replaces earlier live rows on the next frame. */
-	if (ui->fullscreen && fyai_transcript_view_refresh(ui->ctx, ui->view,
-			ui->ctx->cfg->render_width > 0 ?
-			ui->ctx->cfg->render_width : ui->render_cols,
+	if (ui->fullscreen && fyai_transcript_view_refresh(fyai_ui_ctx(ui), ui->view,
+			fyai_ui_ctx(ui)->cfg->render_width > 0 ?
+			fyai_ui_ctx(ui)->cfg->render_width : ui->render_cols,
 			ui->view_rows))
-		fyai_warning(ui->ctx, "could not refresh the transcript for a notice");
-	(void)ui_flow_fence(ui->ctx, FYAI_FLOW_NOTICE);
+		fyai_warning(fyai_ui_ctx(ui), "could not refresh the transcript for a notice");
+	(void)ui_flow_fence(fyai_ui_ctx(ui), FYAI_FLOW_NOTICE);
 	rc = ui_present(ui, heading, strlen(heading));
 	if (!rc)
 		rc = ui_present(ui, "\n", 1);
@@ -3875,7 +3881,7 @@ static void ui_notice_to_transcript(struct fyai_ui *ui,
 	if (!rc && out->data[out->len - 1] != '\n')
 		rc = ui_present(ui, "\n", 1);
 	if (rc)
-		fyai_warning(ui->ctx, "could not draw the notice");
+		fyai_warning(fyai_ui_ctx(ui), "could not draw the notice");
 	fyai_flow_emitted(flow, FYAI_FLOW_NOTICE, true);
 }
 
@@ -3888,7 +3894,7 @@ static void ui_pane_place(struct fyai_ui *ui, const char *title, bool error,
 			  enum fyai_error_type level, bool show_output,
 			  bool command, struct fyai_buf *out)
 {
-	struct fyai_ctx *ctx = ui->ctx;
+	struct fyai_ctx *ctx = fyai_ui_ctx(ui);
 	char *heading;
 
 	if (!out->len)
@@ -3915,9 +3921,9 @@ static void ui_pane_place(struct fyai_ui *ui, const char *title, bool error,
 	/* A fullscreen page has no scrollback for a view: it shows it in the
 	 * notice band. */
 	if (!show_output && !error && !ui->fullscreen) {
-		(void)ui_flow_fence(ui->ctx, FYAI_FLOW_NOTICE);
+		(void)ui_flow_fence(fyai_ui_ctx(ui), FYAI_FLOW_NOTICE);
 		(void)fytim_commit(ui->ft, out->data, out->len);
-		fyai_flow_observe(fyai_sink_flow(ui->ctx ? ui->ctx->front->sink : NULL),
+		fyai_flow_observe(fyai_sink_flow(fyai_ui_ctx(ui) ? fyai_ui_ctx(ui)->front->sink : NULL),
 				  out->data, out->len);
 		free(heading);
 		return;
@@ -4292,8 +4298,8 @@ static void ui_theme_pair(struct fyai_ui *ui, const char *role,
 	if (fymd_renderer_get_style_pair(ui->chrome_renderer, element, &on,
 					 &off))
 		on = off = NULL;
-	*onp = markdown_role_on(ui->ctx->cfg, role, on);
-	*offp = markdown_role_off(ui->ctx->cfg, role, off);
+	*onp = markdown_role_on(fyai_ui_ctx(ui)->cfg, role, on);
+	*offp = markdown_role_off(fyai_ui_ctx(ui)->cfg, role, off);
 }
 
 void fyai_ui_theme_pair(struct fyai_ctx *ctx, const char *role, int element,
@@ -4326,7 +4332,7 @@ static const char *ui_control_sgr(struct fyai_ui *ui)
  */
 static void ui_popup_style(struct fyai_ui *ui)
 {
-	struct fyai_ctx *ctx = ui->ctx;
+	struct fyai_ctx *ctx = fyai_ui_ctx(ui);
 	const char *on, *off, *card = NULL;
 	char edge[128];
 	enum fytim_result res;
@@ -5016,12 +5022,12 @@ static int ui_inline_set(struct fyai_ui *ui, uintptr_t key, const char *head,
 	unsigned i;
 	int rc = -1;
 
-	flow = fyai_sink_flow(ui->ctx->front->sink);
+	flow = fyai_sink_flow(fyai_ui_ctx(ui)->front->sink);
 	if (commit) {
 		if (ui->inline_focus == key)
-			(void)fyai_ui_inline_keys(ui->ctx, 0, NULL, NULL);
+			(void)fyai_ui_inline_keys(fyai_ui_ctx(ui), 0, NULL, NULL);
 		fyai_transcript_view_block_drop(ui_blocks(ui, false), key);
-		if (!fenced && ui_flow_fence(ui->ctx, FYAI_FLOW_TOOL_HEAD))
+		if (!fenced && ui_flow_fence(fyai_ui_ctx(ui), FYAI_FLOW_TOOL_HEAD))
 			goto out;
 	} else if (flow && !fenced) {
 		sep = fyai_flow_before(flow, FYAI_FLOW_TOOL_HEAD);
@@ -5297,7 +5303,7 @@ static void ui_inline_keys_hold(struct fyai_ui *ui)
 
 	if (ui->inline_focus && canvas && !fytim_surface_has_keys(canvas) &&
 	    fytim_surface_set_keys(canvas, true) != FYTIM_OK)
-		fyai_warning(ui->ctx, "a call in the transcript cannot take the keys");
+		fyai_warning(fyai_ui_ctx(ui), "a call in the transcript cannot take the keys");
 }
 
 int fyai_ui_inline_keys(struct fyai_ctx *ctx, uintptr_t key,
@@ -5506,10 +5512,10 @@ void fyai_ui_tool_end(struct fyai_ctx *ctx, bool ok, const char *cause)
 	}
 	/* The committed transcript owns the band after its tile retires. */
 	if (ui->tool_band) {
-		fyai_workpane_unregister_band(ui->ctx->front->workpane, ui->tool_band);
+		fyai_workpane_unregister_band(fyai_ui_ctx(ui)->front->workpane, ui->tool_band);
 		ui_band_commit(ui, ui->tool_band);
 		ui->tool_band = NULL;
-		fyai_workpane_release(ui->ctx->front->workpane);
+		fyai_workpane_release(fyai_ui_ctx(ui)->front->workpane);
 	}
 	ui->tool_mode = UI_TOOL_IDLE;
 	/* The flow keeps the tool unit. The next prose commit fences it. */
@@ -5558,16 +5564,16 @@ static struct fytim_workband *ui_band_open(struct fyai_ui *ui,
 	struct fytim_workpane *pane;
 	struct fytim_workband *band;
 
-	pane = fyai_workpane_acquire(ui->ctx->front->workpane);
+	pane = fyai_workpane_acquire(fyai_ui_ctx(ui)->front->workpane);
 	if (!pane)
 		return NULL;
 	band = fytim_workband_create_in(pane);
 	if (!band) {
-		fyai_workpane_release(ui->ctx->front->workpane);
+		fyai_workpane_release(fyai_ui_ctx(ui)->front->workpane);
 		return NULL;
 	}
 	(void)fytim_workband_set_max_rows(band, max_rows);
-	(void)fyai_workpane_register_band(ui->ctx->front->workpane, band, kind, NULL);
+	(void)fyai_workpane_register_band(fyai_ui_ctx(ui)->front->workpane, band, kind, NULL);
 	return band;
 }
 
@@ -5576,10 +5582,10 @@ static void ui_band_close(struct fyai_ui *ui, struct fytim_workband **bandp)
 {
 	if (!*bandp)
 		return;
-	fyai_workpane_unregister_band(ui->ctx->front->workpane, *bandp);
+	fyai_workpane_unregister_band(fyai_ui_ctx(ui)->front->workpane, *bandp);
 	fytim_workband_destroy(*bandp);
 	*bandp = NULL;
-	fyai_workpane_release(ui->ctx->front->workpane);
+	fyai_workpane_release(fyai_ui_ctx(ui)->front->workpane);
 }
 
 struct fytim_workband *fyai_ui_work_tile_create(struct fyai_ctx *ctx)
@@ -5788,7 +5794,7 @@ static bool ui_band_scroll_act(struct fyai_ui *ui, unsigned int slot,
 	for (i = 0; i < ARRAY_SIZE(acts); i++) {
 		if (strcmp(id, acts[i].id))
 			continue;
-		if (fyai_workpane_band_scroll(ui->ctx->front->workpane, slot,
+		if (fyai_workpane_band_scroll(fyai_ui_ctx(ui)->front->workpane, slot,
 					      acts[i].delta, acts[i].pages))
 			ui->frame_pending = true;
 		return true;
@@ -5800,7 +5806,7 @@ static bool ui_band_scroll_act(struct fyai_ui *ui, unsigned int slot,
  * the controls zoom or close it. */
 static void ui_act(struct fyai_ui *ui, const struct fytim_event *ev)
 {
-	struct fyai_workpane_manager *wm = ui->ctx->front->workpane;
+	struct fyai_workpane_manager *wm = fyai_ui_ctx(ui)->front->workpane;
 	struct fytim_surface *sf = ev->surface;
 	char id[FYTIM_PAGE_ID_MAX + 1];
 	unsigned long slot;
@@ -5844,20 +5850,20 @@ static void ui_act(struct fyai_ui *ui, const struct fytim_event *ev)
 	    !strcmp(id, "tile:maximize")) {
 		ui_tile_act(ui, sf, id);
 	} else if (!strcmp(id, "tile:zoom")) {
-		(void)fyai_ui_surface_zoom(ui->ctx,
+		(void)fyai_ui_surface_zoom(fyai_ui_ctx(ui),
 				fyai_workpane_zoomed(wm) == sf ? NULL : sf);
 	} else if (!strcmp(id, "tile:close")) {
-		fyai_tools_surface_request(ui->ctx, sf, 0);
+		fyai_tools_surface_request(fyai_ui_ctx(ui), sf, 0);
 	} else if (!strcmp(id, "tile:scroll-up") ||
 		   !strcmp(id, "tile:scroll-down")) {
-		fyai_tools_surface_request(ui->ctx, sf,
+		fyai_tools_surface_request(fyai_ui_ctx(ui), sf,
 					   strcmp(id, "tile:scroll-up") ? -1 : 1);
 	} else if (!strcmp(id, "tile:page-up") ||
 		   !strcmp(id, "tile:page-down")) {
-		page = fyai_ui_surface_granted_rows(ui->ctx, sf);
+		page = fyai_ui_surface_granted_rows(fyai_ui_ctx(ui), sf);
 		if (page < 1)
 			page = 1;
-		fyai_tools_surface_request(ui->ctx, sf,
+		fyai_tools_surface_request(fyai_ui_ctx(ui), sf,
 					   strcmp(id, "tile:page-up") ? -page : page);
 	}
 }
@@ -5992,7 +5998,7 @@ static const char *ui_edge(struct fyai_ui *ui, char *buf, size_t size)
 	const char *glyph, *on, *off;
 	int n;
 
-	glyph = markdown_glyph(ui->ctx->cfg, "pane.edge", "\xe2\x96\x8c");
+	glyph = markdown_glyph(fyai_ui_ctx(ui)->cfg, "pane.edge", "\xe2\x96\x8c");
 	if (!glyph || fymd_str_width(glyph, strlen(glyph)) != 1)
 		return NULL;
 	ui_theme_pair(ui, "pane.edge", FYMD_STYLE_STRONG, &on, &off);
@@ -6009,7 +6015,7 @@ static const char *ui_edge(struct fyai_ui *ui, char *buf, size_t size)
  */
 static const char *ui_focus_margin(struct fyai_ui *ui, char *buf, size_t size)
 {
-	const char *margin = ui->ctx->cfg->session_margin;
+	const char *margin = fyai_ui_ctx(ui)->cfg->session_margin;
 	char edge[128];
 	int cols, n;
 

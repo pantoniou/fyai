@@ -99,6 +99,12 @@ struct fyai_terminal_view {
 	bool binary;
 };
 
+/* The context that this object stands on. */
+static inline struct fyai_ctx *fyai_terminal_view_ctx(const struct fyai_terminal_view *o)
+{
+	return o->ctx;
+}
+
 /* Make a bare line feed advance to the next line's first column. */
 void fyai_terminal_view_cooked(struct fyai_terminal_view *view, bool cooked)
 {
@@ -693,7 +699,7 @@ int fyai_terminal_view_feed(struct fyai_terminal_view *view, const char *data,
 
 	/* The screen is interpreted from the same bytes as the line log. */
 	written = fyvt_input_write(view->vt, data, len);
-	fyai_error_check(view->ctx, written == len, err,
+	fyai_error_check(fyai_terminal_view_ctx(view), written == len, err,
 			 "terminal: could not interpret all input bytes");
 	/*
 	 * Damage of a row is merged until it is flushed. Without this the
@@ -814,20 +820,20 @@ static char *tty_screen_text(struct fyai_terminal_view *view, int first,
 	int row, i, rc;
 
 	cells = calloc((size_t)view->cols, sizeof(*cells));
-	fyai_error_check(view->ctx, cells, fail,
+	fyai_error_check(fyai_terminal_view_ctx(view), cells, fail,
 			 "terminal: could not allocate screen cells");
 
 	if (with_sb && view->sb.len) {
 		rc = fyai_buf_append_data(&out, view->sb.data,
 						  view->sb.len);
-		fyai_error_check(view->ctx, !rc, fail,
+		fyai_error_check(fyai_terminal_view_ctx(view), !rc, fail,
 				 "terminal: could not retain scrollback");
 	}
 
 	for (row = first; row < last; row++) {
 		if (out.len && !tty_row_continues(view, row)) {
 			rc = fyai_buf_append_data(&out, "\n", 1);
-			fyai_error_check(view->ctx, !rc, fail,
+			fyai_error_check(fyai_terminal_view_ctx(view), !rc, fail,
 					 "terminal: could not join screen rows");
 		}
 		for (i = 0; i < cols; i++) {
@@ -838,7 +844,7 @@ static char *tty_screen_text(struct fyai_terminal_view *view, int first,
 				memset(&cells[i], 0, sizeof(cells[i]));
 		}
 		rc = tty_append_cells(&out, cells, cols);
-		fyai_error_check(view->ctx, !rc, fail,
+		fyai_error_check(fyai_terminal_view_ctx(view), !rc, fail,
 				 "terminal: could not append screen cells");
 	}
 	free(cells);
@@ -869,7 +875,7 @@ static char *tty_log_text(struct fyai_terminal_view *view, size_t from,
 
 	len = view->log.len > from ? view->log.len - from : 0;
 	out = malloc(len + 1);
-	fyai_error_check(view->ctx, out, err,
+	fyai_error_check(fyai_terminal_view_ctx(view), out, err,
 			 "terminal: could not allocate line output");
 	if (len)
 		memcpy(out, view->log.data + from, len);
@@ -1034,7 +1040,7 @@ int fyai_terminal_view_set_history(struct fyai_terminal_view *view, int rows)
 	drop = view->hist_count - keep;
 	if (rows > 0 && view->hist) {
 		hist = calloc((size_t)rows, sizeof(*hist));
-		fyai_error_check(view->ctx, hist, err,
+		fyai_error_check(fyai_terminal_view_ctx(view), hist, err,
 				 "terminal: could not allocate a history of %d rows",
 				 rows);
 	}

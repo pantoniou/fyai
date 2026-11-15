@@ -2398,6 +2398,12 @@ struct fyai_config_edit_request {
 	int result;
 };
 
+/* The context that this object stands on. */
+static inline struct fyai_ctx *fyai_config_edit_request_ctx(const struct fyai_config_edit_request *o)
+{
+	return o->ctx;
+}
+
 static void fyai_config_edit_service(void *userdata)
 {
 	struct fyai_config_edit_request *request;
@@ -2407,7 +2413,7 @@ static void fyai_config_edit_service(void *userdata)
 	int rc;
 
 	request = userdata;
-	ctx = request->ctx;
+	ctx = fyai_config_edit_request_ctx(request);
 	rc = fyai_editor_collect(request->editor);
 	fyai_editor_destroy(request->editor);
 	request->editor = NULL;
@@ -2459,10 +2465,10 @@ fyai_config_edit_editor_complete(struct fyai_editor_request *editor,
 
 	(void)editor;
 	request = userdata;
-	rc = fyai_event_defer(fyai_ctx_loop(request->ctx),
+	rc = fyai_event_defer(fyai_ctx_loop(fyai_config_edit_request_ctx(request)),
 			      fyai_config_edit_service, request);
 	if (rc) {
-		fyai_error(request->ctx,
+		fyai_error(fyai_config_edit_request_ctx(request),
 			   "could not resume configuration edit");
 		request->result = -1;
 		request->done = true;
@@ -2588,7 +2594,7 @@ void fyai_config_edit_destroy(struct fyai_config_edit_request *request)
 	fyai_config_edit_cancel(request);
 	fyai_editor_destroy(request->editor);
 	if (request->ui_external)
-		(void)fyai_ui_external_end(request->ctx);
+		(void)fyai_ui_external_end(fyai_config_edit_request_ctx(request));
 	free(request->path);
 	free(request);
 }

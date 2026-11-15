@@ -65,6 +65,12 @@ struct fyai_agents {
 	char activity[24];
 };
 
+/* The context that this object stands on. */
+static inline struct fyai_ctx *fyai_agents_ctx(const struct fyai_agents *o)
+{
+	return o->ctx;
+}
+
 static struct fyai_agents *agents_get(struct fyai_ctx *ctx)
 {
 	struct fyai_agents *a;
@@ -102,6 +108,12 @@ struct agent_forward {
 	fy_generic id;
 };
 
+/* The context that this object stands on. */
+static inline struct fyai_ctx *agent_forward_ctx(const struct agent_forward *o)
+{
+	return o->ctx;
+}
+
 struct agent_question {
 	struct agent_question *next;
 	struct fyai_ctx *ctx;	/* the context that puts it to the user */
@@ -112,6 +124,12 @@ struct agent_question {
 	size_t cur;
 	struct fyai_ask_reply replies[FYAI_ASK_QUESTIONS_MAX];
 };
+
+/* The context that this object stands on. */
+static inline struct fyai_ctx *agent_question_ctx(const struct agent_question *o)
+{
+	return o->ctx;
+}
 
 /*
  * The acknowledgement of a message only moves forward, so a state before
@@ -138,6 +156,12 @@ struct agent_message_ack {
 	bool ask_parent;	/* the kind of message: a question to the parent */
 };
 
+/* The context that this object stands on. */
+static inline struct fyai_ctx *agent_message_ack_ctx(const struct agent_message_ack *o)
+{
+	return o->ctx;
+}
+
 struct agent_parent_ask {
 	struct agent_parent_ask *next;
 	char *name;
@@ -152,7 +176,7 @@ static void agents_messages_admitted(struct fyai_agents *a,
  * forward through the context it recorded.
  */
 #define agents_error_check(_a, _cond, _label, _fmt, ...) \
-	fyai_error_check((_a)->ctx, (_cond), _label, (_fmt) , ## __VA_ARGS__)
+	fyai_error_check(fyai_agents_ctx(_a), (_cond), _label, (_fmt) , ## __VA_ARGS__)
 
 /* The view a zoomed agent opens in, before the work pane grants its share. */
 #define AGENT_VIEW_ROWS 16
@@ -303,7 +327,7 @@ static void agents_forward_free(struct agent_forward *f)
 {
 	struct agent_forward **p;
 
-	p = &f->ctx->astate->registry->forwards;
+	p = &agent_forward_ctx(f)->astate->registry->forwards;
 	while (*p && *p != f)
 		p = &(*p)->next;
 	if (*p)
@@ -325,7 +349,7 @@ static void agents_forward_done(struct jsonrpc_request *req, void *user)
 		error = fy_mapping(f->gb, "code", -32000LL,
 			"message", "agent route disconnected");
 	if (jsonrpc_conn_respond(f->from, f->id, result, error))
-		fyai_warning(f->ctx, "an agent is still waiting for its answer");
+		fyai_warning(agent_forward_ctx(f), "an agent is still waiting for its answer");
 	agents_forward_free(f);
 }
 
@@ -396,8 +420,8 @@ static struct agent_record *agents_add(struct fyai_agents *a,
 			   err_out, "agent admission names no valid branch");
 	r = calloc(1, sizeof(*r));
 	agents_error_check(a, r, err_out, "cannot allocate an agent record");
-	r->branch = fyai_ctx_keep_str(a->ctx, branch);
-	r->model = fyai_ctx_keep_str(a->ctx, fy_get(params, "model", ""));
+	r->branch = fyai_ctx_keep_str(fyai_agents_ctx(a), branch);
+	r->model = fyai_ctx_keep_str(fyai_agents_ctx(a), fy_get(params, "model", ""));
 	if (!r->branch || !r->model) {
 		agent_record_destroy(r);
 		return NULL;
@@ -1071,9 +1095,9 @@ static void agents_grant(void *owner, int rows, int cols)
 	struct fyai_agents *a = owner;
 
 	if (fyai_ui_surface_resize(a->surface, rows, cols))
-		fyai_warning(a->ctx, "the agent view did not take its %dx%d grant",
+		fyai_warning(fyai_agents_ctx(a), "the agent view did not take its %dx%d grant",
 			     cols, rows);
-	fyai_workpane_grid_resized(a->ctx->front->workpane, a->surface, rows, cols);
+	fyai_workpane_grid_resized(fyai_agents_ctx(a)->front->workpane, a->surface, rows, cols);
 	a->painted = 0;
 }
 
@@ -1410,16 +1434,16 @@ static void agents_message_done(struct jsonrpc_request *request, void *userdata)
 
 	ack->state = cancelled ? AGENT_ACK_CANCELLED : AGENT_ACK_SETTLED;
 	ack->request = NULL;
-	if (!ack->ask_parent && !ack->ctx->astate->registry->closing && !cancelled)
-		fyai_event_injectf(ack->ctx, "[agent_message '%s' %s]", ack->name,
+	if (!ack->ask_parent && !agent_message_ack_ctx(ack)->astate->registry->closing && !cancelled)
+		fyai_event_injectf(agent_message_ack_ctx(ack), "[agent_message '%s' %s]", ack->name,
 			queued ? "queued" : "not queued");
-	if (ack->ask_parent && !queued && !ack->ctx->astate->registry->closing) {
-		ask = agents_parent_ask_find(ack->ctx->astate->registry, ack->name);
+	if (ack->ask_parent && !queued && !agent_message_ack_ctx(ack)->astate->registry->closing) {
+		ask = agents_parent_ask_find(agent_message_ack_ctx(ack)->astate->registry, ack->name);
 		if (ask) {
-			fyai_event_injectf(ack->ctx,
+			fyai_event_injectf(agent_message_ack_ctx(ack),
 				"[ask_parent '%s' not queued]%s%s", ack->name,
 				*reason ? "\n" : "", reason);
-			agents_parent_ask_remove(ack->ctx->astate->registry, ask);
+			agents_parent_ask_remove(agent_message_ack_ctx(ack)->astate->registry, ask);
 		}
 	}
 	jsonrpc_request_destroy(request);
@@ -1428,15 +1452,15 @@ static void agents_message_done(struct jsonrpc_request *request, void *userdata)
 static void agents_message_settle(struct agent_message_ack *ack, bool queued)
 {
 	ack->state = AGENT_ACK_SETTLED;
-	if (!ack->ctx->astate->registry->closing)
-		fyai_event_injectf(ack->ctx, "[agent_message '%s' %s]",
+	if (!agent_message_ack_ctx(ack)->astate->registry->closing)
+		fyai_event_injectf(agent_message_ack_ctx(ack), "[agent_message '%s' %s]",
 			ack->name, queued ? "queued" : "not queued");
 }
 
 static int agents_message_submit(struct agent_message_ack *ack,
 				 struct agent_record *r)
 {
-	struct fyai_ctx *ctx = ack->ctx;
+	struct fyai_ctx *ctx = agent_message_ack_ctx(ack);
 	struct fy_generic_builder *gb = fyai_ctx_transient_gb(ctx);
 	struct jsonrpc_conn *route = r ? r->route : ctx->jobs->rpc;
 	long long execution = r ? r->execution : ctx->astate->execution;
@@ -1716,7 +1740,7 @@ static void agents_ask_done(void *user, const struct fyai_ask_reply *replies,
 			    size_t n)
 {
 	struct agent_question *q = user;
-	struct fyai_ctx *ctx = q->ctx;
+	struct fyai_ctx *ctx = agent_question_ctx(q);
 	struct fyai_agents *a = ctx->astate->registry;
 
 	if (!a || a->questions != q)

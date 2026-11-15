@@ -45,6 +45,12 @@ struct fyai_wait {
 	bool fired;
 };
 
+/* The context that this object stands on. */
+static inline struct fyai_ctx *fyai_wait_ctx(const struct fyai_wait *o)
+{
+	return o->ctx;
+}
+
 /*
  * The time in the form that a user writes, and in the form that a machine
  * reads.
@@ -229,7 +235,7 @@ static enum fyai_event_action fyai_wait_fired(const struct fyai_event *ev)
 		fyai_event_source_remove(w->timer);
 		w->timer = NULL;
 	}
-	(void)fyai_event_inject(w->ctx, fyai_wait_fired_text(w));
+	(void)fyai_event_inject(fyai_wait_ctx(w), fyai_wait_fired_text(w));
 	return FYAIEA_CONTINUE;
 }
 
@@ -414,6 +420,12 @@ struct fyai_waiter {
 	void *userdata;
 };
 
+/* The context that this object stands on. */
+static inline struct fyai_ctx *fyai_waiter_ctx(const struct fyai_waiter *o)
+{
+	return o->ctx;
+}
+
 /*
  * Look for the end of one target. Return its report, copied from the event
  * queue, or NULL while the target goes on.
@@ -567,7 +579,7 @@ fail:
  */
 static void fyai_waiter_poll_sleep(struct fyai_waiter *w)
 {
-	struct fyai_ctx *ctx = w->ctx;
+	struct fyai_ctx *ctx = fyai_waiter_ctx(w);
 	const char *text;
 
 	w->ok = true;
@@ -593,7 +605,7 @@ static void fyai_waiter_poll_sleep(struct fyai_waiter *w)
 
 static void fyai_waiter_poll(struct fyai_waiter *w)
 {
-	struct fyai_ctx *ctx = w->ctx;
+	struct fyai_ctx *ctx = fyai_waiter_ctx(w);
 	size_t i, ended = 0;
 
 	if (w->done)
@@ -719,7 +731,7 @@ static void fyai_waiter_unlink(struct fyai_waiter *w)
 {
 	struct fyai_waiter **pp;
 
-	for (pp = &w->ctx->waitq->waiters; *pp; pp = &(*pp)->next) {
+	for (pp = &fyai_waiter_ctx(w)->waitq->waiters; *pp; pp = &(*pp)->next) {
 		if (*pp != w)
 			continue;
 		*pp = w->next;
@@ -734,7 +746,7 @@ void fyai_waiter_destroy(struct fyai_waiter *w)
 	if (!w)
 		return;
 	fyai_waiter_unlink(w);
-	fyai_waiters_arm(w->ctx);
+	fyai_waiters_arm(fyai_waiter_ctx(w));
 	for (i = 0; i < w->n; i++) {
 		free(w->items[i].name);
 		free(w->items[i].text);
@@ -797,7 +809,7 @@ err:
 static int fyai_waiter_parse(struct fyai_waiter *w, fy_generic args,
 			     char **errp)
 {
-	struct fyai_ctx *ctx = w->ctx;
+	struct fyai_ctx *ctx = fyai_waiter_ctx(w);
 	fy_generic forv = fy_get(args, "for", fy_invalid), item, mode;
 	char *why;
 

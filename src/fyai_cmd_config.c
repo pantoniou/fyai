@@ -46,7 +46,7 @@
 
 static int config_need_arena(struct fyai_cmd_call *call)
 {
-	fyai_error_check(call->ctx, fy_is_valid(call->ctx->bstate->config), err,
+	fyai_error_check(fyai_cmd_call_ctx(call), fy_is_valid(fyai_cmd_call_ctx(call)->bstate->config), err,
 			 "no config in arena; run fyai init or fyai config "
 			 "import");
 	return 0;
@@ -62,7 +62,7 @@ err:
  */
 static int config_changed(struct fyai_cmd_call *call)
 {
-	struct fyai_ctx *ctx = call->ctx;
+	struct fyai_ctx *ctx = fyai_cmd_call_ctx(call);
 	fy_generic none;
 	const char *why = NULL;
 	int rc;
@@ -86,15 +86,15 @@ int fyai_cmd_config_show(struct fyai_cmd_call *call, fy_generic *result)
 {
 	if (config_need_arena(call))
 		return -1;
-	*result = call->ctx->bstate->config;
+	*result = fyai_cmd_call_ctx(call)->bstate->config;
 	return 0;
 }
 
 int fyai_cmd_config_effective(struct fyai_cmd_call *call, fy_generic *result)
 {
-	struct fyai_cfg *cfg = call->ctx->cfg;
+	struct fyai_cfg *cfg = fyai_cmd_call_ctx(call)->cfg;
 
-	fyai_error_check(call->ctx, fy_is_valid(cfg->config_doc), err,
+	fyai_error_check(fyai_cmd_call_ctx(call), fy_is_valid(cfg->config_doc), err,
 			 "no configuration; run fyai init or fyai config "
 			 "import");
 	*result = cfg->config_doc;
@@ -110,8 +110,8 @@ int fyai_cmd_config_get(struct fyai_cmd_call *call, fy_generic *result)
 
 	if (config_need_arena(call))
 		return -1;
-	v = fy_get_at_pathstr(call->gb, call->ctx->bstate->config, key);
-	fyai_error_check(call->ctx, fy_is_valid(v), err, "key '%s' not set",
+	v = fy_get_at_pathstr(call->gb, fyai_cmd_call_ctx(call)->bstate->config, key);
+	fyai_error_check(fyai_cmd_call_ctx(call), fy_is_valid(v), err, "key '%s' not set",
 			 key);
 	*result = v;
 	return 0;
@@ -124,7 +124,7 @@ int fyai_cmd_config_set(struct fyai_cmd_call *call, fy_generic *result)
 	const char *key = fyai_cmd_arg_str(call, "key");
 	const char *value = fyai_cmd_arg_str(call, "value");
 
-	if (fyai_config_set(call->ctx, key, value) || config_changed(call))
+	if (fyai_config_set(fyai_cmd_call_ctx(call), key, value) || config_changed(call))
 		return -1;
 	*result = fy_mapping(call->gb, "key", key, "value", value);
 	return 0;
@@ -134,7 +134,7 @@ int fyai_cmd_config_delete(struct fyai_cmd_call *call, fy_generic *result)
 {
 	const char *key = fyai_cmd_arg_str(call, "key");
 
-	if (fyai_config_delete(call->ctx, key) || config_changed(call))
+	if (fyai_config_delete(fyai_cmd_call_ctx(call), key) || config_changed(call))
 		return -1;
 	*result = fy_mapping(call->gb, "key", key);
 	return 0;
@@ -144,7 +144,7 @@ int fyai_cmd_config_import(struct fyai_cmd_call *call, fy_generic *result)
 {
 	const char *file = fyai_cmd_arg_str(call, "file");
 
-	if (fyai_config_import(call->ctx, file) || config_changed(call))
+	if (fyai_config_import(fyai_cmd_call_ctx(call), file) || config_changed(call))
 		return -1;
 	*result = fy_mapping(call->gb, "file", file);
 	return 0;
@@ -152,7 +152,7 @@ int fyai_cmd_config_import(struct fyai_cmd_call *call, fy_generic *result)
 
 int fyai_cmd_config_reset(struct fyai_cmd_call *call, fy_generic *result)
 {
-	if (fyai_config_reset(call->ctx) || config_changed(call))
+	if (fyai_config_reset(fyai_cmd_call_ctx(call)) || config_changed(call))
 		return -1;
 	*result = fy_mapping(call->gb, "reset", true);
 	return 0;
@@ -162,7 +162,7 @@ int fyai_cmd_config_undo(struct fyai_cmd_call *call, fy_generic *result)
 {
 	long long n = fy_get(call->args, "count", 1LL), found;
 
-	if (fyai_config_undo(call->ctx, n, &found) || config_changed(call))
+	if (fyai_config_undo(fyai_cmd_call_ctx(call), n, &found) || config_changed(call))
 		return -1;
 	*result = fy_mapping(call->gb, "count", n);
 	return 0;
@@ -179,7 +179,7 @@ static int config_settings_rows(struct fyai_cmd_call *call, const char *member,
 
 	if (config_need_arena(call))
 		return -1;
-	log = fyai_settings_log(call->ctx, member);
+	log = fyai_settings_log(fyai_cmd_call_ctx(call), member);
 	rows = fy_sequence(call->gb);
 	n = fy_len(log);
 	for (i = n; i > 0; i--) {
@@ -190,7 +190,7 @@ static int config_settings_rows(struct fyai_cmd_call *call, const char *member,
 			rc |= fyai_buf_append(&keys, keys.len ?
 						     ", " : "") |
 			      fyai_buf_append(&keys, fy_castp(&p, ""));
-		fyai_error_check(call->ctx, !rc, err,
+		fyai_error_check(fyai_cmd_call_ctx(call), !rc, err,
 				 "config: cannot list the keys of a change");
 		rows = fy_append(call->gb, rows, fy_mapping(call->gb,
 			"id", fy_get(item, "name", ""),
@@ -252,11 +252,11 @@ int fyai_cmd_config_review(struct fyai_cmd_call *call, fy_generic *result)
 
 	if (config_need_arena(call))
 		return -1;
-	shown = fyai_settings_proposal_show(call->ctx, call->gb, id);
+	shown = fyai_settings_proposal_show(fyai_cmd_call_ctx(call), call->gb, id);
 	if (!fy_is_mapping(shown))
 		return -1;
 	quoted = config_quote(call->gb, fy_get(shown, "explanation", ""));
-	fyai_error_check(call->ctx, quoted, err,
+	fyai_error_check(fyai_cmd_call_ctx(call), quoted, err,
 			 "config: cannot quote the explanation of '%s'", id);
 	*result = fy_assoc(call->gb, shown, "explanation", quoted);
 	return 0;
@@ -282,7 +282,7 @@ static void config_approve_answered(void *user,
 
 static void config_approve_cancel(struct fyai_cmd_call *call)
 {
-	fyai_ask_close(call->ctx, call);
+	fyai_ask_close(fyai_cmd_call_ctx(call), call);
 	fyai_cmd_done(call, 0, fy_mapping(call->gb, "id",
 		fyai_cmd_arg_str(call, "id"), "status", "pending"));
 }
@@ -304,12 +304,12 @@ int fyai_cmd_config_approve(struct fyai_cmd_call *call, fy_generic *result)
 
 	if (config_need_arena(call))
 		return -1;
-	r = fyai_settings_review_open(call->ctx, call->gb,
+	r = fyai_settings_review_open(fyai_cmd_call_ctx(call), call->gb,
 				      fyai_cmd_arg_str(call, "id"));
 	if (!r)
 		return -1;
 	if (call->surface != FYAI_CMD_SESSION ||
-	    !fyai_ui_ask_available(call->ctx)) {
+	    !fyai_ui_ask_available(fyai_cmd_call_ctx(call))) {
 		rc = fyai_settings_review_apply(r, NULL, 0,
 				call->surface == FYAI_CMD_SESSION, result);
 		fyai_settings_review_free(r);
@@ -318,9 +318,9 @@ int fyai_cmd_config_approve(struct fyai_cmd_call *call, fy_generic *result)
 	call->priv = r;
 	call->cleanup = config_approve_cleanup;
 	call->cancel = config_approve_cancel;
-	rc = fyai_ask_open(call->ctx, fyai_settings_review_questions(r), NULL,
+	rc = fyai_ask_open(fyai_cmd_call_ctx(call), fyai_settings_review_questions(r), NULL,
 			 config_approve_answered, call);
-	fyai_error_check(call->ctx, !rc, err,
+	fyai_error_check(fyai_cmd_call_ctx(call), !rc, err,
 			 "config approve: cannot show the review panel");
 	return FYAI_CMD_PENDING;
 err:
@@ -331,7 +331,7 @@ int fyai_cmd_config_reject(struct fyai_cmd_call *call, fy_generic *result)
 {
 	if (config_need_arena(call))
 		return -1;
-	return fyai_settings_proposal_decide(call->ctx, call->gb,
+	return fyai_settings_proposal_decide(fyai_cmd_call_ctx(call), call->gb,
 					     fyai_cmd_arg_str(call, "id"),
 					     false,
 					     call->surface == FYAI_CMD_SESSION,
@@ -342,7 +342,7 @@ int fyai_cmd_config_revert(struct fyai_cmd_call *call, fy_generic *result)
 {
 	if (config_need_arena(call))
 		return -1;
-	return fyai_settings_revert(call->ctx, call->gb,
+	return fyai_settings_revert(fyai_cmd_call_ctx(call), call->gb,
 				    fyai_cmd_arg_str(call, "id"),
 				    fyai_cmd_arg_bool(call, "force"), result);
 }
@@ -351,7 +351,7 @@ int fyai_cmd_config_keep(struct fyai_cmd_call *call, fy_generic *result)
 {
 	if (config_need_arena(call))
 		return -1;
-	return fyai_settings_keep(call->ctx, call->gb,
+	return fyai_settings_keep(fyai_cmd_call_ctx(call), call->gb,
 				  fyai_cmd_arg_str(call, "id"), result);
 }
 
@@ -362,12 +362,12 @@ int fyai_cmd_config_export(struct fyai_cmd_call *call, fy_generic *result)
 	if (!file)
 		return fyai_cmd_config_show(call, result);
 	/* Written to a file: nothing to present. */
-	return fyai_config_export(call->ctx, file);
+	return fyai_config_export(fyai_cmd_call_ctx(call), file);
 }
 
 int fyai_cmd_config_validate(struct fyai_cmd_call *call, fy_generic *result)
 {
-	struct fyai_ctx *ctx = call->ctx;
+	struct fyai_ctx *ctx = fyai_cmd_call_ctx(call);
 
 	if (fyai_config_validate_schema(ctx->cfg, ctx->bstate->config, "config"))
 		return -1;
@@ -378,7 +378,7 @@ int fyai_cmd_config_validate(struct fyai_cmd_call *call, fy_generic *result)
 int fyai_cmd_config_schema(struct fyai_cmd_call *call, fy_generic *result)
 {
 	*result = fyai_config_schema(call->gb);
-	fyai_error_check(call->ctx, fy_is_valid(*result), err,
+	fyai_error_check(fyai_cmd_call_ctx(call), fy_is_valid(*result), err,
 			 "the configuration schema does not load");
 	return 0;
 err:
@@ -391,7 +391,7 @@ err:
  */
 int fyai_cmd_config_edit(struct fyai_cmd_call *call, fy_generic *result)
 {
-	struct fyai_ctx *ctx = call->ctx;
+	struct fyai_ctx *ctx = fyai_cmd_call_ctx(call);
 
 	(void)result;
 	if (call->surface == FYAI_CMD_CLI)
@@ -652,7 +652,7 @@ static fy_generic describe_row(struct fy_generic_builder *gb, const char *name,
  */
 int fyai_cmd_config_describe(struct fyai_cmd_call *call, fy_generic *result)
 {
-	struct fyai_ctx *ctx = call->ctx;
+	struct fyai_ctx *ctx = fyai_cmd_call_ctx(call);
 	struct fy_generic_builder *gb = call->gb;
 	fy_generic schema, node, object_node, props, desc, key, sub;
 	const char *path = fyai_cmd_arg_str(call, "path");
@@ -754,7 +754,7 @@ static int sandbox_named_check(struct fyai_ctx *ctx, const char *name)
  */
 int fyai_cmd_sandbox_show(struct fyai_cmd_call *call, fy_generic *result)
 {
-	struct fyai_ctx *ctx = call->ctx;
+	struct fyai_ctx *ctx = fyai_cmd_call_ctx(call);
 	const char *name = fyai_cmd_arg_str(call, "profile");
 	fy_generic v, net;
 
@@ -855,7 +855,7 @@ static void sandbox_profiles_add(void *arg, const char *name, const char *desc)
 
 int fyai_cmd_sandbox_profiles(struct fyai_cmd_call *call, fy_generic *result)
 {
-	struct fyai_ctx *ctx = call->ctx;
+	struct fyai_ctx *ctx = fyai_cmd_call_ctx(call);
 	struct sandbox_profiles list = { .gb = call->gb, .rows = fy_seq_empty };
 
 	if (sandbox_config_ready(ctx))
@@ -869,7 +869,7 @@ int fyai_cmd_sandbox_profiles(struct fyai_cmd_call *call, fy_generic *result)
 
 int fyai_cmd_sandbox_enter(struct fyai_cmd_call *call, fy_generic *result)
 {
-	struct fyai_ctx *ctx = call->ctx;
+	struct fyai_ctx *ctx = fyai_cmd_call_ctx(call);
 	fy_generic arguments = fy_get(call->args, "command", fy_seq_empty);
 	const char *profile = fyai_cmd_arg_str(call, "profile");
 	const char *argument, *shell;
@@ -945,7 +945,7 @@ int fyai_cmd_sandbox_apparmor(struct fyai_cmd_call *call, fy_generic *result)
 
 	(void)result;
 	got = readlink("/proc/self/exe", exe, sizeof(exe) - 1);
-	fyai_error_check(call->ctx, got > 0, err,
+	fyai_error_check(fyai_cmd_call_ctx(call), got > 0, err,
 			 "sandbox apparmor: cannot find the binary that runs: %s",
 			 strerror(errno));
 	exe[got] = '\0';
@@ -953,7 +953,7 @@ int fyai_cmd_sandbox_apparmor(struct fyai_cmd_call *call, fy_generic *result)
 	if ((size_t)got > sizeof(deleted) - 1 &&
 	    !strcmp(exe + got - (sizeof(deleted) - 1), deleted))
 		exe[got - (sizeof(deleted) - 1)] = '\0';
-	fyai_error_check(call->ctx, !strchr(exe, ' ') && !strchr(exe, '"'), err,
+	fyai_error_check(fyai_cmd_call_ctx(call), !strchr(exe, ' ') && !strchr(exe, '"'), err,
 			 "sandbox apparmor: the path '%s' has a blank or a quote, which the "
 			 "profile cannot name here: write it by hand", exe);
 	exe_len = strlen(exe);
@@ -961,7 +961,7 @@ int fyai_cmd_sandbox_apparmor(struct fyai_cmd_call *call, fy_generic *result)
 		if (!memcmp(tpl + i, marker, mark_len))
 			count++;
 	out = malloc(tpl_len + count * exe_len + 1);
-	fyai_error_check(call->ctx, out, err, "sandbox apparmor: out of memory");
+	fyai_error_check(fyai_cmd_call_ctx(call), out, err, "sandbox apparmor: out of memory");
 	for (i = 0, o = 0; i < tpl_len;) {
 		if (i + mark_len <= tpl_len && !memcmp(tpl + i, marker, mark_len)) {
 			memcpy(out + o, exe, exe_len);
@@ -1000,7 +1000,7 @@ static int setting_value(struct fyai_cmd_call *call, const char *key,
 		*valuep = fy_false;
 		return 0;
 	}
-	fyai_error_check(call->ctx, !fy_equal(type, "boolean") &&
+	fyai_error_check(fyai_cmd_call_ctx(call), !fy_equal(type, "boolean") &&
 			 fy_is_valid(node), err, "%s: invalid value '%s' "
 			 "(on|off)", call->path, text);
 	/* A number is a YAML scalar; any other value is the text itself. */
@@ -1008,7 +1008,7 @@ static int setting_value(struct fyai_cmd_call *call, const char *key,
 		  fy_parse(call->gb, text, FYAI_YAML_PARSE_FLAGS |
 			   FYOPPF_INPUT_TYPE_STRING, NULL) :
 		  fy_value(call->gb, text);
-	fyai_error_check(call->ctx, fy_is_valid(*valuep), err,
+	fyai_error_check(fyai_cmd_call_ctx(call), fy_is_valid(*valuep), err,
 			 "%s: invalid value '%s'", call->path, text);
 	return 0;
 err:
@@ -1020,7 +1020,7 @@ static const char *setting_show(struct fyai_cmd_call *call, const char *key)
 {
 	fy_generic v;
 
-	v = fy_get_at_pathstr(call->gb, call->ctx->cfg->config_doc, key);
+	v = fy_get_at_pathstr(call->gb, fyai_cmd_call_ctx(call)->cfg->config_doc, key);
 	/* A key that is not set has the default of the schema. */
 	if (!fy_is_valid(v))
 		v = fy_get(fyai_config_schema_node(key), "default", fy_invalid);
@@ -1040,7 +1040,7 @@ static const char *setting_show(struct fyai_cmd_call *call, const char *key)
  */
 int fyai_cmd_setting(struct fyai_cmd_call *call, fy_generic *result)
 {
-	struct fyai_ctx *ctx = call->ctx;
+	struct fyai_ctx *ctx = fyai_cmd_call_ctx(call);
 	fy_generic keyv, name, value, text;
 	const char *key, *typed;
 
@@ -1094,7 +1094,7 @@ err:
  */
 static int preset_set(struct fyai_cmd_call *call, const char *key, const char *text)
 {
-	struct fyai_ctx *ctx = call->ctx;
+	struct fyai_ctx *ctx = fyai_cmd_call_ctx(call);
 	fy_generic value;
 
 	if (!fyai_config_session_scoped(key))
@@ -1127,7 +1127,7 @@ static bool preset_in_view(struct fyai_ctx *ctx)
  */
 static int preset_idle(struct fyai_cmd_call *call)
 {
-	struct fyai_ctx *ctx = call->ctx;
+	struct fyai_ctx *ctx = fyai_cmd_call_ctx(call);
 
 	fyai_error_check(ctx, !fyai_tools_active(ctx), err,
 			 "%s: close live shells and sub-agents first", call->path);
@@ -1144,7 +1144,7 @@ err:
 static int preset_commit(struct fyai_cmd_call *call, bool in_view)
 {
 	if (in_view)
-		return fyai_config_rederive(call->ctx);
+		return fyai_config_rederive(fyai_cmd_call_ctx(call));
 	return config_changed(call);
 }
 
@@ -1168,7 +1168,7 @@ static const char *preset_agents(struct fyai_ctx *ctx, bool session_view)
  */
 int fyai_cmd_lockdown(struct fyai_cmd_call *call, fy_generic *result)
 {
-	struct fyai_ctx *ctx = call->ctx;
+	struct fyai_ctx *ctx = fyai_cmd_call_ctx(call);
 	bool in_view = preset_in_view(ctx);
 	bool net = fyai_sandbox_net_restrictable(-1);
 	bool was_view = preset_view_session(ctx);
@@ -1229,7 +1229,7 @@ int fyai_cmd_lockdown(struct fyai_cmd_call *call, fy_generic *result)
 static int preset_relax(struct fyai_cmd_call *call, fy_generic *result,
 			const char *profile)
 {
-	struct fyai_ctx *ctx = call->ctx;
+	struct fyai_ctx *ctx = fyai_cmd_call_ctx(call);
 	bool in_view = preset_in_view(ctx);
 	bool none = !strcmp(profile, FYAI_SANDBOX_PROFILE_NONE);
 	const char *note = NULL;
@@ -1275,7 +1275,7 @@ int fyai_cmd_dev(struct fyai_cmd_call *call, fy_generic *result)
 /* Show the isolation of the session as it runs, and what is stored beyond that. */
 int fyai_cmd_session_status(struct fyai_cmd_call *call, fy_generic *result)
 {
-	struct fyai_ctx *ctx = call->ctx;
+	struct fyai_ctx *ctx = fyai_cmd_call_ctx(call);
 	struct fyai_cfg *cfg = ctx->cfg;
 	fy_generic net = fy_get(cfg->sandbox, "network", fy_invalid);
 	const char *running = fyai_transport_effective_level(ctx), *name = fyai_view_session_name(ctx);
@@ -1335,12 +1335,12 @@ static void session_request_revert(struct fyai_cmd_call *call, struct session_re
 {
 	if (r->revert_profile &&
 	    preset_set(call, "sandbox_profile", fy_sprintfa("'%s'", r->revert_profile)))
-		fyai_warning(call->ctx, "%s: could not put back the sandbox profile '%s'",
+		fyai_warning(fyai_cmd_call_ctx(call), "%s: could not put back the sandbox profile '%s'",
 			     call->path, r->revert_profile);
 	if (r->revert_view >= 0 &&
 	    preset_set(call, "view/isolate_session", r->revert_view ? "true" : "false"))
-		fyai_warning(call->ctx, "%s: could not put back view/isolate_session", call->path);
-	(void)fyai_config_rederive(call->ctx);
+		fyai_warning(fyai_cmd_call_ctx(call), "%s: could not put back view/isolate_session", call->path);
+	(void)fyai_config_rederive(fyai_cmd_call_ctx(call));
 }
 
 static void session_quit(void *userdata)
@@ -1352,7 +1352,7 @@ static enum fyai_event_action session_reply(const struct fyai_event *ev)
 {
 	struct session_request *r = ev->userdata;
 	struct fyai_cmd_call *call = r->call;
-	struct fyai_ctx *ctx = call->ctx;
+	struct fyai_ctx *ctx = fyai_cmd_call_ctx(call);
 	bool ends = r->ends_session;
 	fy_generic m, op, why;
 	int fd = ev->fd, rc;
@@ -1387,7 +1387,7 @@ static enum fyai_event_action session_reply(const struct fyai_event *ev)
 static int session_request(struct fyai_cmd_call *call, const char *op, fy_generic request,
 			   bool ends_session)
 {
-	struct fyai_ctx *ctx = call->ctx;
+	struct fyai_ctx *ctx = fyai_cmd_call_ctx(call);
 	struct session_request *r;
 	const char *env = getenv("FYAI_SESSION_FD");
 	int fd = env ? atoi(env) : -1, rc;
@@ -1463,7 +1463,7 @@ static void profile_list_add(void *arg, const char *name, const char *desc)
  */
 int fyai_cmd_session_profile(struct fyai_cmd_call *call, fy_generic *result)
 {
-	struct fyai_ctx *ctx = call->ctx;
+	struct fyai_ctx *ctx = fyai_cmd_call_ctx(call);
 	struct fyai_cfg *cfg = ctx->cfg;
 	const char *name = fyai_cmd_arg_str(call, "name");
 	struct profile_list list = { .gb = call->gb,

@@ -169,7 +169,7 @@ static void remote_log(struct fyai_remote_server *server, const char *fmt, ...)
 	va_end(ap);
 	if (len < 0)
 		return;
-	(void)fyai_report(server->call->ctx, "%s serve[%ld]: %s\n", stamp,
+	(void)fyai_report(fyai_cmd_call_ctx(server->call), "%s serve[%ld]: %s\n", stamp,
 			  (long)getpid(), text);
 	free(text);
 }
@@ -246,7 +246,7 @@ static void remote_peer_send_wire(struct fyai_remote_peer *peer,
 		if (!wire->image)
 			wire->image = jsonrpc_image_encode(peer->conn,
 							   wire->frame, &wire->size);
-		fyai_error_check(server->call->ctx, wire->image, err,
+		fyai_error_check(fyai_cmd_call_ctx(server->call), wire->image, err,
 				 "cannot encode an image for a watcher");
 		rc = jsonrpc_conn_send_image(peer->conn, wire->image, wire->size);
 	} else {
@@ -255,12 +255,12 @@ static void remote_peer_send_wire(struct fyai_remote_peer *peer,
 				server->frame_gb = fy_generic_builder_create(NULL);
 			else
 				fy_generic_builder_reset(server->frame_gb);
-			fyai_error_check(server->call->ctx, server->frame_gb, err,
+			fyai_error_check(fyai_cmd_call_ctx(server->call), server->frame_gb, err,
 					 "cannot make a builder for the frames of watchers");
 			wire->line = jsonrpc_frame_encode(server->frame_gb,
 							  wire->frame);
 		}
-		fyai_error_check(server->call->ctx, wire->line, err,
+		fyai_error_check(fyai_cmd_call_ctx(server->call), wire->line, err,
 				 "cannot encode a frame for a watcher");
 		rc = jsonrpc_conn_send_encoded(peer->conn, wire->line);
 	}
@@ -275,7 +275,7 @@ static void remote_worker_frame(struct jsonrpc_conn *conn, fy_generic frame,
 				void *data)
 {
 	struct fyai_remote_session *session = data;
-	struct fyai_ctx *ctx = session->server->call->ctx;
+	struct fyai_ctx *ctx = fyai_cmd_call_ctx(session->server->call);
 	struct fy_generic_builder *gb = fyai_ctx_transient_gb(ctx);
 	struct fyai_remote_peer *owner, *watcher;
 	const char *branch, *id, *rest;
@@ -456,7 +456,7 @@ static int remote_spawn(struct fyai_remote_peer *peer, const char *branch,
 			fy_generic words)
 {
 	struct fyai_remote_server *server = peer->server;
-	struct fyai_ctx *ctx = server->call->ctx;
+	struct fyai_ctx *ctx = fyai_cmd_call_ctx(server->call);
 	struct fyai_remote_session *session = NULL;
 	char **args = NULL, *self = NULL;
 	int channel[2] = { -1, -1 }, agent[2] = { -1, -1 };
@@ -612,7 +612,7 @@ static enum fyai_event_action remote_run_stderr(const struct fyai_event *ev)
 		return FYAIEA_CONTINUE;
 	}
 	if (run->peer && !run->peer->failed) {
-		gb = fyai_ctx_transient_gb(run->peer->server->call->ctx);
+		gb = fyai_ctx_transient_gb(fyai_cmd_call_ctx(run->peer->server->call));
 		if (fyai_remote_send(run->peer->conn, fy_mapping(gb, "type", "fyai",
 				"subtype", "stderr",
 				"data", fy_gb_string_size_create(gb, buf, (size_t)n))))
@@ -668,7 +668,7 @@ static enum fyai_event_action remote_run_input(const struct fyai_event *ev)
 static int remote_run_feed(struct fyai_remote_run *run, const char *data, size_t len,
 			   bool closed)
 {
-	struct fyai_ctx *ctx = run->peer->server->call->ctx;
+	struct fyai_ctx *ctx = fyai_cmd_call_ctx(run->peer->server->call);
 	char *grown;
 	int rc;
 
@@ -699,7 +699,7 @@ static void remote_run_free(struct fyai_remote_run *run)
 
 	if (!run)
 		return;
-	loop = fyai_ctx_loop(run->peer->server->call->ctx);
+	loop = fyai_ctx_loop(fyai_cmd_call_ctx(run->peer->server->call));
 	fyai_event_source_remove(run->in_src);
 	fyai_event_source_remove(run->err_src);
 	jsonrpc_conn_destroy(run->out);
@@ -757,7 +757,7 @@ static int remote_run_start(struct fyai_remote_peer *peer, fy_generic words,
 			    bool input, long cols)
 {
 	struct fyai_remote_server *server = peer->server;
-	struct fyai_ctx *ctx = server->call->ctx;
+	struct fyai_ctx *ctx = fyai_cmd_call_ctx(server->call);
 	struct fyai_remote_run *run;
 	int out[2] = { -1, -1 }, err[2] = { -1, -1 }, in[2] = { -1, -1 };
 	char **args = NULL, *self = NULL;
@@ -869,7 +869,7 @@ static void remote_run_settle(struct fyai_remote_peer *peer)
 	       128 + (WIFSIGNALED(run->status) ? WTERMSIG(run->status) : 0);
 	remote_log(peer->server, "client %lu: the command %ld %s", peer->id,
 		   (long)run->pid, remote_status_text(run->status, how, sizeof(how)));
-	gb = fyai_ctx_transient_gb(peer->server->call->ctx);
+	gb = fyai_ctx_transient_gb(fyai_cmd_call_ctx(peer->server->call));
 	if (fyai_remote_send(peer->conn, fy_mapping(gb, "type", "fyai", "subtype", "exit",
 					       "status", code)))
 		peer->failed = true;
@@ -912,7 +912,7 @@ static void remote_run_client(struct fyai_remote_peer *peer, fy_generic frame)
 static int remote_reply(struct fyai_remote_peer *peer, fy_generic id,
 			const char *error, fy_generic response)
 {
-	struct fy_generic_builder *gb = fyai_ctx_transient_gb(peer->server->call->ctx);
+	struct fy_generic_builder *gb = fyai_ctx_transient_gb(fyai_cmd_call_ctx(peer->server->call));
 	fy_generic value;
 	int rc;
 
@@ -935,7 +935,7 @@ static int remote_reply(struct fyai_remote_peer *peer, fy_generic id,
 static void remote_watch_request(struct fyai_remote_peer *peer, fy_generic frame,
 				 fy_generic id, const char *subtype)
 {
-	struct fy_generic_builder *gb = fyai_ctx_transient_gb(peer->server->call->ctx);
+	struct fy_generic_builder *gb = fyai_ctx_transient_gb(fyai_cmd_call_ctx(peer->server->call));
 	struct fyai_remote_session *session = peer->session;
 	const char *text;
 
@@ -962,7 +962,7 @@ static void remote_watch_request(struct fyai_remote_peer *peer, fy_generic frame
 static void remote_authenticate(struct fyai_remote_peer *peer, fy_generic frame)
 {
 	struct fyai_remote_server *server = peer->server;
-	struct fy_generic_builder *gb = fyai_ctx_transient_gb(server->call->ctx);
+	struct fy_generic_builder *gb = fyai_ctx_transient_gb(fyai_cmd_call_ctx(server->call));
 	fy_generic request, token;
 	const char *text;
 
@@ -996,7 +996,7 @@ static void remote_attach(struct fyai_remote_peer *peer, fy_generic id,
 			  const char *branch, fy_generic words, bool watch)
 {
 	struct fyai_remote_server *server = peer->server;
-	struct fy_generic_builder *gb = fyai_ctx_transient_gb(server->call->ctx);
+	struct fy_generic_builder *gb = fyai_ctx_transient_gb(fyai_cmd_call_ctx(server->call));
 	struct fyai_remote_session *session;
 
 	for (session = server->sessions; session; session = session->next)
@@ -1125,7 +1125,7 @@ static enum fyai_event_action remote_project_exit(const struct fyai_event *ev)
 
 static void remote_project_free(struct fyai_remote_project *project)
 {
-	struct fyai_event_loop *loop = fyai_ctx_loop(project->server->call->ctx);
+	struct fyai_event_loop *loop = fyai_ctx_loop(fyai_cmd_call_ctx(project->server->call));
 
 	if (project->fd >= 0)
 		close(project->fd);
@@ -1144,7 +1144,7 @@ static void remote_project_free(struct fyai_remote_project *project)
 static struct fyai_remote_project *remote_project_start(struct fyai_remote_server *server,
 						   const char *root)
 {
-	struct fyai_ctx *ctx = server->call->ctx;
+	struct fyai_ctx *ctx = fyai_cmd_call_ctx(server->call);
 	struct fyai_remote_project *project = NULL;
 	char **args = NULL, *self = NULL;
 	int channel[2] = { -1, -1 }, fd, rc;
@@ -1322,7 +1322,7 @@ static void remote_hand_over(struct fyai_remote_peer *peer, fy_generic id,
 			     const char *dir, const char *root)
 {
 	struct fyai_remote_server *server = peer->server;
-	struct fy_generic_builder *gb = fyai_ctx_transient_gb(server->call->ctx);
+	struct fy_generic_builder *gb = fyai_ctx_transient_gb(fyai_cmd_call_ctx(server->call));
 	struct fyai_remote_project *project;
 	const char *text;
 
@@ -1357,7 +1357,7 @@ static void remote_project(struct fyai_remote_peer *peer, fy_generic id,
 			   const char *path)
 {
 	struct fyai_remote_server *server = peer->server;
-	struct fy_generic_builder *gb = fyai_ctx_transient_gb(server->call->ctx);
+	struct fy_generic_builder *gb = fyai_ctx_transient_gb(fyai_cmd_call_ctx(server->call));
 	const char *why = NULL;
 	char *dir, *root;
 
@@ -1394,7 +1394,7 @@ static size_t remote_watchers(const struct fyai_remote_session *session)
 /* The state of the server, for `serve status`. */
 static fy_generic remote_status(struct fyai_remote_server *server)
 {
-	struct fy_generic_builder *gb = fyai_ctx_transient_gb(server->call->ctx);
+	struct fy_generic_builder *gb = fyai_ctx_transient_gb(fyai_cmd_call_ctx(server->call));
 	struct fyai_remote_project *project;
 	struct fyai_remote_session *session;
 	fy_generic projects = fy_seq_empty, sessions = fy_seq_empty, value;
@@ -1429,7 +1429,7 @@ static void remote_hello_answer(struct fyai_remote_peer *peer, fy_generic id,
 				fy_generic request)
 {
 	struct fyai_remote_server *server = peer->server;
-	struct fy_generic_builder *gb = fyai_ctx_transient_gb(server->call->ctx);
+	struct fy_generic_builder *gb = fyai_ctx_transient_gb(fyai_cmd_call_ctx(server->call));
 	long long protocol = fy_get(request, "protocol", -1LL);
 	const char *version = fy_get(request, "version", "unknown");
 	fy_generic theirs = fy_get(request, "features", fy_seq_empty), common;
@@ -1668,7 +1668,7 @@ static void remote_admit_frame(struct jsonrpc_conn *conn, fy_generic frame,
 			remote_reply(peer, id, "cannot start the command", fy_invalid);
 		else
 			remote_reply(peer, id, NULL, fy_mapping(fyai_ctx_transient_gb(
-				server->call->ctx), "pid", (long long)peer->run->pid));
+				fyai_cmd_call_ctx(server->call)), "pid", (long long)peer->run->pid));
 		return;
 	}
 	if (!peer->session && remote_spawn(peer, NULL, fy_seq_empty)) {
@@ -1699,7 +1699,7 @@ static enum fyai_event_action remote_auth_timeout(const struct fyai_event *ev)
 static struct fyai_remote_peer *remote_peer_add(struct fyai_remote_server *server, int fd,
 					   unsigned long id, bool authenticated)
 {
-	struct fyai_ctx *ctx = server->call->ctx;
+	struct fyai_ctx *ctx = fyai_cmd_call_ctx(server->call);
 	struct fyai_remote_peer *peer;
 	int rc;
 
@@ -1733,7 +1733,7 @@ static struct fyai_remote_peer *remote_peer_add(struct fyai_remote_server *serve
 static enum fyai_event_action remote_accept(const struct fyai_event *ev)
 {
 	struct fyai_remote_server *server = ev->userdata;
-	struct fyai_ctx *ctx = server->call->ctx;
+	struct fyai_ctx *ctx = fyai_cmd_call_ctx(server->call);
 	uid_t uid;
 	int fd, rc;
 
@@ -1795,7 +1795,7 @@ static void remote_http_log(void *data, const char *line)
 static int remote_http_token(struct fyai_remote_server *server, const char *file,
 			     char **pathp)
 {
-	struct fyai_ctx *ctx = server->call->ctx;
+	struct fyai_ctx *ctx = fyai_cmd_call_ctx(server->call);
 	unsigned char random[32];
 	char *path = NULL, *dir, line[66];
 	const char *home = getenv("HOME");
@@ -1878,7 +1878,7 @@ static int remote_http_start(struct fyai_remote_server *server, fy_generic liste
 			     const char *token_file, const char *tls_cert,
 			     const char *tls_key, fy_generic tls_names)
 {
-	struct fyai_ctx *ctx = server->call->ctx;
+	struct fyai_ctx *ctx = fyai_cmd_call_ctx(server->call);
 	struct fyai_remote_auth auth = { .verify = fyai_remote_token_verify,
 					 .data = server->http_token };
 	struct fyai_remote_http_ops ops = { .admit = remote_http_admit,
@@ -1937,7 +1937,7 @@ out:
 static enum fyai_event_action remote_front_receive(const struct fyai_event *ev)
 {
 	struct fyai_remote_server *server = ev->userdata;
-	struct fy_generic_builder *gb = fyai_ctx_transient_gb(server->call->ctx);
+	struct fy_generic_builder *gb = fyai_ctx_transient_gb(fyai_cmd_call_ctx(server->call));
 	struct fyai_remote_peer *peer;
 	char buf[PATH_MAX + 512];
 	const char *dir;
@@ -1987,7 +1987,7 @@ static enum fyai_event_action remote_front_receive(const struct fyai_event *ev)
 
 static void remote_session_free(struct fyai_remote_session *session)
 {
-	struct fyai_event_loop *loop = fyai_ctx_loop(session->server->call->ctx);
+	struct fyai_event_loop *loop = fyai_ctx_loop(fyai_cmd_call_ctx(session->server->call));
 
 	jsonrpc_conn_destroy(session->worker);
 	if (session->fd >= 0)
@@ -2108,7 +2108,7 @@ static int remote_bind(struct fyai_remote_server *server, int fd,
 /* Bind and listen on the endpoint of @server, and watch it. */
 static int remote_listen(struct fyai_remote_server *server)
 {
-	struct fyai_ctx *ctx = server->call->ctx;
+	struct fyai_ctx *ctx = fyai_cmd_call_ctx(server->call);
 	struct sockaddr_un address = { .sun_family = AF_UNIX };
 	int rc;
 
@@ -2145,7 +2145,7 @@ err:
 /* Write the launch token to @token_fd, which closes. */
 static int remote_token(struct fyai_remote_server *server, int token_fd)
 {
-	struct fyai_ctx *ctx = server->call->ctx;
+	struct fyai_ctx *ctx = fyai_cmd_call_ctx(server->call);
 	unsigned char random[32];
 	char line[66];
 	ssize_t count;
@@ -2319,11 +2319,11 @@ out:
 /* The parent of `serve --daemon`: the server that started, as the result. */
 static int remote_daemon_result(struct fyai_cmd_call *call, fy_generic *result)
 {
-	const char *report = call->ctx->cfg->serve_daemon;
+	const char *report = fyai_cmd_call_ctx(call)->cfg->serve_daemon;
 	const char *socket = strchr(report, '\t');
 	const char *log = socket ? strchr(socket + 1, '\t') : NULL;
 
-	fyai_error_check(call->ctx, socket && log, err,
+	fyai_error_check(fyai_cmd_call_ctx(call), socket && log, err,
 			 "cannot read the report of the daemon");
 	*result = fy_mapping(call->gb, "pid", strtoll(report, NULL, 10),
 			     "socket", fy_stringf(call->gb, "%.*s",
@@ -2337,7 +2337,7 @@ err:
 int fyai_cmd_remote_serve(struct fyai_cmd_call *call, fy_generic *result)
 {
 	struct fyai_remote_server server = { .call = call, .fd = -1, .front_fd = -1 };
-	struct fyai_ctx *ctx = call->ctx;
+	struct fyai_ctx *ctx = fyai_cmd_call_ctx(call);
 	struct fyai_event_loop *loop = fyai_ctx_loop(ctx);
 	const char *projects = fyai_cmd_arg_str(call, "projects");
 	fy_generic listens = fy_get(call->args, "listen", fy_invalid);

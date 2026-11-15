@@ -56,7 +56,7 @@ static bool cast_wait(struct fyai_ctx *ctx, double ms)
 
 int fyai_cmd_cast_play(struct fyai_cmd_call *call, fy_generic *result)
 {
-	struct fyai_ctx *ctx = call->ctx;
+	struct fyai_ctx *ctx = fyai_cmd_call_ctx(call);
 	double speed = fy_get(call->args, "speed", 1.0);
 	double idle = fy_get(call->args, "idle_limit", 2.0);
 	const char *path = fyai_cmd_arg_str(call, "file");
@@ -72,7 +72,7 @@ int fyai_cmd_cast_play(struct fyai_cmd_call *call, fy_generic *result)
 	if (!fyai_cmd_arg_bool(call, "plain") && isatty(STDIN_FILENO) &&
 	    isatty(STDOUT_FILENO))
 		return fyai_cast_play_interactive(ctx, path, speed);
-	if (fyai_cast_file_open(call->ctx, &f, path, &header))
+	if (fyai_cast_file_open(fyai_cmd_call_ctx(call), &f, path, &header))
 		goto out;
 	if (speed <= 0)
 		speed = 1.0;
@@ -111,7 +111,7 @@ int fyai_cmd_cast_markers(struct fyai_cmd_call *call, fy_generic *result)
 	fy_generic header, ev, data, rows;
 	int rc = -1;
 
-	if (fyai_cast_file_open(call->ctx, &f, path, &header))
+	if (fyai_cast_file_open(fyai_cmd_call_ctx(call), &f, path, &header))
 		goto out;
 	rows = fy_sequence(call->gb);
 	while (fy_is_valid(ev = fyai_cast_file_next(&f))) {
@@ -136,7 +136,7 @@ int fyai_cmd_cast_info(struct fyai_cmd_call *call, fy_generic *result)
 	fy_generic header, info, key, value;
 	int rc = -1;
 
-	if (fyai_cast_file_open(call->ctx, &f, path, &header))
+	if (fyai_cast_file_open(fyai_cmd_call_ctx(call), &f, path, &header))
 		goto out;
 	info = fy_mapping(call->gb,
 		"width", fy_get(header, "width", 0LL),

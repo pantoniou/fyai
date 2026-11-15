@@ -165,6 +165,12 @@ struct fyai_sink {
 	bool band_shadow;		/* the band that opens is a shadow */
 };
 
+/* The context that this object stands on. */
+static inline struct fyai_ctx *fyai_sink_ctx(const struct fyai_sink *o)
+{
+	return o->ctx;
+}
+
 /* The separation manager for this medium. */
 struct fyai_flow *fyai_sink_flow(struct fyai_sink *s);
 

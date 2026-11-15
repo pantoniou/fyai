@@ -78,6 +78,12 @@ struct fyai_curl_state {
 	bool action_pending;
 };
 
+/* The context that this object stands on. */
+static inline struct fyai_ctx *fyai_curl_state_ctx(const struct fyai_curl_state *o)
+{
+	return o->ctx;
+}
+
 /* One watched socket. curl_multi_assign() keeps this on the socket itself. */
 struct fyai_curl_sock {
 	struct fyai_curl_sock *next;
@@ -197,7 +203,7 @@ static void fyai_curl_action(struct fyai_curl_state *state, curl_socket_t fd,
 	fyai_curl_cancel_pending(state);
 	if (mc != CURLM_OK) {
 		state->failed = true;
-		fyai_error(state->ctx, "curl multi failed: %s",
+		fyai_error(fyai_curl_state_ctx(state), "curl multi failed: %s",
 			   curl_multi_strerror(mc));
 		fyai_curl_fail_all(state, CURLE_FAILED_INIT);
 		return;
@@ -317,13 +323,13 @@ static int fyai_curl_socket_cb(CURL *easy, curl_socket_t fd, int what,
 	if (sock) {
 		rc = fyai_event_fd_modify(sock->src, events);
 		if (rc)
-			fyai_error(state->ctx, "could not change the events of "
+			fyai_error(fyai_curl_state_ctx(state), "could not change the events of "
 				   "transfer socket %d", (int)fd);
 		return rc;
 	}
 
 	sock = calloc(1, sizeof(*sock));
-	fyai_error_check(state->ctx, sock, err_out, "out of memory");
+	fyai_error_check(fyai_curl_state_ctx(state), sock, err_out, "out of memory");
 
 	sock->state = state;
 	sock->fd = fd;
@@ -331,7 +337,7 @@ static int fyai_curl_socket_cb(CURL *easy, curl_socket_t fd, int what,
 			       &sock->src);
 	if (rc) {
 		/* The transfer cannot continue without this event source. */
-		fyai_error(state->ctx, "could not watch transfer socket %d; "
+		fyai_error(fyai_curl_state_ctx(state), "could not watch transfer socket %d; "
 			   "the request cannot make progress", (int)fd);
 		free(sock);
 		goto err_out;
@@ -359,22 +365,22 @@ static int fyai_curl_timer_cb(CURLM *multi, long timeout_ms, void *userp)
 		fyai_event_defer_cancel(state->el, fyai_curl_timeout, state);
 	if (timeout_ms < 0) {
 		rc = fyai_event_timer_disarm(state->timer);
-		fyai_error_check(state->ctx, !rc, err_out,
+		fyai_error_check(fyai_curl_state_ctx(state), !rc, err_out,
 				 "could not disarm the curl timer");
 		return 0;
 	}
 	if (!timeout_ms) {
 		rc = fyai_event_timer_disarm(state->timer);
-		fyai_error_check(state->ctx, !rc, err_out,
+		fyai_error_check(fyai_curl_state_ctx(state), !rc, err_out,
 				 "could not disarm the curl timer");
 		rc = fyai_event_defer(state->el, fyai_curl_timeout, state);
-		fyai_error_check(state->ctx, !rc, err_out,
+		fyai_error_check(fyai_curl_state_ctx(state), !rc, err_out,
 				 "could not defer the curl timeout");
 		return 0;
 	}
 
 	rc = fyai_event_timer_rearm(state->timer, timeout_ms, 0);
-	fyai_error_check(state->ctx, !rc, err_out,
+	fyai_error_check(fyai_curl_state_ctx(state), !rc, err_out,
 			 "could not arm the curl timer");
 	return 0;
 

@@ -91,6 +91,12 @@ struct stream_response {
 	size_t content_chunks_count;
 };
 
+/* The context that this object stands on. */
+static inline struct fyai_ctx *stream_response_ctx(const struct stream_response *o)
+{
+	return o->ctx;
+}
+
 static struct stream_response *parse_stream(struct fyai_stream_parse *p)
 {
 	return (struct stream_response *)
@@ -155,7 +161,7 @@ static void stream_state_transition(struct stream_response *stream,
 				    enum fyai_stream_state state)
 {
 	if (!stream_state_transition_valid(stream->state, state)) {
-		fyai_error(stream->ctx, "invalid response stream transition "
+		fyai_error(stream_response_ctx(stream), "invalid response stream transition "
 			   "from %s to %s",
 			   stream_state_name(stream->state),
 			   stream_state_name(state));
@@ -163,8 +169,8 @@ static void stream_state_transition(struct stream_response *stream,
 			stream->state = FYAISS_FAILED;
 		return;
 	}
-	if (stream->ctx->cfg->debug)
-		fyai_debug(stream->ctx, "response stream state %s -> %s",
+	if (stream_response_ctx(stream)->cfg->debug)
+		fyai_debug(stream_response_ctx(stream), "response stream state %s -> %s",
 			   stream_state_name(stream->state),
 			   stream_state_name(state));
 	stream->state = state;
@@ -195,7 +201,7 @@ static void stream_spinner_clear(struct fyai_ctx *ctx,
 
 static void stream_response_cleanup(struct stream_response *stream)
 {
-	stream_spinner_clear(stream->ctx, &stream->spinner);
+	stream_spinner_clear(stream_response_ctx(stream), &stream->spinner);
 	free(stream->retry_cause);
 	free(stream->raw.data);
 	free(stream->line.data);
@@ -248,7 +254,7 @@ static size_t count_newlines(const char *s, size_t len)
 static void stream_write_content(struct stream_response *stream,
 				 const char *text)
 {
-	struct fyai_ctx *ctx = stream->ctx;
+	struct fyai_ctx *ctx = stream_response_ctx(stream);
 	size_t len;
 
 	len = strlen(text);
@@ -272,7 +278,7 @@ static int stream_reasoning_markdown(struct stream_response *stream,
 	bool quoted;
 	int len;
 
-	quoted = markdown_reasoning_quoted(stream->ctx->cfg);
+	quoted = markdown_reasoning_quoted(stream_response_ctx(stream)->cfg);
 	if (!quoted && fyai_buf_append(md, "**💭 reasoning**\n\n"))
 		return -1;
 
@@ -295,7 +301,7 @@ static int stream_reasoning_markdown(struct stream_response *stream,
 
 static int stream_write_reasoning_md(struct stream_response *stream)
 {
-	struct fyai_ctx *ctx = stream->ctx;
+	struct fyai_ctx *ctx = stream_response_ctx(stream);
 	struct fyai_cfg *cfg = ctx->cfg;
 	struct fyai_buf md = {0};
 	struct fyai_buf out = {0};
@@ -336,7 +342,7 @@ static int stream_write_reasoning_md(struct stream_response *stream)
 static void stream_write_reasoning(struct stream_response *stream,
 				   const char *text)
 {
-	struct fyai_ctx *ctx = stream->ctx;
+	struct fyai_ctx *ctx = stream_response_ctx(stream);
 	struct fyai_cfg *cfg = ctx->cfg;
 	char mark[FYAI_GLYPH_MAX];
 	const char *prefix;
@@ -400,7 +406,7 @@ static void stream_write_reasoning(struct stream_response *stream,
 /* Close the reasoning section: reset any colour, then the separator. */
 static void stream_reasoning_trailer(struct stream_response *stream, bool color)
 {
-	struct fyai_ctx *ctx = stream->ctx;
+	struct fyai_ctx *ctx = stream_response_ctx(stream);
 	const char *sep = ctx->cfg->section_separator;
 
 	if (color)
@@ -415,7 +421,7 @@ static void stream_reasoning_trailer(struct stream_response *stream, bool color)
 
 static void stream_finish_reasoning(struct stream_response *stream)
 {
-	struct fyai_ctx *ctx = stream->ctx;
+	struct fyai_ctx *ctx = stream_response_ctx(stream);
 	struct fyai_cfg *cfg = ctx->cfg;
 	bool color;
 
@@ -451,7 +457,7 @@ static void stream_finish_content(struct stream_response *stream)
 	stream_finish_reasoning(stream);
 	if (!stream->printed_content)
 		return;
-	stream_spinner_clear(stream->ctx, &stream->spinner);
+	stream_spinner_clear(stream_response_ctx(stream), &stream->spinner);
 	stream->printed_content = false;
 }
 
@@ -499,7 +505,7 @@ int fyai_stream_hosted(struct fyai_stream_parse *p, const char *name,
 		       fy_generic args, bool ok, const char *cause)
 {
 	stream_finish_reasoning(parse_stream(p));
-	return fyai_present_hosted_call(p->ctx, name, args, ok, cause);
+	return fyai_present_hosted_call(fyai_stream_parse_ctx(p), name, args, ok, cause);
 }
 
 int fyai_stream_tool_emit(struct fyai_stream_parse *p, size_t index,
@@ -557,7 +563,7 @@ int fyai_stream_tool_emit(struct fyai_stream_parse *p, size_t index,
 static void stream_report_failure(struct stream_response *stream,
 				  fy_generic type, fy_generic event)
 {
-	struct fyai_ctx *ctx = stream->ctx;
+	struct fyai_ctx *ctx = stream_response_ctx(stream);
 	fy_generic err, msg, resp;
 	const char *what;
 	char *text;
@@ -604,7 +610,7 @@ void fyai_stream_fail(struct fyai_stream_parse *p, fy_generic type,
 static int stream_handle_data(struct stream_response *stream,
 			      const char *data)
 {
-	struct fyai_ctx *ctx = stream->ctx;
+	struct fyai_ctx *ctx = stream_response_ctx(stream);
 	struct fyai_cfg *cfg = ctx->cfg;
 	fy_generic chunk;
 
@@ -625,7 +631,7 @@ static int stream_handle_data(struct stream_response *stream,
 	}
 
 	if (cfg->debug > 1)
-		emit_generic_to_sink(stream->ctx, "stream", chunk, true);
+		emit_generic_to_sink(stream_response_ctx(stream), "stream", chunk, true);
 
 	if (cfg->stream_logging) {
 		(void)fyai_log_generic(ctx, "stream",
@@ -718,7 +724,7 @@ static size_t write_stream_response(void *ptr, size_t size, size_t nmemb,
 static void stream_store_token_extents(struct stream_response *stream,
 				       fy_generic response)
 {
-	struct fyai_ctx *ctx = stream->ctx;
+	struct fyai_ctx *ctx = stream_response_ctx(stream);
 	struct fy_generic_builder *gb = stream->gb;
 	fy_generic extents;
 	fy_generic text;
@@ -877,7 +883,7 @@ static void stream_request_notify(struct stream_response *stream)
 	 * Every terminal path arrives here, so the band the retries opened is
 	 * settled once, with the outcome the turn actually reached.
 	 */
-	stream_retry_band_close(stream->ctx, &stream->retry.band,
+	stream_retry_band_close(stream_response_ctx(stream), &stream->retry.band,
 				stream->state == FYAISS_COMPLETED, NULL);
 	complete = stream->callbacks.complete;
 	userdata = stream->callbacks.userdata;
@@ -893,7 +899,7 @@ static int stream_request_resubmit(struct stream_response *stream)
 	struct fyai_retry retry;
 	int rc;
 
-	ctx = stream->ctx;
+	ctx = stream_response_ctx(stream);
 	callbacks = stream->callbacks;
 	retry = stream->retry;
 	if (stream->state != FYAISS_RETRYING)
@@ -921,7 +927,7 @@ static enum fyai_event_action stream_retry_fire(const struct fyai_event *ev);
 static int stream_retry_arm(struct stream_response *stream, long status,
 			    CURLcode res)
 {
-	struct fyai_ctx *ctx = stream->ctx;
+	struct fyai_ctx *ctx = stream_response_ctx(stream);
 	struct fyai_cfg *cfg = ctx->cfg;
 	struct fyai_event_loop *el;
 	fyai_event_ms_t delay;
@@ -965,7 +971,7 @@ static enum fyai_event_action stream_retry_fire(const struct fyai_event *ev)
 	struct fyai_ctx *ctx;
 	int rc;
 
-	ctx = stream->ctx;
+	ctx = stream_response_ctx(stream);
 	fyai_event_source_remove(stream->retry.timer);
 	stream->retry.timer = NULL;
 	stream->retry.phase = FYAI_RETRY_IDLE;
@@ -1004,7 +1010,7 @@ static void stream_request_complete(struct fyai_xfer *transfer, void *userdata)
 	size_t tool_index;
 
 	stream = userdata;
-	ctx = stream->ctx;
+	ctx = stream_response_ctx(stream);
 	status = 0;
 	ret = fy_invalid;
 	res = fyai_xfer_result(transfer);
@@ -1160,7 +1166,7 @@ void fyai_stream_request_cancel(fyai_stream_request *request)
 		request->retry.phase = FYAI_RETRY_IDLE;
 		stream_state_transition(request, FYAISS_CANCELLING);
 		stream_state_transition(request, FYAISS_CANCELLED);
-		request->result = fyai_with_diag(request->ctx->transient->gb,
+		request->result = fyai_with_diag(stream_response_ctx(request)->transient->gb,
 						 fy_invalid, "interrupted");
 		stream_request_notify(request);
 	}
@@ -1206,6 +1212,12 @@ struct fyai_buffered_request {
 	bool cancel_requested;
 };
 
+/* The context that this object stands on. */
+static inline struct fyai_ctx *fyai_buffered_request_ctx(const struct fyai_buffered_request *o)
+{
+	return o->ctx;
+}
+
 static void buffered_request_complete(struct fyai_xfer *transfer, void *userdata);
 
 static int
@@ -1213,7 +1225,7 @@ buffered_request_start(struct fyai_buffered_request *request)
 {
 	struct fyai_ctx *ctx;
 
-	ctx = request->ctx;
+	ctx = fyai_buffered_request_ctx(request);
 	request->transfer = fyai_xfer_submit(ctx, write_response,
 					     &request->response,
 					     buffered_request_complete,
@@ -1228,7 +1240,7 @@ static void buffered_request_notify(struct fyai_buffered_request *request);
 static int buffered_retry_arm(struct fyai_buffered_request *request,
 			      long status, CURLcode res)
 {
-	struct fyai_ctx *ctx = request->ctx;
+	struct fyai_ctx *ctx = fyai_buffered_request_ctx(request);
 	struct fyai_cfg *cfg = ctx->cfg;
 	struct fyai_event_loop *el;
 	fyai_event_ms_t delay;
@@ -1271,7 +1283,7 @@ static enum fyai_event_action buffered_retry_fire(const struct fyai_event *ev)
 	if (!request->cancel_requested && !buffered_request_start(request))
 		return FYAIEA_CONTINUE;
 	if (request->cancel_requested)
-		request->result = fyai_with_diag(request->ctx->transient->gb,
+		request->result = fyai_with_diag(fyai_buffered_request_ctx(request)->transient->gb,
 						 fy_invalid, "interrupted");
 	request->done = true;
 	buffered_request_notify(request);
@@ -1283,7 +1295,7 @@ static void buffered_request_notify(struct fyai_buffered_request *request)
 	fyai_buffered_complete_fn complete;
 	void *userdata;
 
-	stream_retry_band_close(request->ctx, &request->retry.band,
+	stream_retry_band_close(fyai_buffered_request_ctx(request), &request->retry.band,
 				fy_is_valid(request->result), NULL);
 	complete = request->complete;
 	userdata = request->userdata;
@@ -1301,7 +1313,7 @@ static void buffered_request_complete(struct fyai_xfer *transfer, void *userdata
 	int retry_rc;
 
 	request = userdata;
-	ctx = request->ctx;
+	ctx = fyai_buffered_request_ctx(request);
 	status = 0;
 	request->result = fy_invalid;
 	res = fyai_xfer_result(transfer);
@@ -1398,7 +1410,7 @@ void fyai_buffered_request_cancel(struct fyai_buffered_request *request)
 		fyai_event_source_remove(request->retry.timer);
 		request->retry.timer = NULL;
 		request->retry.phase = FYAI_RETRY_IDLE;
-		request->result = fyai_with_diag(request->ctx->transient->gb,
+		request->result = fyai_with_diag(fyai_buffered_request_ctx(request)->transient->gb,
 						 fy_invalid, "interrupted");
 		request->done = true;
 		buffered_request_notify(request);
