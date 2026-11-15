@@ -59,5 +59,7 @@ struct fyai_transport_state {
 
 void fyai_transport_state_init(struct fyai_transport_state *state,
 			       struct fyai_loop *loop, struct fyai_cred *cred);
+/* The source that drains the control channel is the parent's. */
+void fyai_transport_state_abandon(struct fyai_transport_state *state);
 
 #endif

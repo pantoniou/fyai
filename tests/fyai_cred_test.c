@@ -384,7 +384,7 @@ int cred_get_mem(void)
 	/* No context, no memory. */
 	FYAI_TCHECK(fyai_cred_get(NULL, "mem:key", &secret, NULL) == -ENOENT);
 	/* A forked child keeps the secrets and loses the refresh. */
-	fyai_cred_abandon(&mock_app.ctx);
+	fyai_cred_abandon(mock_app.ctx.cred);
 	FYAI_TCHECK(fyai_cred_get(&mock_app.ctx, "mem:key", &secret, NULL) == 0);
 	free(secret);
 	fyai_cred_release(&mock_app.ctx);

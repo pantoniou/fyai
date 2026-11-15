@@ -55,5 +55,7 @@ struct fyai_jobs {
 
 void fyai_jobs_init(struct fyai_jobs *jobs, struct fyai_loop *loop,
 		    struct fyai_diag *diag);
+/* The live stream and the patch display of the parent are not the child's. */
+void fyai_jobs_abandon(struct fyai_jobs *jobs);
 
 #endif

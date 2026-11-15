@@ -2365,68 +2365,16 @@ bool fyai_tool_call_parallel_eligible(struct fyai_ctx *ctx,
 }
 
 /*
- * The model transfer of a forked child starts with no outcome. The endpoint
- * and the profile stay: the child sends to the endpoint of its parent.
+ * Clear live parent-owned state after fork. The objects that a component
+ * made are released first, as they close texts of the model and a consumer of
+ * the parent would send that on its connection. Then each component forgets
+ * what describes the parent, in reverse dependency order: the ones that stand
+ * on others go first.
  */
-static void fyai_ctx_xfer_reset(struct fyai_ctx *ctx)
-{
-	ctx->link->status = 0;
-	ctx->link->retry_after = 0;
-	ctx->link->error[0] = '\0';
-}
-
-/*
- * Turn control belongs to one turn. A forked child starts with no request to
- * end, stop, interrupt, compact or gate, and with no budget, schema or
- * relay of its parent. The observers are pointers of the parent and are
- * cleared apart.
- */
-static void fyai_ctx_turn_reset(struct fyai_ctx *ctx)
-{
-	ctx->turn->end_requested = false;
-	ctx->turn->stop = FYAI_TURN_STOP_NONE;
-	ctx->turn->cost_limit = 0;
-	ctx->turn->compacting = false;
-	fyai_loop_reset_interrupt(ctx->loop);
-	ctx->bstate->tool_diff_tracking = false;
-	ctx->turn->gate = NULL;
-	ctx->turn->gate_data = NULL;
-	ctx->turn->gate_run = NULL;
-	ctx->turn->gate_relays = NULL;
-	ctx->turn->relay_gate = false;
-	ctx->turn->relay_steps = false;
-	ctx->turn->output_schema = fy_invalid;
-	ctx->turn->structured_output = fy_invalid;
-}
-
-/*
- * What the parent spent is the accounting of its run, and the extents of its
- * last call point into storage that a forked child does not use.
- */
-static void fyai_ctx_usage_reset(struct fyai_ctx *ctx)
-{
-	ctx->usage->input = ctx->usage->cached = ctx->usage->cache_write = 0;
-	ctx->usage->output = ctx->usage->reasoning = ctx->usage->total = 0;
-	ctx->usage->cost = ctx->usage->cost_est = 0;
-	ctx->usage->calls = 0;
-	ctx->usage->switch_pending = false;
-	ctx->usage->last_call_input = ctx->usage->last_call_output = ctx->usage->last_call_total = 0;
-	ctx->turn->last_token_extents = fy_invalid;
-}
-
-/*
- * The record of the next publish is not reset here: a sub-agent sets it
- * from the branch table when it selects its branch (fyai_agent_run()), and
- * the other children publish nothing.
- */
-
-/* Clear live parent-owned state after fork. */
 void fyai_ctx_fork_disown(struct fyai_ctx *ctx)
 {
 	if (!ctx)
 		return;
-	/* First: a release below closes texts of the model, and a consumer of
-	 * the parent would send that on its connection. */
 	fyai_uimodel_abandon(ctx);		/* the renderers of the parent */
 	fyai_shell_sessions_abandon(ctx);	/* named shells of the parent */
 	fyai_tool_jobs_abandon(ctx);		/* its running tool children */
@@ -2442,50 +2390,30 @@ void fyai_ctx_fork_disown(struct fyai_ctx *ctx)
 	fyai_events_release(ctx);		/* and what they queued for it */
 	fyai_request_cache_release(ctx);	/* its conversation text */
 	fyai_patch_display_clear(ctx);		/* patches it resolved */
-	free(ctx->jobs->patch_display);
-	ctx->jobs->patch_display = NULL;
 	fyai_output_cleanup(ctx);		/* the document it has open */
 	fyai_diag_reset(fyai_ctx_diag(ctx));	/* what the parent has not drained yet */
-	fyai_cover_abandon(&ctx->scope->cover);	/* the holder that it does not own */
 	fyai_session_btw_abandon(ctx);		/* its side questions */
 	fyai_orphan_abandon(ctx);		/* and the processes that the scope keeps */
-	ctx->scope->pins = 0;
-	ctx->scope->open = false;
 	fyai_skill_dirs_abandon(ctx);		/* the skills it wrote out */
 	fyai_settings_abandon(ctx);		/* and the exports */
-	fyai_cred_abandon(ctx);			/* the refresh of the parent */
 	fyai_diag_trace_tap(NULL, NULL);	/* the recording of the parent */
-	ctx->front->ui = NULL;				/* its display */
-	ctx->front->workpane = NULL;			/* and the tiles that it drew */
-	ctx->front->browser = NULL;
-	ctx->astate->registry = NULL;
-	ctx->astate->parent = ctx->astate->execution;
-	ctx->astate->execution = 0;
-	ctx->jobs->stream = NULL;
-	ctx->tty->session = NULL;		/* the terminal it runs in */
-	ctx->tty->winch_src = NULL;			/* a source on the loop it owns */
+
+	fyai_turnstate_abandon(ctx->turn);
+	fyai_front_abandon(ctx->front);
+	fyai_jobs_abandon(ctx->jobs);
+	fyai_agent_state_abandon(ctx->astate);
+	fyai_mcp_state_abandon(ctx->mcp);
+	fyai_usage_abandon(ctx->usage);
+	fyai_branch_state_abandon(ctx->bstate);
+	fyai_link_abandon(ctx->link);
+	fyai_cred_abandon(ctx->cred);		/* the refresh of the parent */
+	fyai_transport_state_abandon(ctx->transport);
+	fyai_tty_abandon(ctx->tty);
+	fyai_scope_abandon(ctx->scope);
+	fyai_loop_reset_interrupt(ctx->loop);
 	/* The child owns neither the loop nor the dump of its parent. */
 	fyai_loop_abandon(ctx->loop);
-	ctx->transport->src = NULL;
-	ctx->front->cmd_call = NULL;			/* the command that it runs */
-	ctx->front->catalog_update = NULL;		/* and the update that it started */
 	ctx->acp_rpc = NULL;			/* its connection to a client */
-	ctx->front->config_edit = NULL;
-	ctx->mcp->conns = NULL;			/* its connections to the servers */
-	ctx->mcp->tools = fy_invalid;
-	ctx->turn->observe = NULL;		/* a stream to the parent's peer */
-	ctx->turn->observe_data = NULL;
-	ctx->turn->text_observe = NULL;
-	ctx->turn->text_observe_data = NULL;
-	ctx->turn->agent_observe = NULL;
-	ctx->turn->agent_observe_data = NULL;
-	fyai_ctx_turn_reset(ctx);
-	fyai_ctx_usage_reset(ctx);
-	fyai_ctx_xfer_reset(ctx);
-	ctx->turn->response_chain = FYAI_CHAIN_UNLINKED;
-	/* The attachments wait for the next line of the parent, not of this
-	 * child; the store stays open to read the bytes of the branch. */
-	ctx->turn->media_pending = fy_seq_empty;
 }
 
 /*

@@ -163,3 +163,110 @@ void fyai_app_cleanup(struct fyai_app *app)
 	app->cfg.diag = NULL;
 	fyai_diag_cleanup(&app->diag);
 }
+
+/*
+ * The abandon() of each component: what a forked child must not keep of the
+ * state that describes its parent's process, its screen or its run. A
+ * component that makes a resource releases it elsewhere; these only forget.
+ */
+void fyai_turnstate_abandon(struct fyai_turnstate *turn)
+{
+	/* A request, a stop, a budget, a gate and a relay belong to one turn. */
+	turn->end_requested = false;
+	turn->stop = FYAI_TURN_STOP_NONE;
+	turn->cost_limit = 0;
+	turn->compacting = false;
+	turn->gate = NULL;
+	turn->gate_data = NULL;
+	turn->gate_run = NULL;
+	turn->gate_relays = NULL;
+	turn->relay_gate = false;
+	turn->relay_steps = false;
+	turn->output_schema = fy_invalid;
+	turn->structured_output = fy_invalid;
+	/* The observers are pointers of the parent, a stream to its peer. */
+	turn->observe = NULL;
+	turn->observe_data = NULL;
+	turn->text_observe = NULL;
+	turn->text_observe_data = NULL;
+	turn->agent_observe = NULL;
+	turn->agent_observe_data = NULL;
+	/* The extents of its last call point into storage that the child does not use. */
+	turn->last_token_extents = fy_invalid;
+	turn->response_chain = FYAI_CHAIN_UNLINKED;
+	/*
+	 * The attachments wait for the next line of the parent, not of this
+	 * child; the store stays open to read the bytes of the branch.
+	 */
+	turn->media_pending = fy_seq_empty;
+}
+
+void fyai_usage_abandon(struct fyai_usage *usage)
+{
+	usage->input = usage->cached = usage->cache_write = 0;
+	usage->output = usage->reasoning = usage->total = 0;
+	usage->cost = usage->cost_est = 0;
+	usage->calls = 0;
+	usage->switch_pending = false;
+	usage->last_call_input = usage->last_call_output = usage->last_call_total = 0;
+}
+
+void fyai_link_abandon(struct fyai_link *link)
+{
+	link->status = 0;
+	link->retry_after = 0;
+	link->error[0] = '\0';
+}
+
+void fyai_scope_abandon(struct fyai_scope *scope)
+{
+	fyai_cover_abandon(&scope->cover);
+	scope->pins = 0;
+	scope->open = false;
+}
+
+void fyai_tty_abandon(struct fyai_tty *tty)
+{
+	tty->session = NULL;
+	tty->winch_src = NULL;
+}
+
+void fyai_agent_state_abandon(struct fyai_agent_state *as)
+{
+	as->registry = NULL;
+	as->parent = as->execution;
+	as->execution = 0;
+}
+
+void fyai_branch_state_abandon(struct fyai_branch_state *bs)
+{
+	bs->tool_diff_tracking = false;
+}
+
+void fyai_mcp_state_abandon(struct fyai_mcp *mcp)
+{
+	mcp->conns = NULL;
+	mcp->tools = fy_invalid;
+}
+
+void fyai_transport_state_abandon(struct fyai_transport_state *state)
+{
+	state->src = NULL;
+}
+
+void fyai_jobs_abandon(struct fyai_jobs *jobs)
+{
+	free(jobs->patch_display);
+	jobs->patch_display = NULL;
+	jobs->stream = NULL;
+}
+
+void fyai_front_abandon(struct fyai_front *front)
+{
+	front->ui = NULL;
+	front->workpane = NULL;
+	front->browser = NULL;
+	front->cmd_call = NULL;
+	front->catalog_update = NULL;
+	front->config_edit = NULL;
+}

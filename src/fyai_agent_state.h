@@ -37,5 +37,7 @@ struct fyai_agent_state {
 void fyai_agent_state_init(struct fyai_agent_state *as,
 			   struct fyai_branch_state *bstate,
 			   struct fyai_diag *diag);
+/* The execution of the parent is the parent of the child. */
+void fyai_agent_state_abandon(struct fyai_agent_state *as);
 
 #endif

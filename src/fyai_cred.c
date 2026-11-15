@@ -542,10 +542,8 @@ void fyai_cred_release(struct fyai_ctx *ctx)
 	cred->scheduled = 0;
 }
 
-void fyai_cred_abandon(struct fyai_ctx *ctx)
+void fyai_cred_abandon(struct fyai_cred *cred)
 {
-	struct fyai_cred *cred = ctx->cred;
-
 	if (!cred)
 		return;
 	/*

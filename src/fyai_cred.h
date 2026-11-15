@@ -130,6 +130,6 @@ bool fyai_cred_refresh_pending(const struct fyai_ctx *ctx);
 /* End the refresh and drop the waiters without running them. */
 void fyai_cred_release(struct fyai_ctx *ctx);
 /* Forget the refresh and the waiters of the parent in a forked child; end nothing. */
-void fyai_cred_abandon(struct fyai_ctx *ctx);
+void fyai_cred_abandon(struct fyai_cred *cred);
 
 #endif

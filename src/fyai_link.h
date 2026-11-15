@@ -45,5 +45,7 @@ struct fyai_link {
 
 void fyai_link_init(struct fyai_link *link, struct fyai_loop *loop,
 		    struct fyai_cred *cred);
+/* The child starts with no outcome; the endpoint and profile stay. */
+void fyai_link_abandon(struct fyai_link *link);
 
 #endif

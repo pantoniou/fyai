@@ -51,6 +51,7 @@ FYAI_TEST_ENTRY(app, wires_turn, app_wires_turn)
 FYAI_TEST_ENTRY(app, wires_jobs, app_wires_jobs)
 FYAI_TEST_ENTRY(app, wires_astate, app_wires_astate)
 FYAI_TEST_ENTRY(app, signal_owner_follows_handlers, app_signal_owner_follows_handlers)
+FYAI_TEST_ENTRY(app, abandon_forgets_parent_state, app_abandon_forgets_parent_state)
 FYAI_TEST_ENTRY(app, wires_front, app_wires_front)
 FYAI_TEST_ENTRY(app, wires_link, app_wires_link)
 FYAI_TEST_ENTRY(app, wires_cred, app_wires_cred)
@@ -335,6 +336,64 @@ int app_signal_owner_follows_handlers(void)
 	close(fd);
 	fyai_app_cleanup(&app);
 	printf("ok - the owner of the handlers goes with the last handler\n");
+	return 0;
+}
+
+/* A forked child forgets what describes its parent, component by component. */
+int app_abandon_forgets_parent_state(void)
+{
+	struct fyai_app app;
+	char parent;
+
+	FYAI_TCHECK(!fyai_app_init(&app));
+
+	app.turn.stop = FYAI_TURN_STOP_COST;
+	app.turn.end_requested = true;
+	app.turn.observe = (void (*)(struct fyai_ctx *, fy_generic, void *))&parent;
+	app.turn.response_chain = FYAI_CHAIN_LINKED;
+	fyai_turnstate_abandon(&app.turn);
+	FYAI_TCHECK(app.turn.stop == FYAI_TURN_STOP_NONE && !app.turn.end_requested);
+	FYAI_TCHECK(!app.turn.observe && app.turn.response_chain == FYAI_CHAIN_UNLINKED);
+
+	app.usage.input = 7;
+	app.usage.cost = 1.5;
+	app.usage.calls = 3;
+	fyai_usage_abandon(&app.usage);
+	FYAI_TCHECK(!app.usage.input && !app.usage.calls && app.usage.cost == 0);
+
+	app.link.status = 502;
+	app.link.error[0] = 'x';
+	fyai_link_abandon(&app.link);
+	FYAI_TCHECK(!app.link.status && !app.link.error[0]);
+
+	app.scope.pins = 2;
+	app.scope.open = true;
+	fyai_scope_abandon(&app.scope);
+	FYAI_TCHECK(!app.scope.pins && !app.scope.open);
+
+	app.tty.session = &parent;
+	fyai_tty_abandon(&app.tty);
+	FYAI_TCHECK(!app.tty.session);
+
+	app.astate.execution = 4;
+	fyai_agent_state_abandon(&app.astate);
+	FYAI_TCHECK(app.astate.parent == 4 && !app.astate.execution);
+
+	app.mcp.conns = (struct fyai_mcp_ctx *)&parent;
+	fyai_mcp_state_abandon(&app.mcp);
+	FYAI_TCHECK(!app.mcp.conns && fy_is_invalid(app.mcp.tools));
+
+	app.front.ui = (struct fyai_ui *)&parent;
+	app.front.cmd_call = (struct fyai_cmd_call *)&parent;
+	fyai_front_abandon(&app.front);
+	FYAI_TCHECK(!app.front.ui && !app.front.cmd_call);
+
+	app.transport.src = (struct fyai_event_source *)&parent;
+	fyai_transport_state_abandon(&app.transport);
+	FYAI_TCHECK(!app.transport.src);
+
+	fyai_app_cleanup(&app);
+	printf("ok - each component forgets what describes its parent\n");
 	return 0;
 }
 

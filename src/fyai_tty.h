@@ -35,5 +35,7 @@ struct fyai_tty {
 
 void fyai_tty_init(struct fyai_tty *tty, struct fyai_loop *loop,
 		   struct fyai_diag *diag);
+/* The session and the resize source belong to the parent. */
+void fyai_tty_abandon(struct fyai_tty *tty);
 
 #endif

@@ -1,10 +1,19 @@
 # The context as a set of components
 
-Status: design, and the first three steps are done and the fourth has begun:
-`struct fyai_app` exists and holds `diag`, `loop`, `arena`, `transient`,
-`cred`, `link`, `transport`, `mcp`, `waitq`, `askq`, `scope`, `tty`, `skills`, `toolspec`, `bstate`, `usage`, `turn`, `jobs`, `astate`, `front` and `cfg`. The counts come from a script over
-`src/*.c` that counts `ctx->FIELD` per file; check a row against the code
-before a change. The order of the work is near the end.
+Status: the components exist and `struct fyai_ctx` is a set of pointers to
+them. `struct fyai_app` holds `diag`, `loop`, `arena`, `transient`, `cred`,
+`link`, `transport`, `mcp`, `waitq`, `askq`, `scope`, `tty`, `skills`,
+`toolspec`, `bstate`, `usage`, `turn`, `jobs`, `astate`, `front` and `cfg`, and
+embeds the context. The context holds the configuration, one pointer for each
+component, and three values that no component owns (`tools`, `acp_rpc`,
+`acp_agent_message_id`). `fyai_ctx_fork_disown()` calls the `abandon()` of each
+component. What remains is rule 3, a function that takes its component and
+not the context, and the split of `front` into the sink, the UI model and the
+UI; both follow the TUI split. Until a function moves, `ctx` is the bundle of
+dependencies that rule 2 allows, and no component reads a field of another
+through it. The counts in the tables come from a script over `src/*.c` that
+counts `ctx->FIELD` per file, as the design was made; check a row against the
+code before a change. The order of the work is near the end.
 
 ## Problem
 

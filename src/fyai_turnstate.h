@@ -122,5 +122,7 @@ struct fyai_turnstate {
 };
 
 void fyai_turnstate_init(struct fyai_turnstate *turn, struct fyai_diag *diag);
+/* Forget what a forked child must not keep of its parent's turn. */
+void fyai_turnstate_abandon(struct fyai_turnstate *turn);
 
 #endif

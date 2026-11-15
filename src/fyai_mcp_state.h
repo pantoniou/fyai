@@ -42,5 +42,7 @@ struct fyai_mcp {
 
 void fyai_mcp_state_init(struct fyai_mcp *mcp, struct fyai_loop *loop,
 			 struct fyai_cred *cred, struct fyai_transient *transient);
+/* The connections to the servers belong to the parent. */
+void fyai_mcp_state_abandon(struct fyai_mcp *mcp);
 
 #endif

@@ -60,5 +60,7 @@ struct fyai_usage {
 };
 
 void fyai_usage_init(struct fyai_usage *usage, struct fyai_diag *diag);
+/* The child starts with no spending: what the parent spent is its own. */
+void fyai_usage_abandon(struct fyai_usage *usage);
 
 #endif

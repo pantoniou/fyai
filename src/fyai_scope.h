@@ -47,5 +47,7 @@ struct fyai_scope {
 
 void fyai_scope_state_init(struct fyai_scope *scope, struct fyai_loop *loop,
 			   struct fyai_diag *diag);
+/* The child owns neither the holder nor the pins of its parent. */
+void fyai_scope_abandon(struct fyai_scope *scope);
 
 #endif

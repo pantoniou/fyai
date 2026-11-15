@@ -70,5 +70,7 @@ struct fyai_front {
 
 void fyai_front_init(struct fyai_front *front, struct fyai_loop *loop,
 		     struct fyai_diag *diag);
+/* The child draws nothing of the parent: its UI, tiles and command. */
+void fyai_front_abandon(struct fyai_front *front);
 
 #endif

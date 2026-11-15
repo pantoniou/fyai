@@ -83,5 +83,10 @@ struct fyai_branch_state {
 
 void fyai_branch_state_init(struct fyai_branch_state *bs,
 			    struct fyai_arena *arena, struct fyai_diag *diag);
+/*
+ * The record of the next publish stays: a sub-agent sets it from the branch
+ * table, and the other children publish nothing.
+ */
+void fyai_branch_state_abandon(struct fyai_branch_state *bs);
 
 #endif
