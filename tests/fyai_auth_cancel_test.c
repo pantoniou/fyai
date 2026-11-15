@@ -43,13 +43,13 @@ int auth_cancel_wait_lock(void)
 	int held, other, i;
 
 	store_setup(dir);
-	el = fyai_ctx_loop(&ctx);
+	el = fyai_ctx_loop(&mock_app.ctx);
 	FYAI_TCHECK(el);
 	snprintf(path, sizeof(path), "%s/auth.lock", dir);
 	held = open(path, O_RDWR | O_CREAT | O_CLOEXEC, 0600);
 	FYAI_TCHECK(held >= 0 && !flock(held, LOCK_EX | LOCK_NB));
 
-	request = fyai_auth_refresh_submit(&ctx, true, refresh_done, &d);
+	request = fyai_auth_refresh_submit(&mock_app.ctx, true, refresh_done, &d);
 	FYAI_TCHECK(request);
 	FYAI_TCHECK(!fyai_auth_refresh_done(request));
 
@@ -87,10 +87,10 @@ int auth_cancel_discover(void)
 	char dir[] = "/tmp/fyai-auth-cancel-XXXXXX";
 
 	store_setup(dir);
-	el = fyai_ctx_loop(&ctx);
+	el = fyai_ctx_loop(&mock_app.ctx);
 	FYAI_TCHECK(el);
 	mock_start(&m, script, 1);
-	request = fyai_auth_refresh_submit(&ctx, true, refresh_done, &d);
+	request = fyai_auth_refresh_submit(&mock_app.ctx, true, refresh_done, &d);
 	FYAI_TCHECK(request);
 	STEP_UNTIL(el, m.nheld == 1);
 
@@ -126,14 +126,14 @@ static void token_cancel_case(refresh_done_fn_t fn)
 	int i;
 
 	store_setup(dir);
-	el = fyai_ctx_loop(&ctx);
+	el = fyai_ctx_loop(&mock_app.ctx);
 	FYAI_TCHECK(el);
 	issuer_open(&is);
 	token = issuer_token_body(&is, "new-access", "new-refresh");
 	script[0].body = is.jwks;
 	script[1].body = token;
 	mock_start(&m, script, 2);
-	request = fyai_auth_refresh_submit(&ctx, true, fn, &d);
+	request = fyai_auth_refresh_submit(&mock_app.ctx, true, fn, &d);
 	FYAI_TCHECK(request);
 	STEP_UNTIL(el, m.nheld == 1);
 
@@ -148,8 +148,8 @@ static void token_cancel_case(refresh_done_fn_t fn)
 	STEP_UNTIL(el, lock_free(dir));
 	FYAI_TCHECK(d.count == 1);
 	/* The rotated tokens reached the store. */
-	FYAI_TCHECK(!fyai_auth_store_load(&ctx));
-	FYAI_TCHECK(!strcmp(fyai_auth_store_token(&ctx), "new-access"));
+	FYAI_TCHECK(!fyai_auth_store_load(&mock_app.ctx));
+	FYAI_TCHECK(!strcmp(fyai_auth_store_token(&mock_app.ctx), "new-access"));
 	if (fn == refresh_done)
 		fyai_auth_refresh_destroy(request);
 
@@ -199,7 +199,7 @@ int auth_cancel_destroy(void)
 	int held, other, i;
 
 	store_setup(dir);
-	el = fyai_ctx_loop(&ctx);
+	el = fyai_ctx_loop(&mock_app.ctx);
 	FYAI_TCHECK(el);
 	base = fyai_event_loop_source_count(el);
 
@@ -207,7 +207,7 @@ int auth_cancel_destroy(void)
 	snprintf(path, sizeof(path), "%s/auth.lock", dir);
 	held = open(path, O_RDWR | O_CREAT | O_CLOEXEC, 0600);
 	FYAI_TCHECK(held >= 0 && !flock(held, LOCK_EX | LOCK_NB));
-	request = fyai_auth_refresh_submit(&ctx, true, refresh_done, &d);
+	request = fyai_auth_refresh_submit(&mock_app.ctx, true, refresh_done, &d);
 	FYAI_TCHECK(request);
 	fyai_auth_refresh_destroy(request);
 	FYAI_TCHECK(!flock(held, LOCK_UN));
@@ -222,7 +222,7 @@ int auth_cancel_destroy(void)
 
 	/* While it fetches the keys. */
 	mock_start(&m, script, 1);
-	request = fyai_auth_refresh_submit(&ctx, true, refresh_done, &d);
+	request = fyai_auth_refresh_submit(&mock_app.ctx, true, refresh_done, &d);
 	FYAI_TCHECK(request);
 	STEP_UNTIL(el, m.nheld == 1);
 	fyai_auth_refresh_destroy(request);
@@ -263,13 +263,13 @@ int auth_cancel_models(void)
 	cfg.provider = "openai";
 	cfg.api_url = OPENAI_RESPONSES_URL;
 	store_setup(dir);
-	el = fyai_ctx_loop(&ctx);
+	el = fyai_ctx_loop(&mock_app.ctx);
 	FYAI_TCHECK(el);
 	snprintf(path, sizeof(path), "%s/auth.lock", dir);
 	held = open(path, O_RDWR | O_CREAT | O_CLOEXEC, 0600);
 	FYAI_TCHECK(held >= 0 && !flock(held, LOCK_EX | LOCK_NB));
 
-	request = fyai_auth_models_submit(&ctx, models_done, &d);
+	request = fyai_auth_models_submit(&mock_app.ctx, models_done, &d);
 	FYAI_TCHECK(request);
 	FYAI_TCHECK(!fyai_auth_models_done(request));
 	fyai_auth_models_cancel(request);
@@ -305,10 +305,10 @@ int auth_models_refresh_fails(void)
 	cfg.provider = "openai";
 	cfg.api_url = OPENAI_RESPONSES_URL;
 	store_setup(dir);
-	el = fyai_ctx_loop(&ctx);
+	el = fyai_ctx_loop(&mock_app.ctx);
 	FYAI_TCHECK(el);
 	mock_start(&m, script, 1);
-	request = fyai_auth_models_submit(&ctx, models_done, &d);
+	request = fyai_auth_models_submit(&mock_app.ctx, models_done, &d);
 	FYAI_TCHECK(request);
 	FYAI_TCHECK(!fyai_auth_models_done(request) && d.count == 0);
 	STEP_UNTIL(el, d.count > 0);
@@ -335,24 +335,24 @@ int auth_cancel_drain(void)
 	char dir[] = "/tmp/fyai-auth-cancel-XXXXXX", *token;
 
 	store_setup(dir);
-	el = fyai_ctx_loop(&ctx);
+	el = fyai_ctx_loop(&mock_app.ctx);
 	FYAI_TCHECK(el);
 	issuer_open(&is);
 	token = issuer_token_body(&is, "new-access", "new-refresh");
 	script[0].body = is.jwks;
 	script[1].body = token;
 	mock_start(&m, script, 2);
-	request = fyai_auth_refresh_submit(&ctx, true, refresh_done_destroy, &d);
+	request = fyai_auth_refresh_submit(&mock_app.ctx, true, refresh_done_destroy, &d);
 	FYAI_TCHECK(request);
 	STEP_UNTIL(el, m.nheld == 1);
 	fyai_auth_refresh_cancel(request);
-	FYAI_TCHECK(ctx.cred->auth_detached == 1);
+	FYAI_TCHECK(mock_app.ctx.cred->auth_detached == 1);
 
 	mock_release(&m);
-	fyai_auth_drain(&ctx);
-	FYAI_TCHECK(ctx.cred->auth_detached == 0 && lock_free(dir));
-	FYAI_TCHECK(!fyai_auth_store_load(&ctx));
-	FYAI_TCHECK(!strcmp(fyai_auth_store_token(&ctx), "new-access"));
+	fyai_auth_drain(&mock_app.ctx);
+	FYAI_TCHECK(mock_app.ctx.cred->auth_detached == 0 && lock_free(dir));
+	FYAI_TCHECK(!fyai_auth_store_load(&mock_app.ctx));
+	FYAI_TCHECK(!strcmp(fyai_auth_store_token(&mock_app.ctx), "new-access"));
 
 	free(token);
 	issuer_close(&is);

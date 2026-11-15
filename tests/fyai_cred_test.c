@@ -64,11 +64,11 @@ int cred_static_source(void)
 	char dir[] = "/tmp/fyai-cred-XXXXXX";
 
 	store_setup(dir);
-	FYAI_TCHECK(fyai_cred_prepare(&ctx, "env:KEY", NULL, false) == 0);
-	FYAI_TCHECK(fyai_cred_prepare(&ctx, "secret:KEY", NULL, true) == 0);
-	FYAI_TCHECK(fyai_cred_reject(&ctx, "env:KEY", NULL, 0, true) == 0);
-	FYAI_TCHECK(fyai_cred_reject(&ctx, "env:KEY", NULL, 7, false) == -ENOTSUP);
-	FYAI_TCHECK(fyai_cred_reject(&ctx, LOGIN, NULL, 0, true) == 1);
+	FYAI_TCHECK(fyai_cred_prepare(&mock_app.ctx, "env:KEY", NULL, false) == 0);
+	FYAI_TCHECK(fyai_cred_prepare(&mock_app.ctx, "secret:KEY", NULL, true) == 0);
+	FYAI_TCHECK(fyai_cred_reject(&mock_app.ctx, "env:KEY", NULL, 0, true) == 0);
+	FYAI_TCHECK(fyai_cred_reject(&mock_app.ctx, "env:KEY", NULL, 7, false) == -ENOTSUP);
+	FYAI_TCHECK(fyai_cred_reject(&mock_app.ctx, LOGIN, NULL, 0, true) == 1);
 	store_remove(dir);
 	printf("ok - a static source is ready and has no renewal\n");
 	return 0;
@@ -85,24 +85,24 @@ int cred_login_states(void)
 	store_setup(dir);
 	snprintf(path, sizeof(path), "%s/auth.json", dir);
 	unlink(path);
-	FYAI_TCHECK(fyai_cred_prepare(&ctx, LOGIN, NULL, false) == -ENOENT);
-	FYAI_TCHECK(fyai_cred_reject(&ctx, LOGIN, NULL, 5, false) == -ENOENT);
+	FYAI_TCHECK(fyai_cred_prepare(&mock_app.ctx, LOGIN, NULL, false) == -ENOENT);
+	FYAI_TCHECK(fyai_cred_reject(&mock_app.ctx, LOGIN, NULL, 5, false) == -ENOENT);
 	store_remove(dir);
 	dir_new(dir);
 	/* A fresh token: ready, and a rejected token that was replaced. */
 	store_setup_expiring(dir, (long long)time(NULL) + 3600);
-	el = fyai_ctx_loop(&ctx);
+	el = fyai_ctx_loop(&mock_app.ctx);
 	FYAI_TCHECK(el);
-	FYAI_TCHECK(fyai_cred_prepare(&ctx, LOGIN, NULL, false) == 0);
-	FYAI_TCHECK(fyai_cred_prepare(&ctx, LOGIN, NULL, true) == 0);
+	FYAI_TCHECK(fyai_cred_prepare(&mock_app.ctx, LOGIN, NULL, false) == 0);
+	FYAI_TCHECK(fyai_cred_prepare(&mock_app.ctx, LOGIN, NULL, true) == 0);
 	/* Another token than the one that the request used: retry at once. */
-	FYAI_TCHECK(fyai_cred_reject(&ctx, LOGIN, NULL,
+	FYAI_TCHECK(fyai_cred_reject(&mock_app.ctx, LOGIN, NULL,
 				     fyai_cred_tag("some-other-token"), false) == 0);
 	store_remove(dir);
 	dir_new(dir);
 	/* An expired token that cannot be renewed and a waiter that waited. */
 	store_setup(dir);
-	FYAI_TCHECK(fyai_cred_prepare(&ctx, LOGIN, NULL, true) == -ESTALE);
+	FYAI_TCHECK(fyai_cred_prepare(&mock_app.ctx, LOGIN, NULL, true) == -ESTALE);
 	store_remove(dir);
 	printf("ok - the stored login answers from its state\n");
 	return 0;
@@ -121,15 +121,15 @@ int cred_refresh_is_shared(void)
 	char dir[] = "/tmp/fyai-cred-XXXXXX";
 
 	store_setup(dir);
-	el = fyai_ctx_loop(&ctx);
+	el = fyai_ctx_loop(&mock_app.ctx);
 	FYAI_TCHECK(el);
 	mock_start(&m, script, 1);
 	waiter_init(&a);
 	waiter_init(&b);
 
-	FYAI_TCHECK(fyai_cred_prepare(&ctx, LOGIN, &a.w, false) == 1);
+	FYAI_TCHECK(fyai_cred_prepare(&mock_app.ctx, LOGIN, &a.w, false) == 1);
 	STEP_UNTIL(el, m.nheld == 1);
-	FYAI_TCHECK(fyai_cred_prepare(&ctx, LOGIN, &b.w, false) == 1);
+	FYAI_TCHECK(fyai_cred_prepare(&mock_app.ctx, LOGIN, &b.w, false) == 1);
 	FYAI_TCHECK(a.count == 0 && b.count == 0);
 
 	/* The key endpoint answers with an error: the refresh fails. */
@@ -138,7 +138,7 @@ int cred_refresh_is_shared(void)
 	FYAI_TCHECK(a.count == 1 && b.count == 1);
 	FYAI_TCHECK(a.result < 0 && b.result < 0);
 	/* A request that waited gets the state, and starts no refresh. */
-	FYAI_TCHECK(fyai_cred_prepare(&ctx, LOGIN, NULL, true) == -ESTALE);
+	FYAI_TCHECK(fyai_cred_prepare(&mock_app.ctx, LOGIN, NULL, true) == -ESTALE);
 	/* One refresh made one request. */
 	FYAI_TCHECK(m.nseen == 1 && m.extra == 0);
 
@@ -162,7 +162,7 @@ int cred_refresh_renews(void)
 	char dir[] = "/tmp/fyai-cred-XXXXXX", *token;
 
 	store_setup(dir);
-	el = fyai_ctx_loop(&ctx);
+	el = fyai_ctx_loop(&mock_app.ctx);
 	FYAI_TCHECK(el);
 	issuer_open(&is);
 	token = issuer_token_body(&is, "renewed-access", "renewed-refresh");
@@ -172,8 +172,8 @@ int cred_refresh_renews(void)
 	waiter_init(&a);
 	waiter_init(&b);
 
-	FYAI_TCHECK(fyai_cred_prepare(&ctx, LOGIN, &a.w, false) == 1);
-	FYAI_TCHECK(fyai_cred_prepare(&ctx, LOGIN, &b.w, false) == 1);
+	FYAI_TCHECK(fyai_cred_prepare(&mock_app.ctx, LOGIN, &a.w, false) == 1);
+	FYAI_TCHECK(fyai_cred_prepare(&mock_app.ctx, LOGIN, &b.w, false) == 1);
 	STEP_UNTIL(el, a.count > 0 && b.count > 0);
 	FYAI_TCHECK(a.count == 1 && b.count == 1 && a.result == 0 && b.result == 0);
 	/* The keys first, then the token request, once. */
@@ -181,8 +181,8 @@ int cred_refresh_renews(void)
 	FYAI_TCHECK(strstr(m.seen[0].target, "jwks"));
 	FYAI_TCHECK(strstr(m.seen[1].target, "oauth/token"));
 	/* The store holds the new token, and a request is ready. */
-	FYAI_TCHECK(fyai_cred_prepare(&ctx, LOGIN, NULL, true) == 0);
-	FYAI_TCHECK(!strcmp(fyai_auth_store_token(&ctx), "renewed-access"));
+	FYAI_TCHECK(fyai_cred_prepare(&mock_app.ctx, LOGIN, NULL, true) == 0);
+	FYAI_TCHECK(!strcmp(fyai_auth_store_token(&mock_app.ctx), "renewed-access"));
 
 	free(token);
 	issuer_close(&is);
@@ -203,10 +203,10 @@ int cred_reject_tag(void)
 
 	/* The stored token is fresh, the rejected one is not: retry, no refresh. */
 	store_setup_expiring(dir, (long long)time(NULL) + 3600);
-	el = fyai_ctx_loop(&ctx);
+	el = fyai_ctx_loop(&mock_app.ctx);
 	FYAI_TCHECK(el);
 	waiter_init(&a);
-	FYAI_TCHECK(fyai_cred_reject(&ctx, LOGIN, &a.w,
+	FYAI_TCHECK(fyai_cred_reject(&mock_app.ctx, LOGIN, &a.w,
 				     fyai_cred_tag("old-token"), false) == 0);
 	FYAI_TCHECK(a.count == 0);
 	store_remove(dir);
@@ -215,7 +215,7 @@ int cred_reject_tag(void)
 	/* The stored token is the rejected one: a refresh starts. */
 	store_setup_expiring(dir, (long long)time(NULL) + 3600);
 	mock_start(&m, script, 1);
-	FYAI_TCHECK(fyai_cred_reject(&ctx, LOGIN, &a.w,
+	FYAI_TCHECK(fyai_cred_reject(&mock_app.ctx, LOGIN, &a.w,
 				     fyai_cred_tag("old-access"), false) == 1);
 	STEP_UNTIL(el, m.nheld == 1);
 	mock_release(&m);
@@ -238,29 +238,29 @@ int cred_waiter_cancel(void)
 	char dir[] = "/tmp/fyai-cred-XXXXXX";
 
 	store_setup(dir);
-	el = fyai_ctx_loop(&ctx);
+	el = fyai_ctx_loop(&mock_app.ctx);
 	FYAI_TCHECK(el);
 	mock_start(&m, script, 2);
 	waiter_init(&a);
 	waiter_init(&b);
-	FYAI_TCHECK(fyai_cred_prepare(&ctx, LOGIN, &a.w, false) == 1);
-	FYAI_TCHECK(fyai_cred_prepare(&ctx, LOGIN, &b.w, false) == 1);
+	FYAI_TCHECK(fyai_cred_prepare(&mock_app.ctx, LOGIN, &a.w, false) == 1);
+	FYAI_TCHECK(fyai_cred_prepare(&mock_app.ctx, LOGIN, &b.w, false) == 1);
 	STEP_UNTIL(el, m.nheld == 1);
 
 	/* One waiter leaves: the refresh goes on for the other. */
-	fyai_cred_waiter_cancel(&ctx, &a.w);
+	fyai_cred_waiter_cancel(&mock_app.ctx, &a.w);
 	FYAI_TCHECK(!a.w.queued && a.count == 0);
 	FYAI_TCHECK(fyai_event_loop_step(el, 0) >= 0);
 	FYAI_TCHECK(b.count == 0 && m.dropped == 0);
 	/* The last one leaves: the key fetch is dropped, nobody is told. */
-	fyai_cred_waiter_cancel(&ctx, &b.w);
+	fyai_cred_waiter_cancel(&mock_app.ctx, &b.w);
 	STEP_UNTIL(el, m.dropped == 1);
 	STEP_UNTIL(el, lock_free(dir));
 	FYAI_TCHECK(a.count == 0 && b.count == 0);
 	/* A new request starts a new refresh. */
-	FYAI_TCHECK(fyai_cred_prepare(&ctx, LOGIN, &a.w, false) == 1);
+	FYAI_TCHECK(fyai_cred_prepare(&mock_app.ctx, LOGIN, &a.w, false) == 1);
 	STEP_UNTIL(el, m.nheld == 1);
-	fyai_cred_waiter_cancel(&ctx, &a.w);
+	fyai_cred_waiter_cancel(&mock_app.ctx, &a.w);
 	STEP_UNTIL(el, m.dropped == 2);
 	mock_stop(&m);
 	store_remove(dir);
@@ -280,14 +280,14 @@ int cred_reject_replaced_in_lock_wait(void)
 	int held;
 
 	store_setup_expiring(dir, (long long)time(NULL) + 3600);
-	el = fyai_ctx_loop(&ctx);
+	el = fyai_ctx_loop(&mock_app.ctx);
 	FYAI_TCHECK(el);
 	snprintf(path, sizeof(path), "%s/auth.lock", dir);
 	held = open(path, O_RDWR | O_CREAT | O_CLOEXEC, 0600);
 	FYAI_TCHECK(held >= 0 && !flock(held, LOCK_EX | LOCK_NB));
 	waiter_init(&a);
 	/* The stored token is the rejected one: a refresh starts and waits. */
-	FYAI_TCHECK(fyai_cred_reject(&ctx, LOGIN, &a.w,
+	FYAI_TCHECK(fyai_cred_reject(&mock_app.ctx, LOGIN, &a.w,
 				     fyai_cred_tag("old-access"), false) == 1);
 	FYAI_TCHECK(fyai_event_loop_step(el, 0) >= 0);
 	FYAI_TCHECK(a.count == 0);
@@ -313,11 +313,11 @@ int cred_reject_untagged_forces(void)
 	char dir[] = "/tmp/fyai-cred-XXXXXX";
 
 	store_setup_expiring(dir, (long long)time(NULL) + 3600);
-	el = fyai_ctx_loop(&ctx);
+	el = fyai_ctx_loop(&mock_app.ctx);
 	FYAI_TCHECK(el);
 	mock_start(&m, script, 1);
 	waiter_init(&a);
-	FYAI_TCHECK(fyai_cred_reject(&ctx, LOGIN, &a.w, 0, false) == 1);
+	FYAI_TCHECK(fyai_cred_reject(&mock_app.ctx, LOGIN, &a.w, 0, false) == 1);
 	STEP_UNTIL(el, m.nheld == 1);
 	mock_release(&m);
 	STEP_UNTIL(el, a.count > 0);
@@ -368,27 +368,27 @@ int cred_get_mem(void)
 	char dir[] = DIR_TEMPLATE;
 
 	store_setup(dir);
-	FYAI_TCHECK(fyai_cred_get(&ctx, "mem:key", &secret, NULL) == -ENOENT);
-	FYAI_TCHECK(fyai_cred_mem_set(&ctx, "key", "first") == 0);
-	FYAI_TCHECK(fyai_cred_get(&ctx, "mem:key", &secret, NULL) == 0);
+	FYAI_TCHECK(fyai_cred_get(&mock_app.ctx, "mem:key", &secret, NULL) == -ENOENT);
+	FYAI_TCHECK(fyai_cred_mem_set(&mock_app.ctx, "key", "first") == 0);
+	FYAI_TCHECK(fyai_cred_get(&mock_app.ctx, "mem:key", &secret, NULL) == 0);
 	FYAI_TCHECK(secret && !strcmp(secret, "first"));
 	free(secret);
-	FYAI_TCHECK(fyai_cred_mem_set(&ctx, "key", "second") == 0);
-	FYAI_TCHECK(fyai_cred_mem_set(&ctx, "other", "third") == 0);
-	FYAI_TCHECK(fyai_cred_get(&ctx, "mem:key", &secret, NULL) == 0);
+	FYAI_TCHECK(fyai_cred_mem_set(&mock_app.ctx, "key", "second") == 0);
+	FYAI_TCHECK(fyai_cred_mem_set(&mock_app.ctx, "other", "third") == 0);
+	FYAI_TCHECK(fyai_cred_get(&mock_app.ctx, "mem:key", &secret, NULL) == 0);
 	FYAI_TCHECK(secret && !strcmp(secret, "second"));
 	free(secret);
-	FYAI_TCHECK(fyai_cred_get(&ctx, "mem:other", &secret, NULL) == 0);
+	FYAI_TCHECK(fyai_cred_get(&mock_app.ctx, "mem:other", &secret, NULL) == 0);
 	FYAI_TCHECK(secret && !strcmp(secret, "third"));
 	free(secret);
 	/* No context, no memory. */
 	FYAI_TCHECK(fyai_cred_get(NULL, "mem:key", &secret, NULL) == -ENOENT);
 	/* A forked child keeps the secrets and loses the refresh. */
-	fyai_cred_abandon(&ctx);
-	FYAI_TCHECK(fyai_cred_get(&ctx, "mem:key", &secret, NULL) == 0);
+	fyai_cred_abandon(&mock_app.ctx);
+	FYAI_TCHECK(fyai_cred_get(&mock_app.ctx, "mem:key", &secret, NULL) == 0);
 	free(secret);
-	fyai_cred_release(&ctx);
-	FYAI_TCHECK(fyai_cred_get(&ctx, "mem:key", &secret, NULL) == -ENOENT);
+	fyai_cred_release(&mock_app.ctx);
+	FYAI_TCHECK(fyai_cred_get(&mock_app.ctx, "mem:key", &secret, NULL) == -ENOENT);
 	store_remove(dir);
 	printf("ok - a secret in memory is set, replaced and released\n");
 	return 0;
@@ -401,21 +401,21 @@ int cred_get_login(void)
 	char dir[] = DIR_TEMPLATE, path[300];
 
 	store_setup_expiring(dir, (long long)time(NULL) + 3600);
-	FYAI_TCHECK(fyai_cred_get(&ctx, "oauth:chatgpt", &secret, NULL) == 0);
+	FYAI_TCHECK(fyai_cred_get(&mock_app.ctx, "oauth:chatgpt", &secret, NULL) == 0);
 	FYAI_TCHECK(secret && !strcmp(secret, "old-access"));
 	free(secret);
-	FYAI_TCHECK(fyai_cred_get(&ctx, "oauth:other", &secret, NULL) == -EINVAL);
+	FYAI_TCHECK(fyai_cred_get(&mock_app.ctx, "oauth:other", &secret, NULL) == -EINVAL);
 	/* A chain falls through a login that is absent, not one that is stale. */
 	setenv("FYAI_CRED_TEST_A", "alpha", 1);
 	store_write_token("old-access", 1);
-	FYAI_TCHECK(fyai_cred_get(&ctx, "oauth:chatgpt|env:FYAI_CRED_TEST_A",
+	FYAI_TCHECK(fyai_cred_get(&mock_app.ctx, "oauth:chatgpt|env:FYAI_CRED_TEST_A",
 				  &secret, NULL) == 0);
 	FYAI_TCHECK(secret && !strcmp(secret, "alpha"));
 	free(secret);
-	FYAI_TCHECK(fyai_cred_get(&ctx, "oauth:chatgpt", &secret, NULL) == -ESTALE);
+	FYAI_TCHECK(fyai_cred_get(&mock_app.ctx, "oauth:chatgpt", &secret, NULL) == -ESTALE);
 	snprintf(path, sizeof(path), "%s/auth.json", dir);
 	unlink(path);
-	FYAI_TCHECK(fyai_cred_get(&ctx, "oauth:chatgpt", &secret, NULL) == -ENOENT);
+	FYAI_TCHECK(fyai_cred_get(&mock_app.ctx, "oauth:chatgpt", &secret, NULL) == -ENOENT);
 	FYAI_TCHECK(fyai_cred_get(NULL, "oauth:chatgpt", &secret, NULL) == -EINVAL);
 	store_remove(dir);
 	printf("ok - the login is a source with its own states\n");
@@ -431,18 +431,18 @@ int cred_schedule_armed(void)
 	time_t at;
 
 	store_setup_expiring(dir, expires);
-	el = fyai_ctx_loop(&ctx);
+	el = fyai_ctx_loop(&mock_app.ctx);
 	FYAI_TCHECK(el);
-	FYAI_TCHECK(fyai_cred_scheduled_at(&ctx) == 0);
-	FYAI_TCHECK(fyai_cred_prepare(&ctx, LOGIN, NULL, false) == 0);
-	at = fyai_cred_scheduled_at(&ctx);
+	FYAI_TCHECK(fyai_cred_scheduled_at(&mock_app.ctx) == 0);
+	FYAI_TCHECK(fyai_cred_prepare(&mock_app.ctx, LOGIN, NULL, false) == 0);
+	at = fyai_cred_scheduled_at(&mock_app.ctx);
 	/* Due five minutes before it expires. */
 	FYAI_TCHECK(at == (time_t)expires - 300);
 	/* A second request arms no second timer. */
-	FYAI_TCHECK(fyai_cred_prepare(&ctx, LOGIN, NULL, false) == 0);
-	FYAI_TCHECK(fyai_cred_scheduled_at(&ctx) == at);
+	FYAI_TCHECK(fyai_cred_prepare(&mock_app.ctx, LOGIN, NULL, false) == 0);
+	FYAI_TCHECK(fyai_cred_scheduled_at(&mock_app.ctx) == at);
 	/* A static source arms none. */
-	FYAI_TCHECK(fyai_cred_prepare(&ctx, "env:X", NULL, false) == 0);
+	FYAI_TCHECK(fyai_cred_prepare(&mock_app.ctx, "env:X", NULL, false) == 0);
 	store_remove(dir);
 	printf("ok - a fresh token arms one timer for its due time\n");
 	return 0;
@@ -454,8 +454,8 @@ int cred_schedule_short(void)
 	char dir[] = DIR_TEMPLATE;
 
 	store_setup_expiring(dir, (long long)time(NULL) + 330);
-	FYAI_TCHECK(fyai_cred_prepare(&ctx, LOGIN, NULL, false) == 0);
-	FYAI_TCHECK(fyai_cred_scheduled_at(&ctx) == 0);
+	FYAI_TCHECK(fyai_cred_prepare(&mock_app.ctx, LOGIN, NULL, false) == 0);
+	FYAI_TCHECK(fyai_cred_scheduled_at(&mock_app.ctx) == 0);
 	store_remove(dir);
 	printf("ok - a short token arms no timer\n");
 	return 0;
@@ -472,27 +472,27 @@ int cred_schedule_refreshes(void)
 	time_t at;
 
 	store_setup_expiring(dir, (long long)time(NULL) + 3600);
-	el = fyai_ctx_loop(&ctx);
+	el = fyai_ctx_loop(&mock_app.ctx);
 	FYAI_TCHECK(el);
 	issuer_open(&is);
 	token = issuer_token_body(&is, "renewed-access", "renewed-refresh");
 	script[0].body = is.jwks;
 	script[1].body = token;
 	mock_start(&m, script, 2);
-	FYAI_TCHECK(fyai_cred_prepare(&ctx, LOGIN, NULL, false) == 0);
-	FYAI_TCHECK(fyai_cred_scheduled_at(&ctx) != 0);
+	FYAI_TCHECK(fyai_cred_prepare(&mock_app.ctx, LOGIN, NULL, false) == 0);
+	FYAI_TCHECK(fyai_cred_scheduled_at(&mock_app.ctx) != 0);
 
 	/* The time passes: the stored token is now inside its window. */
 	store_write_token("old-access", (long long)time(NULL) + 100);
-	fyai_cred_timer_fire(&ctx);
-	FYAI_TCHECK(fyai_cred_refresh_pending(&ctx));
-	STEP_UNTIL(el, !fyai_cred_refresh_pending(&ctx));
+	fyai_cred_timer_fire(&mock_app.ctx);
+	FYAI_TCHECK(fyai_cred_refresh_pending(&mock_app.ctx));
+	STEP_UNTIL(el, !fyai_cred_refresh_pending(&mock_app.ctx));
 	/* The keys and the token request, with no request waiting for them. */
 	FYAI_TCHECK(m.nseen == 2 && m.extra == 0);
-	FYAI_TCHECK(!fyai_auth_store_load(&ctx));
-	FYAI_TCHECK(!strcmp(fyai_auth_store_token(&ctx), "renewed-access"));
+	FYAI_TCHECK(!fyai_auth_store_load(&mock_app.ctx));
+	FYAI_TCHECK(!strcmp(fyai_auth_store_token(&mock_app.ctx), "renewed-access"));
 	/* The next refresh is armed for the new token. */
-	at = fyai_cred_scheduled_at(&ctx);
+	at = fyai_cred_scheduled_at(&mock_app.ctx);
 	FYAI_TCHECK(at > time(NULL) + 3000);
 
 	free(token);
@@ -512,14 +512,14 @@ int cred_schedule_sibling(void)
 	long long later = (long long)time(NULL) + 7200;
 
 	store_setup_expiring(dir, (long long)time(NULL) + 3600);
-	el = fyai_ctx_loop(&ctx);
+	el = fyai_ctx_loop(&mock_app.ctx);
 	FYAI_TCHECK(el);
 	mock_start(&m, NULL, 0);
-	FYAI_TCHECK(fyai_cred_prepare(&ctx, LOGIN, NULL, false) == 0);
+	FYAI_TCHECK(fyai_cred_prepare(&mock_app.ctx, LOGIN, NULL, false) == 0);
 	store_write_token("sibling-access", later);
-	fyai_cred_timer_fire(&ctx);
-	FYAI_TCHECK(!fyai_cred_refresh_pending(&ctx));
-	FYAI_TCHECK(fyai_cred_scheduled_at(&ctx) == (time_t)later - 300);
+	fyai_cred_timer_fire(&mock_app.ctx);
+	FYAI_TCHECK(!fyai_cred_refresh_pending(&mock_app.ctx));
+	FYAI_TCHECK(fyai_cred_scheduled_at(&mock_app.ctx) == (time_t)later - 300);
 	FYAI_TCHECK(m.nseen == 0);
 	/* No login at all: nothing to keep fresh, and no timer. */
 	{
@@ -528,8 +528,8 @@ int cred_schedule_sibling(void)
 		snprintf(path, sizeof(path), "%s/auth.json", dir);
 		FYAI_TCHECK(!unlink(path));
 	}
-	fyai_cred_timer_fire(&ctx);
-	FYAI_TCHECK(fyai_cred_scheduled_at(&ctx) == 0 && !fyai_cred_refresh_pending(&ctx));
+	fyai_cred_timer_fire(&mock_app.ctx);
+	FYAI_TCHECK(fyai_cred_scheduled_at(&mock_app.ctx) == 0 && !fyai_cred_refresh_pending(&mock_app.ctx));
 	mock_stop(&m);
 	store_remove(dir);
 	printf("ok - the timer waits again when another process renewed the token\n");
@@ -546,15 +546,15 @@ int cred_schedule_failure(void)
 	time_t at;
 
 	store_setup_expiring(dir, (long long)time(NULL) + 3600);
-	el = fyai_ctx_loop(&ctx);
+	el = fyai_ctx_loop(&mock_app.ctx);
 	FYAI_TCHECK(el);
 	mock_start(&m, script, 1);
-	FYAI_TCHECK(fyai_cred_prepare(&ctx, LOGIN, NULL, false) == 0);
+	FYAI_TCHECK(fyai_cred_prepare(&mock_app.ctx, LOGIN, NULL, false) == 0);
 	store_write_token("old-access", (long long)time(NULL) + 100);
-	fyai_cred_timer_fire(&ctx);
-	STEP_UNTIL(el, !fyai_cred_refresh_pending(&ctx));
+	fyai_cred_timer_fire(&mock_app.ctx);
+	STEP_UNTIL(el, !fyai_cred_refresh_pending(&mock_app.ctx));
 	FYAI_TCHECK(m.nseen == 1);
-	at = fyai_cred_scheduled_at(&ctx);
+	at = fyai_cred_scheduled_at(&mock_app.ctx);
 	FYAI_TCHECK(at > time(NULL) + 200 && at <= time(NULL) + 300);
 	mock_stop(&m);
 	store_remove(dir);
@@ -570,14 +570,14 @@ int cred_schedule_release(void)
 	unsigned int base;
 
 	store_setup_expiring(dir, (long long)time(NULL) + 3600);
-	el = fyai_ctx_loop(&ctx);
+	el = fyai_ctx_loop(&mock_app.ctx);
 	FYAI_TCHECK(el);
 	base = fyai_event_loop_source_count(el);
-	FYAI_TCHECK(fyai_cred_prepare(&ctx, LOGIN, NULL, false) == 0);
+	FYAI_TCHECK(fyai_cred_prepare(&mock_app.ctx, LOGIN, NULL, false) == 0);
 	FYAI_TCHECK(fyai_event_loop_source_count(el) == base + 1);
-	fyai_cred_release(&ctx);
+	fyai_cred_release(&mock_app.ctx);
 	FYAI_TCHECK(fyai_event_loop_source_count(el) == base);
-	FYAI_TCHECK(fyai_cred_scheduled_at(&ctx) == 0);
+	FYAI_TCHECK(fyai_cred_scheduled_at(&mock_app.ctx) == 0);
 	store_remove(dir);
 	printf("ok - the scheduled refresh ends with the state\n");
 	return 0;

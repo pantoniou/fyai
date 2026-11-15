@@ -49,25 +49,25 @@ static void xfer_done(struct fyai_xfer *x, void *ud)
 
 	r->count++;
 	r->code = fyai_xfer_result(x);
-	r->status = fyai_xfer_last_status(&ctx);
+	r->status = fyai_xfer_last_status(&mock_app.ctx);
 	r->done = true;
 }
 
 static void request_setup(const struct mock *m)
 {
-	if (!ctx.link->curl) {
-		ctx.link->curl = curl_easy_init();
-		FYAI_TCHECK(ctx.link->curl);
-		curl_easy_setopt(ctx.link->curl, CURLOPT_NOSIGNAL, 1L);
+	if (!mock_app.ctx.link->curl) {
+		mock_app.ctx.link->curl = curl_easy_init();
+		FYAI_TCHECK(mock_app.ctx.link->curl);
+		curl_easy_setopt(mock_app.ctx.link->curl, CURLOPT_NOSIGNAL, 1L);
 	}
-	curl_slist_free_all(ctx.link->headers);
-	ctx.link->headers = NULL;
-	FYAI_TCHECK(!append_header(&ctx.link->headers, "Content-Type: application/json"));
-	curl_easy_setopt(ctx.link->curl, CURLOPT_HTTPHEADER, ctx.link->headers);
+	curl_slist_free_all(mock_app.ctx.link->headers);
+	mock_app.ctx.link->headers = NULL;
+	FYAI_TCHECK(!append_header(&mock_app.ctx.link->headers, "Content-Type: application/json"));
+	curl_easy_setopt(mock_app.ctx.link->curl, CURLOPT_HTTPHEADER, mock_app.ctx.link->headers);
 	cfg.chatgpt_auth = true;
 	cfg.api_url = OPENAI_RESPONSES_URL;
-	fyai_xfer_set_body(&ctx, "{}");
-	fyai_xfer_set_endpoint(&ctx, mock_url(m), NULL);
+	fyai_xfer_set_body(&mock_app.ctx, "{}");
+	fyai_xfer_set_endpoint(&mock_app.ctx, mock_url(m), NULL);
 }
 
 static bool body_is(const struct result *r, const char *text)
@@ -87,10 +87,10 @@ int xfer_login_sends_the_token(void)
 	char dir[] = "/tmp/fyai-xfer-XXXXXX";
 
 	store_setup_expiring(dir, (long long)time(NULL) + 3600);
-	el = fyai_ctx_loop(&ctx);
+	el = fyai_ctx_loop(&mock_app.ctx);
 	mock_start(&m, script, 1);
 	request_setup(&m);
-	x = fyai_xfer_submit(&ctx, body_write, &r, xfer_done, &r);
+	x = fyai_xfer_submit(&mock_app.ctx, body_write, &r, xfer_done, &r);
 	FYAI_TCHECK(x);
 	STEP_UNTIL(el, r.done);
 	FYAI_TCHECK(r.count == 1 && r.code == CURLE_OK && r.status == 200);
@@ -120,10 +120,10 @@ int xfer_login_token_changed(void)
 	char dir[] = "/tmp/fyai-xfer-XXXXXX";
 
 	store_setup_expiring(dir, (long long)time(NULL) + 3600);
-	el = fyai_ctx_loop(&ctx);
+	el = fyai_ctx_loop(&mock_app.ctx);
 	mock_start(&m, script, 2);
 	request_setup(&m);
-	x = fyai_xfer_submit(&ctx, body_write, &r, xfer_done, &r);
+	x = fyai_xfer_submit(&mock_app.ctx, body_write, &r, xfer_done, &r);
 	FYAI_TCHECK(x);
 	STEP_UNTIL(el, m.nheld == 1);
 	/* A sibling renewed the login while this request was out. */
@@ -154,10 +154,10 @@ int xfer_login_second_401(void)
 	char dir[] = "/tmp/fyai-xfer-XXXXXX";
 
 	store_setup_expiring(dir, (long long)time(NULL) + 3600);
-	el = fyai_ctx_loop(&ctx);
+	el = fyai_ctx_loop(&mock_app.ctx);
 	mock_start(&m, script, 2);
 	request_setup(&m);
-	x = fyai_xfer_submit(&ctx, body_write, &r, xfer_done, &r);
+	x = fyai_xfer_submit(&mock_app.ctx, body_write, &r, xfer_done, &r);
 	FYAI_TCHECK(x);
 	STEP_UNTIL(el, m.nheld == 1);
 	store_write_token("new-access", (long long)time(NULL) + 3600);
@@ -185,10 +185,10 @@ int xfer_login_unrenewable(void)
 	char dir[] = "/tmp/fyai-xfer-XXXXXX", path[300];
 
 	store_setup_expiring(dir, (long long)time(NULL) + 3600);
-	el = fyai_ctx_loop(&ctx);
+	el = fyai_ctx_loop(&mock_app.ctx);
 	mock_start(&m, script, 1);
 	request_setup(&m);
-	x = fyai_xfer_submit(&ctx, body_write, &r, xfer_done, &r);
+	x = fyai_xfer_submit(&mock_app.ctx, body_write, &r, xfer_done, &r);
 	FYAI_TCHECK(x);
 	STEP_UNTIL(el, m.nheld == 1);
 	snprintf(path, sizeof(path), "%s/auth.json", dir);
@@ -218,10 +218,10 @@ int xfer_login_failed_refresh(void)
 	char dir[] = "/tmp/fyai-xfer-XXXXXX";
 
 	store_setup_expiring(dir, (long long)time(NULL) + 3600);
-	el = fyai_ctx_loop(&ctx);
+	el = fyai_ctx_loop(&mock_app.ctx);
 	mock_start(&m, script, 2);
 	request_setup(&m);
-	x = fyai_xfer_submit(&ctx, body_write, &r, xfer_done, &r);
+	x = fyai_xfer_submit(&mock_app.ctx, body_write, &r, xfer_done, &r);
 	FYAI_TCHECK(x);
 	STEP_UNTIL(el, m.nheld == 1);
 	mock_release(&m);
@@ -252,10 +252,10 @@ int xfer_login_due_waits(void)
 	char dir[] = "/tmp/fyai-xfer-XXXXXX";
 
 	store_setup(dir);
-	el = fyai_ctx_loop(&ctx);
+	el = fyai_ctx_loop(&mock_app.ctx);
 	mock_start(&m, script, 1);
 	request_setup(&m);
-	x = fyai_xfer_submit(&ctx, body_write, &r, xfer_done, &r);
+	x = fyai_xfer_submit(&mock_app.ctx, body_write, &r, xfer_done, &r);
 	FYAI_TCHECK(x);
 	FYAI_TCHECK(!r.done);
 	STEP_UNTIL(el, r.done);
@@ -283,14 +283,14 @@ int xfer_login_due_renews(void)
 	char dir[] = "/tmp/fyai-xfer-XXXXXX", *token;
 
 	store_setup(dir);
-	el = fyai_ctx_loop(&ctx);
+	el = fyai_ctx_loop(&mock_app.ctx);
 	issuer_open(&is);
 	token = issuer_token_body(&is, "renewed-access", "renewed-refresh");
 	script[0].body = is.jwks;
 	script[1].body = token;
 	mock_start(&m, script, 3);
 	request_setup(&m);
-	x = fyai_xfer_submit(&ctx, body_write, &r, xfer_done, &r);
+	x = fyai_xfer_submit(&mock_app.ctx, body_write, &r, xfer_done, &r);
 	FYAI_TCHECK(x);
 	FYAI_TCHECK(!r.done);
 	STEP_UNTIL(el, r.done);
@@ -321,14 +321,14 @@ int xfer_login_renews_after_401(void)
 	char dir[] = "/tmp/fyai-xfer-XXXXXX", *token;
 
 	store_setup_expiring(dir, (long long)time(NULL) + 3600);
-	el = fyai_ctx_loop(&ctx);
+	el = fyai_ctx_loop(&mock_app.ctx);
 	issuer_open(&is);
 	token = issuer_token_body(&is, "renewed-access", "renewed-refresh");
 	script[1].body = is.jwks;
 	script[2].body = token;
 	mock_start(&m, script, 4);
 	request_setup(&m);
-	x = fyai_xfer_submit(&ctx, body_write, &r, xfer_done, &r);
+	x = fyai_xfer_submit(&mock_app.ctx, body_write, &r, xfer_done, &r);
 	FYAI_TCHECK(x);
 	STEP_UNTIL(el, r.done);
 	FYAI_TCHECK(r.count == 1 && r.code == CURLE_OK && r.status == 200);
@@ -364,10 +364,10 @@ int xfer_login_cancel_parked(void)
 	snprintf(path, sizeof(path), "%s/auth.lock", dir);
 	held = open(path, O_RDWR | O_CREAT | O_CLOEXEC, 0600);
 	FYAI_TCHECK(held >= 0 && !flock(held, LOCK_EX | LOCK_NB));
-	el = fyai_ctx_loop(&ctx);
+	el = fyai_ctx_loop(&mock_app.ctx);
 	mock_start(&m, script, 1);
 	request_setup(&m);
-	x = fyai_xfer_submit(&ctx, body_write, &r, xfer_done, &r);
+	x = fyai_xfer_submit(&mock_app.ctx, body_write, &r, xfer_done, &r);
 	FYAI_TCHECK(x && !r.done);
 	fyai_xfer_cancel(x);
 	/* The end comes from the loop, not from the cancel. */
@@ -397,10 +397,10 @@ int xfer_login_cancel_sent(void)
 	char dir[] = "/tmp/fyai-xfer-XXXXXX";
 
 	store_setup_expiring(dir, (long long)time(NULL) + 3600);
-	el = fyai_ctx_loop(&ctx);
+	el = fyai_ctx_loop(&mock_app.ctx);
 	mock_start(&m, script, 2);
 	request_setup(&m);
-	x = fyai_xfer_submit(&ctx, body_write, &r, xfer_done, &r);
+	x = fyai_xfer_submit(&mock_app.ctx, body_write, &r, xfer_done, &r);
 	FYAI_TCHECK(x);
 	STEP_UNTIL(el, m.nheld == 1);
 	store_write_token("new-access", (long long)time(NULL) + 3600);
@@ -430,13 +430,13 @@ int xfer_login_api_key(void)
 
 	/* The store only sets up the builders; the request never reads it. */
 	store_setup_expiring(dir, (long long)time(NULL) + 3600);
-	el = fyai_ctx_loop(&ctx);
+	el = fyai_ctx_loop(&mock_app.ctx);
 	mock_start(&m, script, 1);
 	request_setup(&m);
 	cfg.chatgpt_auth = false;
-	FYAI_TCHECK(!append_header(&ctx.link->headers, "Authorization: Bearer sk-test"));
-	curl_easy_setopt(ctx.link->curl, CURLOPT_HTTPHEADER, ctx.link->headers);
-	x = fyai_xfer_submit(&ctx, body_write, &r, xfer_done, &r);
+	FYAI_TCHECK(!append_header(&mock_app.ctx.link->headers, "Authorization: Bearer sk-test"));
+	curl_easy_setopt(mock_app.ctx.link->curl, CURLOPT_HTTPHEADER, mock_app.ctx.link->headers);
+	x = fyai_xfer_submit(&mock_app.ctx, body_write, &r, xfer_done, &r);
 	FYAI_TCHECK(x);
 	STEP_UNTIL(el, r.done);
 	FYAI_TCHECK(r.count == 1 && r.code == CURLE_OK && r.status == 401);
@@ -473,17 +473,17 @@ static int rekey_setup(struct mock *m, const struct mock_answer *script,
 	cfg.api_key = fy_gb_intern_string(cfg.gb, first);
 	cfg.api_key_ref = fy_gb_intern_string(cfg.gb,
 					      fy_sprintfa("secret:%s", name));
-	FYAI_TCHECK(!append_header(&ctx.link->headers, "Authorization: Bearer sk-first-0123456789"));
-	ctx.link->auth_header = strdup("Authorization: Bearer sk-first-0123456789");
-	curl_easy_setopt(ctx.link->curl, CURLOPT_HTTPHEADER, ctx.link->headers);
+	FYAI_TCHECK(!append_header(&mock_app.ctx.link->headers, "Authorization: Bearer sk-first-0123456789"));
+	mock_app.ctx.link->auth_header = strdup("Authorization: Bearer sk-first-0123456789");
+	curl_easy_setopt(mock_app.ctx.link->curl, CURLOPT_HTTPHEADER, mock_app.ctx.link->headers);
 	return 0;
 }
 
 static void rekey_end(struct mock *m, const char *dir, const char *name)
 {
 	(void)fyai_secret_kernel_delete(fy_sprintfa("fyai:%s", name));
-	free(ctx.link->auth_header);
-	ctx.link->auth_header = NULL;
+	free(mock_app.ctx.link->auth_header);
+	mock_app.ctx.link->auth_header = NULL;
 	cfg.api_key_explicit = false;
 	cfg.api_key = NULL;
 	cfg.api_key_ref = NULL;
@@ -503,14 +503,14 @@ int xfer_rekey_replaced(void)
 	char dir[] = "/tmp/fyai-xfer-XXXXXX";
 	char name[64];
 
-	el = fyai_ctx_loop(&ctx);
+	el = fyai_ctx_loop(&mock_app.ctx);
 	if (rekey_setup(&m, script, 2, dir, name, sizeof(name))) {
 		printf("ok - skipped, no secret store\n");
 		return 0;
 	}
 	FYAI_TCHECK(!fyai_secret_kernel_set(fy_sprintfa("fyai:%s", name), second,
 					    strlen(second)));
-	x = fyai_xfer_submit(&ctx, body_write, &r, xfer_done, &r);
+	x = fyai_xfer_submit(&mock_app.ctx, body_write, &r, xfer_done, &r);
 	FYAI_TCHECK(x);
 	STEP_UNTIL(el, r.done);
 	FYAI_TCHECK(r.count == 1 && r.code == CURLE_OK && r.status == 200);
@@ -535,12 +535,12 @@ int xfer_rekey_same(void)
 	char dir[] = "/tmp/fyai-xfer-XXXXXX";
 	char name[64];
 
-	el = fyai_ctx_loop(&ctx);
+	el = fyai_ctx_loop(&mock_app.ctx);
 	if (rekey_setup(&m, script, 1, dir, name, sizeof(name))) {
 		printf("ok - skipped, no secret store\n");
 		return 0;
 	}
-	x = fyai_xfer_submit(&ctx, body_write, &r, xfer_done, &r);
+	x = fyai_xfer_submit(&mock_app.ctx, body_write, &r, xfer_done, &r);
 	FYAI_TCHECK(x);
 	STEP_UNTIL(el, r.done);
 	FYAI_TCHECK(r.count == 1 && r.code == CURLE_OK && r.status == 401);

@@ -48,8 +48,8 @@ struct fyai_cred_mem {
 
 /*
  * The one refresh of the login in this process, its waiters, and the secrets
- * kept in memory. The component depends on the loop for its timer; @ctx is
- * the context that the refresh runs the login for, set by fyai_cred_bind().
+ * kept in memory. The component depends on the loop for its timer. It is a
+ * member of struct fyai_app, and fyai_cred_ctx() gives the context of that app.
  */
 struct fyai_cred {
 	/* The login: the tokens, in the builder below, and the refreshes cut loose. */
@@ -58,7 +58,6 @@ struct fyai_cred {
 	/* Refresh requests whose token request is out after a cancel. */
 	unsigned int auth_detached;
 	struct fyai_loop *loop;			/* dependency: the timer */
-	struct fyai_ctx *ctx;			/* the login the refresh serves */
 	struct fyai_event_source *timer;	/* the scheduled refresh */
 	time_t scheduled;			/* when the timer fires, or 0 */
 	struct fyai_auth_refresh_request *refresh;
@@ -69,7 +68,6 @@ struct fyai_cred {
 };
 
 void fyai_cred_init(struct fyai_cred *cred, struct fyai_loop *loop);
-void fyai_cred_bind(struct fyai_cred *cred, struct fyai_ctx *ctx);
 
 /*
  * Make the credential of @source usable before a request reads it. Returns 0

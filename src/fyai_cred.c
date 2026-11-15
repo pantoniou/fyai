@@ -14,6 +14,7 @@
 #include <curl/curl.h>
 
 #include "fyai.h"
+#include "fyai_app.h"
 #include "fyai_auth.h"
 #include "fyai_cred.h"
 #include "fyai_event.h"
@@ -50,11 +51,6 @@ void fyai_cred_init(struct fyai_cred *cred, struct fyai_loop *loop)
 	memset(cred, 0, sizeof(*cred));
 	cred->loop = loop;
 	cred->auth.registrations = fy_invalid;
-}
-
-void fyai_cred_bind(struct fyai_cred *cred, struct fyai_ctx *ctx)
-{
-	cred->ctx = ctx;
 }
 
 bool fyai_cred_refresh_pending(const struct fyai_ctx *ctx)
@@ -182,9 +178,9 @@ static void cred_refresh_done(struct fyai_auth_refresh_request *request,
 	cred->refresh = NULL;
 	/* Keep the new token fresh; a failed refresh waits before it is tried again. */
 	if (!rc)
-		cred_arm(cred->ctx, fyai_auth_store_due_at(cred->ctx));
+		cred_arm(fyai_cred_ctx(cred), fyai_auth_store_due_at(fyai_cred_ctx(cred)));
 	else
-		cred_arm(cred->ctx, time(NULL) + CRED_SCHEDULE_RETRY_S);
+		cred_arm(fyai_cred_ctx(cred), time(NULL) + CRED_SCHEDULE_RETRY_S);
 	list = cred->head;
 	cred->head = cred->tail = NULL;
 	while (list) {

@@ -9,6 +9,8 @@
 #ifndef FYAI_APP_H
 #define FYAI_APP_H
 
+#include <stddef.h>
+
 #include "fyai.h"
 #include "fyai_diag.h"
 #include "fyai_agent_state.h"
@@ -58,6 +60,11 @@ struct fyai_app {
 	struct fyai_link link;		/* depends on loop and cred */
 	struct fyai_cred cred;		/* depends on loop */
 	struct fyai_cfg cfg;		/* depends on diag */
+	/*
+	 * The context of the invocation. It is embedded so that a component of
+	 * the app finds it by position and holds no pointer back to it.
+	 */
+	struct fyai_ctx ctx;
 };
 
 /*
@@ -69,5 +76,24 @@ int fyai_app_init(struct fyai_app *app);
 
 /* Release what the components hold. The diagnostics are drained first. */
 void fyai_app_cleanup(struct fyai_app *app);
+
+/* The application that owns @ctx, which fyai_run() declared in it. */
+#ifndef container_of
+#define container_of(_ptr, _type, _member) \
+	((_type *)((char *)(_ptr) - offsetof(_type, _member)))
+#endif
+
+#define fyai_ctx_app(_ctx) container_of(_ctx, struct fyai_app, ctx)
+
+/*
+ * The context of an application component. A component that the app embeds
+ * holds no pointer to the context: it is a member of the app, as the context
+ * is. A component of the program that is not a member of the app keeps a
+ * pointer of its own and gives it through an accessor of its own.
+ */
+static inline struct fyai_ctx *fyai_cred_ctx(struct fyai_cred *cred)
+{
+	return &container_of(cred, struct fyai_app, cred)->ctx;
+}
 
 #endif

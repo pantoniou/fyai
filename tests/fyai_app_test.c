@@ -371,7 +371,8 @@ int app_wires_cred(void)
 
 	FYAI_TCHECK(!fyai_app_init(&app));
 	FYAI_TCHECK(app.cred.loop == &app.loop);
-	FYAI_TCHECK(!app.cred.ctx && !app.cred.refresh && !app.cred.timer);
+	FYAI_TCHECK(!app.cred.refresh && !app.cred.timer);
+	FYAI_TCHECK(fyai_cred_ctx(&app.cred) == &app.ctx);
 	fyai_app_cleanup(&app);
 	printf("ok - the credential component stands on the loop of the app\n");
 	return 0;
@@ -400,7 +401,6 @@ int app_cred_keeps_secret_until_release(void)
 	memset(&ctx, 0, sizeof(ctx));
 	ctx.cfg = &app.cfg;
 	ctx.cred = &app.cred;
-	fyai_cred_bind(ctx.cred, &ctx);
 	FYAI_TCHECK(!fyai_cred_mem_set(&ctx, "key", "value"));
 	FYAI_TCHECK(!fyai_cred_get(&ctx, "mem:key", &secret, NULL));
 	FYAI_TCHECK(secret && !strcmp(secret, "value"));

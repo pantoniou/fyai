@@ -63,13 +63,13 @@ static void record_write(const char *access, const char *refresh,
 		"access_token", access, "refresh_token", refresh,
 		"expires_at", expires_at);
 	json = emit_json_string(cfg.gb, doc);
-	FYAI_TCHECK(!fyai_auth_store_write(&ctx, "mcp-auth-srv.json", json));
+	FYAI_TCHECK(!fyai_auth_store_write(&mock_app.ctx, "mcp-auth-srv.json", json));
 }
 
 /* The stored value of a field of the record, or "". */
 static const char *record_field(const char *field)
 {
-	char *text = fyai_auth_store_read(&ctx, "mcp-auth-srv.json");
+	char *text = fyai_auth_store_read(&mock_app.ctx, "mcp-auth-srv.json");
 	fy_generic doc;
 	const char *v;
 
@@ -110,10 +110,10 @@ int mcp_oauth_refreshes(void)
 
 	store_setup(dir);
 	record_write("access-1", "refresh-1", 1);
-	el = fyai_ctx_loop(&ctx);
+	el = fyai_ctx_loop(&mock_app.ctx);
 	mock_start(&m, script, 1);
 	spec = spec_for(&m, "access-1", "refresh-1");
-	r = fyai_mcp_oauth_refresh_submit(&ctx, &spec, on_done, &d);
+	r = fyai_mcp_oauth_refresh_submit(&mock_app.ctx, &spec, on_done, &d);
 	FYAI_TCHECK(r && d.count == 0);
 	STEP_UNTIL(el, d.count > 0);
 	FYAI_TCHECK(d.count == 1 && d.outcome == FYAI_MCP_OAUTH_REFRESHED);
@@ -145,10 +145,10 @@ int mcp_oauth_adopts(void)
 
 	store_setup(dir);
 	record_write("sibling-access", "sibling-refresh", (long long)time(NULL) + 3600);
-	el = fyai_ctx_loop(&ctx);
+	el = fyai_ctx_loop(&mock_app.ctx);
 	mock_start(&m, NULL, 0);
 	spec = spec_for(&m, "access-1", "refresh-1");
-	r = fyai_mcp_oauth_refresh_submit(&ctx, &spec, on_done, &d);
+	r = fyai_mcp_oauth_refresh_submit(&mock_app.ctx, &spec, on_done, &d);
 	FYAI_TCHECK(r);
 	STEP_UNTIL(el, d.count > 0);
 	FYAI_TCHECK(d.count == 1 && d.outcome == FYAI_MCP_OAUTH_ADOPTED);
@@ -177,10 +177,10 @@ int mcp_oauth_stored_refresh(void)
 
 	store_setup(dir);
 	record_write("access-1", "rotated-refresh", 1);
-	el = fyai_ctx_loop(&ctx);
+	el = fyai_ctx_loop(&mock_app.ctx);
 	mock_start(&m, script, 1);
 	spec = spec_for(&m, "access-1", "stale-refresh");
-	r = fyai_mcp_oauth_refresh_submit(&ctx, &spec, on_done, &d);
+	r = fyai_mcp_oauth_refresh_submit(&mock_app.ctx, &spec, on_done, &d);
 	FYAI_TCHECK(r);
 	STEP_UNTIL(el, d.count > 0);
 	FYAI_TCHECK(d.outcome == FYAI_MCP_OAUTH_REFRESHED);
@@ -206,10 +206,10 @@ int mcp_oauth_failure(void)
 
 	store_setup(dir);
 	record_write("access-1", "refresh-1", 1);
-	el = fyai_ctx_loop(&ctx);
+	el = fyai_ctx_loop(&mock_app.ctx);
 	mock_start(&m, script, 1);
 	spec = spec_for(&m, "access-1", "refresh-1");
-	r = fyai_mcp_oauth_refresh_submit(&ctx, &spec, on_done, &d);
+	r = fyai_mcp_oauth_refresh_submit(&mock_app.ctx, &spec, on_done, &d);
 	FYAI_TCHECK(r);
 	STEP_UNTIL(el, d.count > 0);
 	FYAI_TCHECK(d.count == 1 && d.outcome == FYAI_MCP_OAUTH_FAILED);
@@ -239,10 +239,10 @@ int mcp_oauth_cancel_wait(void)
 	snprintf(path, sizeof(path), "%s/auth.lock", dir);
 	held = open(path, O_RDWR | O_CREAT | O_CLOEXEC, 0600);
 	FYAI_TCHECK(held >= 0 && !flock(held, LOCK_EX | LOCK_NB));
-	el = fyai_ctx_loop(&ctx);
+	el = fyai_ctx_loop(&mock_app.ctx);
 	mock_start(&m, NULL, 0);
 	spec = spec_for(&m, "access-1", "refresh-1");
-	r = fyai_mcp_oauth_refresh_submit(&ctx, &spec, on_done, &d);
+	r = fyai_mcp_oauth_refresh_submit(&mock_app.ctx, &spec, on_done, &d);
 	FYAI_TCHECK(r);
 	for (i = 0; i < 3; i++)
 		FYAI_TCHECK(fyai_event_loop_step(el, 20) >= 0);
@@ -280,10 +280,10 @@ static void token_cancel_case(bool owner_destroys)
 
 	store_setup(dir);
 	record_write("access-1", "refresh-1", 1);
-	el = fyai_ctx_loop(&ctx);
+	el = fyai_ctx_loop(&mock_app.ctx);
 	mock_start(&m, script, 1);
 	spec = spec_for(&m, "access-1", "refresh-1");
-	r = fyai_mcp_oauth_refresh_submit(&ctx, &spec, on_done, &d);
+	r = fyai_mcp_oauth_refresh_submit(&mock_app.ctx, &spec, on_done, &d);
 	FYAI_TCHECK(r);
 	STEP_UNTIL(el, m.nheld == 1);
 
@@ -332,10 +332,10 @@ int mcp_oauth_abort(void)
 
 	store_setup(dir);
 	record_write("access-1", "refresh-1", 1);
-	el = fyai_ctx_loop(&ctx);
+	el = fyai_ctx_loop(&mock_app.ctx);
 	mock_start(&m, script, 1);
 	spec = spec_for(&m, "access-1", "refresh-1");
-	r = fyai_mcp_oauth_refresh_submit(&ctx, &spec, on_done, &d);
+	r = fyai_mcp_oauth_refresh_submit(&mock_app.ctx, &spec, on_done, &d);
 	FYAI_TCHECK(r);
 	STEP_UNTIL(el, m.nheld == 1);
 	fyai_mcp_oauth_refresh_abort(r);
@@ -366,12 +366,12 @@ int mcp_oauth_destroy_wait(void)
 	snprintf(path, sizeof(path), "%s/auth.lock", dir);
 	held = open(path, O_RDWR | O_CREAT | O_CLOEXEC, 0600);
 	FYAI_TCHECK(held >= 0 && !flock(held, LOCK_EX | LOCK_NB));
-	el = fyai_ctx_loop(&ctx);
+	el = fyai_ctx_loop(&mock_app.ctx);
 	base = fyai_event_loop_source_count(el);
 	mock_start(&m, NULL, 0);
 	spec = spec_for(&m, "access-1", "refresh-1");
 	base = fyai_event_loop_source_count(el);
-	r = fyai_mcp_oauth_refresh_submit(&ctx, &spec, on_done, &d);
+	r = fyai_mcp_oauth_refresh_submit(&mock_app.ctx, &spec, on_done, &d);
 	FYAI_TCHECK(r);
 	fyai_mcp_oauth_refresh_destroy(r);
 	FYAI_TCHECK(!flock(held, LOCK_UN));

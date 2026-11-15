@@ -2753,7 +2753,6 @@ int fyai_setup(struct fyai_ctx *ctx, struct fyai_app *app)
 	ctx->tty = &app->tty;
 	ctx->skills = &app->skills;
 	ctx->toolspec = &app->toolspec;
-	fyai_cred_bind(ctx->cred, ctx);
 	ctx->transient->on_release = fyai_transient_released;
 	ctx->transient->on_release_data = ctx;
 	/* A wait that stands on the loop looks at an interrupt when it comes. */
@@ -4355,7 +4354,7 @@ const struct fyai_verb *fyai_cfg_verb(struct fyai_cfg *cfg)
 int fyai_run(struct fyai_app *app)
 {
 	struct fyai_cfg *cfg = &app->cfg;
-	struct fyai_ctx ctx;
+	struct fyai_ctx *ctx = &app->ctx;
 	const char *config, *session;
 	int rc;
 
@@ -4365,35 +4364,35 @@ int fyai_run(struct fyai_app *app)
 	 * debug whenever the callee said why - and stays the reported error when
 	 * nothing else did.
 	 */
-	rc = fyai_setup(&ctx, app);
+	rc = fyai_setup(ctx, app);
 	fyai_cfg_error_check(cfg, !rc, err_out, "failed to initialize fyai");
 
 	/* Persist/replay any global --set/--delete/--get before the verb runs. */
-	rc = fyai_apply_config_ops(&ctx);
+	rc = fyai_apply_config_ops(ctx);
 	fyai_cfg_error_check(cfg, !rc, err_out, "config operation failed");
 
-	rc = fyai_view_session_bootstrap(&ctx);
+	rc = fyai_view_session_bootstrap(ctx);
 	fyai_cfg_error_check(cfg, rc >= 0, err_out, "could not run the session in a view");
 	if (rc > 0) {
 		rc = 0;
 		goto out;
 	}
-	fyai_config_sandbox_report(&ctx);
-	rc = fyai_execute(&ctx);
+	fyai_config_sandbox_report(ctx);
+	rc = fyai_execute(ctx);
 	fyai_cfg_error_check(cfg, !rc, err_out, "fyai execution failed");
 	if (cfg->reload_branch) {
 		config = emit_json_string(cfg->gb, cfg->config_doc);
 		session = emit_json_string(cfg->gb,
 			fy_is_valid(cfg->config_session) ?
 			cfg->config_session : fy_null);
-		fyai_error_check(&ctx, config && session, err_out,
+		fyai_error_check(ctx, config && session, err_out,
 				 "reload: cannot serialize configuration");
 		cfg->reload_config = strdup(config);
 		cfg->reload_session = strdup(session);
 		cfg->reload_arena = strdup(cfg->arena_dir);
 		if (cfg->api_key_explicit && cfg->api_key)
 			cfg->reload_key = strdup(cfg->api_key);
-		fyai_error_check(&ctx, cfg->reload_config && cfg->reload_session &&
+		fyai_error_check(ctx, cfg->reload_config && cfg->reload_session &&
 			cfg->reload_arena &&
 			(!cfg->api_key_explicit || !cfg->api_key ||
 			 cfg->reload_key), err_out,
@@ -4406,7 +4405,7 @@ out:
 	 * path out of a verb and nothing collected can be dropped unreported.
 	 */
 	fyai_diag_drain(fyai_cfg_diag(cfg));
-	fyai_cleanup(&ctx);
+	fyai_cleanup(ctx);
 	/* Teardown can report after the first drain. */
 	fyai_diag_drain(fyai_cfg_diag(cfg));
 	return rc ? -1 : 0;

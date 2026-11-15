@@ -175,7 +175,14 @@ initialize each generic field explicitly.
   client, the waits, the questions, the tool scope, the terminal, the skill
   files, the tool specification, the branch cursor, the usage totals, the turn
   state, the tool jobs, the sub-agent identity, the front end and the
-  configuration.
+  configuration. The context of the invocation is a member of the app
+  (`app->ctx`).
+- A component finds its context through an accessor, not through a field that
+  the callers read. A component that is a member of `struct fyai_app` holds no
+  pointer to the context: its accessor uses `container_of()` on the app
+  (`fyai_cred_ctx()`). An object of which many stand on one context (a
+  connection, a request, a tile) keeps a pointer of its own and gives it
+  through an accessor of its own (`mcp_ctx()`).
 - `src/fyai_arena.c`: `struct fyai_arena`, the durable and working builders of
   the canonical state. `ctx->arena` points at the one in the app; read
   `ctx->arena->gb` where you need the working builder.

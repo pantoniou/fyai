@@ -218,7 +218,6 @@ int auth_plan_permission(void)
 
 	cfg.gb = fy_generic_builder_create(&config);
 	fyai_cred_init(&cred, fyai_test_loop_of(&ctx));
-	fyai_cred_bind(&cred, &ctx);
 	fyai_test_transient_of(&ctx)->gb = cfg.gb;
 	tokens = fy_mapping(cfg.gb, "access_token", "oauth-access",
 		"refresh_token", "refresh-1", "id_token", "id-token",
@@ -370,7 +369,6 @@ int auth_billing_route(void)
 	cfg.auth_state_dir = created;
 	cfg.gb = fy_generic_builder_create(&config);
 	fyai_cred_init(&cred, fyai_test_loop_of(&ctx));
-	fyai_cred_bind(&cred, &ctx);
 	fyai_test_transient_of(&ctx)->gb = cfg.gb;
 	record = fy_mapping(cfg.gb, "type", "chatgpt", "client_id", "oaiapp_test",
 		"ext_agent_host_id", "urn:uuid:00000000-0000-4000-8000-000000000000",

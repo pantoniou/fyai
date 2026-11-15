@@ -247,10 +247,10 @@ Each step builds, passes both suites, and lands as its own patch series
    consumers. `cred` is done in part: `struct fyai_cred` is in the app and
    holds the refresh, its waiters, the timer and the secrets kept in memory.
    It stands on `loop` for its timer. The credentials (`auth`, `auth_gb`,
-   `auth_detached`) are in it too. It still names the context that the
-   refresh serves (`cred->ctx`), because `fyai_auth_*` takes `ctx` for the
-   configuration, the curl handle and the transient builder; that pointer goes
-   when those functions take their components.
+   `auth_detached`) are in it too. It holds no pointer to the context: `fyai_cred_ctx()` finds it, because the
+   context is a member of the app as the component is. `fyai_auth_*` still
+   takes `ctx` for the configuration, the curl handle and the transient
+   builder, until those functions take their components.
    `link` holds the model connection: the curl handle, its headers, the
    transfer in progress and its outcome, the curl multi state and the request
    cache. It stands on `loop` and `cred`. `struct fyai_xfer` is a request, not

@@ -31,6 +31,7 @@
 #include "fyai.h"
 #include "fyai_auth.h"
 #include "fyai_auth_util.h"
+#include "fyai_app.h"
 #include "fyai_cred.h"
 #include "fyai_event.h"
 #include "fyai_httpd.h"
@@ -43,18 +44,25 @@
 
 static struct fyai_cfg cfg;
 static struct fyai_loop loop = { .dump_fd = -1 };
-static struct fyai_ctx ctx;
-static struct fyai_ctx ctx = { .cfg = &cfg, .loop = &loop };
+/* The component lives in an app, as in the program, so it finds its context. */
+static struct fyai_app mock_app;
+
+static void __attribute__((constructor)) mock_ctx_setup(void)
+{
+	mock_app.ctx.cfg = &cfg;
+	mock_app.ctx.loop = &loop;
+}
 
 /* The credential component is held by the context. */
 __attribute__((unused)) static void mock_cred(void)
 {
-	if (ctx.cred)
+	if (mock_app.ctx.cred)
 		return;
-	ctx.cred = calloc(1, sizeof(*ctx.cred));
-	fyai_test_transport_of(&ctx);
-	fyai_cred_init(ctx.cred, &loop);
-	fyai_cred_bind(ctx.cred, &ctx);
+	mock_app.ctx.cfg = &cfg;
+	mock_app.ctx.loop = &loop;
+	mock_app.ctx.cred = &mock_app.cred;
+	fyai_test_transport_of(&mock_app.ctx);
+	fyai_cred_init(mock_app.ctx.cred, &loop);
 }
 static bool diag_ready;
 
@@ -72,7 +80,7 @@ __attribute__((unused)) static void store_write_token(const char *access, long l
 		"access_token", access, "refresh_token", "old-refresh",
 		"id_token", "old-id", "expires_at", expires);
 	json = emit_json_string(cfg.gb, record);
-	rc = fyai_auth_store_write(&ctx, "auth.json", json);
+	rc = fyai_auth_store_write(&mock_app.ctx, "auth.json", json);
 	FYAI_TCHECK(!rc);
 }
 
@@ -80,11 +88,11 @@ __attribute__((unused)) static void store_setup_expiring(char *dir, long long ex
 {
 	struct fy_generic_builder_cfg config = { .flags = FYGBCF_SCOPE_LEADER };
 
-	fyai_test_link_of(&ctx)->loop = &loop;
+	fyai_test_link_of(&mock_app.ctx)->loop = &loop;
 	mock_cred();
 	if (!cfg.gb) {
 		cfg.gb = fy_generic_builder_create(&config);
-		fyai_test_transient_of(&ctx)->gb = cfg.gb;
+		fyai_test_transient_of(&mock_app.ctx)->gb = cfg.gb;
 	}
 	/* The tests own the store: never the keyring or the keychain of the host. */
 	FYAI_TCHECK(!setenv("FYAI_AUTH_STORAGE", "file", 1));
@@ -250,11 +258,11 @@ __attribute__((unused)) static void mock_start(struct mock *m,
 		diag_ready = true;
 	}
 	mock_cred();
-	fyai_test_link_of(&ctx)->loop = &loop;
+	fyai_test_link_of(&mock_app.ctx)->loop = &loop;
 	memset(m, 0, sizeof(*m));
 	m->script = script;
 	m->n = n;
-	m->h = fyai_httpd_new(&ctx, &opts, &ops);
+	m->h = fyai_httpd_new(&mock_app.ctx, &opts, &ops);
 	FYAI_TCHECK(m->h);
 	rc = fyai_httpd_listen(m->h, "127.0.0.1:0", NULL, m->bound, sizeof(m->bound));
 	FYAI_TCHECK(!rc);

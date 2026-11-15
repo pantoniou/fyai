@@ -139,6 +139,15 @@ struct fyai_mcp_ctx {
 	bool term_done;
 };
 
+/*
+ * The context of a connection. Many connections stand on one context, so each
+ * keeps a pointer to it, and the rest of this file reads it here.
+ */
+static inline struct fyai_ctx *mcp_ctx(const struct fyai_mcp_ctx *mcp)
+{
+	return mcp->ctx;
+}
+
 static void mcp_oauth_secret_free(char **secretp)
 {
 	size_t len;
@@ -176,7 +185,7 @@ static void mcp_set_error(struct fyai_mcp_ctx *mcp, const char *fmt, ...)
 	va_start(ap, fmt);
 	message = fy_vsprintfa(fmt, ap);
 	va_end(ap);
-	mcp->last_error = fy_gb_intern_string(mcp->ctx->cfg->gb, message);
+	mcp->last_error = fy_gb_intern_string(mcp_ctx(mcp)->cfg->gb, message);
 }
 
 static void mcp_stdio_stop(struct fyai_ctx *ctx, struct fyai_mcp_ctx *mcp);
@@ -283,7 +292,7 @@ static void mcp_http_response_header(void *userdata, const char *line,
 		p++;
 	while (end > p && isspace((unsigned char)end[-1]))
 		end--;
-	mcp->session_id = fy_gb_intern_string(mcp->ctx->cfg->gb,
+	mcp->session_id = fy_gb_intern_string(mcp_ctx(mcp)->cfg->gb,
 			fy_sprintfa("%.*s", (int)(end - p), p));
 }
 
@@ -707,7 +716,7 @@ static void mcp_startup_settle(struct mcp_startup *su,
 			       enum mcp_server_state state)
 {
 	struct fyai_mcp_ctx *mcp = su->mcp;
-	struct fyai_ctx *ctx = mcp->ctx;
+	struct fyai_ctx *ctx = mcp_ctx(mcp);
 
 	if (su->timer) {
 		fyai_event_source_remove(su->timer);
@@ -921,18 +930,18 @@ static int mcp_oauth_store_load(struct fyai_mcp_ctx *mcp)
 	name = mcp_oauth_store_name(mcp);
 	if (!name)
 		return -1;
-	text = fyai_auth_store_read(mcp->ctx, name);
+	text = fyai_auth_store_read(mcp_ctx(mcp), name);
 	free(name);
 	if (!text)
 		return 0;
-	gb = fyai_ctx_transient_gb(mcp->ctx);
+	gb = fyai_ctx_transient_gb(mcp_ctx(mcp));
 	doc = parse_json_string(gb, text);
 	free(text);
 	if (!fy_is_mapping(doc))
 		return -1;
 	issuer = fy_get(doc, "issuer", "");
 	if (strcmp(issuer, mcp->oauth_issuer)) {
-		fyai_debug(mcp->ctx,
+		fyai_debug(mcp_ctx(mcp),
 			"MCP %s ignored OAuth cache: issuer changed",
 			mcp->name);
 		return 0;
@@ -941,7 +950,7 @@ static int mcp_oauth_store_load(struct fyai_mcp_ctx *mcp)
 	scopes = fy_get(doc, "scopes", "");
 	resource = fy_get(doc, "resource", "");
 	if (strcmp(resource, mcp->oauth_resource)) {
-		fyai_debug(mcp->ctx,
+		fyai_debug(mcp_ctx(mcp),
 			"MCP %s ignored OAuth cache: resource changed",
 			mcp->name);
 		return 0;
@@ -949,14 +958,14 @@ static int mcp_oauth_store_load(struct fyai_mcp_ctx *mcp)
 	if (mcp->oauth_client_configured &&
 	    (strcmp(client_id, mcp->oauth_client_id) ||
 	     strcmp(scopes, mcp->oauth_scopes))) {
-		fyai_debug(mcp->ctx,
+		fyai_debug(mcp_ctx(mcp),
 			"MCP %s ignored OAuth cache: client changed",
 			mcp->name);
 		return 0;
 	}
 	if (!mcp->oauth_client_configured) {
 		mcp_oauth_secret_free(&mcp->oauth_client_secret);
-		mcp->oauth_client_id = fyai_ctx_keep_str(mcp->ctx, client_id);
+		mcp->oauth_client_id = fyai_ctx_keep_str(mcp_ctx(mcp), client_id);
 		mcp->oauth_client_secret =
 			strdup(fy_get(doc, "client_secret", ""));
 		if (!mcp->oauth_client_id || !mcp->oauth_client_secret)
@@ -981,7 +990,7 @@ static int mcp_oauth_store_save(struct fyai_mcp_ctx *mcp)
 	int lockfd;
 	int rc;
 
-	gb = fyai_ctx_transient_gb(mcp->ctx);
+	gb = fyai_ctx_transient_gb(mcp_ctx(mcp));
 	doc = fy_mapping(gb,
 		"server", mcp->name,
 		"issuer", mcp->oauth_issuer,
@@ -1000,7 +1009,7 @@ static int mcp_oauth_store_save(struct fyai_mcp_ctx *mcp)
 	json = emit_json_string(gb, doc);
 	if (!json)
 		return -1;
-	lockfd = fyai_auth_store_lock(mcp->ctx, true);
+	lockfd = fyai_auth_store_lock(mcp_ctx(mcp), true);
 	if (lockfd == -2)
 		return -2;
 	if (lockfd < 0)
@@ -1010,7 +1019,7 @@ static int mcp_oauth_store_save(struct fyai_mcp_ctx *mcp)
 		fyai_auth_store_unlock(lockfd);
 		return -1;
 	}
-	rc = fyai_auth_store_write(mcp->ctx, name, json);
+	rc = fyai_auth_store_write(mcp_ctx(mcp), name, json);
 	free(name);
 	fyai_auth_store_unlock(lockfd);
 	return rc;
@@ -1025,7 +1034,7 @@ static void mcp_oauth_discovery_fail(struct mcp_oauth_discovery *od,
 
 	su = od->startup;
 	mcp = od->mcp;
-	ctx = mcp->ctx;
+	ctx = mcp_ctx(mcp);
 	od->state = MCP_OD_FAILED;
 	mcp_set_error(mcp, "OAuth discovery: %s", message);
 	fyai_error(ctx, "MCP server '%s' OAuth discovery failed: %s",
@@ -1177,7 +1186,7 @@ static char *mcp_oauth_scope_param(struct fyai_mcp_ctx *mcp)
 
 	if (!mcp->oauth_scopes)
 		return strdup("");
-	gb = fyai_ctx_transient_gb(mcp->ctx);
+	gb = fyai_ctx_transient_gb(mcp_ctx(mcp));
 	scopes = parse_json_string(gb, mcp->oauth_scopes);
 	if (!fy_is_sequence(scopes))
 		return NULL;
@@ -1221,10 +1230,10 @@ static int mcp_oauth_receiver_start(struct mcp_oauth_discovery *od)
 	params.nports = ARRAY_SIZE(ports);
 	params.state = od->pkce.state;
 	params.timeout_ms = 300000;
-	el = fyai_ctx_loop(od->mcp->ctx);
+	el = fyai_ctx_loop(mcp_ctx(od->mcp));
 	if (!el)
 		return -1;
-	rc = fyai_oauth_flow_start(od->mcp->ctx, el, &params,
+	rc = fyai_oauth_flow_start(mcp_ctx(od->mcp), el, &params,
 				   mcp_oauth_authorize_done, od, &od->flow);
 	if (rc)
 		return -1;
@@ -1303,7 +1312,7 @@ static int mcp_oauth_authorize_start(struct mcp_oauth_discovery *od)
 	if (!od->url)
 		return -1;
 	lead = fy_sprintfa("Authorize MCP server '%s':", od->mcp->name);
-	fyai_print_login_url(od->mcp->ctx,
+	fyai_print_login_url(mcp_ctx(od->mcp),
 			     lead ? lead : "Authorize the MCP server:",
 			     "open the authorization page", od->url);
 	fyai_oauth_open_browser(od->url);
@@ -1320,7 +1329,7 @@ static void mcp_oauth_refresh_fail(struct fyai_mcp_ctx *mcp,
 	if (mcp->recovering) {
 		mcp->recovering = false;
 		mcp->state = MCP_SRV_FAILED;
-		fyai_warning(mcp->ctx, "MCP server '%s' is unavailable", mcp->name);
+		fyai_warning(mcp_ctx(mcp), "MCP server '%s' is unavailable", mcp->name);
 		return;
 	}
 	if (!su) {
@@ -1412,7 +1421,7 @@ static int mcp_oauth_refresh_start(struct fyai_mcp_ctx *mcp,
 		FYAI_MCP_CLIENT_BASIC : FYAI_MCP_CLIENT_NONE;
 	spec.timeout = mcp->timeout;
 	mcp->oauth_refresh_su = su;
-	mcp->oauth_refresh = fyai_mcp_oauth_refresh_submit(mcp->ctx, &spec,
+	mcp->oauth_refresh = fyai_mcp_oauth_refresh_submit(mcp_ctx(mcp), &spec,
 			mcp_oauth_refresh_done, mcp);
 	if (!mcp->oauth_refresh) {
 		mcp->oauth_refresh_su = NULL;
@@ -1453,13 +1462,13 @@ static void mcp_oauth_refresh_schedule(struct fyai_mcp_ctx *mcp)
 	now = time(NULL);
 	due = mcp->oauth_expires_at - 300;
 	delay = due > now ? (fyai_event_ms_t)(due - now) * 1000 : 1;
-	el = fyai_ctx_loop(mcp->ctx);
+	el = fyai_ctx_loop(mcp_ctx(mcp));
 	if (!el)
 		return;
 	rc = fyai_event_add_timer(el, delay, 0, mcp_oauth_refresh_timer, mcp,
 				  &mcp->oauth_refresh_timer);
 	if (rc)
-		fyai_warning(mcp->ctx,
+		fyai_warning(mcp_ctx(mcp),
 			"MCP %s could not schedule OAuth refresh", mcp->name);
 }
 
@@ -1491,7 +1500,7 @@ static void mcp_oauth_save_then(struct mcp_oauth_discovery *od,
 	if (rc == -2) {
 		od->save_next = next;
 		od->save_fail = fail;
-		rc = fyai_event_add_timer(fyai_ctx_loop(od->mcp->ctx), 50, 0,
+		rc = fyai_event_add_timer(fyai_ctx_loop(mcp_ctx(od->mcp)), 50, 0,
 					  mcp_oauth_save_timer, od,
 					  &od->save_timer);
 		if (rc)
@@ -1584,7 +1593,7 @@ static bool mcp_oauth_registration_complete(struct mcp_oauth_discovery *od,
 	mcp_oauth_secret_free(&mcp->oauth_client_secret);
 	free(mcp->oauth_access_token);
 	free(mcp->oauth_refresh_token);
-	mcp->oauth_client_id = fyai_ctx_keep_str(mcp->ctx, client_id);
+	mcp->oauth_client_id = fyai_ctx_keep_str(mcp_ctx(mcp), client_id);
 	mcp->oauth_client_secret = *client_secret ?
 		strdup(client_secret) : NULL;
 	if (!mcp->oauth_client_id ||
@@ -1624,8 +1633,8 @@ static void mcp_oauth_resource_complete(struct mcp_oauth_discovery *od,
 			"resource metadata has no resource identifier");
 		return;
 	}
-	mcp->oauth_issuer = fyai_ctx_keep_str(mcp->ctx, issuer);
-	mcp->oauth_resource = fyai_ctx_keep_str(mcp->ctx, resource);
+	mcp->oauth_issuer = fyai_ctx_keep_str(mcp_ctx(mcp), issuer);
+	mcp->oauth_resource = fyai_ctx_keep_str(mcp_ctx(mcp), resource);
 	mcp_oauth_discovery_drop_http(od);
 	od->url = mcp_oauth_metadata_url(issuer);
 	if (!mcp->oauth_issuer || !mcp->oauth_resource || !od->url) {
@@ -1670,7 +1679,7 @@ static void mcp_oauth_discovery_complete(
 		mcp_oauth_discovery_fail(od, message);
 		return;
 	}
-	gb = fyai_ctx_transient_gb(mcp->ctx);
+	gb = fyai_ctx_transient_gb(mcp_ctx(mcp));
 	doc = parse_json_string(gb, od->response.data ?
 				od->response.data : "");
 	if (!fy_is_mapping(doc)) {
@@ -1693,10 +1702,10 @@ static void mcp_oauth_discovery_complete(
 			"authorization metadata lacks required endpoints");
 		return;
 	}
-	mcp->oauth_authorization_endpoint = fyai_ctx_keep_str(mcp->ctx, authorize);
-	mcp->oauth_token_endpoint = fyai_ctx_keep_str(mcp->ctx, token);
+	mcp->oauth_authorization_endpoint = fyai_ctx_keep_str(mcp_ctx(mcp), authorize);
+	mcp->oauth_token_endpoint = fyai_ctx_keep_str(mcp_ctx(mcp), token);
 	mcp->oauth_registration_endpoint = *registration ?
-		fyai_ctx_keep_str(mcp->ctx, registration) : NULL;
+		fyai_ctx_keep_str(mcp_ctx(mcp), registration) : NULL;
 	if (!mcp->oauth_authorization_endpoint || !mcp->oauth_token_endpoint) {
 		mcp_oauth_discovery_fail(od, "could not retain OAuth endpoints");
 		return;
@@ -1789,7 +1798,7 @@ static int mcp_oauth_discovery_submit(struct mcp_oauth_discovery *od)
 {
 	struct fyai_ctx *ctx;
 
-	ctx = od->mcp->ctx;
+	ctx = mcp_ctx(od->mcp);
 	od->curl = curl_easy_init();
 	/* Reserve SIGALRM for the watchdog. */
 	curl_easy_setopt(od->curl, CURLOPT_NOSIGNAL, 1L);
@@ -1830,17 +1839,17 @@ static int mcp_oauth_discovery_start_for(struct fyai_mcp_ctx *mcp,
 	int rc;
 
 	od = calloc(1, sizeof(*od));
-	fyai_error_check(mcp->ctx, od, err_out,
+	fyai_error_check(mcp_ctx(mcp), od, err_out,
 			 "could not allocate OAuth discovery");
 	od->mcp = mcp;
 	od->startup = su;
 	od->state = MCP_OD_RESOURCE;
 	od->url = strdup(mcp->oauth_resource_metadata);
-	fyai_error_check(mcp->ctx, od->url, err_free,
+	fyai_error_check(mcp_ctx(mcp), od->url, err_free,
 			 "could not retain OAuth resource metadata URL");
 	mcp->oauth_discovery = od;
 	rc = mcp_oauth_discovery_submit(od);
-	fyai_error_check(mcp->ctx, !rc, err_free,
+	fyai_error_check(mcp_ctx(mcp), !rc, err_free,
 			 "could not start OAuth discovery");
 	return 0;
 
@@ -1869,7 +1878,7 @@ static int mcp_oauth_recovery_begin(struct fyai_mcp_ctx *mcp)
 	mcp->state = MCP_SRV_CONNECTING;
 	mcp->recovering = true;
 	rc = mcp_oauth_discovery_start_for(mcp, NULL);
-	fyai_error_check(mcp->ctx, !rc, err_out,
+	fyai_error_check(mcp_ctx(mcp), !rc, err_out,
 			 "could not start MCP OAuth recovery");
 	return 0;
 
@@ -1902,7 +1911,7 @@ static bool mcp_startup_terminal(struct fyai_mcp_ctx *mcp, long status,
 
 static void mcp_startup_collect(struct fyai_mcp_ctx *mcp, fy_generic result)
 {
-	struct fyai_ctx *ctx = mcp->ctx;
+	struct fyai_ctx *ctx = mcp_ctx(mcp);
 	fy_generic tools = fy_get(result, "tools", fy_seq_empty), tool;
 	fy_generic dflt, fn, entry;
 	const char *tool_name;
@@ -1928,7 +1937,7 @@ static void mcp_startup_req_done(struct jsonrpc_request *req, void *userdata)
 {
 	struct mcp_startup *su = userdata;
 	struct fyai_mcp_ctx *mcp = su->mcp;
-	struct fyai_ctx *ctx = mcp->ctx;
+	struct fyai_ctx *ctx = mcp_ctx(mcp);
 	bool ok = jsonrpc_request_ok(req);
 	fy_generic result = jsonrpc_request_result(req);
 	long status = jsonrpc_request_http_status(req);
@@ -2030,7 +2039,7 @@ static void mcp_startup_req_done(struct jsonrpc_request *req, void *userdata)
 static void mcp_startup_step(struct mcp_startup *su)
 {
 	struct fyai_mcp_ctx *mcp = su->mcp;
-	struct fyai_ctx *ctx = mcp->ctx;
+	struct fyai_ctx *ctx = mcp_ctx(mcp);
 	struct fy_generic_builder *gb;
 	const char *method;
 	fy_generic params;
@@ -3227,7 +3236,7 @@ static fy_generic mcp_resource_tool(struct fyai_ctx *ctx, fy_generic args,
 static void mcp_delete_complete(struct fyai_curl_transfer *xfer, void *userdata)
 {
 	struct fyai_mcp_ctx *mcp = userdata;
-	struct fyai_ctx *ctx = mcp->ctx;
+	struct fyai_ctx *ctx = mcp_ctx(mcp);
 	CURLcode rc = fyai_curl_collect(xfer);
 	long status = 0;
 
