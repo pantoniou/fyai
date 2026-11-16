@@ -273,14 +273,14 @@ session, until the default step removes it, calls the same function directly.
    `help-topic`, `history-select`) itself, and asks the worker for the rest
    with the query `complete {kind, partial, given, prev}`. The answer is kept
    by kind, given words and partial, and serves any longer partial by
-   filtering; a new line forgets it. What is left is a limit of the library.
-   The popup of libfytimui asks the host for candidates at each edit and
-   cannot be told that more came, so the first ask of a word finds none and
-   the next key finds the answer. `ui_mention_complete` shows it in split
-   mode: Tab on `/attach ~/fa` completes at the second key and not at the
-   first. The remedy is one call in the library that asks the host again for
-   the line that is typed (`fytim_completion_refresh()`), which the client
-   calls when an answer comes. A file or directory completion is the worker's
+   filtering; a new line forgets it. The popup of libfytimui asked the host
+   for candidates at each edit and could not be told that more came, so the
+   first ask of a word found none. The library now has
+   `fytim_completion_refresh()`, which asks the host again for the line that
+   is typed and serves a Tab or an automatic popup that found nothing for it,
+   once. The client calls it when an answer comes late, and the pin of
+   libfytimui in `CMakeLists.txt` is the commit that has it. A file or
+   directory completion is the worker's
    by the same rule, and it follows the local rules (`~/`, absolute paths): the
    bearer token gives the full authority of the user, and a device scope for
    observation does not exist yet.
