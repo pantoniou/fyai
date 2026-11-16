@@ -475,7 +475,12 @@ int config_sample_defaults(void)
 
 	failures = 0;
 	gb = fy_generic_builder_create(&gb_cfg);
-	copy = strndup(text.data, text.size);
+	/* The embedded array has no terminator: copy its bytes, then add one. */
+	copy = malloc(text.size + 1);
+	if (copy) {
+		memcpy(copy, text.data, text.size);
+		copy[text.size] = '\0';
+	}
 	if (!gb || !copy) {
 		free(copy);
 		if (gb)
