@@ -299,15 +299,19 @@ session, until the default step removes it, calls the same function directly.
    - The preview beside the list and the recap (`p`, `t`) are done: a worker has
      no display records to recap, so the client asks `branch_turns` (the last
      turns, in the form of the sync) and renders them. `ui_branch_preview`
-     still fails in split mode, only because a worker without a branch names
-     it `sdk/<uuid>`, which is wider than the pane of the preview, so the label
-     after the name is cut. The worker of a split session has to start as a
-     local session does: a `session/` branch with the configuration of the
-     branch last updated in its directory.
+     failed in split mode only because a worker without a branch named it
+     `sdk/<uuid>`, which is wider than the pane of the preview. The worker of a
+     split session now starts as a local session does (`--local-session`): a
+     `session/` branch with the configuration of the branch last used in its
+     directory. A worker of a server keeps the `sdk/` name. With this, 69 of 489
+     cases fail in split mode, from 73, and `ui_branch_preview` passes.
    - The resume picker and the foreign sessions (`ui_branch_preview_theme`,
      `ui_resume_*`): rows with tokens and the import data, the files of the
      other tools read by the worker (`foreign`), and a `--split` that takes a
      `resume`. The worker must also start on the session that was chosen.
+   - A long history: `ui_recap_fills_screen` and `ui_work_cap` end with the
+     worker's `claude-sdk: cannot send a frame` when the session opens on many
+     turns (the size of the sync, not checked).
    - Merge and rebase from the browser (CLI commands only), and `list_long`: the
      output of a `view` command of the worker goes to a pane of the client and
      not to its scrollback.
