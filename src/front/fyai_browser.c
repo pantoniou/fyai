@@ -86,6 +86,15 @@ struct fyai_browser {
 	bool loaded;		/* the tree came at least once */
 	unsigned long long command;	/* pending action ID, or 0 */
 	char command_action;	/* its action */
+	/* A render that the owner of the arena makes: the preview beside the
+	 * list, and the card of an action. One of each is in flight. */
+	struct browser_ask {
+		unsigned long long id;	/* the query in flight, or 0 */
+		char branch[FYAI_BRANCH_NAME_MAX + 1];
+		int cols, rows;
+		uint64_t updated;
+		long long rev;
+	} preview_ask, details_ask;
 	struct fy_generic_builder *tree_gb;	/* the pages that came */
 	fy_generic tree;
 	int64_t refreshed;
@@ -186,6 +195,15 @@ static int browser_compare(const void *a, const void *b)
 		return *pa == '/' ? -1 : 1;
 	return (int)*pa - (int)*pb;
 }
+
+/* The same for a render that has no browser: it names the context. */
+#define capture_warn_check(_ctx, _cond, _label, _fmt, ...) \
+	do { \
+		if (!(_cond)) { \
+			fyai_warning((_ctx), (_fmt) , ## __VA_ARGS__); \
+			goto _label; \
+		} \
+	} while (0)
 
 /*
  * The browser draws a page. A failure here costs rows on that page and not
@@ -1516,6 +1534,10 @@ void fyai_browser_close(struct fyai_ctx *ctx)
 		fyai_uimodel_query_cancel(ctx, b->query);
 	if (b->command)
 		fyai_uimodel_query_cancel(ctx, b->command);
+	if (b->preview_ask.id)
+		fyai_uimodel_query_cancel(ctx, b->preview_ask.id);
+	if (b->details_ask.id)
+		fyai_uimodel_query_cancel(ctx, b->details_ask.id);
 	for (i = 0; i < b->count; i++)
 		browser_row_clear(&b->rows[i]);
 	fy_generic_builder_destroy(b->tree_gb);
@@ -1820,7 +1842,7 @@ bool fyai_browser_keys(struct fyai_ctx *ctx, const char *data, size_t len)
  * variant of the session, and a terminal ground applies only when the session
  * has asked the terminal already. Returns true when @cfg owns its palettes.
  */
-static bool browser_preview_style(struct fyai_browser *b, struct fyai_cfg *cfg,
+static bool browser_preview_style(struct fyai_ctx *ctx, struct fyai_cfg *cfg,
 				  struct fy_generic_builder *gb,
 				  fy_generic config)
 {
@@ -1841,14 +1863,14 @@ static bool browser_preview_style(struct fyai_browser *b, struct fyai_cfg *cfg,
 	cfg->terminal_probed = true;
 	rc = fyai_config_apply(cfg, fy_mapping(gb, "display", display));
 	if (rc)
-		fyai_warning(fyai_browser_ctx(b), "the preview keeps its display settings: "
+		fyai_warning(ctx, "the preview keeps its display settings: "
 			     "the branch settings are not valid");
 	/* Standard output is not the terminal while the UI is open: take
 	 * the colour that the session resolved for it. */
 	if (!cfg->color || !strcmp(cfg->color, "auto"))
-		cfg->color = fyai_browser_ctx(b)->cfg->color;
+		cfg->color = ctx->cfg->color;
 	if (cfg->markdown)
-		fyai_markdown_load_style_as(cfg, fyai_browser_ctx(b)->cfg->theme_variant);
+		fyai_markdown_load_style_as(cfg, ctx->cfg->theme_variant);
 	return true;
 }
 
@@ -1873,10 +1895,16 @@ static fy_generic browser_table(struct fyai_browser *b)
 	       fy_get(root, "branches", fy_invalid) : ctx->bstate->branches;
 }
 
-static char *browser_capture(struct fyai_browser *b, char *name,
-			     char action, int cols, int rows)
+/*
+ * Render a view of the branch @name of @table: the recap of its turns, its
+ * configuration, its reflog or its card, by @action. The text has SGR when
+ * the configuration of @ctx has colour. The caller owns it. A process that
+ * has the arena renders for a client that has none.
+ */
+char *fyai_browser_capture(struct fyai_ctx *ctx, fy_generic table,
+			   const char *name, char action, int cols, int rows)
 {
-	struct fyai_ctx view = *fyai_browser_ctx(b);
+	struct fyai_ctx view = *ctx;
 	struct fyai_cfg cfg;
 	struct fyai_transient transient;
 	struct fyai_view_own own;
@@ -1885,7 +1913,7 @@ static char *browser_capture(struct fyai_browser *b, char *name,
 		.flags = FYGBCF_SCOPE_LEADER | FYGBCF_DEDUP_ENABLED,
 	};
 	struct fy_generic_builder *gb;
-	fy_generic data, table = browser_table(b);
+	fy_generic data;
 	const char *captured;
 	char *out = NULL;
 	size_t len = 0;
@@ -1893,16 +1921,16 @@ static char *browser_capture(struct fyai_browser *b, char *name,
 	bool own_style = false;
 	int rc;
 
-	fyai_cfg_copy_muted(&cfg, fyai_browser_ctx(b)->cfg);
+	fyai_cfg_copy_muted(&cfg, ctx->cfg);
 	if (!fyai_branch_lookup(table, name, &branch))
 		return NULL;
 	gb = fy_generic_builder_create(&gbcfg);
-	browser_warn_check(b, gb, none, "cannot build the branch preview of %s", name);
+	capture_warn_check(ctx, gb, none, "cannot build the branch preview of %s", name);
 	view.cfg = &cfg;
 	fyai_uimodel_view_detach(&view, &own);
 	view.out->display_output = NULL;
 	view.screen->browser = NULL;
-	view.bstate->name = name;
+	view.bstate->name = (char *)name;
 	view.bstate->branches = table;
 	view.bstate->prev = branch.entry;
 	view.turn->last_message = branch.head;
@@ -1911,17 +1939,17 @@ static char *browser_capture(struct fyai_browser *b, char *name,
 	view.transient = &transient;
 	if (cols > 0)
 		cfg.render_width = cols;
-	own_style = browser_preview_style(b, &cfg, gb, branch.config);
+	own_style = browser_preview_style(ctx, &cfg, gb, branch.config);
 	/* The preview is a render, not a source: a recap mixes Markdown with
 	 * rows another path already drew, and only the renderer can place
 	 * both at this width. */
 	if (action == 'p') {
 		fp = open_memstream(&out, &len);
-		browser_warn_check(b, fp, out, "cannot build the preview of %s", name);
+		capture_warn_check(ctx, fp, out, "cannot build the preview of %s", name);
 		view.out->sink = fyai_sink_create_render(&view, fp);
 	} else
 		view.out->sink = fyai_sink_create_capture(&view);
-	browser_warn_check(b, view.out->sink, out, "cannot render the preview of %s", name);
+	capture_warn_check(ctx, view.out->sink, out, "cannot render the preview of %s", name);
 	if (action == 't')
 		rc = fyai_display_recap(&view, 10, 0);
 	else if (action == 'p')
@@ -1935,18 +1963,18 @@ static char *browser_capture(struct fyai_browser *b, char *name,
 	/* A recap returns the exchanges it showed; only a negative is a
 	 * failure. */
 	if (rc < 0)
-		fyai_warning(fyai_browser_ctx(b), "the preview of %s is incomplete", name);
+		fyai_warning(ctx, "the preview of %s is incomplete", name);
 	if (!fp) {
 		captured = fyai_sink_captured(view.out->sink, NULL);
 		out = captured ? strdup(captured) : NULL;
 		if (!out)
-			fyai_warning(fyai_browser_ctx(b), "cannot keep the preview of %s", name);
+			fyai_warning(ctx, "cannot keep the preview of %s", name);
 	}
 	fyai_sink_destroy(view.out->sink);
 out:
 	/* The memstream must be closed before @out names its bytes. */
 	if (fp && fclose(fp))
-		fyai_warning(fyai_browser_ctx(b), "the preview of %s was not completed", name);
+		fyai_warning(ctx, "the preview of %s was not completed", name);
 	/* The renderers of the preview are gone with its sink. */
 	if (own_style)
 		markdown_palettes_destroy(&cfg);
@@ -1954,6 +1982,65 @@ out:
 	return out;
 none:
 	return NULL;
+}
+
+static char *browser_capture(struct fyai_browser *b, char *name,
+			     char action, int cols, int rows)
+{
+	return fyai_browser_capture(fyai_browser_ctx(b), browser_table(b), name,
+				    action, cols, rows);
+}
+
+/*
+ * The answer of the owner of the arena to `branch_preview`: the render of a
+ * branch for a client that has no arena. The client names the colour and the
+ * variant of its theme, which the render takes in place of those of this
+ * process for the call.
+ */
+fy_generic fyai_browser_preview_answer(struct fyai_ctx *ctx,
+				       struct fy_generic_builder *gb,
+				       fy_generic request)
+{
+	fy_generic params = fy_get(request, "params", fy_map_empty), root, inner;
+	const char *name = fy_get(params, "branch", "");
+	const char *action = fy_get(params, "action", "p");
+	const char *color = fy_get(params, "color", (const char *)NULL);
+	const char *variant = fy_get(params, "theme_variant", (const char *)NULL);
+	const char *saved_color = ctx->cfg->color;
+	const char *saved_variant = ctx->cfg->theme_variant;
+	long long cols = fy_get(params, "cols", 0LL), rows = fy_get(params, "rows", 0LL);
+	char *text;
+	bool found;
+
+	if (!fyai_branch_name_ref_valid(name) || !action[0] ||
+	    !strchr("ptilc", action[0]) || action[1]) {
+		inner = fy_mapping(gb, "code", "bad_request", "message",
+				   "a preview names a branch and an action of p, t, i, l or c");
+		return fy_mapping(gb, "error", inner);
+	}
+	root = fyai_branches_snapshot(ctx);
+	if (color)
+		ctx->cfg->color = color;
+	if (variant)
+		ctx->cfg->theme_variant = variant;
+	text = fyai_browser_capture(ctx, fy_is_valid(root) ?
+				    fy_get(root, "branches", fy_invalid) :
+				    ctx->bstate->branches, name, action[0],
+				    cols > 0 && cols < 1000 ? (int)cols : 0,
+				    rows > 0 && rows < 1000 ? (int)rows : 0);
+	ctx->cfg->color = saved_color;
+	ctx->cfg->theme_variant = saved_variant;
+	if (text && strlen(text) > FYAI_QUERY_BYTES_MAX) {
+		free(text);
+		inner = fy_mapping(gb, "code", FYAI_QUERY_TOO_LARGE, "message",
+				   "the render is larger than an answer may be");
+		return fy_mapping(gb, "error", inner);
+	}
+	found = text != NULL;
+	inner = fy_mapping(gb, "what", "branch_preview", "found", found,
+			   "text", text ? text : "");
+	free(text);
+	return inner;
 }
 
 static char *browser_foreign_capture(struct fyai_browser *b,
@@ -2015,9 +2102,96 @@ out:
 	return out;
 }
 
+static void browser_preview_answered(void *arg, fy_generic answer)
+{
+	struct fyai_browser *b = arg;
+	const char *text;
+
+	b->preview_ask.id = 0;
+	if (fy_is_mapping(fy_get(answer, "error", fy_invalid)) ||
+	    !fy_get(answer, "found", false))
+		return;
+	text = fy_get(answer, "text", "");
+	free(b->preview);
+	b->preview = strdup(text);
+	snprintf(b->preview_branch, sizeof(b->preview_branch), "%s",
+		 b->preview_ask.branch);
+	b->preview_generation = b->generation;
+	b->preview_root = b->root;
+	b->preview_rev = b->preview_ask.rev;
+	b->preview_updated = b->preview_ask.updated;
+	b->preview_cols = b->preview_ask.cols;
+	b->preview_rows = b->preview_ask.rows;
+	b->dirty = true;
+	fyai_ui_wake(fyai_browser_ctx(b));
+}
+
+static void browser_details_answered(void *arg, fy_generic answer)
+{
+	struct fyai_browser *b = arg;
+	const char *text;
+
+	b->details_ask.id = 0;
+	if (fy_is_mapping(fy_get(answer, "error", fy_invalid)) ||
+	    !fy_get(answer, "found", false))
+		return;
+	text = fy_get(answer, "text", "");
+	free(b->details);
+	b->details = strdup(text);
+	b->offset = 0;
+	b->dirty = true;
+	fyai_ui_wake(fyai_browser_ctx(b));
+}
+
+/*
+ * Ask the owner of the arena for the render of @name: the preview beside the
+ * list, or the card of an action. The answer is put in place when it comes.
+ */
+static void browser_render_ask(struct fyai_browser *b, struct browser_ask *ask,
+			       const char *name, char action, int cols, int rows,
+			       fyai_uimodel_answer_fn done)
+{
+	struct fyai_ctx *ctx = fyai_browser_ctx(b);
+	struct fy_generic_builder *gb;
+	fy_generic params, request;
+	char act[2] = { action, '\0' };
+	int rc;
+
+	if (ask->id)
+		fyai_uimodel_query_cancel(ctx, ask->id);
+	gb = fy_generic_builder_create(NULL);
+	if (!gb)
+		return;
+	params = fy_mapping(gb, "branch", name, "action", act, "cols",
+			    (long long)cols, "rows", (long long)rows);
+	if (ctx->cfg->color)
+		params = fy_assoc(gb, params, "color", ctx->cfg->color);
+	if (ctx->cfg->theme_variant)
+		params = fy_assoc(gb, params, "theme_variant",
+				  ctx->cfg->theme_variant);
+	request = fy_mapping(gb, "what", "branch_preview", "params", params);
+	snprintf(ask->branch, sizeof(ask->branch), "%s", name);
+	ask->cols = cols;
+	ask->rows = rows;
+	ask->rev = b->rev;
+	ask->updated = b->selected < b->count ? b->rows[b->selected].updated : 0;
+	rc = fyai_uimodel_query(ctx, request, done, b, &ask->id);
+	if (rc)			/* the model says why */
+		ask->id = 0;
+	fy_generic_builder_destroy(gb);
+}
+
 static void browser_inspect(struct fyai_browser *b, char action)
 {
 	char *text;
+
+	/* A client that has no arena asks for the card, and shows it when it
+	 * comes. */
+	if (fyai_uimodel_mirrored(fyai_browser_ctx(b))) {
+		browser_render_ask(b, &b->details_ask, b->target, action, 0, 0,
+				   browser_details_answered);
+		return;
+	}
 
 	text = b->rows[b->selected].foreign && action == 'i' ?
 		browser_foreign_capture(b, &b->rows[b->selected], 'i', 0, 0) :
@@ -2056,6 +2230,20 @@ static void browser_preview_update(struct fyai_browser *b, int cols, int rows)
 	}
 	row = &b->rows[b->selected];
 	name = row->name;
+	/* A client that has no arena asks for the render of the end of the
+	 * session, once for the geometry and the data that it is drawn at. */
+	if (fyai_uimodel_mirrored(fyai_browser_ctx(b))) {
+		if ((b->preview && !strcmp(b->preview_branch, name) &&
+		     b->preview_rev == b->rev && b->preview_updated == row->updated &&
+		     b->preview_cols == cols && b->preview_rows == rows) ||
+		    (b->preview_ask.id && !strcmp(b->preview_ask.branch, name) &&
+		     b->preview_ask.rev == b->rev && b->preview_ask.cols == cols &&
+		     b->preview_ask.rows == rows))
+			return;
+		browser_render_ask(b, &b->preview_ask, name, 'p', cols, rows,
+				   browser_preview_answered);
+		return;
+	}
 	if (b->preview && !strcmp(b->preview_branch, name) &&
 	    b->preview_generation == b->generation &&
 	    b->preview_root.v == b->root.v && b->preview_rev == b->rev &&
@@ -2194,6 +2382,9 @@ static void browser_command_done(void *arg, fy_generic answer)
 	}
 	browser_invalidate(b);
 	browser_refresh(b);
+	/* The output of the command is a pane of its own, which took the focus
+	 * from the list: the list is what the user is working in. */
+	fyai_workpane_set_focus(ctx->screen->workpane, b->surface);
 	b->dirty = true;
 	fyai_ui_wake(ctx);
 }

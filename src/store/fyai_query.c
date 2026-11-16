@@ -8,13 +8,15 @@
 #include "fyai.h"
 #include "fyai_branch.h"
 #include "fyai_agents.h"
+#include "fyai_browser.h"
 #include "fyai_cmd.h"
 #include "fyai_query.h"
 #include "fyai_storage.h"
 
 #define FYAI_MODULE FYAIEM_UNKNOWN
 
-static const char *const query_names[] = { "branches", "branch_tree", "complete" };
+static const char *const query_names[] = { "branches", "branch_tree",
+					   "branch_preview", "complete" };
 
 const char *const *fyai_query_names(size_t *n)
 {
@@ -289,6 +291,8 @@ fy_generic fyai_query(struct fyai_ctx *ctx, struct fy_generic_builder *gb,
 	/* Resolve completion candidates on the worker. */
 	if (!strcmp(fy_get(request, "what", ""), "complete"))
 		return fyai_cmd_complete_answer(ctx, gb, request);
+	if (!strcmp(fy_get(request, "what", ""), "branch_preview"))
+		return fyai_browser_preview_answer(ctx, gb, request);
 	/* The latest root, which another process may have published, and no
 	 * change of the baseline of this context. */
 	root = fyai_branches_snapshot(ctx);

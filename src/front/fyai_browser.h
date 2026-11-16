@@ -6,6 +6,18 @@
 struct fytim_surface;
 
 char *fyai_browser_gitgraph_source(fy_generic rows);
+/*
+ * A render of the branch @name of @table by @action ('p' the end of the
+ * session at @cols by @rows, 't' a recap, 'i' the card, 'l' the reflog, 'c'
+ * the configuration). The caller frees the text. NULL for a branch that is not
+ * in @table.
+ */
+char *fyai_browser_capture(struct fyai_ctx *ctx, fy_generic table,
+			   const char *name, char action, int cols, int rows);
+/* The answer to the query `branch_preview`: {found, text}, or {error}. */
+fy_generic fyai_browser_preview_answer(struct fyai_ctx *ctx,
+				       struct fy_generic_builder *gb,
+				       fy_generic request);
 int fyai_browser_open(struct fyai_ctx *ctx);
 /*
  * Open the browser as the resume picker: the recent sessions, over the whole
