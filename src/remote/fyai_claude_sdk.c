@@ -46,6 +46,7 @@
 #include "fyai_provider.h"
 #include "fyai_session.h"
 #include "fyai_ask.h"
+#include "fyai_wait.h"
 #include "fyai_uimodel.h"
 #include "fyai_storage.h"
 #include "fyai_tool_registry.h"
@@ -192,6 +193,7 @@ struct sdk_server {
 	char *init_id;			/* an initialize that waits for them */
 	bool busy;
 	bool failed;			/* a frame could not be queued */
+	bool channel_lost;		/* the client of a worker went */
 	bool last_error;		/* the last result is an error */
 	/* What the session asks of the SDK. */
 	bool can_use_tool;		/* the SDK decides on a tool call */
@@ -3517,6 +3519,24 @@ out:
 	return -1;
 }
 
+/*
+ * The channel of a worker closed: the client is gone, and nobody can answer a
+ * question or read a result. A worker that is not retained by a server ends,
+ * so what waits is ended with no answer, and the turn is interrupted.
+ */
+static void sdk_channel_closed(void *data)
+{
+	struct sdk_server *srv = data;
+	struct fyai_ctx *ctx = sdk_server_ctx(srv);
+
+	srv->channel_lost = true;
+	ctx->loop->interrupt_pending = true;
+	ctx->loop->terminate_pending = true;
+	fyai_ask_settle_all(ctx);
+	/* A wait of the model sees the interrupt when it is asked to look. */
+	fyai_waiters_kick(ctx);
+}
+
 /* Open the channel of the session and the observers of the turns. */
 static int sdk_cmd_channel(struct sdk_server *srv)
 {
@@ -3551,8 +3571,10 @@ static int sdk_cmd_channel(struct sdk_server *srv)
 	fyai_error_check(ctx, srv->conn, out,
 			 "claude-sdk: cannot open standard input and output");
 	/* The server of a remote session speaks images to its worker. */
-	if (srv->remote_worker)
+	if (srv->remote_worker) {
 		(void)jsonrpc_conn_set_image(srv->conn);
+		jsonrpc_conn_on_close(srv->conn, sdk_channel_closed, srv);
+	}
 	rc = jsonrpc_conn_frames(srv->conn, sdk_frame, srv);
 	fyai_error_check(ctx, !rc, out,
 			 "claude-sdk: cannot read standard input");
@@ -3642,7 +3664,7 @@ static int sdk_cmd_serve(struct sdk_server *srv)
 	struct sdk_input *in;
 	int rc;
 
-	while (!srv->failed) {
+	while (!srv->failed && !srv->channel_lost) {
 		/* An edit that the user finished in a tile applies between
 		 * turns, as it does in a local session. */
 		if (ctx->screen->config_edit)
