@@ -21,6 +21,8 @@ FYAI_TEST_ENTRY(query, limits, query_limits)
 FYAI_TEST_ENTRY(query, directory, query_directory)
 FYAI_TEST_ENTRY(query, bytes, query_bytes)
 FYAI_TEST_ENTRY(query, empty, query_empty)
+FYAI_TEST_ENTRY(query, tree, query_tree)
+FYAI_TEST_ENTRY(query, tree_rev, query_tree_rev)
 
 static struct fy_generic_builder *builder_new(void)
 {
@@ -315,6 +317,104 @@ int query_empty(void)
 	FYAI_TCHECK(fy_len(fy_get(answer, "rows", fy_invalid)) == 0);
 	FYAI_TCHECK(fy_get(answer, "total", -1LL) == 0);
 	FYAI_TCHECK(fy_is_null(fy_get(answer, "next", fy_invalid)));
+	fy_generic_builder_destroy(gb);
+	return 0;
+}
+
+static const char *tree_state(void *arg, const char *branch)
+{
+	(void)arg;
+	return !strcmp(branch, "main/agent:one") ? " [agent · running]" : NULL;
+}
+
+int query_tree(void)
+{
+	struct fy_generic_builder *gb = builder_new();
+	struct fyai_query_source src = { .cwd = "/elsewhere", .head = "main",
+		.state = tree_state };
+	fy_generic table, answer, rows, row;
+	size_t i;
+	bool agent = false, live = false, named = false;
+
+	FYAI_TCHECK(gb);
+	table = fyai_branches_set(gb, fy_invalid, "main",
+				  entry_new(gb, 30, "/w", "the main line"));
+	table = fyai_branches_set(gb, table, "main/one",
+				  entry_new(gb, 20, "/other", NULL));
+	/* A stored sub-agent has an `agent` member. */
+	{
+		struct fyai_branch b;
+
+		fyai_branch_decode(fy_invalid, &b);
+		b.created = fy_value(gb, 10LL);
+		b.updated = fy_value(gb, 10LL);
+		b.op = fy_value(gb, FYAI_BRANCH_OP_TURN);
+		b.agent = fy_mapping(gb, "name", "one");
+		table = fyai_branches_set(gb, table, "main/agent:one",
+					  fyai_branch_build(gb, &b));
+	}
+	src.branches = table;
+	src.live = fy_sequence(gb, fy_mapping(gb, "branch", "main/agent:two"),
+			       fy_mapping(gb, "branch", "main/one"));
+	answer = fyai_query_answer(gb, &src, fy_mapping(gb, "what",
+							"branch_tree"));
+	rows = fy_get(answer, "rows", fy_invalid);
+	/* Every branch, whatever its directory, a stored agent too, and a live
+	 * agent that the table does not hold; one the table holds once. */
+	FYAI_TCHECK(fy_get(answer, "total", 0LL) == 4);
+	FYAI_TCHECK(!strcmp(fy_get(answer, "head", "?"), "main"));
+	for (i = 0; i < fy_len(rows); i++) {
+		row = fy_get_at(rows, i);
+		if (!strcmp(fy_get(row, "branch", ""), "main/agent:one")) {
+			agent = fy_get(row, "agent", false);
+			FYAI_TCHECK(!strcmp(fy_get(row, "state", ""),
+					    " [agent · running]"));
+		}
+		if (!strcmp(fy_get(row, "branch", ""), "main/agent:two")) {
+			live = fy_get(row, "agent", false);
+			FYAI_TCHECK(!fy_is_valid(fy_get(row, "rev", fy_invalid)));
+		}
+		if (!strcmp(fy_get(row, "branch", ""), "main")) {
+			named = !strcmp(fy_get(row, "description", ""),
+					"the main line");
+			FYAI_TCHECK(!fy_get(row, "agent", true));
+		}
+	}
+	FYAI_TCHECK(agent && live && named);
+	fy_generic_builder_destroy(gb);
+	return 0;
+}
+
+int query_tree_rev(void)
+{
+	struct fy_generic_builder *gb = builder_new();
+	struct fyai_query_source src = { .head = "main" };
+	fy_generic table, answer, again;
+	long long rev;
+	const char *next;
+
+	FYAI_TCHECK(gb);
+	table = table_new(gb, 5);
+	src.branches = table;
+	answer = fyai_query_answer(gb, &src, fy_mapping(gb, "what", "branch_tree",
+							"limit", 2LL));
+	rev = fy_get(answer, "rev", 0LL);
+	next = fy_get(answer, "next", "");
+	FYAI_TCHECK(*next && fy_len(fy_get(answer, "rows", fy_invalid)) == 2);
+	/* The live agents moved: the cursor is old, and the rev is not. */
+	src.generation = 1;
+	again = fyai_query_answer(gb, &src, fy_mapping(gb, "what", "branch_tree",
+						       "limit", 2LL, "after", next));
+	FYAI_TCHECK(!strcmp(error_code(again), FYAI_QUERY_STALE_CURSOR));
+	again = fyai_query_answer(gb, &src, fy_mapping(gb, "what", "branch_tree",
+						       "if_rev", rev));
+	FYAI_TCHECK(!fy_get(again, "unchanged", false));
+	FYAI_TCHECK(fy_get(again, "rev", 0LL) != rev);
+	/* HEAD moved with the root, which is not the table. */
+	src.generation = 0;
+	src.root = fy_mapping(gb, "HEAD", "other", "branches", table);
+	again = fyai_query_answer(gb, &src, fy_mapping(gb, "what", "branch_tree"));
+	FYAI_TCHECK(fy_get(again, "rev", 0LL) != rev);
 	fy_generic_builder_destroy(gb);
 	return 0;
 }
