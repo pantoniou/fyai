@@ -284,8 +284,36 @@ session, until the default step removes it, calls the same function directly.
    by the same rule, and it follows the local rules (`~/`, absolute paths): the
    bearer token gives the full authority of the user, and a device scope for
    observation does not exist yet.
-4. The browser source, with the in-process and the frame transport, and the
-   loading state. This is the largest change: the browser is now synchronous.
+4. In progress. The browser of a client reads its tree by `branch_tree` (every
+   branch, a stored agent too, the live agents, HEAD; paged; the rev moves with
+   the root and with the generation of the agents) and shows "Loading
+   branches" before it. The page builder reads the fields of the rows and no
+   entry. An action of a client with no arena is a command that the worker
+   runs (`/checkout`, `/branch new --stay`, `rename`, `delete -f`, `describe`,
+   `/reset`), the tree is read again when it ends, and the focus returns to the
+   list. The card of an action (`i`, `l`, `c`) is a render by the worker
+   (`branch_preview`). The line that a mirror gets goes to the forms of this
+   process first (the browser, a command that asks), and the loop of the
+   client runs `fyai_browser_step()`. With this, 8 of the 10 `ui_branch_*`
+   cases pass in split mode. What is left:
+   - The preview beside the list, and the recap (`p`, `t`). A worker has no
+     display outputs in the turns it stores, so its recap is empty. The client
+     has to render from the messages of the turns, as it does for the history:
+     a `branch_turns` query of the turns, and `browser_capture()` over a replica
+     of them.
+   - The resume picker and the foreign sessions (`ui_branch_preview_theme`,
+     `ui_resume_*`): rows with tokens and the import data, the files of the
+     other tools read by the worker (`foreign`), and a `--split` that takes a
+     `resume`. The worker must also start on the session that was chosen.
+   - Merge and rebase from the browser (CLI commands only), and `list_long`: the
+     output of a `view` command of the worker goes to a pane of the client and
+     not to its scrollback.
+   - The browser of a process with the arena hangs if it is closed, opened and
+     closed again after a change (checked on a build before this work), so the
+     case leaves the reopen out.
+   - Workers outlive a client that is killed: 13 stood after the cases that
+     time out, and 5 kept running after SIGTERM. The worker has to end on the
+     end of its channel (step 3).
 5. The PTY cases of the branch and resume family (`ui_branch_*`,
    `ui_resume_*`) pass in split mode.
 
