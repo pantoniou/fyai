@@ -121,8 +121,10 @@ static int remote_ui_request(struct fyai_remote_ui *view, const char *subtype,
 	if (view->watch && strcmp(subtype, "initialize") &&
 	    strcmp(subtype, "fyai_sync"))
 		return 0;
+	/* fy_sprintfa() reads its arguments twice: no side effect in them. */
+	view->requests++;
 	id = fy_gb_intern_string(gb, fy_sprintfa("ui-%s-%llu", subtype,
-						 ++view->requests));
+						 view->requests));
 	return jsonrpc_conn_send_frame(view->conn, fy_mapping(gb,
 		"type", "control_request", "request_id", id,
 		"request", fy_assoc(gb, fields, "subtype", subtype)));
