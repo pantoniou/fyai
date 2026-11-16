@@ -1182,7 +1182,8 @@ struct machine_cands {
 };
 
 /* The context that this object stands on. */
-static inline struct fyai_ctx *machine_cands_ctx(const struct machine_cands *o)
+__attribute__((used)) static inline struct fyai_ctx *
+machine_cands_ctx(const struct machine_cands *o)
 {
 	return o->ctx;
 }

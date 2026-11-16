@@ -2705,7 +2705,8 @@ struct fyai_tool_view {
 };
 
 /* The context that this object stands on. */
-static inline struct fyai_ctx *fyai_tool_view_ctx(const struct fyai_tool_view *o)
+__attribute__((used)) static inline struct fyai_ctx *
+fyai_tool_view_ctx(const struct fyai_tool_view *o)
 {
 	return o->ctx;
 }

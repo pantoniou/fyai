@@ -271,7 +271,8 @@ struct foreign_list {
 };
 
 /* The context that this object stands on. */
-static inline struct fyai_ctx *foreign_list_ctx(const struct foreign_list *o)
+__attribute__((used)) static inline struct fyai_ctx *
+foreign_list_ctx(const struct foreign_list *o)
 {
 	return o->ctx;
 }

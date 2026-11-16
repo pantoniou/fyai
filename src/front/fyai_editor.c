@@ -74,7 +74,8 @@ struct fyai_editor_request {
 };
 
 /* The context that this object stands on. */
-static inline struct fyai_ctx *fyai_editor_request_ctx(const struct fyai_editor_request *o)
+__attribute__((used)) static inline struct fyai_ctx *
+fyai_editor_request_ctx(const struct fyai_editor_request *o)
 {
 	return o->ctx;
 }
