@@ -341,7 +341,7 @@ struct view_capture {
 	struct view_capture_progress progress;
 	struct fyai_project_capture_opts opts;
 	struct fyai_manifest manifest, previous_manifest;
-	fy_generic previous, stored_runtime;
+	fy_generic previous, stored_project, stored_runtime;
 	char *resolved, *storage, *objects, *views, *runtime, *scratch;
 	char error[PATH_MAX], boot[37];
 	int root, lock, gc_lock;
@@ -365,7 +365,6 @@ static int view_capture_prepare(struct view_capture *c)
 	struct fyai_ctx *ctx = view_capture_ctx(c);
 	const char *name = c->name;
 	bool replace = c->replace;
-	fy_generic stored_project;
 	const char *lockpath;
 	int rc;
 
@@ -395,13 +394,13 @@ static int view_capture_prepare(struct view_capture *c)
 			fyai_error(ctx, "view '%s' does not exist", name);
 			return 1;
 		}
-		stored_project = fy_get(c->previous, "project", fy_invalid);
+		c->stored_project = fy_get(c->previous, "project", fy_invalid);
 		c->stored_runtime = fy_get(c->previous, "runtime", fy_invalid);
-		if (!fy_is_string(stored_project) || !fy_is_string(c->stored_runtime)) {
+		if (!fy_is_string(c->stored_project) ||!fy_is_string(c->stored_runtime)) {
 			fyai_error(ctx, "view '%s': invalid stored paths", name);
 			return 1;
 		}
-		c->project = fy_castp(&stored_project, "");
+		c->project = fy_castp(&c->stored_project, "");
 		lockpath = fy_sprintfa("%s/lock", fy_castp(&c->stored_runtime, ""));
 		c->lock = open(lockpath, O_RDWR | O_CREAT | O_NOFOLLOW | O_CLOEXEC, 0600);
 		if (c->lock < 0)
