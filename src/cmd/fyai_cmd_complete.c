@@ -31,6 +31,8 @@
 #include "fyai_page.h"
 #include "fyai_sink.h"
 #include "fyai_ui.h"
+#include "fyai_uimodel.h"
+#include "fyai_query.h"
 #include "utils.h"
 #include "fyai_media.h"
 
@@ -49,6 +51,8 @@ struct complete_req {
 	/* The words that an array argument took before the partial one. */
 	const char *const *given;
 	size_t ngiven;
+	/* The data is the owner's, which this process asks: a mirror. */
+	bool remote;
 };
 
 /* The context that this object stands on. */
@@ -278,6 +282,8 @@ static void kind_config_path(struct complete_req *r)
 }
 
 static void complete_kind(struct complete_req *r, const char *kind);
+static void complete_remote(struct complete_req *r, const char *kind,
+			    const char *prev);
 
 /*
  * The values of a configuration item: its enum, true and false, or the
@@ -636,31 +642,38 @@ static void kind_help_topic(struct complete_req *r)
 				      help_topic_cand, r);
 }
 
+/*
+ * A kind reads data that is local to this process, or data of the process
+ * that owns the arena and the project: a mirror asks that one (`worker`).
+ */
 static const struct {
 	const char *name;
 	void (*fn)(struct complete_req *r);
+	bool worker;
 } complete_kinds[] = {
-	{ "branch",		kind_branch },
-	{ "view",		kind_view },
-	{ "agent-branch",	kind_agent_branch },
-	{ "session",		kind_session },
-	{ "ref",		kind_ref },
-	{ "model",		kind_model },
-	{ "provider",		kind_provider },
-	{ "theme",		kind_theme },
-	{ "config-path",	kind_config_path },
-	{ "config-assign",	kind_config_assign },
-	{ "file",		kind_file },
-	{ "dir",		kind_dir },
-	{ "help-topic",		kind_help_topic },
-	{ "history-select",	kind_history_select },
-	{ "catalog-path",	kind_catalog_path },
-	{ "catalog-agent",	kind_catalog_agent },
-	{ "mcp-server",		kind_mcp_server },
-	{ "setting-value",	kind_setting_value },
-	{ "page-layout",	kind_page_layout },
-	{ "skill",		kind_skill },
-	{ "sandbox-profile",	kind_sandbox_profile },
+	{ "branch",		kind_branch,		true },
+	{ "view",		kind_view,		true },
+	{ "agent-branch",	kind_agent_branch,	true },
+	{ "session",		kind_session,		true },
+	{ "ref",		kind_ref,		true },
+	{ "model",		kind_model,		true },
+	{ "provider",		kind_provider,		true },
+	{ "theme",		kind_theme,		false },
+	{ "config-path",	kind_config_path,	false },
+	{ "config-assign",	kind_config_assign,	false },
+	{ "file",		kind_file,		true },
+	{ "dir",		kind_dir,		true },
+	{ "help-topic",		kind_help_topic,	false },
+	{ "history-select",	kind_history_select,	false },
+	{ "catalog-path",	kind_catalog_path,	true },
+	{ "catalog-agent",	kind_catalog_agent,	true },
+	{ "mcp-server",		kind_mcp_server,	true },
+	{ "setting-value",	kind_setting_value,	false },
+	{ "page-layout",	kind_page_layout,	false },
+	{ "skill",		kind_skill,		true },
+	{ "sandbox-profile",	kind_sandbox_profile,	true },
+	/* The skills that the user runs as /NAME: asked for by the engine. */
+	{ "user-skill",		complete_skills,	true },
 };
 
 bool fyai_cmd_kind_known(const char *name)
@@ -673,6 +686,290 @@ bool fyai_cmd_kind_known(const char *name)
 	/* The value of the item that a path argument named. */
 	return !strcmp(name, "config-value") || !strcmp(name, "catalog-value") ||
 	       !strcmp(name, "skill-file");
+}
+
+/* ---- candidates of the worker ------------------------------------------------ */
+
+/*
+ * A client that has no arena asks its worker for the candidates of a kind
+ * that reads data. An answer is kept, so that the keys that follow a word
+ * are filtered here and ask nothing: the answer for "ma" has every candidate
+ * that "mai" can name. The popup of the library asks for the candidates of
+ * a word at once, so the first ask of a word finds none, and the answer is
+ * there for the next. The cache is forgotten when a line is sent.
+ */
+#define COMPLETE_CACHE_MAX	32
+#define COMPLETE_ROWS_MAX	FYAI_QUERY_LIMIT_MAX
+
+struct complete_cand {
+	char *value;
+	char *desc;
+};
+
+struct complete_entry {
+	struct complete_entry *next;
+	struct fyai_ctx *ctx;
+	char *kind, *prev, *given, *partial;
+	struct complete_cand *cands;
+	size_t n;
+	unsigned long long id;		/* the query in flight, or 0 */
+	bool ready;			/* the answer came */
+	bool complete;			/* it holds every candidate of the partial */
+};
+
+struct fyai_complete_cache {
+	struct complete_entry *head;
+	size_t n;
+};
+
+/* The context that this object stands on. */
+static inline struct fyai_ctx *complete_entry_ctx(const struct complete_entry *o)
+{
+	return o->ctx;
+}
+
+static void complete_entry_free(struct complete_entry *e)
+{
+	size_t i;
+
+	if (e->id)
+		fyai_uimodel_query_cancel(complete_entry_ctx(e), e->id);
+	for (i = 0; i < e->n; i++) {
+		free(e->cands[i].value);
+		free(e->cands[i].desc);
+	}
+	free(e->cands);
+	free(e->kind);
+	free(e->prev);
+	free(e->given);
+	free(e->partial);
+	free(e);
+}
+
+void fyai_cmd_complete_reset(struct fyai_ctx *ctx)
+{
+	struct fyai_complete_cache *cc;
+	struct complete_entry *e;
+
+	cc = ctx ? ctx->screen->complete : NULL;
+	if (!cc)
+		return;
+	while ((e = cc->head)) {
+		cc->head = e->next;
+		complete_entry_free(e);
+	}
+	free(cc);
+	ctx->screen->complete = NULL;
+}
+
+/* The given words of an array argument, one to a line. */
+static char *complete_given(const struct complete_req *r)
+{
+	struct fyai_buf b = { 0 };
+	char *joined;
+	size_t i;
+
+	for (i = 0; i < r->ngiven; i++)
+		if (fyai_buf_append_data(&b, r->given[i], strlen(r->given[i])) ||
+		    fyai_buf_append_data(&b, "\n", 1)) {
+			free(b.data);
+			return NULL;
+		}
+	joined = strdup(b.data ? b.data : "");
+	free(b.data);
+	return joined;
+}
+
+static void complete_answered(void *arg, fy_generic answer)
+{
+	struct complete_entry *e = arg;
+	fy_generic row, rows = fy_get(answer, "rows", fy_invalid);
+	const char *value, *desc;
+	size_t n = 0;
+
+	e->id = 0;
+	e->ready = true;
+	/* An error leaves the entry with no candidates: the same word does not
+	 * ask again until the next line. */
+	if (!fy_is_sequence(rows) || !fy_len(rows))
+		return;
+	e->cands = calloc(fy_len(rows), sizeof(*e->cands));
+	if (!e->cands)
+		return;
+	fy_foreach(row, rows) {
+		value = fy_get(row, "value", "");
+		desc = fy_get(row, "description", "");
+		e->cands[n].value = strdup(value);
+		e->cands[n].desc = *desc ? strdup(desc) : NULL;
+		if (e->cands[n].value)
+			n++;
+	}
+	e->n = n;
+	e->complete = fy_is_null(fy_get(answer, "next", fy_null));
+}
+
+static void complete_entry_emit(struct complete_req *r,
+				const struct complete_entry *e)
+{
+	size_t i;
+
+	for (i = 0; i < e->n; i++)
+		cand(r, e->cands[i].value, e->cands[i].desc);
+}
+
+static void complete_remote(struct complete_req *r, const char *kind,
+			    const char *prev)
+{
+	struct fyai_ctx *ctx = complete_req_ctx(r);
+	struct fyai_complete_cache *cc = ctx->screen->complete;
+	struct complete_entry *e, *oldest, **pp;
+	fy_generic given = fy_seq_empty, params, request;
+	char *joined;
+	size_t i;
+	int rc;
+
+	joined = complete_given(r);
+	if (!joined)
+		return;
+	if (!cc) {
+		cc = calloc(1, sizeof(*cc));
+		if (!cc)
+			goto out;
+		ctx->screen->complete = cc;
+	}
+	for (e = cc->head; e; e = e->next) {
+		if (strcmp(e->kind, kind) || strcmp(e->given, joined) ||
+		    (e->prev ? !prev || strcmp(e->prev, prev) : prev != NULL) ||
+		    strncmp(r->partial, e->partial, strlen(e->partial)))
+			continue;
+		/* One that waits will serve, and one that has the whole set
+		 * serves any longer word. */
+		if (!e->ready)
+			goto out;
+		if (e->complete || !strcmp(e->partial, r->partial)) {
+			complete_entry_emit(r, e);
+			goto out;
+		}
+	}
+	if (cc->n >= COMPLETE_CACHE_MAX) {
+		/* The oldest is the last: the new one goes in front. */
+		for (pp = &cc->head; (*pp)->next; pp = &(*pp)->next)
+			;
+		oldest = *pp;
+		*pp = NULL;
+		complete_entry_free(oldest);
+		cc->n--;
+	}
+	e = calloc(1, sizeof(*e));
+	if (!e)
+		goto out;
+	e->ctx = ctx;
+	e->kind = strdup(kind);
+	e->prev = prev ? strdup(prev) : NULL;
+	e->given = joined;
+	joined = NULL;
+	e->partial = strdup(r->partial);
+	if (!e->kind || !e->partial || (prev && !e->prev)) {
+		complete_entry_free(e);
+		goto out;
+	}
+	e->next = cc->head;
+	cc->head = e;
+	cc->n++;
+	for (i = 0; i < r->ngiven; i++)
+		given = fy_append(r->gb, given, fy_value(r->gb, r->given[i]));
+	params = fy_mapping(r->gb, "kind", kind, "partial", r->partial,
+			    "given", given);
+	if (prev)
+		params = fy_assoc(r->gb, params, "prev", prev);
+	request = fy_mapping(r->gb, "what", "complete", "params", params,
+			     "limit", (long long)COMPLETE_ROWS_MAX);
+	rc = fyai_uimodel_query(ctx, request, complete_answered, e, &e->id);
+	/* The owner of a mirror that answers at once is served at once. */
+	if (!rc && e->ready)
+		complete_entry_emit(r, e);
+out:
+	free(joined);
+}
+
+/* What the worker gives: the candidates of a kind, as rows. */
+struct complete_rows {
+	struct fy_generic_builder *gb;
+	fy_generic rows;
+	size_t n;
+};
+
+static void complete_rows_add(void *arg, const char *value, const char *desc)
+{
+	struct complete_rows *cr = arg;
+	fy_generic row;
+
+	if (cr->n >= COMPLETE_ROWS_MAX)
+		return;
+	row = fy_mapping(cr->gb, "value", value, "description", desc ? desc : "");
+	cr->rows = fy_append(cr->gb, cr->rows, row);
+	cr->n++;
+}
+
+fy_generic fyai_cmd_complete_answer(struct fyai_ctx *ctx,
+				    struct fy_generic_builder *gb,
+				    fy_generic request)
+{
+	struct fy_generic_builder_cfg cfg = {
+		.flags = FYGBCF_SCOPE_LEADER | FYGBCF_DEDUP_ENABLED,
+	};
+	fy_generic params = fy_get(request, "params", fy_map_empty);
+	fy_generic gv, word, inner;
+	const char *kind = fy_get(params, "kind", "");
+	const char *prev = fy_get(params, "prev", (const char *)NULL);
+	const char *given[16];
+	struct complete_rows cr = { .gb = gb, .rows = fy_seq_empty };
+	struct complete_req r;
+	bool known = false;
+	size_t i, n = 0;
+
+	for (i = 0; i < ARRAY_SIZE(complete_kinds); i++)
+		known = known || (complete_kinds[i].worker &&
+				  !strcmp(complete_kinds[i].name, kind));
+	if (prev)
+		known = !strcmp(kind, "catalog-value") ||
+			!strcmp(kind, "skill-file");
+	if (!known) {
+		inner = fy_mapping(gb, "code", FYAI_QUERY_UNSUPPORTED, "message",
+				   "this worker does not complete that kind");
+		return fy_mapping(gb, "error", inner);
+	}
+	fy_foreach(gv, fy_get(params, "given", fy_seq_empty)) {
+		word = gv;
+		if (n < ARRAY_SIZE(given) && fy_is_string(word))
+			given[n++] = fy_castp(&gv, "");
+	}
+	memset(&r, 0, sizeof(r));
+	r.ctx = ctx;
+	r.def = fy_invalid;
+	r.surface = FYAI_CMD_SESSION;
+	r.partial = fy_get(params, "partial", "");
+	r.plen = strlen(r.partial);
+	r.add = complete_rows_add;
+	r.arg = &cr;
+	r.given = given;
+	r.ngiven = n;
+	r.gb = fy_generic_builder_create(&cfg);
+	if (!r.gb) {
+		inner = fy_mapping(gb, "code", "busy", "message",
+				   "cannot make a builder for the completion");
+		return fy_mapping(gb, "error", inner);
+	}
+	if (prev && !strcmp(kind, "catalog-value"))
+		kind_catalog_value(&r, prev);
+	else if (prev)
+		kind_skill_file(&r, prev);
+	else
+		complete_kind(&r, kind);
+	fy_generic_builder_destroy(r.gb);
+	return fy_mapping(gb, "what", "complete", "rows", cr.rows, "next",
+			  cr.n >= COMPLETE_ROWS_MAX ? fy_value(gb, "more") :
+			  fy_null, "total", fy_value(gb, (long long)cr.n));
 }
 
 /* ---- the engine -------------------------------------------------------------- */
@@ -699,12 +996,16 @@ static void complete_value(struct complete_req *r, struct fyai_cmd_prop *cp,
 		return;
 	}
 	if (!strcmp(k, "catalog-value")) {
-		if (prev_value)
+		if (prev_value && r->remote)
+			complete_remote(r, k, prev_value);
+		else if (prev_value)
 			kind_catalog_value(r, prev_value);
 		return;
 	}
 	if (!strcmp(k, "skill-file")) {
-		if (prev_value)
+		if (prev_value && r->remote)
+			complete_remote(r, k, prev_value);
+		else if (prev_value)
 			kind_skill_file(r, prev_value);
 		return;
 	}
@@ -715,9 +1016,14 @@ static void complete_kind(struct complete_req *r, const char *kind)
 {
 	size_t i;
 
-	for (i = 0; i < ARRAY_SIZE(complete_kinds); i++)
-		if (!strcmp(complete_kinds[i].name, kind))
+	for (i = 0; i < ARRAY_SIZE(complete_kinds); i++) {
+		if (strcmp(complete_kinds[i].name, kind))
+			continue;
+		if (complete_kinds[i].worker && r->remote)
+			complete_remote(r, kind, NULL);
+		else
 			complete_kinds[i].fn(r);
+	}
 }
 
 static void complete_options(struct complete_req *r, struct fyai_cmd_prop *props,
@@ -1008,6 +1314,8 @@ unsigned int fyai_cmd_complete(struct fyai_ctx *ctx,
 	r.plen = strlen(r.partial);
 	r.add = add;
 	r.arg = arg;
+	/* The session of a client that has no arena asks its worker. */
+	r.remote = ctx && fyai_uimodel_mirrored(ctx);
 	r.gb = fy_generic_builder_create(&cfg);
 	if (!r.gb)
 		return 0;
@@ -1034,7 +1342,7 @@ unsigned int fyai_cmd_complete(struct fyai_ctx *ctx,
 		cmd_words_emit(&r, &ws);
 		/* A skill runs as /NAME, so the session offers it with the commands. */
 		if (surface == FYAI_CMD_SESSION)
-			complete_skills(&r);
+			complete_kind(&r, "user-skill");
 		goto out;
 	}
 	if (fyai_cmd_walk(surface, nwords - start, words + start,

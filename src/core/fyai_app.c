@@ -300,6 +300,7 @@ void fyai_screen_abandon(struct fyai_screen *screen)
 	screen->workpane = NULL;
 	screen->browser = NULL;
 	screen->cmd_call = NULL;
+	screen->complete = NULL;
 	screen->catalog_update = NULL;
 	screen->config_edit = NULL;
 }

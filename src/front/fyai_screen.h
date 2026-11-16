@@ -10,6 +10,7 @@
 struct fyai_browser;
 struct fyai_catalog_update_request;
 struct fyai_cmd_call;
+struct fyai_complete_cache;
 struct fyai_config_edit_request;
 struct fyai_diag;
 struct fyai_loop;
@@ -35,6 +36,8 @@ struct fyai_screen {
 	struct fyai_config_edit_request *config_edit;
 	struct fyai_catalog_update_request *catalog_update;
 	struct fyai_cmd_call *cmd_call;	/* the active async command */
+	/* The candidates that the worker gave, in a client with no arena. */
+	struct fyai_complete_cache *complete;
 };
 
 void fyai_screen_init(struct fyai_screen *screen, struct fyai_loop *loop,

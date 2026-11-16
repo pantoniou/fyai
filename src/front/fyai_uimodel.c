@@ -87,7 +87,7 @@ const char *fyai_ui_store_name(enum fyai_ui_store store)
 /* The model of @ctx, or NULL when it has none. */
 static struct fyai_uimodel *uimodel(struct fyai_ctx *ctx)
 {
-	return ctx ? ctx->uistores->uimodel : NULL;
+	return ctx && ctx->uistores ? ctx->uistores->uimodel : NULL;
 }
 
 struct fy_generic_builder *fyai_uimodel_builder_new(struct fyai_ctx *ctx)

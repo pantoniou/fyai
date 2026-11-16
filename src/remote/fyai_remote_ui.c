@@ -1116,6 +1116,8 @@ int fyai_remote_ui_step(struct fyai_remote_ui *view)
 	if (fyai_ui_quit_requested(ctx))
 		return 1;
 	while (view->initialized && (line = fyai_ui_take_line(ctx))) {
+		/* A new line asks for new candidates. */
+		fyai_cmd_complete_reset(ctx);
 		if (line[0] == '/' && fyai_cmd_session_ends(line + 1)) {
 			free(line);
 			return 1;
@@ -1171,6 +1173,7 @@ void fyai_remote_ui_close(struct fyai_remote_ui *view)
 	ctx = fyai_remote_ui_ctx(view);
 	fyai_event_source_remove(view->deadline);
 	/* Suppress query callbacks during view teardown. */
+	fyai_cmd_complete_reset(ctx);
 	fyai_uimodel_mirror_queries(ctx, NULL, NULL);
 	while ((q = view->queries)) {
 		view->queries = q->next;

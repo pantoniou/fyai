@@ -222,6 +222,22 @@ unsigned int fyai_cmd_complete(struct fyai_ctx *ctx,
 			       fyai_cmd_candidate_fn add, void *arg);
 
 /*
+ * A client that has no arena asks its worker for the candidates of a kind
+ * that reads the arena or the project, and keeps the answer for the keys
+ * that follow. Forget it when a line is sent.
+ */
+void fyai_cmd_complete_reset(struct fyai_ctx *ctx);
+
+/*
+ * The answer of a worker to the query `complete` {kind, partial, given, prev}:
+ * the candidates of the kind as rows {value, description}. A kind that this
+ * process does not read from data is an error answer.
+ */
+fy_generic fyai_cmd_complete_answer(struct fyai_ctx *ctx,
+				    struct fy_generic_builder *gb,
+				    fy_generic request);
+
+/*
  * Complete a session input line @buf that starts with '/'. Each candidate is
  * the whole line with the last word replaced.
  */
