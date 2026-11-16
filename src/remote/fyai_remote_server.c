@@ -943,7 +943,8 @@ static void remote_watch_request(struct fyai_remote_peer *peer, fy_generic frame
 		peer->failed = true;
 		return;
 	}
-	if (strcmp(subtype, "initialize") && strcmp(subtype, "fyai_sync")) {
+	if (strcmp(subtype, "initialize") && strcmp(subtype, "fyai_sync") &&
+	    strcmp(subtype, "fyai_query")) {
 		remote_reply(peer, id, "a watcher only reads", fy_invalid);
 		return;
 	}

@@ -100,6 +100,24 @@ struct fyai_remote_ui {
 	bool initialized, busy, failed;
 	bool watch;			/* reads a session that another client drives */
 	char *error;			/* the cause of the last failed turn */
+	/* The queries that the renderer asked: sent in order, a few at a time,
+	 * and answered by the number of their request. */
+	struct remote_ui_query *queries, **query_tail;
+	struct fy_generic_builder *query_gb;	/* the requests that wait */
+	unsigned long long query_ids;
+	unsigned query_inflight;
+};
+
+/* The queries of the renderer that are in flight at the same time. */
+#define REMOTE_UI_QUERIES_MAX	8
+
+struct remote_ui_query {
+	struct remote_ui_query *next;
+	unsigned long long id;		/* what the renderer holds */
+	unsigned long long seq;		/* wire ID, or 0 if unsent */
+	fy_generic request;		/* in the builder of the view */
+	fyai_uimodel_answer_fn fn;	/* NULL once the renderer cancelled */
+	void *arg;
 };
 
 /* The context that this object stands on. */
@@ -119,7 +137,7 @@ static int remote_ui_request(struct fyai_remote_ui *view, const char *subtype,
 
 	/* A watcher asks for the model and the turns, which change nothing. */
 	if (view->watch && strcmp(subtype, "initialize") &&
-	    strcmp(subtype, "fyai_sync"))
+	    strcmp(subtype, "fyai_sync") && strcmp(subtype, "fyai_query"))
 		return 0;
 	/* fy_sprintfa() reads its arguments twice: no side effect in them. */
 	view->requests++;
@@ -707,6 +725,142 @@ err:
 	return -1;
 }
 
+/* Send queued queries up to the in-flight limit. */
+static int remote_ui_query_pump(struct fyai_remote_ui *view)
+{
+	struct remote_ui_query *q;
+	int rc;
+
+	for (q = view->queries; q; q = q->next) {
+		if (view->query_inflight >= REMOTE_UI_QUERIES_MAX)
+			break;
+		if (q->seq)
+			continue;
+		rc = remote_ui_request(view, "fyai_query", q->request);
+		if (rc)
+			return rc;
+		q->seq = view->requests;
+		view->query_inflight++;
+	}
+	return 0;
+}
+
+/* Forget the queries when none is left, so the builder does not grow. */
+static void remote_ui_query_settle(struct fyai_remote_ui *view)
+{
+	if (!view->queries && view->query_gb)
+		fy_generic_builder_reset(view->query_gb);
+}
+
+static int remote_ui_query_start(void *data, fy_generic request,
+				 fyai_uimodel_answer_fn fn, void *arg,
+				 unsigned long long *idp)
+{
+	struct fyai_remote_ui *view = data;
+	struct fyai_ctx *ctx = fyai_remote_ui_ctx(view);
+	struct remote_ui_query *q;
+	int rc;
+
+	if (!view->query_gb)
+		view->query_gb = fy_generic_builder_create(NULL);
+	fyai_error_check(ctx, view->query_gb, err,
+			 "cannot keep a query of the renderer");
+	q = calloc(1, sizeof(*q));
+	fyai_error_check(ctx, q, err, "cannot keep a query of the renderer");
+	/* The renderer's request may not outlive the call. */
+	q->request = fy_gb_internalize(view->query_gb, request);
+	q->fn = fn;
+	q->arg = arg;
+	q->id = ++view->query_ids;
+	if (!view->query_tail)
+		view->query_tail = &view->queries;
+	*view->query_tail = q;
+	view->query_tail = &q->next;
+	if (idp)
+		*idp = q->id;
+	fyai_diag_tracef("query", "client: query %llu asked, %u in flight",
+			 q->id, view->query_inflight);
+	rc = remote_ui_query_pump(view);
+	fyai_error_check(ctx, !rc, err, "cannot send a query to the worker");
+	return 0;
+err:
+	return -1;
+}
+
+/* Take @q out of the list, and free it. */
+static void remote_ui_query_drop(struct fyai_remote_ui *view,
+				 struct remote_ui_query *q)
+{
+	struct remote_ui_query **pp;
+
+	for (pp = &view->queries; *pp && *pp != q; pp = &(*pp)->next)
+		;
+	if (!*pp)
+		return;
+	*pp = q->next;
+	if (view->query_tail == &q->next)
+		view->query_tail = pp;
+	if (q->seq && view->query_inflight)
+		view->query_inflight--;
+	free(q);
+}
+
+static void remote_ui_query_cancel(void *data, unsigned long long id)
+{
+	struct fyai_remote_ui *view = data;
+	struct remote_ui_query *q;
+
+	for (q = view->queries; q && q->id != id; q = q->next)
+		;
+	if (!q)
+		return;
+	/* Keep sent requests queued but discard their answers. */
+	if (q->seq) {
+		q->fn = NULL;
+		return;
+	}
+	remote_ui_query_drop(view, q);
+	remote_ui_query_settle(view);
+}
+
+static const struct fyai_uimodel_query_ops remote_ui_query_ops = {
+	.start = remote_ui_query_start,
+	.cancel = remote_ui_query_cancel,
+};
+
+/* Handle the worker's answer to request @seq. */
+static int remote_ui_query_answer(struct fyai_remote_ui *view,
+				  unsigned long long seq, fy_generic response)
+{
+	struct fy_generic_builder *gb = fyai_ctx_transient_gb(fyai_remote_ui_ctx(view));
+	struct remote_ui_query *q;
+	fyai_uimodel_answer_fn fn;
+	void *arg;
+	fy_generic answer, inner;
+
+	for (q = view->queries; q && q->seq != seq; q = q->next)
+		;
+	if (!q)
+		return 0;
+	fn = q->fn;
+	arg = q->arg;
+	fyai_diag_tracef("query", "client: query %llu answered%s", q->id,
+			 fn ? "" : ", dropped");
+	remote_ui_query_drop(view, q);
+	if (fn) {
+		if (fy_equal(fy_get(response, "subtype", ""), "error")) {
+			inner = fy_mapping(gb, "code", "refused", "message",
+					   fy_get(response, "error", "no cause"));
+			answer = fy_mapping(gb, "error", inner);
+		} else {
+			answer = fy_get(response, "response", fy_map_empty);
+		}
+		fn(arg, answer);
+	}
+	remote_ui_query_settle(view);
+	return remote_ui_query_pump(view);
+}
+
 static int remote_ui_response(struct fyai_remote_ui *view, fy_generic frame)
 {
 	struct fyai_ctx *ctx = fyai_remote_ui_ctx(view);
@@ -714,6 +868,9 @@ static int remote_ui_response(struct fyai_remote_ui *view, fy_generic frame)
 	const char *id = fy_get(response, "request_id", "");
 	bool init = !strncmp(id, "ui-initialize-", 14);
 
+	if (!strncmp(id, "ui-fyai_query-", 14))
+		return remote_ui_query_answer(view, strtoull(id + 14, NULL, 10),
+					      response);
 	if (fy_equal(fy_get(response, "subtype", ""), "error")) {
 		fyai_error(ctx, "the worker refused %s: %s", id,
 			   fy_get(response, "error", "no cause"));
@@ -804,6 +961,7 @@ struct fyai_remote_ui *fyai_remote_ui_open(struct fyai_ctx *ctx,
 	rc = fyai_uimodel_mirror(ctx, remote_ui_intent, view);
 	fyai_error_check(ctx, !rc, err_view, "cannot mirror the UI model");
 	fyai_uimodel_mirror_tiles(ctx, &remote_ui_tile_ops, view);
+	fyai_uimodel_mirror_queries(ctx, &remote_ui_query_ops, view);
 	/* A branch that is only at the worker has no configuration here. */
 	view->base = fy_is_mapping(ctx->cfg->config_doc) ?
 		     ctx->cfg->config_doc : fy_map_empty;
@@ -921,6 +1079,8 @@ int fyai_remote_ui_step(struct fyai_remote_ui *view)
 		if (view->opened && remote_ui_release(view))
 			return -1;
 	}
+	/* A command of the view that waits for the worker ends here. */
+	(void)fyai_cmd_session_step(ctx);
 	fyai_ui_settle(ctx);
 	view->inbox = fy_seq_empty;
 	fy_generic_builder_reset(view->inbox_gb);
@@ -936,6 +1096,11 @@ int fyai_remote_ui_step(struct fyai_remote_ui *view)
 		fyai_event_interrupt_ack(ctx->loop);
 		interrupt_seq = ctx->loop->interrupt_seq;
 		delivered = fyai_ui_interrupt(ctx);
+		/* A command of the view that waits ends as cancelled. */
+		if (!delivered && ctx->screen->cmd_call) {
+			fyai_cmd_session_interrupt(ctx);
+			delivered = true;
+		}
 		ctx->loop->interrupt_pending =
 			ctx->loop->interrupt_seq != interrupt_seq;
 		/* A turn of the worker is the worker's to cancel. */
@@ -997,6 +1162,7 @@ int fyai_remote_ui_step(struct fyai_remote_ui *view)
 
 void fyai_remote_ui_close(struct fyai_remote_ui *view)
 {
+	struct remote_ui_query *q;
 	struct remote_ui_term *t;
 	struct fyai_ctx *ctx;
 
@@ -1004,6 +1170,13 @@ void fyai_remote_ui_close(struct fyai_remote_ui *view)
 		return;
 	ctx = fyai_remote_ui_ctx(view);
 	fyai_event_source_remove(view->deadline);
+	/* Suppress query callbacks during view teardown. */
+	fyai_uimodel_mirror_queries(ctx, NULL, NULL);
+	while ((q = view->queries)) {
+		view->queries = q->next;
+		free(q);
+	}
+	fy_generic_builder_destroy(view->query_gb);
 	fyai_uidraw_finish(ctx);
 	while ((t = view->terms)) {
 		view->terms = t->next;

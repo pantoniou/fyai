@@ -33,6 +33,7 @@
 #include "fyai_host.h"
 #include "fyai_auth_util.h"
 #include "fyai_branch.h"
+#include "fyai_query.h"
 #include "fyai_claude_sdk.h"
 #include "fyai_cmd.h"
 #include "fyai_cmd_int.h"
@@ -2307,8 +2308,13 @@ static void sdk_model_start(struct sdk_server *srv, fy_generic id)
 static void sdk_respond_init(struct sdk_server *srv, fy_generic id)
 {
 	struct fy_generic_builder *gb = fyai_ctx_transient_gb(sdk_server_ctx(srv));
-	fy_generic response;
+	fy_generic response, queries = fy_seq_empty;
+	const char *const *names;
+	size_t i, n;
 
+	names = fyai_query_names(&n);
+	for (i = 0; i < n; i++)
+		queries = fy_append(gb, queries, fy_value(gb, names[i]));
 	response = fy_mapping(gb,
 		"commands", fy_seq_empty,
 		"output_style", "default",
@@ -2319,7 +2325,8 @@ static void sdk_respond_init(struct sdk_server *srv, fy_generic id)
 			fyai_host_random(&srv->epoch, sizeof(srv->epoch));
 		response = fy_assoc(gb, response, "fyai", fy_mapping(gb,
 			"model", 1LL, "epoch", fy_stringf(gb, "%llx",
-				(unsigned long long)srv->epoch)));
+				(unsigned long long)srv->epoch),
+			"queries", queries));
 	}
 	sdk_respond(srv, id, response, NULL);
 	sdk_model_start(srv, id);
@@ -2466,6 +2473,14 @@ static void sdk_control(struct sdk_server *srv, fy_generic frame)
 		model = sdk_model_sync(srv, req);
 		sdk_respond(srv, id, model, fy_is_valid(model) ? NULL :
 			    "cannot read the stored turns");
+		return;
+	}
+		if (!strcmp(subtype, "fyai_query") && srv->model_stream) {
+		/* A failed query returns an `error` with a code. */
+		fyai_diag_tracef("query", "worker: %s %s", fy_castp(&id, ""),
+				 (const char *)fy_get(req, "what", ""));
+		model = fyai_query(sdk_server_ctx(srv), gb, req);
+		sdk_respond(srv, id, model, NULL);
 		return;
 	}
 		if (!strcmp(subtype, "fyai_answer") && srv->model_stream) {
