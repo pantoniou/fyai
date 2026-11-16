@@ -103,6 +103,12 @@ a worker that it forks.
    worker and returns its status.
 5. Diagnostics. The worker drains at its boundaries and sends the drain as log
    entries. The client reports its own faults to its terminal.
+6. A client with no arena. A client on another machine has no arena, so it
+   cannot take the display configuration from one. Today the worker sends the
+   `display` group in the `state` store (`remote_ui_state()`), which makes the
+   view settings of a person the property of a branch on the worker. The
+   client must own them (see Display configuration below), and send the
+   facts about its terminal to the worker.
 
 ### Steps
 
@@ -123,7 +129,16 @@ this order: implementation, tests, documentation.
    the gap per turn). Find the cause of the 3 to 10 ms of a large answer. If
    a number needs it, send the head of the arena with an arena fd in place of
    a store frame, and drop a hop. Not before.
-5. Default. The split is the way of an interactive run. Remove the option, the
+5. Display configuration. The view keys move to the file of the client, the
+   output keys move to `output/` in the branch, and the worker stops sending
+   `display`. No compatibility is kept: an old `display` key in an arena is an
+   error. The capabilities (size of the window, colour depth, image
+   input) and the interest of the client (see Interest below) go in the
+   `initialize` request of the client, which carries only the model version
+   today, and in a frame at each change. Check each of the 68 keys against
+   the four kinds below. A client with no arena must work: add a
+   case that connects with an empty `HOME`.
+6. Default. The split is the way of an interactive run. Remove the option, the
    in-process presentation of an interactive run and the `fyai_ui_*` calls of
    the core that nothing uses. This removes the blockers that the thread plan
    had to solve first. Update the layout and the event-loop rules of
@@ -141,6 +156,7 @@ keeps the plain sink. This plan does not change it.
 | Terminal features that only a local session has | The list of step 2. A feature that cannot be a frame is a reason to keep it in the client. |
 | Credentials | The worker holds them, and the client needs none. The transport of a worker with no server needs a check. |
 | A client that is slow | The flow control of section 5.3 applies. A store frame replaces the root. |
+| A stream that is off but a consumer needs it | A tool band that waits for an answer or a question must still reach the client: a question is an `ask` frame, never a stream. List the producers and check that none of them mixes presentation with a request. |
 | Memory | The client mirrors the model, so the live document is twice in memory, in two processes. Check with a long session. |
 | The start time | One fork more. Measure it with the local fork. |
 | Slash commands | A command runs in the worker, with `scope: view` as the exception. Its output reaches the client as a store frame. |
@@ -151,9 +167,11 @@ reporter.
 
 ### Display configuration
 
-Status: proposal, independent of the process split below. The split does not
-need it: the client already takes the display configuration that the worker
-sends. Check the key lists against the code and the schema.
+Status: proposal, step 5 of the plan. The first steps do not need it: the
+client takes the display configuration that the worker sends. A client with no
+arena does, because the worker would otherwise own the view settings of a
+terminal that it cannot see. Check the key lists against the code and the
+schema.
 
 Today the `display` group (68 keys in `data/config.schema.yaml`) is in the
 merged configuration document, which is the branch configuration plus
@@ -161,7 +179,8 @@ merged configuration document, which is the branch configuration plus
 command does not store it, but `config set` and the stored layer can. The
 model can write it (`x-fyai-model: write` on the group).
 
-Decide the seam by consumer, not by key prefix. A key has one of three kinds:
+Decide the seam by consumer, not by key prefix. A key has one of three kinds, and a fourth thing, the interest of a client,
+is not a key:
 
 1. View. Only the renderer reads it: theme, layout, work pane, keys, page,
    completion, focus, glyphs, scroll, popup. It describes a terminal and a
@@ -178,6 +197,32 @@ Decide the seam by consumer, not by key prefix. A key has one of three kinds:
    for the size of a pseudo-terminal, image input, the colour depth. They go
    from the TUI to the core as a frame, at start and at each change. They are
    never configuration.
+
+Interest. What a client wants the worker to make and send of the live
+presentation. A session that does not show the progress of a shell, the
+output of a tool call or the screen of a sub-agent must not make that data in
+the worker, and must not pay to send it. It is not a view key: the worker acts
+on it. It is not an output key: it never changes what is stored or what the
+model reads.
+
+- The client sends it as a set of named streams in the `initialize` request,
+  and changes it with a request frame. It is the `fyai_subscribe` of
+  `doc/remote-sessions-sdd.md` section 7.4, with a stream for each live
+  producer: the text deltas of a model, the progress of a tool, the output
+  of a shell, the terminal bytes of a tile, the screens of sub-agents.
+- A stream that is off is not made. The worker does not format its rows, does
+  not copy its bytes and does not queue its frames. A stream that is off
+  still ends in the store: the result of the tool call is in the
+  transcript store, with the preview that the output keys give.
+- A stream that is turned on gets a snapshot first and then the deltas, as in
+  section 7.4, so a late client sees the present state and no gap.
+- The terminal of a shell is the case to design with care: with its stream off
+  the program still runs and the core still captures its output for the
+  model. Only the copy for a tile stops, and a user that opens the tile later
+  gets a fresh screen.
+- The set is per connection, so two clients of one worker may differ. The
+  default of the client is all streams on, and a file of the client (the view
+  file) can set the default for a person.
 
 Place the view keys in a regular user configuration file, with a session
 layer in the TUI context, and not in an arena:
