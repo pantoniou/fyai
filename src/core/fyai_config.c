@@ -1654,6 +1654,9 @@ int fyai_apply_config_ops(struct fyai_ctx *ctx)
 
 	if (!config_has_command_ops(cfg))
 		return 0;
+	/* Only the remote worker has an arena and can apply these options. */
+	if (cfg->remote)
+		return 0;
 	/*
 	 * No working builder means no arena is open. Tell the two causes
 	 * apart: a NO_STORAGE verb (auth) never opens one however well
