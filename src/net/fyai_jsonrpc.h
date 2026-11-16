@@ -150,6 +150,15 @@ int jsonrpc_conn_respond(struct jsonrpc_conn *conn, fy_generic id,
 /* Suppress the close diagnostic when the caller stops the peer. */
 void jsonrpc_conn_expect_close(struct jsonrpc_conn *conn);
 
+/*
+ * Call @fn once when the connection closes: the peer ended, or the channel
+ * failed. It runs from the event loop, so a holder that waits on something
+ * else than the connection learns that nobody can answer.
+ */
+typedef void (*jsonrpc_close_fn)(void *data);
+void jsonrpc_conn_on_close(struct jsonrpc_conn *conn, jsonrpc_close_fn fn,
+			   void *data);
+
 /* Allocate the next request ID on this connection. */
 long long jsonrpc_conn_next_id(struct jsonrpc_conn *conn);
 

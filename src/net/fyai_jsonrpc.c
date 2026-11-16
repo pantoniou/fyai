@@ -84,6 +84,8 @@ struct jsonrpc_conn {
 	void *serve_userdata;
 	bool serve_deferred;	/* handler will answer later */
 	bool expect_close;
+	jsonrpc_close_fn on_close;		/* once, when the connection closes */
+	void *on_close_data;
 	bool accept_batches;
 	/* Every frame goes here, and none is read as JSON-RPC. */
 	jsonrpc_frame_fn frame;
@@ -506,8 +508,24 @@ static void jsonrpc_conn_settle(struct jsonrpc_conn *conn, const char *why,
 static void jsonrpc_conn_fail_pending(struct jsonrpc_conn *conn,
 				      const char *why)
 {
+	jsonrpc_close_fn fn = conn->on_close;
+	void *data = conn->on_close_data;
+
 	conn->closed = true;
 	jsonrpc_conn_settle(conn, why, false);
+	/* Once, and the owner may destroy the connection in it. */
+	conn->on_close = NULL;
+	if (fn)
+		fn(data);
+}
+
+void jsonrpc_conn_on_close(struct jsonrpc_conn *conn, jsonrpc_close_fn fn,
+			   void *data)
+{
+	if (!conn)
+		return;
+	conn->on_close = fn;
+	conn->on_close_data = data;
 }
 
 /*
