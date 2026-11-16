@@ -46,7 +46,7 @@ oracle_compare() {
 		"$ORACLE_DIR/sandbox"
 
 	oracle_script "$ORACLE_DIR/local" <"$script" |
-		pty_run "$ORACLE_DIR/local.out" "$FYAI_BIN" "$@" ||
+		FYAI_TEST_NO_SPLIT=1 pty_run "$ORACLE_DIR/local.out" "$FYAI_BIN" "$@" ||
 		fail "the local run failed"
 
 	# The second run starts where the first one started.

@@ -190,6 +190,27 @@ pty_run() {
 	[ -z "${FYAI_TRACE+x}" ] || keep+=(--env "FYAI_TRACE=$FYAI_TRACE")
 	[ -z "${FYAI_TRACE_LEVEL+x}" ] ||
 		keep+=(--env "FYAI_TRACE_LEVEL=$FYAI_TRACE_LEVEL")
+	# FYAI_TEST_SPLIT=1 runs each session at a worker that is a child of the
+	# process: --split goes after the first fyai of the command, unless the
+	# command is already a client of a server.
+	# Keep the oracle baseline in-process.
+	if [ -n "${FYAI_TEST_SPLIT:-}" ] && [ -z "${FYAI_TEST_NO_SPLIT:-}" ]; then
+		local -a args=()
+		local word done_split=
+		for word in "$@"; do
+			case "$word" in
+			--remote | remote | --remote=*) done_split=1 ;;
+			esac
+		done
+		for word in "$@"; do
+			args+=("$word")
+			if [ -z "$done_split" ] && [ "$word" = "$FYAI_BIN" ]; then
+				args+=(--split)
+				done_split=1
+			fi
+		done
+		set -- ${args[@]+"${args[@]}"}
+	fi
 	env -u FYAI_TRACE -u FYAI_TRACE_LEVEL "$FYAI_BIN" __pty-driver \
 		${keep[@]+"${keep[@]}"} "$script" "$out" "$@"
 }
