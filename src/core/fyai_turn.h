@@ -79,6 +79,14 @@ bool fyai_turn_has_user_message(fy_generic turn);
 /* True when a turn carries only system messages (and at least one). */
 bool fyai_turn_is_system_only(fy_generic turn);
 
+/*
+ * What a client that has no arena needs of one stored turn, as a mapping in
+ * @gb: its display records, its user message as the card shows it, and the
+ * outputs of its calls, which the tool rows replay from. The provider
+ * stream, the configuration and the credentials stay with the owner.
+ */
+fy_generic fyai_turn_wire(struct fy_generic_builder *gb, fy_generic turn);
+
 int fyai_turn_stack_init(struct fyai_turn_stack *stack, fy_generic turn,
 			 fy_generic previous);
 void fyai_turn_stack_cleanup(struct fyai_turn_stack *stack);

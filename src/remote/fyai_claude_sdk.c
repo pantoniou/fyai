@@ -1853,37 +1853,6 @@ static void sdk_turn_id(fy_generic turn, char id[SDK_TURN_ID_SIZE])
 }
 
 /*
- * What a client that has no arena needs of one stored turn: its display
- * records, its user message as the card shows it, and the outputs of its
- * calls, which the tool rows replay from. The provider stream, the
- * configuration and the credentials stay here.
- */
-static fy_generic sdk_model_turn(struct fy_generic_builder *gb, fy_generic turn)
-{
-	fy_generic outputs, output, messages, message, type;
-	const char *user = "";
-
-	outputs = fy_get(turn, "display_outputs", fy_seq_empty);
-	fy_foreach(output, outputs)
-		if (fy_any_equal(fy_get(output, "tag", fy_invalid),
-				 "user", "agent"))
-			user = fy_get(output, "markdown", "");
-	messages = fyai_turn_has_user_message(turn) ?
-		fy_sequence(gb, fy_mapping(gb, "role", "user",
-					   "content", user)) :
-		fy_seq_empty;
-	/* The calls go with their outputs: a replay counts the calls that
-	 * store no result fragment. */
-	fy_foreach(message, fy_get(turn, "messages", fy_seq_empty)) {
-		type = fy_get(message, "type", fy_invalid);
-		if (fyai_item_type_is_call(type) ||
-		    fyai_item_type_is_call_output(type))
-			messages = fy_append(gb, messages, message);
-	}
-	return fy_mapping(gb, "messages", messages, "display_outputs", outputs);
-}
-
-/*
  * Answer `fyai_sync {have, depth}`: the turns of the branch that the client
  * lacks. @have lists the ids of turns the client holds. The turns after the
  * newest of them go, oldest first, each with its id, and @base names that
@@ -1936,7 +1905,7 @@ static fy_generic sdk_model_sync(struct sdk_server *srv, fy_generic req)
 					       fy_seq_empty)));
 		sdk_turn_id(stack.items[i], id);
 		turns = fy_append(gb, turns, fy_assoc(gb,
-			sdk_model_turn(gb, stack.items[i]), "id",
+			fyai_turn_wire(gb, stack.items[i]), "id",
 			fy_value(gb, id)));
 	}
 	if (stack.count) {
