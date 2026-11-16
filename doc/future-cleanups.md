@@ -295,12 +295,15 @@ session, until the default step removes it, calls the same function directly.
    (`branch_preview`). The line that a mirror gets goes to the forms of this
    process first (the browser, a command that asks), and the loop of the
    client runs `fyai_browser_step()`. With this, 8 of the 10 `ui_branch_*`
-   cases pass in split mode. What is left:
-   - The preview beside the list, and the recap (`p`, `t`). A worker has no
-     display outputs in the turns it stores, so its recap is empty. The client
-     has to render from the messages of the turns, as it does for the history:
-     a `branch_turns` query of the turns, and `browser_capture()` over a replica
-     of them.
+   cases pass in split mode, and the other two have the causes below. What is left:
+   - The preview beside the list and the recap (`p`, `t`) are done: a worker has
+     no display records to recap, so the client asks `branch_turns` (the last
+     turns, in the form of the sync) and renders them. `ui_branch_preview`
+     still fails in split mode, only because a worker without a branch names
+     it `sdk/<uuid>`, which is wider than the pane of the preview, so the label
+     after the name is cut. The worker of a split session has to start as a
+     local session does: a `session/` branch with the configuration of the
+     branch last updated in its directory.
    - The resume picker and the foreign sessions (`ui_branch_preview_theme`,
      `ui_resume_*`): rows with tokens and the import data, the files of the
      other tools read by the worker (`foreign`), and a `--split` that takes a
