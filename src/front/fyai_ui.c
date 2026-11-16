@@ -3199,14 +3199,16 @@ static enum fyai_event_action ui_service_frame(struct fyai_ui *ui)
 static void ui_event_line(struct fyai_ui *ui, const struct fytim_event *ev)
 {
 	ui_message_clear(ui);
-	/* A line of a mirror is for the process that owns the
-	 * model: it is queued for the client. */
-	if (fyai_uimodel_mirrored(fyai_ui_ctx(ui)))
-		goto queue;
+	/* A form of this process takes the line first: a command of the view
+	 * that asks for input, and the browser. */
 	if (fyai_cmd_session_input(fyai_ui_ctx(ui), ev->text))
 		return;
 	if (fyai_browser_input(fyai_ui_ctx(ui), ev->text))
 		return;
+	/* The rest of a mirror's lines are for the process that owns the
+	 * model: they are queued for the client. */
+	if (fyai_uimodel_mirrored(fyai_ui_ctx(ui)))
+		goto queue;
 	if (fyai_agents_input(fyai_ui_ctx(ui), ev->text))
 		return;
 	if (ui->busy && !strcmp(ev->text, "/branches")) {

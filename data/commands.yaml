@@ -3034,6 +3034,7 @@ commands:
           x-fyai-meta: QUESTION
 
   - command: branches
+    scope: view
     title: open the branch browser
     description: Open the browser of the branches of the arena.
     surfaces: [session]
