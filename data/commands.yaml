@@ -4414,6 +4414,11 @@ commands:
           description: serve as a session worker of `fyai serve`, which a client can initialize again
           x-fyai-long: remote-worker
           x-fyai-hidden: true
+        local_session:
+          type: boolean
+          description: start a session with no name as a local session starts, on a `session/` branch that has the configuration of the branch last used in this directory
+          x-fyai-long: local-session
+          x-fyai-hidden: true
         session_type:
           type: string
           enum: [fyai, sdk]

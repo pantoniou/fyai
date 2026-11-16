@@ -730,7 +730,11 @@ int fyai_cmd_claude_sdk_early(struct fyai_cfg *cfg, fy_generic args)
 			goto err;
 	} else {
 		cfg->fresh_session = true;
-		cfg->fresh_session_name = fy_gb_intern_string(cfg->gb, name);
+		/* A local session has no name of its own: the storage names it
+		 * `session/...` and takes the configuration of the branch last
+		 * used in this directory. */
+		if (!fy_get(args, "local_session", false))
+			cfg->fresh_session_name = fy_gb_intern_string(cfg->gb, name);
 	}
 
 system_prompt:

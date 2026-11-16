@@ -712,7 +712,7 @@ static int remote_split_open(struct remote_client *client)
 	fyai_error_check(ctx, self || !strchr(cfg->argv[0], '/'), out,
 			 "cannot resolve the executable '%s': %s", cfg->argv[0],
 			 strerror(errno));
-	args = calloc(cfg->remote_globals + 6, sizeof(*args));
+	args = calloc(cfg->remote_globals + 7, sizeof(*args));
 	fyai_error_check(ctx, args, out, "cannot allocate the arguments of a worker");
 	args[n++] = self ? self : (char *)cfg->argv[0];
 	fy_foreach(word, cfg->remote_args) {
@@ -724,6 +724,8 @@ static int remote_split_open(struct remote_client *client)
 	args[n++] = "--remote-worker";
 	args[n++] = "--session-type";
 	args[n++] = "fyai";
+	/* A session with no name starts as a local one does. */
+	args[n++] = "--local-session";
 	rc = fyai_remote_socketpair(SOCK_STREAM, sv);
 	fyai_error_check(ctx, !rc, out, "cannot make the channel of a worker: %s",
 			 strerror(errno));
