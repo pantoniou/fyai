@@ -138,7 +138,35 @@ this order: implementation, tests, documentation.
 2. Parity. Run the PTY suite with the option on, by an environment variable of
    the harness, and fix each divergence in the worker or in the client. The
    oracle cases must pass. Do not add a second path in the worker for a split
-   session.
+   session. `FYAI_TEST_SPLIT=1 ctest -R case_` puts `--split` in each `pty_run`
+   of a command that is not a client of a server. Of 480 cases, 78 fail in
+   split mode and 1 fails (`catalog_available`) without it. The first run had
+   183: the client replayed `--set` against an arena that it has not, which
+   `config: leave the --set ops to the worker of --remote` fixed. What stays,
+   from a first look at the output of each family and not yet a diagnosis of
+   each case:
+   - The commands of the client that need data of the worker. `/branches`
+     draws a table from the worker where a local session draws the branch
+     browser, so the branch and resume cases (`ui_branch_*`, `ui_resume_*`,
+     12) fail. The client has no arena, so each such command needs a request
+     to the worker for its data. This is the "completion and pickers" risk
+     below, and it is the largest family.
+   - Sub-agent screens and tool bands (`ui_agent*`, `ui_inline_tool_agent*`,
+     `ui_agents_parallel`, 11), and shell tiles with their focus and keys
+     (`ui_inline_tool_focus*`, `ui_shell_*`, `ui_tile_maximize`,
+     `ui_keys_surface`, `shell_input_wanted` and others, 13).
+   - Work during a turn: `/btw`, events, pending panels, waits, cancel and
+     Escape (`ui_btw_*`, `ui_event_mid_turn`, `ui_wait_*`, `ui_pending_*`,
+     `ui_cancel_background`, `slash_midturn`, `wait_plain_escape`,
+     `ui_idle_escape`, 11).
+   - Sessions and state of the project: a session in a sandbox view (`session_*`
+     says that the session exists already), the approval of a setting,
+     reload, skills and the catalogue update (9).
+   - `ui_page_*` (7), the recordings of `--cast` (2), and the rest.
+   - The session branch of a worker without a branch is named `sdk/...`, and a
+     local session names it `session/...`. The remote worker has to take the
+     name of the local rule.
+   - `resume` and a command line are refused, which three cases show.
 3. Lifecycle. The rules of signals, shutdown and death of either process, each
    with a test that kills one side. Test the terminal restore.
 4. Measure again, with a shell tile and with a long session (the growth of
@@ -199,8 +227,8 @@ merged configuration document, which is the branch configuration plus
 command does not store it, but `config set` and the stored layer can. The
 model can write it (`x-fyai-model: write` on the group).
 
-Decide the seam by consumer, not by key prefix. A key has one of three kinds, and a fourth thing, the interest of a client,
-is not a key:
+Decide the seam by consumer, not by key prefix. A key has one of three kinds,
+and a fourth thing, the interest of a client, is not a key:
 
 1. View. Only the renderer reads it: theme, layout, work pane, keys, page,
    completion, focus, glyphs, scroll, popup. It describes a terminal and a
