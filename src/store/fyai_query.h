@@ -12,6 +12,7 @@
  * mapping, one of
  *
  *	{what, rows, next, total, rev}	a page; @next is a cursor or null
+ *					(`branch_tree` has also @head)
  *	{unchanged: true, rev}		the data still has the rev of if_rev
  *	{error: {code, message}}	code is one of the FYAI_QUERY_* below
  *
@@ -33,6 +34,14 @@
 struct fyai_query_source {
 	fy_generic branches;	/* the branch table of the root, or fy_invalid */
 	const char *cwd;	/* the directory that a session belongs to, or NULL */
+	/* For the tree of the branch browser. */
+	fy_generic root;	/* the root: its word moves with HEAD, or fy_invalid */
+	const char *head;	/* the branch that HEAD names, or NULL */
+	fy_generic live;	/* the live agents, rows {branch, state, ...}, or fy_invalid */
+	unsigned long generation;	/* of the live agents: it moves when they do */
+	/* The state of a live agent of @branch, or NULL when there is none. */
+	const char *(*state)(void *arg, const char *branch);
+	void *state_arg;
 };
 
 /* Return supported query names and set @n to their count. */

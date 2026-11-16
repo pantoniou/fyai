@@ -7,13 +7,14 @@
 
 #include "fyai.h"
 #include "fyai_branch.h"
+#include "fyai_agents.h"
 #include "fyai_cmd.h"
 #include "fyai_query.h"
 #include "fyai_storage.h"
 
 #define FYAI_MODULE FYAIEM_UNKNOWN
 
-static const char *const query_names[] = { "branches", "complete" };
+static const char *const query_names[] = { "branches", "branch_tree", "complete" };
 
 const char *const *fyai_query_names(size_t *n)
 {
@@ -53,6 +54,15 @@ static bool query_cursor_parse(const char *text, long long *revp, size_t *offp)
 	return true;
 }
 
+/*
+ * The rows of one query from @first, at most @count, and the number of rows
+ * in all in *@totalp. They live in @gb.
+ */
+typedef fy_generic (*query_rows_fn)(struct fy_generic_builder *gb,
+				    const struct fyai_query_source *src,
+				    fy_generic params, size_t first,
+				    size_t count, size_t *totalp);
+
 /* Estimate the serialized size of a row. */
 static size_t query_row_bytes(fy_generic row)
 {
@@ -65,20 +75,23 @@ static size_t query_row_bytes(fy_generic row)
 	return n;
 }
 
-static fy_generic query_branches(struct fy_generic_builder *gb,
-				 const struct fyai_query_source *src,
-				 fy_generic request)
+/*
+ * Answer a query of rows: the cursor, if_rev, the limits of rows and of
+ * bytes. @rev is the generation of the data, and @extra the members that the
+ * answer holds besides the page.
+ */
+static fy_generic query_paged(struct fy_generic_builder *gb,
+			      const struct fyai_query_source *src,
+			      fy_generic request, const char *what,
+			      long long rev, fy_generic extra,
+			      query_rows_fn rows_fn)
 {
-	fy_generic args = fy_get(request, "params", fy_map_empty);
+	fy_generic params = fy_get(request, "params", fy_map_empty);
 	fy_generic after = fy_get(request, "after", fy_invalid);
 	fy_generic if_rev = fy_get(request, "if_rev", fy_invalid);
-	fy_generic table = fy_is_mapping(src->branches) ? src->branches :
-			   fy_map_empty;
-	fy_generic dirv = fy_get(args, "dir", fy_invalid);
-	fy_generic rows, row, next, result;
-	const char *dir = fy_is_string(dirv) ? fy_castp(&dirv, "") : src->cwd;
+	fy_generic rows, row, next, result, key, value;
 	const char *text;
-	long long rev = query_rev(table), cursor_rev, limit;
+	long long cursor_rev, limit;
 	size_t first = 0, total = 0, kept = 0, bytes = 0, n;
 	char cursor[64];
 
@@ -98,9 +111,7 @@ static fy_generic query_branches(struct fy_generic_builder *gb,
 	} else if (fy_is_int(if_rev) && fy_get(request, "if_rev", 0LL) == rev) {
 		return fy_mapping(gb, "unchanged", true, "rev", fy_value(gb, rev));
 	}
-	rows = fyai_branch_select_page(NULL, gb, table, dir,
-				       fy_get(args, "all", false), first,
-				       (size_t)limit, true, &total);
+	rows = rows_fn(gb, src, params, first, (size_t)limit, &total);
 	/* Keep each page within the byte budget. */
 	n = fy_len(rows);
 	fy_foreach(row, rows) {
@@ -123,9 +134,126 @@ static fy_generic query_branches(struct fy_generic_builder *gb,
 		snprintf(cursor, sizeof(cursor), "%lld:%zu", rev, first + kept);
 		next = fy_value(gb, cursor);
 	}
-	return fy_mapping(gb, "what", "branches", "rows", rows, "next", next,
-			  "total", fy_value(gb, (long long)total),
-			  "rev", fy_value(gb, rev));
+	result = fy_mapping(gb, "what", what, "rows", rows, "next", next,
+			    "total", fy_value(gb, (long long)total),
+			    "rev", fy_value(gb, rev));
+	fy_foreach_key_value(key, value, extra)
+		result = fy_assoc(gb, result, fy_castp(&key, ""), value);
+	return result;
+}
+
+static fy_generic branches_rows(struct fy_generic_builder *gb,
+				const struct fyai_query_source *src,
+				fy_generic params, size_t first, size_t count,
+				size_t *totalp)
+{
+	fy_generic table = fy_is_mapping(src->branches) ? src->branches :
+			   fy_map_empty;
+	fy_generic dirv = fy_get(params, "dir", fy_invalid);
+	const char *dir = fy_is_string(dirv) ? fy_castp(&dirv, "") : src->cwd;
+
+	return fyai_branch_select_page(NULL, gb, table, dir,
+				       fy_get(params, "all", false), first,
+				       count, true, totalp);
+}
+
+static fy_generic query_branches(struct fy_generic_builder *gb,
+				 const struct fyai_query_source *src,
+				 fy_generic request)
+{
+	fy_generic table = fy_is_mapping(src->branches) ? src->branches :
+			   fy_map_empty;
+
+	return query_paged(gb, src, request, "branches", query_rev(table),
+			   fy_invalid, branches_rows);
+}
+
+/* Project the browser row for @name. */
+static fy_generic tree_row(struct fy_generic_builder *gb,
+			   const struct fyai_query_source *src,
+			   const char *name, fy_generic entry)
+{
+	struct fyai_branch b;
+	fy_generic row, mapping, source, id, title, model, description;
+	const char *state = src->state ? src->state(src->state_arg, name) : NULL;
+	bool known = fy_is_valid(entry) && fyai_branch_decode(entry, &b);
+	long long updated = known ? (long long)fyai_branch_updated(&b) : 0LL;
+	/* A branch that only runs has no entry yet: it is an agent. */
+	bool agent = known ? fy_is_valid(b.agent) : true;
+
+	model = known ? fy_value(gb, fy_get(b.config, "model", "")) : fy_value(gb, "");
+	description = known ? fy_value(gb, fy_castp(&b.description, "")) :
+		      fy_value(gb, "");
+	row = fy_mapping(gb, "branch", name, "model", model,
+			 "description", description,
+			 "agent", agent,
+			 "updated", fy_value(gb, updated),
+			 "state", state ? state : "");
+	if (known && fy_is_mapping(b.import)) {
+		source = fy_value(gb, fy_get(b.import, "source", ""));
+		id = fy_value(gb, fy_get(b.import, "session_id", ""));
+		title = fy_value(gb, fy_get(b.import, "title", ""));
+		mapping = fy_mapping(gb, "source", source, "session_id", id,
+				     "title", title);
+		row = fy_assoc(gb, row, "import", mapping);
+	}
+	if (known)
+		row = fy_assoc(gb, row, "rev", fy_value(gb, (long long)entry.v));
+	return row;
+}
+
+static fy_generic tree_rows(struct fy_generic_builder *gb,
+			    const struct fyai_query_source *src,
+			    fy_generic params, size_t first, size_t count,
+			    size_t *totalp)
+{
+	fy_generic table = fy_is_mapping(src->branches) ? src->branches :
+			   fy_map_empty;
+	fy_generic rows = fy_seq_empty, name, entry, live, branch;
+	const char *nm;
+	size_t idx = 0;
+
+	(void)params;
+	/* Every branch of the table, a stored sub-agent too, and then the live
+	 * agents that the table does not hold yet. */
+	fy_foreach_key_value(name, entry, table) {
+		nm = fy_castp(&name, "");
+		if (fy_str_empty(nm))
+			continue;
+		if (idx >= first && idx - first < count)
+			rows = fy_append(gb, rows, tree_row(gb, src, nm, entry));
+		idx++;
+	}
+	if (fy_is_sequence(src->live))
+		fy_foreach(live, src->live) {
+			branch = fy_get(live, "branch", fy_invalid);
+			nm = fy_is_string(branch) ? fy_castp(&branch, "") : "";
+			if (fy_str_empty(nm) ||
+			    fy_is_valid(fy_get(table, nm, fy_invalid)))
+				continue;
+			if (idx >= first && idx - first < count)
+				rows = fy_append(gb, rows,
+						 tree_row(gb, src, nm, fy_invalid));
+			idx++;
+		}
+	*totalp = idx;
+	return rows;
+}
+
+static fy_generic query_tree(struct fy_generic_builder *gb,
+			     const struct fyai_query_source *src,
+			     fy_generic request)
+{
+	/* The root moves with HEAD, and the live agents have a generation: one
+	 * word says that none of them moved. */
+	fy_generic root = fy_is_valid(src->root) ? src->root : src->branches;
+	long long rev = query_rev(root) +
+			(long long)src->generation * 0x9e3779b97f4a7c15LL;
+	fy_generic extra;
+
+	extra = fy_mapping(gb, "head", src->head ? src->head : "");
+	return query_paged(gb, src, request, "branch_tree", rev, extra,
+			   tree_rows);
 }
 
 fy_generic fyai_query_answer(struct fy_generic_builder *gb,
@@ -140,8 +268,15 @@ fy_generic fyai_query_answer(struct fy_generic_builder *gb,
 	what = fy_get(request, "what", "");
 	if (!strcmp(what, "branches"))
 		return query_branches(gb, src, request);
+	if (!strcmp(what, "branch_tree"))
+		return query_tree(gb, src, request);
 	return query_error(gb, FYAI_QUERY_UNSUPPORTED,
 			   "this worker does not answer that query");
+}
+
+static const char *query_agent_state(void *arg, const char *branch)
+{
+	return fyai_agents_state(arg, branch);
 }
 
 fy_generic fyai_query(struct fyai_ctx *ctx, struct fy_generic_builder *gb,
@@ -160,5 +295,15 @@ fy_generic fyai_query(struct fyai_ctx *ctx, struct fy_generic_builder *gb,
 	src.branches = fy_is_valid(root) ? fy_get(root, "branches", fy_invalid) :
 		       ctx->bstate->branches;
 	src.cwd = getcwd(cwd, sizeof(cwd)) ? cwd : NULL;
+	/* The tree of the browser: HEAD, and the agents that run. */
+	src.root = root;
+	src.head = fy_is_valid(root) ? fy_get(root, "HEAD", (const char *)NULL) :
+		   NULL;
+	if (ctx->astate) {
+		src.live = fyai_agents_rows(ctx, gb);
+		src.generation = fyai_agents_generation(ctx);
+		src.state = query_agent_state;
+		src.state_arg = ctx;
+	}
 	return fyai_query_answer(gb, &src, request);
 }
