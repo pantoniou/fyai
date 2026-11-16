@@ -267,7 +267,23 @@ session, until the default step removes it, calls the same function directly.
    client numbered its requests twice and cut an id of two digits
    (`fy_sprintfa()` reads its arguments twice), which no earlier request had
    met because none waited for its answer.
-3. The completion split and the `where` field.
+3. Done. Each kind of `complete_kinds[]` says where it runs (`worker` or
+   local). A mirror completes commands, options and the local kinds (`theme`,
+   `config-path`, `config-assign`, `setting-value`, `page-layout`,
+   `help-topic`, `history-select`) itself, and asks the worker for the rest
+   with the query `complete {kind, partial, given, prev}`. The answer is kept
+   by kind, given words and partial, and serves any longer partial by
+   filtering; a new line forgets it. What is left is a limit of the library.
+   The popup of libfytimui asks the host for candidates at each edit and
+   cannot be told that more came, so the first ask of a word finds none and
+   the next key finds the answer. `ui_mention_complete` shows it in split
+   mode: Tab on `/attach ~/fa` completes at the second key and not at the
+   first. The remedy is one call in the library that asks the host again for
+   the line that is typed (`fytim_completion_refresh()`), which the client
+   calls when an answer comes. A file or directory completion is the worker's
+   by the same rule, and it follows the local rules (`~/`, absolute paths): the
+   bearer token gives the full authority of the user, and a device scope for
+   observation does not exist yet.
 4. The browser source, with the in-process and the frame transport, and the
    loading state. This is the largest change: the browser is now synchronous.
 5. The PTY cases of the branch and resume family (`ui_branch_*`,
