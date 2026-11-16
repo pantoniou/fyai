@@ -36,7 +36,7 @@ struct fixture {
 	void *held_arg;
 };
 
-static int owner_start(void *data, fy_generic request,
+static int owner_start(void *data, const char *subtype, fy_generic request,
 		       fyai_uimodel_answer_fn fn, void *arg,
 		       unsigned long long *idp)
 {
@@ -44,6 +44,7 @@ static int owner_start(void *data, fy_generic request,
 	struct fy_generic_builder *gb;
 	fy_generic answer;
 
+	(void)subtype;
 	f->asked++;
 	*idp = 0;
 	if (f->silent) {

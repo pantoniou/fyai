@@ -46,10 +46,11 @@ int fyai_cmd_branch_show(struct fyai_cmd_call *call, fy_generic *result)
 int fyai_cmd_branch_new(struct fyai_cmd_call *call, fy_generic *result)
 {
 	const char *name = fyai_cmd_arg_str(call, "name");
-	bool session = call->surface == FYAI_CMD_SESSION;
+	bool session = call->surface == FYAI_CMD_SESSION &&
+		       !fyai_cmd_arg_bool(call, "stay");
 	int rc;
 
-	/* A session goes on the branch it creates. */
+	/* Switch to the new branch unless --stay was set. */
 	rc = fyai_branch_create(fyai_cmd_call_ctx(call), name, fyai_cmd_arg_str(call, "ref"),
 				NULL, session);
 	if (rc)

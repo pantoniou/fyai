@@ -84,6 +84,8 @@ struct fyai_browser {
 	unsigned long long query;	/* the query in flight, or 0 */
 	bool querying;		/* a page of the tree is being asked for */
 	bool loaded;		/* the tree came at least once */
+	unsigned long long command;	/* pending action ID, or 0 */
+	char command_action;	/* its action */
 	struct fy_generic_builder *tree_gb;	/* the pages that came */
 	fy_generic tree;
 	int64_t refreshed;
@@ -1512,6 +1514,8 @@ void fyai_browser_close(struct fyai_ctx *ctx)
 	fyai_ui_surface_close(ctx, b->surface);
 	if (b->query)
 		fyai_uimodel_query_cancel(ctx, b->query);
+	if (b->command)
+		fyai_uimodel_query_cancel(ctx, b->command);
 	for (i = 0; i < b->count; i++)
 		browser_row_clear(&b->rows[i]);
 	fy_generic_builder_destroy(b->tree_gb);
@@ -2136,6 +2140,123 @@ static int browser_present(struct fyai_browser *b, const char *md,
 	return rc;
 }
 
+/* Append @text to @line as one word of a slash command. */
+static void browser_word(struct fyai_buf *line, const char *text)
+{
+	const char *p;
+
+	(void)fyai_buf_append_data(line, " \"", 2);
+	for (p = text; *p; p++) {
+		if (*p == '"' || *p == '\\')
+			(void)fyai_buf_append_data(line, "\\", 1);
+		(void)fyai_buf_append_data(line, p, 1);
+	}
+	(void)fyai_buf_append_data(line, "\"", 1);
+}
+
+/* The command of an action ended at the owner of the arena. */
+static void browser_command_done(void *arg, fy_generic answer)
+{
+	struct fyai_browser *b = arg;
+	struct fyai_ctx *ctx = fyai_browser_ctx(b);
+	bool ok = !fy_is_mapping(fy_get(answer, "error", fy_invalid));
+	char action = b->command_action;
+
+	b->command = 0;
+	if (ok) {
+		free(b->details);
+		b->details = NULL;
+		/* The words of the browser of a process that has the arena. */
+		switch (action) {
+		case 'n': case 'N':
+			(void)fyai_result(ctx, "created branch %s\n", b->target);
+			if (action == 'N')
+				(void)fyai_result(ctx, "switched to branch %s\n",
+						  b->target);
+			break;
+		case 's':
+			(void)fyai_result(ctx, "switched to branch %s\n", b->target);
+			break;
+		case 'r':
+			(void)fyai_result(ctx, "renamed %s to %s\n", b->target,
+					  b->reference);
+			break;
+		case 'd':
+			(void)fyai_result(ctx, "deleted branch %s\n", b->target);
+			break;
+		}
+	}
+	browser_message(b, ok ? "Done." : "The operation failed; see the diagnostic.");
+	/* The browser that took a branch has done its work. */
+	if (ok && action == 'S') {
+		fyai_browser_close(ctx);
+		return;
+	}
+	browser_invalidate(b);
+	browser_refresh(b);
+	b->dirty = true;
+	fyai_ui_wake(ctx);
+}
+
+/*
+ * An action of the browser of a client that has no arena is a command of the
+ * session, which the owner runs: the change is made where the arena is, and
+ * its output is in the log. The tree is read again when it ends.
+ */
+static void browser_remote_action(struct fyai_browser *b, char action)
+{
+	struct fyai_buf line = { 0 };
+	int rc = -1;
+
+	if (b->command) {
+		browser_message(b, "A change is still being made.");
+		return;
+	}
+	switch (action) {
+	case 's': case 'S':
+		(void)fyai_buf_append_data(&line, "/checkout", 9);
+		browser_word(&line, b->target);
+		break;
+	case 'n': case 'N':
+		/* Keep the browser open unless switching branches. */
+		(void)fyai_buf_append_data(&line, action == 'N' ?
+					   "/checkout -b" : "/branch new --stay",
+					   action == 'N' ? 12 : 18);
+		browser_word(&line, b->target);
+		if (*b->input)
+			browser_word(&line, b->input);
+		break;
+	case 'r':
+		(void)fyai_buf_append_data(&line, "/branch rename", 14);
+		browser_word(&line, b->target);
+		browser_word(&line, b->reference);
+		break;
+	case 'd':
+		(void)fyai_buf_append_data(&line, "/branch delete -f", 17);
+		browser_word(&line, b->target);
+		break;
+	case 'e':
+		(void)fyai_buf_append_data(&line, "/branch describe", 16);
+		browser_word(&line, b->target);
+		browser_word(&line, b->input);
+		break;
+	case 'x':
+		(void)fyai_buf_append_data(&line, "/reset", 6);
+		browser_word(&line, b->reference);
+		break;
+	default:
+		browser_message(b, "A client with no arena cannot do this yet.");
+		goto out;
+	}
+	b->command_action = action;
+	rc = fyai_uimodel_command(fyai_browser_ctx(b), line.data, browser_command_done,
+				  b, &b->command);
+	if (rc)
+		browser_message(b, "The command could not be sent.");
+out:
+	free(line.data);
+}
+
 void fyai_browser_step(struct fyai_ctx *ctx)
 {
 	struct fyai_browser *b = ctx->screen->browser;
@@ -2169,7 +2290,7 @@ void fyai_browser_step(struct fyai_ctx *ctx)
 	}
 	/* The arena is the owner's: a change goes there as a command. */
 	if (fyai_uimodel_mirrored(ctx)) {
-		browser_message(b, "A client with no arena cannot change a branch yet.");
+		browser_remote_action(b, action);
 		goto out;
 	}
 	if (fyai_ui_busy(ctx) || fyai_tools_active(ctx) || fyai_agents_attached(ctx)) {

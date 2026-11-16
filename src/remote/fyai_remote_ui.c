@@ -11,6 +11,7 @@
 #include "fyai_workpane.h"
 #include "fyai_terminal_view.h"
 #include "fyai_tools.h"
+#include "fyai_browser.h"
 #include "fyai_chrome.h"
 #include "fyai_cmd.h"
 #include "fyai_config.h"
@@ -116,6 +117,7 @@ struct remote_ui_query {
 	unsigned long long id;		/* what the renderer holds */
 	unsigned long long seq;		/* wire ID, or 0 if unsent */
 	fy_generic request;		/* in the builder of the view */
+	const char *subtype;		/* of the request: a literal */
 	fyai_uimodel_answer_fn fn;	/* NULL once the renderer cancelled */
 	void *arg;
 };
@@ -736,7 +738,7 @@ static int remote_ui_query_pump(struct fyai_remote_ui *view)
 			break;
 		if (q->seq)
 			continue;
-		rc = remote_ui_request(view, "fyai_query", q->request);
+		rc = remote_ui_request(view, q->subtype, q->request);
 		if (rc)
 			return rc;
 		q->seq = view->requests;
@@ -752,15 +754,18 @@ static void remote_ui_query_settle(struct fyai_remote_ui *view)
 		fy_generic_builder_reset(view->query_gb);
 }
 
-static int remote_ui_query_start(void *data, fy_generic request,
-				 fyai_uimodel_answer_fn fn, void *arg,
-				 unsigned long long *idp)
+static int remote_ui_query_start(void *data, const char *subtype,
+				 fy_generic request, fyai_uimodel_answer_fn fn,
+				 void *arg, unsigned long long *idp)
 {
 	struct fyai_remote_ui *view = data;
 	struct fyai_ctx *ctx = fyai_remote_ui_ctx(view);
 	struct remote_ui_query *q;
 	int rc;
 
+	/* A watcher cannot send commands. */
+	if (view->watch && strcmp(subtype, "fyai_query"))
+		return -1;
 	if (!view->query_gb)
 		view->query_gb = fy_generic_builder_create(NULL);
 	fyai_error_check(ctx, view->query_gb, err,
@@ -769,6 +774,7 @@ static int remote_ui_query_start(void *data, fy_generic request,
 	fyai_error_check(ctx, q, err, "cannot keep a query of the renderer");
 	/* The renderer's request may not outlive the call. */
 	q->request = fy_gb_internalize(view->query_gb, request);
+	q->subtype = subtype;
 	q->fn = fn;
 	q->arg = arg;
 	q->id = ++view->query_ids;
@@ -870,6 +876,9 @@ static int remote_ui_response(struct fyai_remote_ui *view, fy_generic frame)
 
 	if (!strncmp(id, "ui-fyai_query-", 14))
 		return remote_ui_query_answer(view, strtoull(id + 14, NULL, 10),
+					      response);
+	if (!strncmp(id, "ui-fyai_command-", 16))
+		return remote_ui_query_answer(view, strtoull(id + 16, NULL, 10),
 					      response);
 	if (fy_equal(fy_get(response, "subtype", ""), "error")) {
 		fyai_error(ctx, "the worker refused %s: %s", id,
@@ -1081,6 +1090,8 @@ int fyai_remote_ui_step(struct fyai_remote_ui *view)
 	}
 	/* A command of the view that waits for the worker ends here. */
 	(void)fyai_cmd_session_step(ctx);
+	/* An action that the browser chose goes to the worker. */
+	fyai_browser_step(ctx);
 	fyai_ui_settle(ctx);
 	view->inbox = fy_seq_empty;
 	fy_generic_builder_reset(view->inbox_gb);

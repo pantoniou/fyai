@@ -359,6 +359,10 @@ commands:
               x-fyai-positional: 1
               x-fyai-meta: REF
               x-fyai-complete: ref
+            stay:
+              type: boolean
+              description: in a session, stay on the current branch
+              x-fyai-hidden: true
         render:
           message:
             - "created branch {branch}"

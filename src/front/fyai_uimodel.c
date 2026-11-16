@@ -546,7 +546,8 @@ int fyai_uimodel_query(struct fyai_ctx *ctx, fy_generic request,
 	if (m && m->mirror) {
 		fyai_error_check(ctx, m->queries, err,
 				 "the owner of the model does not answer queries");
-		return m->queries->start(m->queries_data, request, fn, arg, idp);
+		return m->queries->start(m->queries_data, "fyai_query", request,
+					 fn, arg, idp);
 	}
 	/* This process has the arena: the answer is here. */
 	gb = fy_generic_builder_create(NULL);
@@ -555,6 +556,30 @@ int fyai_uimodel_query(struct fyai_ctx *ctx, fy_generic request,
 	fn(arg, answer);
 	fy_generic_builder_destroy(gb);
 	return 0;
+err:
+	return -1;
+}
+
+int fyai_uimodel_command(struct fyai_ctx *ctx, const char *line,
+			 fyai_uimodel_answer_fn fn, void *arg,
+			 unsigned long long *idp)
+{
+	struct fyai_uimodel *m = uimodel(ctx);
+	struct fy_generic_builder *gb;
+	fy_generic request;
+	int rc;
+
+	if (idp)
+		*idp = 0;
+	if (!m || !m->mirror || !m->queries)
+		return -1;
+	gb = fy_generic_builder_create(NULL);
+	fyai_error_check(ctx, gb, err, "cannot make a builder for a command");
+	request = fy_mapping(gb, "line", line);
+	rc = m->queries->start(m->queries_data, "fyai_command", request, fn,
+			       arg, idp);
+	fy_generic_builder_destroy(gb);
+	return rc;
 err:
 	return -1;
 }

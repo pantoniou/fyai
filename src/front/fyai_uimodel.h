@@ -207,8 +207,10 @@ int fyai_uimodel_intent(struct fyai_ctx *ctx, const char *subtype,
  */
 typedef void (*fyai_uimodel_answer_fn)(void *arg, fy_generic answer);
 struct fyai_uimodel_query_ops {
-	int (*start)(void *data, fy_generic request, fyai_uimodel_answer_fn fn,
-		     void *arg, unsigned long long *idp);
+	/* @subtype is the owner's literal request subtype for @request. */
+	int (*start)(void *data, const char *subtype, fy_generic request,
+		     fyai_uimodel_answer_fn fn, void *arg,
+		     unsigned long long *idp);
 	void (*cancel)(void *data, unsigned long long id);
 };
 void fyai_uimodel_mirror_queries(struct fyai_ctx *ctx,
@@ -218,6 +220,17 @@ int fyai_uimodel_query(struct fyai_ctx *ctx, fy_generic request,
 		       fyai_uimodel_answer_fn fn, void *arg,
 		       unsigned long long *idp);
 void fyai_uimodel_query_cancel(struct fyai_ctx *ctx, unsigned long long id);
+
+/*
+ * A command of the session that the owner of the model runs, the line of a
+ * slash command: `fyai_command`. @fn gets {} when it ran and {error: {code,
+ * message}} when it did not, from the event loop, never after the cancel. A
+ * process that has the arena runs its own commands and answers -1: this is
+ * for a renderer that has none, and it is not made to a watcher.
+ */
+int fyai_uimodel_command(struct fyai_ctx *ctx, const char *line,
+			 fyai_uimodel_answer_fn fn, void *arg,
+			 unsigned long long *idp);
 
 /*
  * The components that a view context owns instead of sharing them with the
