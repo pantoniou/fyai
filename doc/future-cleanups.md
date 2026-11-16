@@ -119,6 +119,147 @@ a worker that it forks.
    client must own them (see Display configuration below), and send the
    facts about its terminal to the worker.
 
+### The data of the client
+
+The client has no arena, and a client on another machine cannot have one. Some
+things it draws and some commands it runs read data that comes from the arena:
+the branch table (`ctx->bstate->branches`), the turns of a branch for a
+preview, the recent sessions of the resume picker, skills, the catalogue, and
+the files of the project. The branch and resume browsers (`src/front/
+fyai_browser.c`) call `fyai_branch_*()` on the arena. The completion engine
+(`src/cmd/fyai_cmd_complete.c`) reads it, and it runs in the client process,
+so it lists the files of the client, not those of the worker.
+
+Rules:
+
+- The worker is the only reader of the arena. The client reads data from
+  frames and from nothing else. A client does not map the arena.
+- Data is in a store if it is small and changes with the conversation, and it
+  is a query if it is large, rare or paged. A branch table of a thousand rows
+  is a query: a store would send it again at each turn, because each publish
+  changes `updated` of the current branch.
+- An action is not a query. Create, rename, delete, describe, join, reset and
+  checkout go as `fyai_command` lines (`/branch rename A B`) that the command
+  registry already defines. Their output is in the log store, as now. No
+  second action protocol.
+
+#### The query
+
+One request subtype, `fyai_query`, in the envelope that the other
+requests use:
+
+```json
+{"type":"control_request","request_id":"q7","request":{"subtype":"fyai_query","what":"branches","args":{"all":false},"after":null,"limit":200}}
+```
+
+The answer is a `control_response` with `{rows, next, rev}`, or an error with a
+code: `unsupported`, `bad_request`, `busy`, `too_large`, `stale_cursor`.
+
+- `what` names the data. `rows` is a sequence of generics, a projection that
+  holds only what a renderer reads, and not the branch entry with its `store`.
+- `after` is an opaque cursor from `next`. `limit` is at most 1000 rows, and
+  one answer is at most 1 MiB, so it stays under the frame limits of every
+  transport. The worker walks at most a fixed budget of rows in one turn of
+  its loop and returns what it has with a `next`, so a query never holds a
+  turn that runs.
+- `rev` says the generation of the data. It is the generic word of the arena
+  value that the answer was made from: the mapping of the branch table for
+  `branches`, the `skills` member of the store of the branch for `skills`, the
+  entry of a branch for its row. The client compares it for equality and
+  never reads through it. It crosses the wire as an integer. Any generic
+  value serves: a non-empty mapping or sequence is an address, and a short
+  value or an empty collection is its content in the word. The arena keeps
+  an unchanged subtree at the same address, so a publish that moves only the
+  head leaves the `rev` of `skills`, `catalog` and `config` as it was, and
+  a row of `branches` that did not change keeps its own `rev`.
+- The `rev` is taken from the value in the arena and never from the rows of
+  the answer, which are built for the answer in a builder: the same content
+  has another word at each build.
+- Equal words are equal content. Different words may be equal content, after
+  a collection moved objects or when dedup missed a copy, and the cost is one
+  refresh. The one wrong case is a new value at the address that an old value
+  had. A client that sees each change cannot meet it, so the `rev` is bound
+  to the epoch of the worker: a new epoch, or a collection by another
+  process, drops everything the client holds and it fetches again. Check
+  how a running worker learns of a collection.
+- A cursor from an older `rev` fails with `stale_cursor` and the client starts
+  again. A request may carry `if_rev`. When it is the `rev` of the data now,
+  the answer is `{unchanged: true}` and no rows. A browser that opens again
+  and a page that is cached cost one small frame.
+- The worker puts `rev: {branches, skills, catalog, config}` in the `state`
+  store, which is small. A client that holds a cached answer drops it when its
+  `rev` moved. It never polls. This push is the optional part: with `if_rev`
+  a client can also ask when it needs the data.
+- A query is read-only, so a watcher may send it. A device scope for
+  observation is enough (mobile design 8.2). A query that names a path or a
+  file follows the read rules of the sandbox of the worker, and a name that
+  leaves the project is `unsupported`.
+- The client keeps at most 8 queries in flight. A later one waits. The reply of
+  a request that nobody waits for (the popup moved on) is dropped by its
+  sequence number.
+- The names a worker serves are in the `initialize` answer (`queries`), so a
+  client of another version, or the web client, asks only for what exists.
+  The mobile design (7.2) asks for the same structured list of sessions, so
+  `sessions` and `branches` serve it too.
+
+#### Who asks what
+
+| Consumer | `what` | Note |
+| -------- | ------ | ---- |
+| `/branches` browser | `branches` | `{dir, all, filter}`. Rows: name, updated, op, from, description, directory, turn count. |
+| Preview of a branch | `branch_turns` | The last exchanges of a branch, as `fyai_sync` gives them for the attached branch, with a `branch` argument. |
+| `/resume` picker | `sessions` | `{all}`; the recent sessions of this directory or of all. |
+| Completion of a kind that reads data | `complete` | `{kind, given, partial}`; candidates `{value, description}`. See below. |
+| Skills, catalogue, profiles, MCP servers | `skills`, `catalog`, `profiles`, `mcp` | Rows for a list command or a picker. |
+| History selection | `fyai_sync` | Exists now. |
+
+#### Completion
+
+The engine knows the command line from the registry, which is in the binary
+and so in the client. Commands, options and enum values need no data, so the
+client completes them itself and with no wait. Only a kind that reads data goes
+to the worker: `branch`, `ref`, `agent-branch`, `session`, `view`, `skill`,
+`skill-file`, `model` and `provider` (the catalogue), `catalog-*`,
+`mcp-server`, `sandbox-profile`, `history-select`, `file`, `dir`. Each entry of
+`complete_kinds[]` gets a field that says where it runs (`local` or `worker`),
+and no code tests a kind name. The popup shows the last candidates while the
+answer comes, and drops an answer that is not for the word that is typed now.
+`file` and `dir` are now right for a remote client: the files are those of the
+project of the worker.
+
+#### The browsers
+
+The browser stops calling `fyai_branch_*()`. It reads rows from a source with
+three calls, list, preview and the generation, and it has a loading state
+for a page that is on its way. No callback waits in a nested loop. There is one
+implementation of the data: `fyai_query()` in the worker, a function of the
+context that returns a generic. The frame is its transport. An in-process
+session, until the default step removes it, calls the same function directly.
+
+#### Considered and left
+
+- A client with a read-only map of the arena. A remote client has none, and the
+  rules for `fyai_arena_reopen()` and for relocation then reach a second
+  process.
+- The browser in the worker as the screen of a program, shown in a tile like
+  a shell. It needs no protocol, but the theme, the layout and the width are
+  then the worker's, and a web client could not draw it.
+- A store for each of these lists. The size and the churn above.
+- One frame subtype for each list. One `fyai_query` with a `what` has one
+  limit, one error set and one place for the scope check.
+
+#### Work
+
+1. `fyai_query()` in the worker with unit tests of the projection, the
+   cursor, the budget and the limits. `rev` in the `state` store.
+2. The `fyai_query` handler of the worker, and the asynchronous request in the
+   client (`remote_ui_query()`), with the queue and the drop of stale answers.
+3. The completion split and the `where` field.
+4. The browser source, with the in-process and the frame transport, and the
+   loading state. This is the largest change: the browser is now synchronous.
+5. The PTY cases of the branch and resume family (`ui_branch_*`,
+   `ui_resume_*`) pass in split mode.
+
 ### Steps
 
 Each step builds, passes the suites and lands as its own patch series, in
@@ -149,8 +290,8 @@ this order: implementation, tests, documentation.
      draws a table from the worker where a local session draws the branch
      browser, so the branch and resume cases (`ui_branch_*`, `ui_resume_*`,
      12) fail. The client has no arena, so each such command needs a request
-     to the worker for its data. This is the "completion and pickers" risk
-     below, and it is the largest family.
+     to the worker for its data. This is the largest family. The design is
+     in The data of the client, above.
    - Sub-agent screens and tool bands (`ui_agent*`, `ui_inline_tool_agent*`,
      `ui_agents_parallel`, 11), and shell tiles with their focus and keys
      (`ui_inline_tool_focus*`, `ui_shell_*`, `ui_tile_maximize`,
