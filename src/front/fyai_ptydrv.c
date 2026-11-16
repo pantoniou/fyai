@@ -122,7 +122,7 @@ static const struct step_def step_defs[] = {
 	{ "write",		STEP_WRITE,		0, 0 },
 	{ "click",		STEP_CLICK,		MOD_TIMEOUT, 0 },
 	{ "resize",		STEP_RESIZE,		0, 0 },
-	{ "touch",		STEP_TOUCH,		0, 0 },
+	{ "touch",		STEP_TOUCH,		MOD_TIMEOUT, 0 },
 	{ "signal",		STEP_SIGNAL,		0, 0 },
 	{ "snapshot",		STEP_SNAPSHOT,		0, 0 },
 	{ "checkpoint",		STEP_CHECKPOINT,	MOD_TIMEOUT | MOD_EXPECT, 0 },
@@ -521,6 +521,7 @@ struct step_wait {
 	long target;		/* wait-count: the count to reach */
 	size_t checked;		/* wait-input: the capture last checked */
 	bool held;		/* and what it said */
+	int err;		/* touch: the error that ends the wait, or 0 */
 };
 
 typedef bool (*pred_fn)(struct driver *d, struct step_wait *w);
@@ -729,14 +730,33 @@ static ssize_t send_keys(struct driver *d, const void *buf, size_t len)
 	return write_all(d->master, buf, len);
 }
 
+/*
+ * Make the file, or open a FIFO for writing once a reader has it open. The
+ * open does not block: a FIFO with no reader gives ENXIO, and the driver
+ * must go on reading the terminal while it waits for one.
+ */
 static int touch_file(const char *path)
 {
-	int fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+	int fd = open(path, O_WRONLY | O_CREAT | O_TRUNC | O_NONBLOCK, 0644);
 
 	if (fd < 0)
 		return -1;
 	close(fd);
 	return 0;
+}
+
+/* The touch is done, or fails with an error that waiting does not cure. */
+static bool p_touch(struct driver *d, struct step_wait *w)
+{
+	(void)d;
+	if (!touch_file(w->st->text)) {
+		w->held = true;
+		return true;
+	}
+	if (errno == ENXIO)
+		return false;
+	w->err = errno;
+	return true;
 }
 
 static double step_deadline(const struct driver *d, const struct step *st);
@@ -927,10 +947,15 @@ static int run_step(struct driver *d, const struct step *st)
 		d->erases_start = 0;
 		return 0;
 	case STEP_TOUCH:
-		rc = touch_file(st->text);
-		fyai_error_check(driver_ctx(d), !rc, err,
+		w.st = st;
+		until = step_deadline(d, st);
+		wait_until(d, p_touch, &w, until);
+		fyai_error_check(driver_ctx(d), !w.err, err,
 				 "step %zu: cannot create %s: %s", st->index,
-				 st->text, strerror(errno));
+				 st->text, strerror(w.err));
+		fyai_error_check(driver_ctx(d), w.held, err,
+				 "step %zu: %s has no reader", st->index,
+				 st->text);
 		return 0;
 	case STEP_SIGNAL:
 		rc = kill(d->pid, (int)st->n);

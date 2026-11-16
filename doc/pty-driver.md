@@ -151,7 +151,7 @@ and `wait-count` with `more` count from the mark.
 | `write: TEXT` | Send TEXT as it is, for a key. |
 | `click: TEXT` | Wait for TEXT on the screen. Press and release the mouse on its first cell. |
 | `resize: COLS` or `resize: ROWSxCOLS` | Change the size of the window. The driver states the size again each second while it waits, so one lost SIGWINCH does not fail a case. |
-| `touch: PATH` | Make an empty file. A held fixture waits for it. |
+| `touch: PATH` | Make an empty file. A held fixture waits for it. A FIFO is opened without blocking: the step waits until a reader has it open, and fails at its deadline. It accepts `timeout`. |
 | `signal: N` | Send the signal to the program. N is a number or a name. |
 | `snapshot: PATH` | Write the capture to PATH. |
 | `checkpoint: PATH` | Write the window to PATH as text that two runs compare (see "Checkpoints"). With `expect: FILE`, the checkpoint of another run, wait first until the window is that screen, or until the deadline of the step. |
