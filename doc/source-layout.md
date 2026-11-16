@@ -204,6 +204,9 @@ This document gives the owner of each source file and of each shared component. 
   mode of two fyai ends (`doc/remote-sessions-sdd.md`, section 5.2.1).
 - `src/core/fyai_config.c`: layered configuration and config commands.
 - `src/store/fyai_branch.c`: branch storage, references, and root selection.
+- `src/store/fyai_query.c`: the queries that a client with no arena sends
+  (`doc/future-cleanups.md`, The data of the client): a page of rows, a cursor,
+  and the `rev` of the data.
 - `src/store/fyai_merge.c`: branch merge and rebase.
 - `src/provider/fyai_catalog.c`: provider and model catalogue.
 - `src/core/fyai_media.c`: attachments that a message carries, their bytes, and

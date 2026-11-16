@@ -595,6 +595,7 @@ set(FYAI_SOURCES
     src/tools/fyai_skill.c
     src/core/fyai_media.c
     src/store/fyai_branch.c
+    src/store/fyai_query.c
     src/store/fyai_merge.c
     src/core/fyai_diff.c
     src/core/fyai_diag.c
