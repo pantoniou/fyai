@@ -1022,26 +1022,28 @@ static double bench_ms(void)
 
 static fy_generic bench_tools(void)
 {
-	char *json, *at;
-	size_t cap = BENCH_TOOLS * 1400 + 16;
+	char *json = NULL;
+	size_t len = 0;
+	FILE *mf;
 	int i, j;
 	fy_generic v;
 
-	json = malloc(cap);
-	if (!json)
-		fail("out of memory%s%s", "", "");
-	at = json;
-	at += sprintf(at, "[");
+	mf = open_memstream(&json, &len);
+	if (!mf)
+		fail("open_memstream failed%s%s", "", "");
+	fputc('[', mf);
 	for (i = 0; i < BENCH_TOOLS; i++) {
-		at += sprintf(at, "%s{\"type\":\"function\",\"function\":{"
-			      "\"name\":\"tool_%d\",\"description\":\"", i ? "," : "", i);
+		fprintf(mf, "%s{\"type\":\"function\",\"function\":{"
+			"\"name\":\"tool_%d\",\"description\":\"", i ? "," : "", i);
 		for (j = 0; j < 100; j++)
-			at += sprintf(at, "word%02d ", j);
-		at += sprintf(at, "\",\"parameters\":{\"type\":\"object\","
-			      "\"properties\":{\"path\":{\"type\":\"string\","
-			      "\"description\":\"the path\"}}}}}");
+			fprintf(mf, "word%02d ", j);
+		fputs("\",\"parameters\":{\"type\":\"object\","
+		      "\"properties\":{\"path\":{\"type\":\"string\","
+		      "\"description\":\"the path\"}}}}}", mf);
 	}
-	sprintf(at, "]");
+	fputc(']', mf);
+	if (fclose(mf) || !json)
+		fail("memstream close failed%s%s", "", "");
 	v = parse(json);
 	free(json);
 	return v;
