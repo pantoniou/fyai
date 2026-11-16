@@ -146,10 +146,12 @@ Rules:
 #### The query
 
 One request subtype, `fyai_query`, in the envelope that the other
-requests use:
+requests use. The arguments are in `params`: the front reads `args` of any
+request as the command-line words of a session, and drops a client whose
+`args` is not a list of them.
 
 ```json
-{"type":"control_request","request_id":"q7","request":{"subtype":"fyai_query","what":"branches","args":{"all":false},"after":null,"limit":200}}
+{"type":"control_request","request_id":"q7","request":{"subtype":"fyai_query","what":"branches","params":{"all":false},"after":null,"limit":200}}
 ```
 
 The answer is a `control_response` with `{rows, next, rev}`, or an error with a
@@ -250,10 +252,21 @@ session, until the default step removes it, calls the same function directly.
 
 #### Work
 
-1. `fyai_query()` in the worker with unit tests of the projection, the
-   cursor, the budget and the limits. `rev` in the `state` store.
-2. The `fyai_query` handler of the worker, and the asynchronous request in the
-   client (`remote_ui_query()`), with the queue and the drop of stale answers.
+1. Done. `fyai_query_answer()` and `fyai_query()` in `src/store/fyai_query.c`
+   serve `branches`, with unit tests of the projection, the cursor, the limits
+   and the `rev`. The optional `rev` member of the `state` store is not made.
+2. Done. The `fyai_query` handler of the worker, `queries` in the answer of
+   `initialize`, the queue of the client (at most 8 in flight, a cancelled
+   answer dropped), `fyai_uimodel_query()` for a renderer, and the command
+   `query` as the first user: `fyai query branches` in process, and `/query`
+   in a session, which runs in the client and asks the worker. The cases
+   `query_cli`, `split_query` and `remote_query` run it in process, in a split
+   session, and over the socket, HTTP, HTTPS and ssh. Two faults came with it.
+   The front read `args` of a request as the words of a session and dropped a
+   client whose `args` was a mapping, so the arguments are `params`. The
+   client numbered its requests twice and cut an id of two digits
+   (`fy_sprintfa()` reads its arguments twice), which no earlier request had
+   met because none waited for its answer.
 3. The completion split and the `where` field.
 4. The browser source, with the in-process and the frame transport, and the
    loading state. This is the largest change: the browser is now synchronous.
