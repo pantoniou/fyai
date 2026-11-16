@@ -987,8 +987,14 @@ void fyai_httpd_stop(struct fyai_httpd *h, struct fyai_httpd_conn *keep)
 
 void fyai_httpd_close(struct fyai_httpd *h)
 {
+	struct fyai_httpd_conn *c;
+
 	if (!h)
 		return;
+	/* An answer queued by fyai_httpd_respond() is sent before the end. */
+	for (c = h->conns; c; c = c->next)
+		if (c->state == HTTPD_CONN_CLOSING && fyai_buf_pending(&c->out))
+			(void)fyai_netio_flush(&c->io, &c->out);
 	fyai_httpd_stop(h, NULL);
 	fyai_event_defer_cancel(h->loop, httpd_reap_cb, h);
 	httpd_reap_cb(h);
