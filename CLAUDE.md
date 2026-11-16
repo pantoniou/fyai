@@ -1,570 +1,230 @@
 # CLAUDE.md
 
-Use this file when you change this repository.
+Use this file when you change this repository. The detailed rules are in
+`doc/source-layout.md` (the owner of each file and component) and
+`doc/terminal-ui-rules.md` (separation, documents, the page, the work pane,
+tiles, themes). Read the applicable document before you change that area.
 
 ## Project
 
 `fyai` is a stateless AI coding assistant written in C. One invocation runs
-one complete tool-use loop. It commits the canonical state and then exits. An
+one complete tool-use loop, commits the canonical state, and exits. An
 interactive invocation owns its terminal UI only while its process runs. The
 one server is `fyai serve`, which the user starts and stops: it runs
 invocations for clients and keeps no state of its own.
 
 ### Architecture rules
 
-- Do not add a resident process or hidden process state. `fyai serve`, also
-  with `--daemon`, is a server that the user starts and stops explicitly
-  (`fyai serve stop`). It keeps no canonical state: its workers are
-  invocations that commit to the arena as a local run does.
+- Do not add a resident process or hidden process state. `fyai serve` (also
+  `--daemon`) keeps no canonical state: its workers commit to the arena as a
+  local run does.
 - Store persistent manifests, references, configuration, and other structured
-  state in content-addressed libfyaml arenas under `~/.fyai`. Project file bytes
-  may also live in immutable content-addressed blob files under the project's
-  `.fyai` directory, and so may the binary project manifests of a filesystem
-  view: the record in the arena holds a reference to each manifest, not its
-  content.
-  Publish blobs and manifest files before arena references; never edit a
-  published file in place.
+  state in content-addressed libfyaml arenas under `~/.fyai`. Project file
+  bytes and the binary project manifests of a filesystem view can be
+  immutable content-addressed files under the project `.fyai` directory; the
+  arena holds a reference to each. Publish blobs and manifest files before
+  arena references; never edit a published file in place.
 - Keep canonical data immutable, deterministic, and address-stable between
-  processes.
-- Do not relocate an arena during normal operation.
-- Keep tools compatible with Unix conventions. Tools read files, apply writes
-  or patches, and run approved shell commands.
+  processes. Do not relocate an arena during normal operation.
+- Tools read files, apply writes or patches, and run approved shell commands,
+  compatible with Unix conventions.
 
 ### Comments
 
-Write comments in concise Technical English. State the required invariant,
-ownership, or behavior. Do not narrate implementation history, restate the
-code, address the reader, or use colloquial explanations. Remove a comment
-when the code is self-explanatory.
+Write comments in concise Technical English. State the invariant, ownership,
+or behavior. Do not narrate history, restate the code, or address the reader.
+Remove a comment when the code is self-explanatory.
 
 ## Data model
 
-Use libfyaml generics as the native data model. Build values with functions
-such as `fy_gb_mapping()` and `fy_gb_sequence()`. Do not construct JSON by
+Use libfyaml generics as the native data model. Do not construct JSON by
 hand. Emit compact JSON only at provider boundaries with `FYOPEF_MODE_JSON`.
-Parse provider responses directly into generics.
+Parse provider responses directly into generics. Keep provider wire data
+(request IDs, tool-call IDs, finish reasons, timestamps) in provider-stream
+generics, and derive provider-independent content before you calculate the
+canonical identity.
 
-Keep provider wire data in provider-stream generics. This data includes request
-IDs, tool-call IDs, finish reasons, and timestamps. Derive provider-independent
-content before you calculate the canonical identity.
+Use typed accessor defaults: `fy_get(obj, "content", "")`,
+`fy_get(obj, "total_tokens", 0LL)`, `fy_get(obj, "items", fy_invalid)`.
 
-Use typed accessor defaults:
+### Lifetimes
 
-```c
-fy_get(obj, "content", "")
-fy_get(obj, "total_tokens", 0LL)
-fy_get(obj, "items", fy_invalid)
-```
-
-### Generic string lifetime
-
-Prefer `fy_castp()` to `fy_cast()`. A short string can be in the `fy_generic`
-word. Thus, a pointer from `fy_cast(v, "")` can point into the local copy of
-`v`. The pointer becomes invalid when the copy leaves scope. Use
-`fy_castp(&v, "")` at the use site. Make sure that the generic has a sufficient
-lifetime. Do not keep a cast pointer longer than its generic.
-
-A `const char *` loop variable from `fy_foreach()`,
-`fy_foreach_key_value()`, or `fy_foreach_idx_item()` is safe. The typed
-accessor uses the address of the stored item. Thus, the pointer refers to
-collection storage and not to a copy.
-
-### Copies of arena data
-
-Do not copy a generic into the C heap to pass it to a consumer that can hold
-the generic or a borrowed pointer.
-
+- Prefer `fy_castp(&v, "")` to `fy_cast(v, "")`: a short string lives in the
+  generic word, so a `fy_cast()` pointer can point into a local copy. Do not
+  keep a cast pointer longer than its generic. A `const char *` loop variable
+  of `fy_foreach*()` points into collection storage and is safe.
+- A returned generic must name storage that outlives the function: a builder
+  of the caller, or an arena value. Never return a value of a stack builder
+  (`fy_mapping()`/`fy_sequence()` without a builder, `fy_sprintfa()`); do not
+  free it. Copy a local C string into a builder with `fy_value(gb, s)`. State
+  a borrowed lifetime in the header.
 - `ctx->gb` and `ctx->durable_gb` are not stable across `fyai_arena_reopen()`.
-  Do not borrow a generic from them across a reopen. `ctx->transient_gb` is
-  released on an idle loop iteration, so nothing asynchronous borrows from it.
-- Intern a name, an id, a path or another bounded value that lives long into
-  `cfg->gb` with `fyai_ctx_keep_str()`, and keep a `const char *`. The builder
-  deduplicates and never frees, so no `free()` remains.
-- Do not intern a value that is new for each turn, request, message, call, run
-  or event: an id, a wait name, rendered text, a diff, typed text, a tool
-  result, a command line. `cfg->gb` would grow for the life of the process.
-  Those stay copies, or live in a builder that the object owns, as
-  `job->call_gb` and `p->gb` of the asks do.
-- Do not intern a token or a secret: `fyai_secret_clear()` zeroes it, and a
-  builder never zeroes.
-- A mutable buffer, a path of the environment, a string for a thread, a fork
-  child or curl, and the transport code stay copies.
+  `ctx->transient_gb` is released on an idle loop iteration, so nothing
+  asynchronous borrows from it.
+- Do not copy a generic into the C heap for a consumer that can hold the
+  generic or a borrowed pointer.
+- Intern a long-lived bounded value (a name, an id, a path) into `cfg->gb`
+  with `fyai_ctx_keep_str()`. Do not intern a value that is new for each
+  turn, request, call or event, and never a token or secret
+  (`fyai_secret_clear()` zeroes it; a builder never does). Those stay copies
+  or live in a builder the object owns (`job->call_gb`, `p->gb`). Mutable
+  buffers, environment paths, and strings for threads, fork children, curl
+  and the transport stay copies.
+- A value the process caches (a parsed embedded schema) lives in a builder of
+  its own, never in the builder of the first caller.
 
 ### Short forms
 
-Use the short generic API. It says the same thing with less text:
+- Use `fy_is_*()` predicates and `fy_empty()`. Keep `fy_generic_is_int()`,
+  `fy_generic_is_float()`, `fy_generic_is_bool()`, which test the C range.
+- Use `fy_foreach()`, `fy_foreach_key_value()`, `fy_foreach_idx_item()` in
+  place of index loops; `fy_any_equal(v, "a", "b")` in place of `fy_equal()`
+  chains; `fy_str(v)` (NULL for `fy_invalid`), `fy_number(v, dflt)`,
+  `fy_str_empty(s)`.
+- Build strings with `fy_stringf(gb, ...)` and `fy_join(gb, ...)`. For a stable
+  `const char *`, use `fy_gb_intern_string(gb, fy_sprintfa(...))`.
+- Use `fy_mapping(gb, ...)`/`fy_sequence(gb, ...)` and the other short forms
+  in place of `fy_gb_*()`. `fy_gb_internalize()` and `fy_gb_intern_string()`
+  have none.
+- Do not nest `fy_mapping()`, `fy_sequence()`, `fy_assoc()` or `fy_get()` more
+  than one level deep: the macro expansion multiplies (three levels made
+  80 MB of preprocessed text and killed a CI runner). Build inner values into
+  locals. Check with `-E` for a line that expands past a megabyte.
 
-- `fy_is_string()`, `fy_is_mapping()`, `fy_is_valid()` and the other
-  `fy_is_*()` predicates, and `fy_empty()` for an empty collection or string.
-  Keep `fy_generic_is_int()`, `fy_generic_is_float()` and
-  `fy_generic_is_bool()`, which also test the C value range.
-- `fy_foreach()`, `fy_foreach_key_value()` and `fy_foreach_idx_item()` in
-  place of an index loop with `fy_get_at()` and `fy_get_key_at()`.
-- `fy_any_equal(v, "a", "b")` in place of a chain of `fy_equal()` tests. It
-  evaluates the value one time.
-- `fy_str(v)` for a printable string and `fy_number(v, dflt)` for a number.
-  `fy_str()` returns NULL for `fy_invalid`.
-- `fy_stringf(gb, ...)` and `fy_join(gb, ...)` to build a string generic in a
-  builder arena. To get a stable `const char *`, keep
-  `fy_gb_intern_string(gb, fy_sprintfa(...))`; there is no interning format
-  function.
-- `fy_str_empty(s)` for a NULL or empty C string.
-- `fy_mapping(gb, ...)` and `fy_sequence(gb, ...)` in place of
-  `fy_gb_mapping()` and `fy_gb_sequence()`. A first argument of type
-  `struct fy_generic_builder *` selects the builder path, thus the call is the
-  same. Most other `fy_gb_*` functions have such a short form. The exceptions
-  are `fy_gb_internalize()` and `fy_gb_intern_string()`, which have none.
-  Without a builder, these forms use stack storage: do not return such a value
-  from a function.
-- Do not nest `fy_mapping()`, `fy_sequence()`, `fy_assoc()` or `fy_get()`
-  calls more than one level deep. Each level multiplies the expansion of the
-  macro: a statement with three levels of `fy_mapping()` made 80 MB of
-  preprocessed text and 2 GB of memory in the compiler, and killed a CI runner.
-  Build each inner value into a local variable, and pass the variable. To check
-  a file, preprocess it with `-E` and look for a source line that expands to
-  more than a megabyte.
+### Empty strings and initialization
 
-### Returned generics
+An empty-string generic is a string, not null; the YAML emitter must write it
+as `""`. Keep empty-string configuration keys `type: string` in
+`data/config.schema.yaml`; do not allow null to hide an emitter defect.
 
-A generic that a function returns must name storage that is alive after the
-function. Build it in a builder that the caller supplies or that outlives the
-call, or return a value that an arena holds.
-
-- Do not return a generic that a stack builder made. `fy_mapping()` and
-  `fy_sequence()` with no builder, and `fy_sprintfa()`, use the stack frame of
-  the caller. They are correct as an argument to a call in the same frame.
-  Do not free their result.
-- Copy a C string into the builder with `fy_value(gb, s)` when the string is a
-  local buffer.
-- State the lifetime in the header when a function returns a borrowed value.
-
-### Empty strings
-
-An empty-string generic is a string. It is not null. If the style is not set,
-the YAML emitter must write an empty string as `""`. The core and YAML 1.1
-schemas can parse a bare empty scalar, such as `key:`, as null.
-
-Keep empty-string configuration keys as `type: string` in
-`data/config.schema.yaml`. Do not allow null to hide an emitter defect.
-
-### Generic initialization
-
-A zeroed `fy_generic` is not `fy_invalid`. Zero can represent an empty
-sequence. `fyai_setup()` clears `struct fyai_ctx`. After this operation,
-initialize each generic field explicitly.
+A zeroed `fy_generic` is not `fy_invalid` (zero can be an empty sequence).
+After `fyai_setup()` clears `struct fyai_ctx`, initialize each generic field
+explicitly.
 
 ## Source layout
 
-The sources are in one directory for each component, under `src/`. Every
-directory is on the include path, so `#include "fyai_loop.h"` names a header
-without its directory. Put a new file in the directory of the component that
-owns it.
+Sources are in one directory per component under `src/`; every directory is
+on the include path. Put a new file in the directory of the component that
+owns it. `doc/source-layout.md` names the owner of each file.
 
-- `core/`: the entry point, the engine and what every component uses: the
-  configuration, the diagnostics, the turn, attachments, the table renderer
-  and small helpers.
-- `loop/`: the event loop, its timers and signals, the waits.
-- `store/`: the arena, branches, merge, the project, the blob store and the
-  import of a conversation.
-- `auth/`: the credentials, the login, the secret stores, OAuth.
-- `provider/`: the model connection, the transfers, the grammars and the
-  catalogue.
-- `net/`: sockets, the HTTP server, WebSocket, JSON-RPC and the binary frames
-  between processes.
-- `transport/`: the credential transport. `remote/`: `fyai serve`, the remote
-  client, ACP and the Claude SDK.
-- `mcp/`: the MCP client.
-- `tools/`: the tools (patch, todo, settings, structured output), the jobs,
-  the sub-agents, the skills, the questions.
-- `sandbox/`: confinement, the filesystem views, the exchange scope.
-  `host/`: the operating system primitives.
-- `front/`: the sink, the UI, the page, the work pane, Markdown and the
-  terminal.
-- `cmd/`: the commands.
-
-- `src/core/main.c`: global option parsing and command dispatch.
-- `src/cmd/commands.h`: what an invocation runs, and the argument structures
-  that backends read.
-- `data/commands.yaml`: the definition of every verb and slash command.
-- `src/cmd/fyai_cmd.c`: the command registry, parser, dispatch, and presentation.
-- `src/core/fyai_image.h`, `tools/fyai_mkimage.c`: the prebuilt images of the
-  command definitions and the catalogue (`doc/embedded-images.md`). Load an
-  embedded document that is large with `fyai_image_load()` and keep the parse
-  of its text as the fallback.
-- `src/cmd/fyai_cmd_complete.c`, `src/cmd/fyai_cmd_help.c`: completion and help from
-  the definitions.
-- `src/cmd/fyai_cmd_*.c`: the handlers of the commands, one file for each group.
-- `src/core/fyai_app.c`: `struct fyai_app`, the root that owns the components that
-  the whole program shares, in dependency order (`doc/context-components.md`).
-  `main()` declares it and everything else borrows from it. Today it holds the
-  diagnostics, the event loop, the arena, the transient builder, the
-  credential refresh, the model connection, the transport client, the MCP
-  client, the waits, the questions, the tool scope, the terminal, the skill
-  files, the tool specification, the branch cursor, the usage totals, the turn
-  state, the tool jobs, the sub-agent identity, the output, the UI model, the screen and the
-  configuration. The context of the invocation is a member of the app
-  (`app->ctx`).
-- A component finds its context through an accessor, not through a field that
-  the callers read. A component that is a member of `struct fyai_app` holds no
-  pointer to the context: its accessor uses `container_of()` on the app
-  (`fyai_cred_ctx()`). An object of which many stand on one context (a
-  connection, a request, a tile) keeps a pointer of its own and gives it
-  through an accessor of its own, `NAME_ctx()` for `struct NAME`, defined
-  next to the struct. Set the field where the object is made and read it
-  nowhere else; `tests/ctx-accessor.sh` fails on a direct read.
-- `src/store/fyai_arena.c`: `struct fyai_arena`, the durable and working builders of
-  the canonical state. `ctx->arena` points at the one in the app; read
-  `ctx->arena->gb` where you need the working builder.
-- `src/store/fyai_transient.c`: `struct fyai_transient`, the builder for the values of
-  one operation. `ctx->transient` points at the one in the app.
-- `src/provider/fyai_link.h`: `struct fyai_link`, the model connection: the curl handle,
-  its headers, the outcome of the last transfer, the curl multi state and the
-  request cache. `ctx->link` points at the one in the app.
-- `src/transport/fyai_transport_state.h`: `struct fyai_transport_state`, the client of the
-  credential transport and its control channel. `ctx->transport` points at the
-  one in the app.
-- `src/mcp/fyai_mcp_state.h`: `struct fyai_mcp`, the connections to the MCP servers
-  and their tool catalogue. `ctx->mcp` points at the one in the app.
-- `src/loop/fyai_waitq.h`, `src/tools/fyai_askq.h`: `struct fyai_waitq` (named waits, the
-  waiters that hold a call, the event queue) and `struct fyai_askq` (the
-  background questions and the questions store). `ctx->waitq` and `ctx->askq`
-  point at the ones in the app.
-- `src/sandbox/fyai_scope.h`, `src/front/fyai_tty.h`, `src/tools/fyai_skills.h`,
-  `src/tools/fyai_toolspec.h`: the scope of the tool processes, the real terminal, the
-  skill files, and the tool specification. `ctx->scope`, `ctx->tty`,
-  `ctx->skills` and `ctx->toolspec` point at the ones in the app.
-- `src/store/fyai_branch_state.h`, `src/core/fyai_usage.h`: `struct fyai_branch_state`, the
-  branch cursor, and `struct fyai_usage`, the totals of the run. `ctx->bstate`
-  and `ctx->usage` point at the ones in the app. A detached view context keeps
-  a copy of the cursor (`struct fyai_view_own`).
-- `src/core/fyai_turnstate.h`: `struct fyai_turnstate`, what a running turn carries:
-  the last message, the observers, the tool gate, the stop reason and the
-  attachments that wait. `ctx->turn` points at the one in the app.
-- `src/tools/fyai_jobs.h`, `src/tools/fyai_agent_state.h`: `struct fyai_jobs` (tool jobs,
-  terminal sessions, monitors, background runs) and `struct fyai_agent_state`
-  (the registry and the identity of a sub-agent). `ctx->jobs` and `ctx->astate`
-  point at the ones in the app.
-- `src/front/fyai_out.h`, `fyai_uistores.h`, `fyai_screen.h`: the display in
-  three components. `struct fyai_out` holds the sink and the open transcript
-  document, which is all that the engine says to the user. `struct fyai_uistores`
-  holds the UI model and its stores, the bands, the live document, the span of a
-  command and the renderer. `struct fyai_screen` holds the terminal UI, the work
-  pane, the browser, the command in flight and the editor and catalogue update
-  requests. `ctx->out`, `ctx->uistores` and `ctx->screen` point at the ones in the
-  app. Only `out` is for the engine to use; the other two are the part that the
-  TUI split moves.
-- `src/auth/fyai_cred.c`: `struct fyai_cred`, the shared refresh of the login and
-  the secrets in memory. `ctx->cred` points at the one in the app; it stands
-  on the loop of the app for its timer.
-- `src/loop/fyai_loop.h`: `struct fyai_loop`, the event loop component: the loop,
-  its timers and sources and their pools, the signals, and the interrupt state.
-  `ctx->loop` points at the one in the app. `src/loop/fyai_event*.c` implement it.
-- `src/core/fyai.c`: engine orchestration.
-- `src/front/fyai_sink.c`: the one rendering component and its backends.
-- `src/front/fyai_sink_frames.c`: the sink of a command that a client runs with
-  `--remote TARGET`. It sends each sink operation as a frame, and the client presents
-  the frame with its own sink.
-- `src/remote/fyai_remote_server.c`: `fyai serve`, its project servers and workers
-  (`doc/remote-sessions-sdd.md`, section 6.1.2).
-- `src/remote/fyai_remote.c`: the client of `--remote` and of `remote connect`, and
-  what it shares with the server (`src/remote/fyai_remote_int.h`). It reaches a
-  server by a Unix socket, by `ssh://` through `remote bridge`, and by
-  `http://` and `https://` through `remote relay`.
-- `src/remote/fyai_remote_http.c`: the HTTP front of `fyai serve --listen`: the
-  bearer-token check, the route of the session, and the bridge of a WebSocket
-  to a socket of lines, on `fyai_httpd`. `src/remote/fyai_remote_relay.c` is the
-  client end of the relay, on `fyai_ws_client`.
-- `src/core/fyai_buf.c`: the growing byte buffer, `struct fyai_buf`. It holds text
-  or a queue that is read from the front with `fyai_buf_consume()`. Use it
-  for every buffer of bytes and do not write another.
-- `src/net/fyai_net.c`: sockets for the network code: a connection that is TCP or
-  TLS over TCP, and the listen, connect (blocking, or started without
-  blocking) and URL helpers. The URL parse uses the URL API of libcurl. It
-  owns no event source.
-- `src/net/fyai_httpd.c`: the HTTP/1.1 server on the event loop: listeners with
-  optional TLS, the request parser, request bodies, kept connections,
-  answers (its own, or bytes that the handler writes), and the server end of a
-  WebSocket. It knows no route, no credential and no protocol over the
-  WebSocket; a handler gets each request and message
-  (`src/net/fyai_httpd.h`). Use it for every listener of HTTP in this program,
-  the mock provider included, and do not write a second one.
-- `src/net/fyai_ws.c`: RFC 6455 as pure functions: the codec, the frame encoder and
-  the text of the handshake. `src/net/fyai_ws_client.c` is the client end, in two
-  forms: a blocking connection (`fyai_ws_client`) for a standalone command, and
-  a connection on the event loop (`fyai_wsc`) that never blocks. Each connects,
-  makes the TLS handshake, checks the pin, upgrades, sends masked frames and
-  gets whole messages. Use `fyai_wsc` in code that runs on the loop.
-- `src/remote/fyai_remote_tls.c`: the self-signed key of a server, the context of a
-  TLS listener, and the pin and chain checks of a client of one.
-- `src/front/fyai_uidraw.c`: the renderer of the UI model. It draws the live
-  document, the log and the bands from the stores with the sink
-  (`doc/ui-model.md`).
-- `src/front/fyai_flow.c`: the output separation manager.
-- `src/front/fyai_output.c`: transcript document source and fragments.
-- `src/front/fyai_session.c`: interactive input and slash commands.
-- `src/tools/fyai_agent.c`: sub-agent execution and agent RPC.
-- `src/tools/fyai_tools.c`: the dispatch of tool calls, the tool implementations
-  and the glue. `src/tools/fyai_tools_int.h` is the interface that the tool files
-  share; keep a function there only when another tool file calls it.
-- `src/tools/fyai_tool_job.c`: the lifecycle of a tool job and of a job group:
-  spawn, submit, gate, collect and the exchange scope.
-- `src/tools/fyai_tool_child.c`: the tool child process: its fork and exec, its
-  JSON-RPC serve loop and its dispatch.
-- `src/sandbox/fyai_shell_sandbox.c`: the confinement policy of a shell command.
-- `src/tools/fyai_shell_session.c`: shell sessions and their tiles, bang commands,
-  user programs and mirrors.
-- `src/front/fyai_tools_focus.c`: focus, zoom and the keys of tiles and inline
-  blocks, and the control of a session by name.
-- `src/front/fyai_agent_view.c`: the screen of a sub-agent, its inline terminal and
-  the btw panels.
-- `src/remote/fyai_claude_sdk.c`: the Claude Agent SDK protocol
-  (`doc/claude-sdk-compat.md`).
-- `src/loop/fyai_event*.c`: the portable event loop and signal handling.
-- `src/loop/fyai_event_dump.c`: SIGUSR2 event-loop diagnostics.
-- `src/core/fyai_render.c`: generic-to-Markdown table rendering.
-- `src/core/fyai_diag.c`: collected diagnostics.
-- `src/core/utils.c`: HTTP buffers, file helpers, and generic serialization.
-- `src/tools/fyai_shell_capture.c`: shell capture on the event loop, and the child
-  start: its status channel, `fyai_child_exec_prepare()` and
-  `fyai_exec_shell_command()`.
-- `src/front/fyai_editor.c`: the external editor child, and the editor in a tile of
-  the work pane.
-- `src/front/fyai_workpane.c`: the one owner of work-pane geometry, focus, and zoom.
-- `src/front/fyai_chrome.c`: the one owner of tile chrome: which controls and scroll
-  bar a tile carries, and its head.
-- `src/sandbox/fyai_fsview.c`: the portable part of the filesystem views and the
-  dispatch to the backend of the platform (`src/sandbox/fyai_fsview_backend.h`).
-  `src/sandbox/fyai_fsview_linux.c` is OverlayFS and the namespaces,
-  `src/sandbox/fyai_fsview_macos.c` is the native cloned directory, and
-  `src/sandbox/fyai_fsview_none.c` has no views. Put platform code in a backend.
-  The view commands (`src/cmd/fyai_cmd_fsview.c`) use its pipe, socket, boot id,
-  sync, prepare and confine members and test no platform.
-- `src/store/fyai_project_capture.c`: the portable part of the project capture. Its
-  file system primitives are in a backend
-  (`src/store/fyai_project_capture_backend.h`): `src/store/fyai_project_capture_linux.c`,
-  `src/store/fyai_project_capture_macos.c` and `src/store/fyai_project_capture_none.c`.
-- `src/store/fyai_cas.c`: the portable part of the blob store. Its file system
-  primitives (sync, kernel copy, clone) are in a backend
-  (`src/store/fyai_cas_backend.h`): `src/store/fyai_cas_linux.c`, `src/store/fyai_cas_macos.c`
-  and `src/store/fyai_cas_none.c`.
-- `src/sandbox/fyai_sandbox.c`: the portable part of tool confinement and the dispatch
-  to the backend of the platform (`src/sandbox/fyai_sandbox_backend.h`).
-  `src/sandbox/fyai_sandbox_linux.c` is Landlock and the seccomp UDP filter,
-  `src/sandbox/fyai_sandbox_macos.c` is Seatbelt, and `src/sandbox/fyai_sandbox_none.c`
-  confines nothing. Put platform code in a backend, not in the core.
-- `src/host/fyai_host.c`: the portable part of the operating system primitives
-  (descriptors, processes, peer identity, entropy, browser launch) and the
-  dispatch to the backend of the platform (`src/host/fyai_host_backend.h`).
-  `src/host/fyai_host_linux.c`, `src/host/fyai_host_macos.c` and `src/host/fyai_host_none.c`
-  hold the platform code. Test a capability (`fyai_host_memfd_available()`),
-  never the name of a platform. `src/sandbox/fyai_orphan_linux.c` and
-  `src/sandbox/fyai_cover_linux.c` are the Linux code of the scope and the cover; the
-  `_none.c` files hold their stubs.
-- `src/provider/fyai_grammar.c`: the dispatch to the provider API grammars
-  (`src/provider/fyai_grammar.h`). `src/provider/fyai_grammar_responses.c`,
-  `src/provider/fyai_grammar_chat.c` and `src/provider/fyai_grammar_messages.c` each build the
-  requests and parse the replies of one grammar (`doc/provider-grammars.md`).
-  `src/provider/fyai_provider.c` holds what the grammars share and the readers of the
-  canonical response. Put grammar code in a grammar file.
-- `src/auth/fyai_secret.c`: the `secret` verb and the machine-local secrets.
-  `src/auth/fyai_secret_store.h` is the interface of the stores: the kernel keyring
-  (`fyai_secret_keyctl.c`), the macOS keychain (`fyai_secret_keychain.c`), the
-  Secret Service (`fyai_secret_libsecret.c`) and none. The login uses
-  `fyai_secret_store_keyring()`.
-- `src/auth/fyai_oauth.c`: provider-independent OAuth browser flow.
-- `src/auth/fyai_cred.c`: the credential sources (`env:`, `secret:`, `mem:`,
-  `oauth:chatgpt`) and the one refresh of the login for each process: waiters,
-  `prepare` before a request, `reject` after a 401 and the scheduled refresh
-  (`doc/credential-sources-plan.md`). The agent, the model discovery and the
-  transport all use it; do not refresh a login anywhere else.
-- `src/provider/fyai_xfer.c`: a model request over curl or the transport. It builds the
-  headers for each send and holds back a 401 that a renewal can answer.
-- `src/auth/fyai_mcp_oauth.c`: the refresh request of an MCP OAuth server.
-- `src/net/fyai_jsonrpc.c`: JSON-RPC over standard I/O and HTTP, and the image
-  mode of two fyai ends (`doc/remote-sessions-sdd.md`, section 5.2.1).
-- `src/core/fyai_config.c`: layered configuration and config commands.
-- `src/store/fyai_branch.c`: branch storage, references, and root selection.
-- `src/store/fyai_merge.c`: branch merge and rebase.
-- `src/provider/fyai_catalog.c`: provider and model catalogue.
-- `src/core/fyai_media.c`: attachments that a message carries, their bytes, and
-  the clipboard helper (`doc/media.md`). `fyai_image.*` is something else:
-  the prebuilt embedded YAML images.
-- `src/tools/fyai_skill.c`: branch-stored skills and the `skill` tool.
-- `src/tools/fyai_settings.c`: the `settings` tool, which reads, selects and
-  exports the configuration by the `x-fyai-model` access of each key, and
-  the catalogue. Its exports go to a private `mkdtemp()` directory that
-  `fyai_settings_release()` removes at cleanup and
-  `fyai_settings_abandon()` forgets in a forked child.
-- `src/*/*.h`: shared structures and internal interfaces.
-- `data/`: embedded configuration schemas and catalogue data.
-- `tests/`: unit tests, functional cases, mock providers, and scenarios.
+- `core/` entry point, engine, configuration, diagnostics, turn, attachments,
+  tables, helpers. `loop/` event loop, timers, signals, waits. `store/` arena,
+  branches, merge, project, blob store, import. `auth/` credentials, login,
+  secret stores, OAuth. `provider/` model connection, transfers, grammars,
+  catalogue. `net/` sockets, HTTP server, WebSocket, JSON-RPC, frames.
+  `transport/` credential transport. `remote/` `fyai serve`, remote client,
+  ACP, Claude SDK. `mcp/` MCP client. `tools/` tools, jobs, sub-agents,
+  skills, questions. `sandbox/` confinement, filesystem views, exchange scope.
+  `host/` OS primitives. `front/` sink, UI, page, work pane, Markdown,
+  terminal. `cmd/` commands.
+- `struct fyai_app` (`src/core/fyai_app.c`) owns the shared components in
+  dependency order (`doc/context-components.md`); `main()` declares it and
+  everything else borrows from it. The context is `app->ctx`; each component
+  is reached as `ctx->NAME` (`arena`, `transient`, `link`, `loop`, `cred`,
+  `out`, `uistores`, `screen`, ...).
+- A component finds its context through an accessor. A member of
+  `struct fyai_app` uses `container_of()` on the app (`fyai_cred_ctx()`). An
+  object of which many stand on one context keeps a pointer and gives it
+  through `NAME_ctx()`, defined next to the struct; set the field where the
+  object is made and read it nowhere else (`tests/ctx-accessor.sh`).
+- One implementation for each job, do not write a second: `struct fyai_buf`
+  (`fyai_buf.c`) for every byte buffer; `fyai_httpd.c` for every HTTP
+  listener, the mock provider included; `fyai_net.c` for sockets; `fyai_wsc`
+  for WebSocket clients on the loop; `fyai_cred.c` for every login refresh.
+- Platform code goes in a backend (`*_linux.c`, `*_macos.c`, `*_none.c`) of
+  the host, sandbox, fsview, project capture and blob store. Test a
+  capability (`fyai_host_memfd_available()`), never a platform name.
+- Load a large embedded document with `fyai_image_load()` and keep the parse
+  of its text as the fallback (`doc/embedded-images.md`).
 
 ## Tools
 
-`data/tools.yaml` describes each model tool. `struct fyai_tool_def`
-(`src/tools/fyai_tool_registry.h`) holds the rest: run function, title row, result
-formatter for the user, ordering class, and flags. Define the entry in the file that implements the tool. Do
-not test a tool name in another place; add a field to the entry. See
-`doc/tools-yaml.md`.
+`data/tools.yaml` describes each model tool; `struct fyai_tool_def`
+(`src/tools/fyai_tool_registry.h`) holds the run function, title row, result
+formatter, ordering class and flags. Define the entry in the file that
+implements the tool. Do not test a tool name elsewhere; add a field to the
+entry (`doc/tools-yaml.md`).
 
-An event is a line `[KIND 'NAME' TAIL]` and an optional body, queued for the
-model. The card that echoes it, live and on replay, draws it through
-`fyai_event_pretty()` (`src/loop/fyai_event_fmt.c`); a new producer keeps that
-header form and needs no code of its own. Do not change the text the model
-gets to make the card read better.
+An event is a line `[KIND 'NAME' TAIL]` with an optional body, queued for the
+model. Its card is drawn by `fyai_event_pretty()`. Do not change the text the
+model gets to make the card read better.
 
 ### Skills
 
-A skill is branch state in the store member `skills`, as `doc/skills.md`
-describes. It enters the store only through `skill import`, `skill new`, or
-`skill edit`: do not discover skills in the filesystem. `ctx->arena_skills`
-follows `ctx->arena_config`: each path that adopts a configuration from a
-branch adopts its skills too, and the commit writes them. Check every front
-matter against `data/skill.schema.yaml`.
+A skill is branch state in the store member `skills` (`doc/skills.md`). It
+enters only through `skill import`, `skill new`, or `skill edit`; do not
+discover skills in the filesystem. `ctx->arena_skills` follows
+`ctx->arena_config`. Check every front matter against
+`data/skill.schema.yaml`.
 
 A forked skill runs as a call of the `agent` tool through the `expand`
-function of its registry entry. Do not add a second sub-agent path for it.
-`ctx->tools_allow` holds the tools of a forked skill; `make_tools_filtered()`
-offers only those, and `fyai_execute_tool_call()` refuses any other.
-
-A skill with files is written out to a private `mkdtemp()` directory under
-`$TMPDIR` when it loads, in the process that runs its programs: a view gives
-a sub-agent a `/tmp` of its own. Do not write the files in a parent for a
-child. `fyai_skill_dirs_release()` removes them at cleanup and when a tool
-child exits; `fyai_ctx_fork_disown()` forgets those of the parent.
+function of its entry; do not add a second sub-agent path. `ctx->tools_allow`
+restricts its tools in both `make_tools_filtered()` and
+`fyai_execute_tool_call()`. Skill files are written to a private `mkdtemp()`
+directory in the process that runs its programs, never by a parent for a
+child; `fyai_skill_dirs_release()` removes them, `fyai_ctx_fork_disown()`
+forgets those of the parent.
 
 ## Commands
 
 A verb (`fyai branch new x`) and a slash command (`/branch new x`) are one
-command. `data/commands.yaml` defines each command one time;
-`doc/command-schema-plan.md` gives the design. Do not add a verb table entry,
-a slash table entry, or a hand-written parser.
+command, defined once in `data/commands.yaml` (`doc/command-schema-plan.md`).
+Do not add a verb table, a slash table, or a hand-written parser.
 
-- A definition has `arguments`, a JSON Schema whose `x-fyai-*` keywords bind
-  each property to the command line: `x-fyai-positional`, `x-fyai-rest`,
-  `x-fyai-short`, `x-fyai-long`, `x-fyai-repeat`, `x-fyai-meta`,
-  `x-fyai-complete`, `x-fyai-surfaces`, and `x-fyai-hidden`.
-  `data/command.schema.yaml` checks the file when it loads.
-- `surfaces` says where a command exists: `cli`, `session`, or both. A small
-  difference of behavior tests `call->surface` in the handler; a large one is
-  two subcommands with their own surfaces.
-- A group has `commands`, and can have `default` (no word, or an option) and
-  `fallback` (a word that names no subcommand), each for one surface or both.
-  A group can have `arguments` of its own: a word that names no subcommand
-  fills the next positional argument of the group (`auth openai login`,
-  `log wire start`).
-- The session takes a unique prefix of a command or subcommand; the verb
-  takes none.
-- A handler, `int fyai_cmd_NAME(struct fyai_cmd_call *call, fy_generic
-  *result)`, gets validated arguments with the defaults applied: read them
-  with `fyai_cmd_arg_str()` and `fyai_cmd_arg_bool()`. Do not parse or check
-  types in a handler. Register it in `cmd_handlers[]` of `src/cmd/fyai_cmd.c`.
-- The caller presents the result. Build it in `call->gb`, and describe it in
-  `render`: `table` (renderopts), `message` (lines with `{key}`; a line that
-  names an unset key, or tests one with `{?key}`, is left out), `markdown`
-  (the same lines, rendered as Markdown), or `document` (`yaml` or `flow`). A verb takes `--output json|yaml` for every result;
-  `tests/cases/output_formats.sh` checks it. A backend reports failures and
-  returns data; it does not print its outcome. Only work that is itself
-  presentation writes through the sink: the transcript renderer (`history`),
-  the stats table with its own formats (for Markdown only), prose (`catalog
-  tools`, help), live UI (`page`, `btw`, `branches`, pickers, editors), and
-  progress (`compact`, `replay`, `import`, `diff`). A result string is
-  Markdown; with `display/markdown` off it is written as its source.
-- `mode: stream` emits items with `fyai_cmd_emit()`; `mode: async` returns
-  `FYAI_CMD_PENDING`, sets `call->cancel` and `call->cleanup`, and ends with
-  `fyai_cmd_done()`. The verb runs the loop until the call is done; the
-  session queues later input behind it and presents it between turns. ^C and
-  Escape cancel it.
-- A verb that must change the configuration before setup has a hook: `early`
-  runs before the configuration loads (resume selects its branch there),
-  and `prepare` runs after it (term turns the interactive display on).
-  Register hooks in `cmd_earlies[]` and `cmd_prepares[]`. The parsed command
-  is `cfg->cmd.reg`; ask it with `fyai_cmd_state_is()`, and do not copy its
-  properties into separate configuration fields.
-- `flags` replace the verb flags. `model` says that the verb talks to the
-  model: only such a verb sets up the request state and needs a provider
-  credential, so a verb that does not send a model request never asks for
-  a key. `model-state` reads the model that the catalogue resolves, such as
-  `api` and `list`, but sends no request; every other verb starts without
-  resolving it, which parses the catalogue. `no-storage` opens no arena,
-  `storage-optional` opens the arena only when it exists and never makes
-  one (`__complete`), `transient` gives the handler the transient builder,
-  and `interactive` opens the terminal UI. `while_busy` says whether a
-  slash command runs beside a turn: `run`, `wait` (the default), or `bare`
-  (only with no arguments). `view: true` keeps the result in the
-  scrollback of a session. `scope: view` says that the command changes only
-  what a client shows, so the client of a remote session runs it itself; a
-  setting of a `display/` key is such a command without the property.
-- A session setting is a command with `setting: {key: PATH}`: the
-  configuration schema gives its values and completion, and its
-  `x-fyai-scope` decides whether a change is stored or goes into the session
-  layer (`fyai_config_session_set()`). Mark a new key `x-fyai-scope:
-  session` when a session may change it for itself.
-- `x-fyai-complete` names a completion kind in `complete_kinds[]` of
-  `src/cmd/fyai_cmd_complete.c`. A unit test fails when a definition names a kind
-  or a handler that does not exist. `config-value` and `catalog-value`
-  complete from the schema of the item that the previous argument names; a
-  configuration key can name its own kind with `x-fyai-complete` in
-  `data/config.schema.yaml`.
-- Every command and every argument has a description: help, completion, the
-  manual page, and `doc/commands.md` come from them. After a change of the
-  definitions, run `ninja docs-commands`; the case `commands_reference` fails
-  when `doc/commands.md` is out of date.
-- `fyai completion bash|zsh|fish` writes a script that calls
-  `fyai __complete -- WORDS`. Test completion through `fyai_cmd_complete()`
-  in `tests/fyai_cmd_test.c` and through the script in
+- `arguments` is a JSON Schema whose `x-fyai-*` keywords bind properties to
+  the command line; `data/command.schema.yaml` checks the file. `surfaces` is
+  `cli`, `session`, or both; a small difference tests `call->surface`.
+- A handler `int fyai_cmd_NAME(struct fyai_cmd_call *call, fy_generic
+  *result)` gets validated arguments with defaults: read them with
+  `fyai_cmd_arg_str()`/`fyai_cmd_arg_bool()`; do not parse or type-check.
+  Register it in `cmd_handlers[]`; hooks go in `cmd_earlies[]` and
+  `cmd_prepares[]`. Ask the parsed command with `fyai_cmd_state_is()`; do not
+  copy it into configuration fields.
+- The caller presents the result. Build it in `call->gb` and describe it in
+  `render` (`table`, `message`, `markdown`, `document`). Every verb takes
+  `--output json|yaml` (`tests/cases/output_formats.sh`). A backend reports
+  failures and returns data; it does not print its outcome. Only work that is
+  presentation itself writes through the sink (history, stats, help, live
+  UI, progress).
+- `mode: stream` uses `fyai_cmd_emit()`; `mode: async` returns
+  `FYAI_CMD_PENDING`, sets `call->cancel`/`call->cleanup`, and ends with
+  `fyai_cmd_done()`.
+- `flags`: `model` (sends a model request; only such a verb needs a
+  credential), `model-state`, `no-storage`, `storage-optional`, `transient`,
+  `interactive`. `while_busy`, `view`, `scope: view` and `setting: {key}`
+  are described in `doc/command-schema-plan.md`. Mark a configuration key
+  `x-fyai-scope: session` when a session may change it for itself.
+- `x-fyai-complete` names a kind in `complete_kinds[]` of
+  `fyai_cmd_complete.c`; a unit test fails on an unknown kind or handler.
+  Test completion in `tests/fyai_cmd_test.c` and
   `tests/cases/completion_bash.sh`.
-- A value that the process caches, such as a parsed embedded schema, lives
-  in a builder of its own, never in the builder of the first caller: a handler
-  releases its builder when the call ends.
+- Every command and argument has a description. After a change, run
+  `ninja docs-commands`; `commands_reference` fails when `doc/commands.md` is
+  stale.
 
 ## Attachments
 
-An attachment is binary data that a model reads as media, not as text. Images
-are PNG, JPEG, GIF, and WebP; `doc/media.md` is the design.
+`doc/media.md` is the design. Images are PNG, JPEG, GIF and WebP.
 
-- The bytes are a binary string generic in the image part, `data`, so they
-  are in the arena with the message. Keep no copy of them outside it.
-- A message `content` is a string when it holds text only, and a sequence of
-  parts when it carries an image: `{type: text, text}` and
-  `{type: image, media_type, digest, width, height, bytes, data, name}`.
-- Emit YAML that can hold an image part with `FYOPEF_BINARY_BASE64`, so the
-  bytes are `!!binary`; JSON escapes them. Do not encode them by hand.
-- An export writes the content of a message with an image into its
-  directive, bytes included; an import rebuilds each image part from the
-  bytes with `fyai_media_import_content()`.
-- Do not walk `content` to find the words. Use `fyai_media_text()` for the
-  text and `fyai_media_parts()` for the images; those two keep the sequence
-  form in one place.
-- What a person reads uses `fyai_media_text_references()`: the text, then one
-  Markdown row per image, `![image: PNG 1024x768, 96 KiB](fyai-media:DIGEST)`.
-  The transcript card, the offline views, and the export all take it from
-  there, so the row reads the same everywhere. The model never sees it.
-- A wire form is derived at the request boundary by the `image_part`
-  operation of each grammar, as every other canonical item is. Nothing wire-shaped is stored, so a
-  conversation can continue on another grammar.
-- Image input is a model property: `image_input_supported` is derived from
-  `image` in the model's `modalities`. Do not infer it from the provider name
-  or require an endpoint capability flag.
-- An attachment enters only where the user names it: `@PATH` in a typed
-  line, `/attach`, `/image add`, `/image paste`, or `--image`. A path typed
-  in a line without `@` is text. `fyai_media_take_mentions()` reads the
-  mentions of a line before it is shown or sent. It reads the line the user
-  typed and nothing else: not the task of the `agent` verb or of a sub-agent.
-- A text file is a file part, `{type: text, text, file, bytes, lines}`: the
-  model reads `fyai_media_model_text()`, the words and each file; a person
-  reads `fyai_media_text_references()`, the words and one row a file.
-  `fyai_media_text()` is the words alone. It is not what a provider sends
-  for a file part: a reader that wants what the model reads must not use it.
-- `fyai_make_user_message()` takes the attachments that wait; a message the
-  program writes uses `fyai_make_instruction_message()`, so an attachment
-  never leaves with a sub-agent instruction.
-- No terminal escape reads a clipboard, so `fyai_media_attach_clipboard()`
-  runs a helper. It is a sanitized child with a time limit.
+- The bytes are a binary string generic in the image part (`data`), in the
+  arena with the message. Keep no copy outside it.
+- `content` is a string for text only, else a sequence of parts:
+  `{type: text, text}`, `{type: image, media_type, digest, width, height,
+  bytes, data, name}`, and file parts `{type: text, text, file, bytes, lines}`.
+- Do not walk `content`. Use `fyai_media_text()` (the words alone),
+  `fyai_media_parts()` (the images), `fyai_media_model_text()` (what the model
+  reads) and `fyai_media_text_references()` (what a person reads).
+- Emit YAML with `FYOPEF_BINARY_BASE64`; do not encode bytes by hand. Import
+  rebuilds image parts with `fyai_media_import_content()`.
+- The wire form is derived by the `image_part` operation of each grammar.
+  Image input is derived from `image` in the model `modalities`.
+- An attachment enters only where the user names it: `@PATH`, `/attach`,
+  `/image add|paste`, `--image`. `fyai_media_take_mentions()` reads only the
+  line the user typed. `fyai_make_user_message()` takes waiting attachments;
+  program-written messages use `fyai_make_instruction_message()`.
+- The clipboard helper is a sanitized child with a time limit.
 
 ## Persistent state and branches
-
-The durable root has this versioned shape:
 
 ```text
 {fyai: 3, HEAD, branches}
@@ -572,1900 +232,341 @@ branches/<name>: {head, updated, op, from, prev, store}
 store: {config, catalog, created, cwd, description, agent, import, ...}
 ```
 
-A branch entry is one ref-log record. Its `store` holds the branch state that
-changes rarely: the configuration, the catalogue, and the provenance. Each
-branch owns its catalogue. Do not use a sidecar configuration file. Do not use
-a root-level configuration or catalogue value.
-
-The store is an open mapping. Put new branch state in the store, not in the
-entry. Build it with `fyai_branch_store_build()`, which starts from the stored
-mapping and thus keeps members that it does not know. An unchanged store must
-stay the same arena object, so a publish that moves only the head adds no copy.
-After a lost CAS, merge the store three ways with `fyai_branch_store_merge()`.
-It merges a mapping key by key and a sequence of named items by name. A value
-that both sides changed differently is a conflict: apply `branch/on_conflict`
-to it as to turns, and name each conflicting path. A head that only one side
-moved is not a conflict. `fyai_publish_root()` publishes through
-`fyai_publish_state()`; do not add a second reconciliation. A version 2 root is
-not read.
-
-Three operations adopt a published root: publish, reconciliation after a lost
-CAS, and `fyai_branches_refresh()`. Each operation must set
-`ctx->branch_prev` from the adopted root. Do not keep an entry from an older
-root. Such an entry links the next publish to the wrong predecessor. It also
-makes the conflict check compare entries from different roots.
-
-If a publish stops, report what it could not write and why. Name the branch.
-State whether the operation lost the race or could not build the state. Do not
-report only that the publish failed. That report cannot distinguish a lost
-race from an arena that has insufficient space.
-
-When you add a root key, update all applicable paths. These paths build,
-decode, validate, truncate the reflog, and merge CAS conflicts. A concurrent
-publish must preserve changes to other branches. During garbage collection,
-limit the root `prev` chain and each branch-entry `prev` chain.
+- A branch entry is one ref-log record. Its `store` is an open mapping that
+  holds rarely-changing branch state (configuration, catalogue, provenance).
+  Put new branch state there; no sidecar files, no root-level configuration
+  or catalogue. A version 2 root is not read.
+- Build the store with `fyai_branch_store_build()`, which keeps unknown
+  members; an unchanged store stays the same arena object. After a lost CAS,
+  merge it with `fyai_branch_store_merge()`; a value both sides changed
+  differently is a conflict under `branch/on_conflict`, named by path.
+- `fyai_publish_root()` publishes through `fyai_publish_state()`; do not add
+  a second reconciliation. Publish, reconciliation and
+  `fyai_branches_refresh()` each set `ctx->branch_prev` from the adopted root.
+- A publish that stops names the branch and says whether it lost the race or
+  could not build the state.
+- A new root key updates build, decode, validate, reflog truncation and CAS
+  merge. GC limits the root and branch-entry `prev` chains.
 
 ### Branches and references
 
-- A branch name defines the hierarchy. Do not add a separate branch tree.
-- Accept only symbolic references: `<branch>`, `<branch>~N`, `<branch>^^`, and
-  `<branch>@{N}`.
-- Never add numeric object references. Garbage collection can relocate arena
-  objects.
-- `~N` counts stored turns. One user and assistant exchange normally counts as
-  two turns.
-- `--branch`, `-b`, and `$FYAI_BRANCH` select a branch for one invocation.
-- Only `checkout` changes stored `HEAD`.
-- An interactive run that names no branch starts a `session/` branch. It takes
-  the configuration of the branch last updated in its directory, else of the
-  branch `HEAD` names. `ctx->session_unstored` names it until its first
-  exchange is published; before that a publish on it writes nothing.
-- Keep `ctx->branch` separate from `ctx->head_branch`.
-- Store the operation that produced each reflog entry. Do not infer it from
-  head changes.
-- Set the operation with `fyai_branch_op_set()`. A publish consumes and clears
-  it.
-
-A branch start point includes the conversation and the configuration at that
-point. Use `fyai_resolve_ref_state()` for `branch create` and `checkout -b`.
-Do not combine a conversation from one state with a configuration from a
-different state.
-
-`--root` selects one published root and makes the invocation read-only. Reject
-writes. Do not convert them to transient writes. Treat the supplied handle as
-untrusted input. Walk the root reflog and compare raw values to find the
-handle. Do a low-cost shape check for each entry. Then do one full validation
-of the matching entry. Keep full root validation shallow. Code that walks a
-reflog must validate each next link with `fyai_branch_entry_contained()`.
+- The branch name is the hierarchy. Accept only symbolic references:
+  `<branch>`, `<branch>~N` (stored turns), `<branch>^^`, `<branch>@{N}`. Never
+  numeric object references: GC relocates objects.
+- `--branch`, `-b`, `$FYAI_BRANCH` select a branch for one invocation. Only
+  `checkout` changes stored `HEAD`. Keep `ctx->branch` separate from
+  `ctx->head_branch`.
+- An interactive run with no branch starts a `session/` branch with the
+  configuration of the branch last updated in its directory, else of `HEAD`;
+  `ctx->session_unstored` names it until its first exchange is published.
+- Set the operation with `fyai_branch_op_set()`; a publish consumes it.
+- A start point is conversation and configuration together: use
+  `fyai_resolve_ref_state()`.
+- `--root` is read-only: reject writes. Treat the handle as untrusted: walk
+  the reflog comparing raw values, shape-check each entry, fully validate the
+  match. Validate each next link with `fyai_branch_entry_contained()`.
 
 ### Merge and rebase
 
-A stored `previous` link is data. Walk a conversation chain with
-`fyai_turn_foreach()`, which is bounded and detects a cycle; a corrupt chain
-must end a walk, not hang it. Validate a root before the peek path follows any
-reference in it.
-
-Conversations are append-only. A join selects an order. It does not reconcile
-text edits. Work in complete exchanges. Keep each question with its answer.
-`rebase` puts our exchanges after their exchanges. `merge` orders exchanges by
-their reflog time.
-
-Read an exchange time from the reflog entry for the head that ends the
-exchange. Keep timestamps at microsecond precision. Keep one system prompt.
-Use stored generic identity to find the merge base.
-
-After a lost publish CAS, retry if only other branches changed. Apply
-`branch/on_conflict` if the current branch changed.
+Walk a chain with `fyai_turn_foreach()` (bounded, detects cycles). Validate a
+root before the peek path follows a reference. Conversations are append-only;
+a join orders complete exchanges and keeps each question with its answer.
+`rebase` puts ours after theirs; `merge` orders by reflog time (microseconds).
+Keep one system prompt. Find the merge base by stored generic identity. After
+a lost CAS, retry if only other branches changed, else apply
+`branch/on_conflict`.
 
 ## Configuration and providers
 
-Build one merged configuration document in this order:
+Merge one configuration document in this order: the branch configuration, the
+`--config` file, then `--set`. The user configuration file only initializes an
+arena with no stored configuration. `cfg->config_doc` is the intent; populate
+fields in one `apply_config` pass. Derive endpoint, provider and catalogue
+`max_tokens` during model resolution and do not persist them; on a model
+change persist the derived API grammar and URL.
 
-1. the active branch configuration;
-2. the explicit `--config` file; and
-3. command-line `--set` changes.
-
-Use the user configuration file only to initialize an arena that has no stored
-configuration. Do not overlay it on an existing arena configuration.
-
-Treat `cfg->config_doc` as the source of configuration intent. Populate the
-structure fields in one `apply_config` pass. During model resolution, derive
-the endpoint, provider, and catalogue `max_tokens`. Do not persist these
-derived values. When the model changes, derive and persist the API grammar and
-URL for the new provider.
-
-Commit every catalogue change through `fyai_catalog_commit()`. It checks the
-document against `data/catalog.schema.yaml`, derives the `model_info` block
-again, and publishes to the store of the branch. `fyai catalog update` runs
-`catalog_update/command` as a child that keeps only the credentials that
-`catalog_update/credentials` names. Pass the names, not the values: the child
-keeps them when it removes the environment, so no key goes into an argument or
-an arena. The verb waits for the command. `/catalog update` runs it in a tile
-of the work pane through `fyai_tools_config_program()`, and the session
-commits the output between turns.
-
-Keep the informational `model_info` block synchronized on every configuration
-commit. Remove it when the selected model is not in the catalogue.
-
-Give each new key of `data/config.schema.yaml`, or the group above it, an
-`x-fyai-model` access: `hidden`, `read`, `review` or `write`. A key with none
-is hidden from the model. A key that weakens confinement, runs a program,
-sends data out or lifts a limit on the model is `read` or `hidden`; a key
-that hides the work of the model from the user is `review`.
-`fyai_config_model_access_tree()` gives the strictest access below a path,
-and `config/model_access` names the keys that must stay closed. See
-`doc/declarative-state.md`.
-
-Validate at every ingestion point. `--set` and an explicit `--config` file are
-both checked against the schema before the value reaches the merged document.
-Put the schema problems in the diagnostic that reports the failure; do not
-write them separately.
-
-Configuration paths use slash-separated keys. A name that holds a '/' or a
-'~' writes them as "~1" and "~0", the escapes of JSON Pointer, as libfyaml's
-`fy_gb_path_split()` reads them: write every name into a path with
-`fyai_path_join()`, and read a segment that fyai splits itself with
-`fyai_path_segment_decode()`. Parse values as YAML flow documents. `--transient` places an in-memory builder above the durable arena
-and skips reference publication.
-
-Never store a raw API key. The `api_key` setting must have this form:
-
-```yaml
-api_key: {type: env, value: ENVIRONMENT_VARIABLE}
-```
-
-Reject raw keys at every arena ingestion point.
+- Commit every catalogue change through `fyai_catalog_commit()`, and keep the
+  `model_info` block in sync (remove it when the model is not catalogued).
+  `catalog update` runs `catalog_update/command` in a child that keeps only
+  the credentials named in `catalog_update/credentials`.
+- Give each new key of `data/config.schema.yaml` an `x-fyai-model` access
+  (`hidden`, `read`, `review`, `write`). A key that weakens confinement, runs
+  a program, sends data out, or lifts a model limit is `read` or `hidden`; one
+  that hides model work from the user is `review` (`doc/declarative-state.md`).
+- Validate `--set` and `--config` against the schema before merge; put the
+  problems in the failing diagnostic.
+- Paths are slash-separated; write names with `fyai_path_join()` and read
+  segments with `fyai_path_segment_decode()` (JSON Pointer escapes). Values
+  are YAML flow. `--transient` puts an in-memory builder above the arena.
+- Never store a raw API key: `api_key: {type: env, value: VAR}`. Reject raw
+  keys at every ingestion point.
 
 ### Transient failures
 
-Retry a provider request after a transient failure and a backoff.
-`fyai_http_transient()` makes the retry decision. Retry a refused or lost
-connection, a timeout, and HTTP 408, 429, 500, 502, 503, or 504. Do not retry
-another HTTP status. It is the provider response.
-
-An HTTP status does not identify every transient failure. On a streamed
-endpoint, the connection can succeed with status 200. A rate-limit error can
-then arrive in the stream. For this case, `fyai_provider_error_transient()`
-reads the `code` and `type` of the error object. Do not classify a spent quota
-as transient. The quota does not refill during a backoff.
-
-Keep the text of a transient stream failure. Raise it only after the last
-attempt fails. Do not raise it if the turn recovers. If the turn does not
-recover, report the original text.
-
-If an event handler stops a stream, curl reports a write error. Process the
-parsed event before the transport error. The transport error identifies only
-how the stream stopped.
-
-Double the delay after each attempt. Do not exceed `retry/max_delay_ms`. Add a
-random part so that requests do not retry at the same time. A `Retry-After`
-header replaces the calculated delay. Apply the same maximum delay. Do not use
-`random()` for the jitter. It has no seed, so each process gets the same
-sequence.
-
-A delegated sub-agent sends its wait through `fyai_tool_progress_emit()`. The
-wait then reaches the parent work band for that delegation. Do not send a
-status line from the child. It would appear directly on the parent terminal
-and outside the display.
-
-Present a retry as a work band through the sink. Do not use a separate status
-line. A wait is a step of the active turn. Repaint the band for each attempt.
-Close it one time at the common notification point. A backend without bands
-uses the plain status line.
-
-Retry a streamed request only if it presented no content. After a mid-stream
-transport error, keep the text that the user already saw. Do not retry because
-a retry would show the text again.
-
-A request in a backoff has no transfer to cancel. Cancellation and destruction
-must remove the timer and complete the request. Otherwise, an interrupt cannot
-act on the request.
+- `fyai_http_transient()` decides: retry refused/lost connections, timeouts,
+  and HTTP 408, 429, 500, 502, 503, 504, nothing else. In a 200 stream,
+  `fyai_provider_error_transient()` reads `code`/`type`; a spent quota is not
+  transient.
+- Double the delay up to `retry/max_delay_ms`, with jitter that is not
+  `random()`. `Retry-After` replaces the delay, under the same maximum.
+- Keep the text of a transient stream failure and raise it only if the last
+  attempt fails. Process a parsed event before the curl write error it
+  caused. Retry a stream only if it presented no content.
+- Present a retry as a work band, repainted each attempt and closed once. A
+  sub-agent sends its wait through `fyai_tool_progress_emit()`, never a status
+  line.
+- Cancellation and destruction of a request in backoff remove the timer and
+  complete the request.
 
 ### Provider grammars
 
-The supported grammars are Responses, Chat Completions, and Anthropic
-Messages. The `api` configuration key selects the grammar. Do not add separate
-grammar flags. `doc/provider-grammars.md` gives the design.
+Responses, Chat Completions and Anthropic Messages; `api` selects one
+(`doc/provider-grammars.md`). A grammar is a backend `struct fyai_grammar`.
+Do not test `cfg->api_mode` outside the grammar files; ask `fyai_grammar(cfg)`
+and call operations through `fyai_grammar_*()`.
 
-A grammar is a backend: `struct fyai_grammar` holds its identity, its headers,
-its capabilities and its operations. Do not test `cfg->api_mode` outside the
-grammar files. Ask the table (`fyai_grammar(cfg)`) for a property, add a
-capability or an operation when a new difference appears, and call an
-operation through its `fyai_grammar_*()` wrapper.
-
-Normalize inbound provider items at the parse boundary. The `response`
-operation reads a reply into the canonical response, which
-`fyai_response_canonical()` gives the core; the readers, the tool loop and
-the turn store read only that. Store one canonical shape: calls and results
-are items, for every grammar. Adapt that shape in each request builder so
-that a conversation can continue on another provider.
-`doc/canonical-format.md` gives the stored turn and its vocabulary; change it
-with any change of that shape.
-
-Read a provider difference from the catalogue, such as the tool type of a
-hosted search (`hosted_tool_types`), never from the provider name. The
-session importer reads a Codex or Claude Code session through the `history`
-operation of its grammar; keep wire shapes out of the importer.
-
-A provider caches a prefix of the request. A stored turn goes back as the
-provider sent it, and each request starts with the request before it.
-`tests/fyai_grammar_test.c` and the `grammar_cache_prefix_*` cases check
-both; keep them passing when a builder changes.
-
-Read endpoint capabilities from the catalogue. Do not infer them from a
-provider name. `fyai_config_resolve_model()` derives
-`cfg->shell_tool_supported` for the active endpoint. An endpoint with no
-capability declaration does not support native shell calls.
-
-A hosted tool, such as `web_search`, runs at the provider. The stream parser
-presents it with `fyai_present_hosted_call()`: one title row with the outcome,
-stored as a `tool_head` fragment with no result fragment. Do not send a hosted
-call to the local tool path.
-
-Use `fyai_provider_native_shell()` as the single decision for native shell
-support. If native shell is unavailable, declare the function shell tool and
-rewrite stored native shell items to function-call items in the request
-builder.
+- Normalize inbound items at the parse boundary into the canonical response
+  (`fyai_response_canonical()`); store one canonical shape
+  (`doc/canonical-format.md`) and adapt it in each request builder.
+- Read provider differences and endpoint capabilities from the catalogue,
+  never from the provider name. `fyai_config_resolve_model()` derives
+  `cfg->shell_tool_supported`; `fyai_provider_native_shell()` is the one
+  decision, and without native shell the builder rewrites stored native shell
+  items to function calls.
+- Requests must keep the provider cache prefix: `tests/fyai_grammar_test.c`
+  and `grammar_cache_prefix_*` check it.
+- A hosted tool runs at the provider; present it with
+  `fyai_present_hosted_call()`, never through the local tool path.
+- The session importer reads foreign sessions through the `history`
+  operation; keep wire shapes out of it.
 
 ## Output and terminal UI
 
-`src/front/fyai_sink.c` is the only rendering component. Send all user-visible bytes
-through it. A producer builds Markdown source and gives it to the sink. The
-sink controls the presentation. Do not write to standard output or standard
-error from another component. `tests/sink-only.sh` fails the build if it finds
-such a write. `tests/sink-only-allow.txt` lists the files that cannot use the
-sink and gives the reason for each file.
+`doc/terminal-ui-rules.md` holds the full rules. Read it before you change
+`src/front/`.
 
-### Separation
-
-`src/front/fyai_flow.c` decides what goes between two adjacent units of output: the
-blank rows and the configured separators. It is the one policy. A live run, a
-replay, and the measuring pass that sizes the recap window thus agree.
-
-- A unit is a user card, prose, reasoning, a tool head, body, screen or result,
-  or a notice. Separation applies to the transition between two units. It is
-  not a property of one unit.
-- A producer states the unit it is about to present with `fyai_sink_unit()`,
-  which draws the separation and records the unit. `fyai_flow_before()` changes
-  no state, thus a measuring pass asks the same question.
-- The flow is on the sink, which every path that commits presented bytes
-  reaches. Do not put a separation flag on the context. A flag on the UI is
-  bypassed by the notice band and by an independent tile.
-- The manager keeps the state of the render: the blank rows it starts and ends
-  with. It supplies the rows the render does not, and reduces a run of them to
-  the policy. A producer states its unit and does not count rows.
-- Every path that commits presented bytes must record their tail with
-  `fyai_flow_observe()`. A stale tail makes the manager remove a row that is
-  not there. A newline that closes an open row is not a blank row.
-- A title row opens a call and is fenced by `display/tool_group_fence`, from
-  another call included. The body, the screen and the result continue that
-  call.
-- A turn break is one row. `display/turn_separator` is a rule of the transcript
-  view, which draws it, and it is empty by default: no rule stands between
-  exchanges unless the user sets one. Do not give it to the manager: a live
-  session must not draw a rule under every prompt. `display/user_card_fence` goes under the
-  card, and `display/section_separator` where reasoning ends.
-- Fence a live band when it opens, not when it commits. A band fenced at
-  commit has no blank row above it while it runs.
-- A medium that replaces its rows sets the tail of the flow again. The
-  transcript view does this when the stored exchange replaces the live rows.
-  A separation must go on the same path as its unit, or it lands after it.
-- Spooled bytes continue the unit being presented. They are not a unit and take
-  no separation. A fence there draws blank rows into a live band.
-- Blank lines in an assistant document are Markdown syntax, not presentation.
-  The manager owns the separation between units, not the block structure in
-  prose.
-- A document declares its prose as a unit on each path: the whole document
-  when it presents at one time, and each gap between fragments on replay. A
-  gap inside a tool exchange is part of that exchange and takes no
-  separation.
-- One walk reads the fragments of a stored document. A render pass and a
-  measuring pass drive it through `struct fyai_fragment_ops`. Do not add a
-  second walk. A measuring pass that differs from the render pass sizes the
-  recap window for rows it does not draw.
-
-### Streams
-
-A stream says what the content is, not where it goes:
-
-- `FYAI_SINK_TRANSCRIPT`: conversation content.
-- `FYAI_SINK_NOTICE`: verb and slash command results, and tables.
-- `FYAI_SINK_STATUS`: banner, spinner, usage, tool echo. Commentary.
-- `FYAI_SINK_DIAG`: drained diagnostics.
-- `FYAI_SINK_MACHINE`: bytes another program parses. Never rendered or
-  decorated.
-
-Use `fyai_result()` for a verb result, `fyai_report()` for a status line,
-`fyai_sink_markdown()` to render, and `fyai_sink_write()` for bytes that are
-already in their final form. `fyai_result()` and `fyai_report()` write plain
-text: a model name or a path inside a status line must not be read as markup.
-
-### Backends
-
-A backend supplies the presentation policy for `struct fyai_sink_ops`. The
-terminal backend repaints in place. It owns the only progressive Markdown
-renderer in the process. The capture backend keeps the requested content. A
-document backend, such as HTML, uses the capture backend. Tests also use it to
-read the output of a run. Each entry point can be NULL. If a backend cannot
-present content, the sink discards the content. A producer does not examine the
-destination.
-
-While the terminal UI is active, the terminal backend presents the transcript
-and notice streams through `fyai_ui_present()`, never through standard output.
-The UI keeps what a pane captures in a buffer of its own. Standard output is
-spooled only to catch a stray writer. The scrollback takes whole rows: the UI
-holds a row that has not ended until its newline arrives, or until the next
-drain.
-
-### Documents
-
-`src/front/fyai_output.c` owns the durable part of a transcript document. This part
-contains the Markdown source and its fragments. Keep one tagged document open
-for each system, user, or assistant output. Keep an assistant document open
-during the complete model and tool loop. Store the final document as
-`display_outputs`. Replay these documents for history. Reconstruct a legacy
-arena from message and provider data only as a fallback.
-
-An interactive user line queued during a turn enters before the next model
-request, after active tool calls finish. Close the assistant document, record
-each consecutive queued user line, and open a new assistant document for the
-continuation. A queued slash or shell command waits until the turn ends and
-keeps later lines behind it. A final model response ends the turn before
-pending user lines run.
-
-- Add generated text with `fyai_output_printf()`.
-- Add provider bytes with `fyai_output_append()`.
-- Use `fyai_output_append_recorded()` to add source that another path already
-  drew. Use it for a tool exchange. The tool path presents the exchange. Do not
-  present it again from the document.
-- A terminal session records its own exchange when its program goes. The
-  calls that open and drive it store nothing: the session has one screen and
-  what those calls did is on it, but a terminal is not the transcript. Its
-  screen is stored as a `tool_text` fragment, which replays from what was
-  recorded; a `tool_result` fragment replays from the message the model was
-  given, and no one message holds a screen. A window is replayed from storage
-  only when every stored result that has a display has a fragment, so a rule
-  that stores nothing for a call must also say that nothing is expected.
-- A tool exchange stores a `tool_head` fragment over its title row, with the
-  outcome of the call. Replay draws the state mark and the failure cause from
-  that fragment through `markdown_render_tool_head()`, the one renderer the
-  live work band also uses. Do not draw a tool title row anywhere else.
-- Set the presentation mode when the document opens. The mode is live,
-  one-shot, or passthrough. Do not infer the mode later from the current state.
-  If you do, a paused document can present all content again when it closes.
-- A delegated sub-agent and a forked tool child do not present content. They
-  use file descriptor 1 for JSON-RPC frames. `sink_may_present()` enforces this
-  rule. The document, direct-write, and Markdown paths use this function. The
-  sink drops a stream for descriptor 1 in these processes. Do not move the
-  stream to standard error. That change can corrupt the parent display.
-- Do not create a second transcript renderer.
-- Do not call `fytim_pump()` from a render path. Set `frame_pending` and let
-  the UI owner paint.
-
-### A window that changes width
-
-Rows are hard-wrapped when they are made, so a window that changes width
-leaves every row already drawn made for the old one. Nothing rewraps them: the
-display makes them again.
-
-- The live region is made again from the source of the open document.
-  `fyai_sink_reflow()` renders it from the start at the new width and replaces
-  what is on the screen. The terminal backend keeps that source for this.
-- The rows a turn already committed belong to the scrollback of the terminal.
-  They cannot be made again in place, so a settled width change clears the
-  screen and paints the newest exchanges from the stored transcript, through
-  `fyai_display_repaint()`. It waits for a turn in flight to finish: only what
-  is stored can be made again. Ctrl-L asks for the same repaint.
-- The repaint takes whole exchanges until the screen is full, so it must
-  measure what it draws. A tool fragment is drawn bounded by its preview
-  limit: the thousand lines a call printed are the eight rows of them the
-  reader is given. Measure an exchange by its source and one turn takes the
-  whole screen, and the exchanges that would have fit under it are not
-  painted.
-- Everything a repaint draws goes through the sink, the card for what the user
-  said included. The display commits that card itself only for the echo of a
-  line just typed. Commit it during a repaint and it reaches the screen while
-  the answer under it is still in the sink, which puts every card of the
-  window above every answer.
-- Do not act on a width change inside the event callback. A drag sends a burst
-  of them, and one repaint at the end of the service is what a reader needs.
-  The first size is not a change: it is the display learning the window it
-  opened in.
-- `markdown_effective_width()` is the one answer to how wide a render is now. A
-  live region keeps the width it made its rows at and compares the two. The
-  width the display opened in is recorded when it opens, so every later size is
-  a change.
-- fyai indents rendered content itself - a tool body under its indent, a shell
-  command under its marker - so the content is rendered that much narrower
-  through `fyai_width_reserve_begin()`. Rows made at the whole width and then
-  indented run past the right edge, and the terminal wraps them: that is what
-  turns a live band into interleaved fragments. A width nobody knows stays
-  unknown; taking columns off it would make the content one column wide.
-- A session opens on the screen its conversation left: the replay takes whole
-  exchanges from the newest back until the screen is full, the one that
-  overruns it included. The rows of that screen come from the display, not from
-  the terminal, because standard output is a pipe of its own while it is open.
-- A delegated sub-agent does not repaint a transcript. Its screen is the result
-  of the call, and the conversation behind it is not something anyone asked to
-  see there.
-- A delegated sub-agent draws no header row: the head of its tile in the
-  parent names it already, and its screen is the work.
-- The size is read in the pump, and a turn waits on the provider rather than on
-  the terminal, so an interactive session keeps a SIGWINCH source to wake the
-  display for it.
-
-### The page
-
-The page states the live screen as one UI Markdown page. `src/front/fyai_page.c` owns
-the page source; the terminal library draws its slots.
-
-- The page is rendered again for each frame, from the state of the session.
-  libfytimui decision 0007 measured it: the Markdown is at most 0.16 ms of a
-  frame. Do not cache a rendered page.
-- `fyai_page_source()` is a function of `struct fyai_page_state` and nothing
-  else, so the tests read it without a display. Put a new element of the
-  screen in the state and in the source, not in a draw call.
-- A slot holds what the library draws: `pane`, `prompt` and `completion`.
-  The height of a slot comes from the library through `fytim_tail_rows()`,
-  `fytim_workpane_rows()` and `fytim_prompt_rows()`: an inline page is as tall
-  as its rows.
-- The tail is drawn on the canvas, not by the library. The page reads its rows
-  back with `fytim_tail_content()` and draws the last rows that fit its region,
-  so the ground of a fullscreen page is under the tail too. A tail that the
-  library draws over the canvas has no ground, and the terminal background
-  shows through it.
-- The chrome is the stack's: a blank row and the header row, the prompt on its
-  card (`fytim_prompt_card()`, a slot two rows taller) or between two rules,
-  and two status rows - the focus hint or the keys of the completion popup,
-  then the status. The band stack reserves the blank row with `fytim_set_header_rows()`
-  and the page document states it, so both draw it. The header and the status
-  carry the heading and blockquote SGR pairs of the theme, so the page
-  renderer takes SGR input (`FYMD_SGR_SAFE`).
-- fyai escapes each value of the header template and gives it the next colour
-  of the palette series (`mermaid.series.N`), and renders the header to one
-  row. The band stack draws that row, and the canvas of the page draws it in
-  the `header` slot, one row tall. Both cut it at the edge: a row of Markdown
-  wraps a long header, such as a long working directory, onto a second row
-  that the fit does not count. `tests/cases/ui_page_long_header.sh` runs with
-  such a directory.
-- `fyai_page_fit()` gives the chrome its rows before the pane, and the pane
-  before the tail. A pane that asks for the whole terminal otherwise pushes
-  the prompt off the screen.
-- The chrome goes in a stated order when the terminal is short: the cap row
-  (`fy-drop order="0"`), the status, the header, then the rules. The prompt
-  has no drop.
-- A margin at the start of a row is `<fy-space n="N"/>` (`space: N` in the
-  document): Markdown removes a plain blank there, and a non-breaking space
-  reaches the terminal as a different character.
-- The page is one `fy-tight`: a blank row between two parts of the chrome is
-  not part of it. A blank row of the chrome is `blank: true`, which is
-  `<fy-space/>` on a line of its own.
-- Text that the configuration or a program wrote goes into the source through
-  `page_append_text()`: it is escaped, loses its SGR and its line breaks, and
-  loses its leading blanks at the start of a row, where four of them make an
-  indented code block.
-- The renderer keeps a right margin of `markdown_gutter_cols()` columns. The
-  page renderer is made that much wider, so rows and slots take the terminal
-  width as the theme changes its margin. Recreate the renderer when that
-  margin changes at a settled terminal width.
-- The page places the tiles of the work pane itself. Each tile is bound to a
-  slot `tile:N` when it is registered, and `fyai_workpane_page_grid()` writes
-  the pane as an `fy-grid`: the cells come from `fyai_workpane_place()`, or
-  the zoomed tile alone, and the rows from `fyai_page_grid()`, which solves
-  them as the terminal library solves a pane. Slot heights are stated in the
-  source, so the rows cannot be left to the grid. The page states the cap row
-  above the grid. The band stack ignores the bindings and places the tiles
-  with its own solver.
-- The grid is written twice a frame: at the rows its tiles ask for, which
-  `fyai_page_fit()` reads, and at the rows the fit leaves it.
-- fyai draws the page itself. `fyai_page_publish()` parses the rendered rows
-  into cells with `fytim_cells_draw_text()`, the parser of the terminal
-  library, and publishes them to one surface in the `canvas` slot. The
-  library is given blank rows and the canvas as the first region, so the
-  tile, prompt and completion slots stand on it. Close the canvas with the
-  page: it is a band of the library, and the band stack would draw it.
-- The page source is a YAML document, `data/page.yaml`, that
-  `fyai_page_source()` transcribes with the state of the frame. The document
-  has no expressions: `if` names a flag, and `page_state_generic()` decides
-  every flag from the state. A node whose flag is not set is left out of the
-  Markdown. Text of the state is escaped; `markup` and `sgr` name values that
-  fyai wrote itself. `tests/data/page-source-golden.txt` holds the source of a
-  matrix of states. A change to the document or to the state that changes the
-  source records the file again with `FYAI_PAGE_GOLDEN_WRITE`, and its commit
-  says why the source changed.
-- A `switch` of the page document writes the case that a mode of the state
-  names, and binds the keys of that case. An `each` writes its body for each
-  item of a list; a name is looked up in the item first. An `act` names an
-  action with its argument. An action is a named function of
-  `struct fyai_page_action`. A document that names an unknown action, or binds
-  `Ctrl-]`, `Ctrl-T` or `Ctrl-Tab`, does not transcribe.
-- The keys of the active cases are the keys of the library mode `page`, which
-  inherits `prompt`. They are bound with `fytim_mode_bind()` when they change,
-  the mode is selected while there are any, and both are cleared when the page
-  renderer stops. A bound key reaches fyai as `FYTIM_EVENT_KEY`, whose action
-  is the name of the key, and not the editor. A new name of the state goes
-  into `data/page-state.schema.yaml`, which its test checks.
-- `display/keys` binds the keys of the three modes of the library - `prompt`,
-  `completion` and `surface` - to the built-in actions of libfytimui
-  (`fytim_action_name()` lists them), or to "" to unbind a key. A key is a
-  name, or a chord of up to four keys such as `"Escape Escape"`.
-  `ui_keys_configure()` resets each mode to its defaults and binds the keys
-  over them, on every configuration change; a mode that the library rejects,
-  or an action it does not know, is reported and keeps its defaults.
-  `display/chord_timeout_ms` is the time a chord waits. Do not hard-code a key
-  of the prompt in C: the library has it as data. The keys that leave a tile
-  are keys of the `surface` mode: `ui_keys_configure()` binds `Ctrl-T` to
-  `fytim.focus.next` and `Ctrl-]` to the action `fyai.focus.prompt`
-  (`fyai_tools_keys_to_prompt()`) before `display/keys`, so the user can move
-  them. Do not scan the bytes of a surface for them. The library reports them
-  in order with the bytes around them, so what is typed after one reaches the
-  new owner.
-- Questions to the user are a mode of the input area. `src/tools/fyai_ask.c` owns
-  their model: `fyai_ask_normalize()` checks the arguments of `ask_user` and
-  makes the one normalized sequence that the UI, the `user/ask` forward of a
-  sub-agent, and the text fallbacks all read; `fyai_ask_result()` builds the
-  structured result. Do not parse the arguments or build the result anywhere
-  else. `fyai_ask_open()` puts the questions in the queue of the UI and calls its
-  `done` function with one `struct fyai_ask_reply` for each question, or with
-  NULL for none; the caller waits in the event loop, not in a nested loop of
-  its own. `ask_user` and the questions of a sub-agent take this path when
-  `fyai_ui_ask_available()` says so and no `--answer` remains. The mode is
-  `ask` while nothing is typed, where the number keys choose or toggle, and
-  `ask_text` once text is typed, where they type. Escape and `^C` answer
-  nothing. A caller that goes away withdraws its questions with
-  `fyai_ask_close()`. Agents put one set of questions at a time, so the
-  page adds `fyai_agents_questions_waiting()` to the sets it says wait. The UI
-  copies the text of the questions it shows; the page gets them as
-  `struct fyai_page_ask` and does not read generics. A preview is rendered
-  with `markdown_render()` at the width the indent leaves, kept until the
-  option, the question or the width changes, and drawn in the `preview` slot.
-  The option under the cursor is drawn as the completion popup draws its
-  selected row: the roles `select.row` (the ground of each of its rows, to the
-  edge) and `select.bar` (the bar in its first column, the glyph `select.bar`,
-  shared by the label and the description of the option) of the palette theme.
-  The page document names the roles; do not put a colour for them in C. A
-  theme without them leaves the bar uncoloured and the row bare, so the
-  selection is still marked.
-- A question given `background` or a `name` is an object of the run, as a
-  named wait is. `src/tools/fyai_asks.c` keeps them in `ctx->asks` with a builder of
-  their own, because the turn that asked ends before the user answers. `list`
-  shows them (kind `questions`), `cancel` withdraws one with
-  `fyai_ask_close()`, and `wait` resolves a name to it. When the user
-  answers, the registry queues `[question 'NAME' answered]` and the JSON as an
-  event; a cancel by the model queues nothing, because the model has the
-  result of that call. `ask_user` is an instant tool only for such a call
-  (`in_parent` on its entry says so). A forked child drops the registry in
-  `fyai_ctx_fork_disown()` without withdrawing the questions of the parent.
-- `display/page` names the file of a page document. `fyai_page_create()`
-  loads it with `fyai_page_load()`: the file holds a mapping, matches
-  `data/page.schema.yaml`, and passes `fyai_page_check()`, which transcribes
-  every case of every switch, every node whatever its flag, and the body of
-  every each once. A mode that is not showing must not hide an unknown action
-  or key. A file that fails is not used: the warning names it and says why,
-  and the embedded document draws the page. A change of the setting makes the
-  page again. A page document is display configuration; never take one from a
-  model.
-- `/page` is a view: it commits the document in use, why a file is not used,
-  and the state, source and regions of the last frame to the scrollback. The
-  state of a frame lives in the builder of that frame until the next one.
-- A review names the areas of the page. The transcriber starts each row with
-  `<fy-mark id="review:AREA"/>`, which takes no column: AREA is the flag
-  that shows the row, else its page, with the list of an `each` before it
-  and `/blank` after a blank row. `fyai_page_review_paint()` gives each
-  mark and each slot the next colour of the palette series and its name
-  at the top right, where it covers no text. `/page review`
-  paints the live page; `fyai page review SAMPLE` draws a sample state
-  and lists the areas. A mark is not a region of the terminal library.
-- A page document states its layouts in `layouts`: the first that the
-  terminal is large enough for (`min_cols`, `min_rows`) is used, and a node
-  can switch on `layout.name`. The thresholds are the document's; C only
-  evaluates them, in `fyai_page_layout()`, once per frame before the fit,
-  because the layout decides where the pane stands before any tile is
-  granted rows. A `side` pane is a column of `cols` beside the transcript,
-  each tile a panel of `tile_rows`: the pane takes no rows of the page, and
-  `fyai_page_side_place()` and `fyai_page_grid_lead()` write one fy-grid of
-  the transcript and the tiles, because grids do not nest. A side column
-  needs the fullscreen page. `display/work_panels` says when a side
-  layout is taken: `auto` at the size of the document, `on` at any size
-  where its column leaves the transcript room, `off` never.
-  `display/work_panel_cols` and `display/work_panel_rows` replace the
-  `cols` and `tile_rows` of the document when they are not 0.
-  `display/page_layout` (`/layout`) names a layout that is taken at any
-  size, or `auto`; a side layout that cannot stand falls back to `auto`.
-  The header templates name the layout of the last frame as `{layout}`.
-  The UI makes the header again when the layout changes, before the frame
-  reads it: the rows it replaces are the header of that frame. While a
-  column of tiles stands beside it, the transcript takes the render width
-  of its own column (`side_cols` of the UI), else that of the terminal, and
-  every writer of `cfg->render_width` in the UI honours it. A change of that
-  width makes the rows already made again, as a resize does: a column that
-  opens beside the transcript must not clip it.
-- `display/screen: fullscreen`, the default, puts the page on the alternate
-  screen when the session starts (`FYTIM_SCREEN_ALT`). There is no scrollback
-  there, so the transcript is a view of the page, `src/front/fyai_transcript_view.c`, drawn into
-  its `transcript` text region over the tail. The view renders the stored
-  conversation through a view context and a render sink, as the branch browser
-  renders its preview, so it is not a second transcript renderer. It renders
-  one exchange at a time (`fyai_display_turn_range()`) and keeps the rows of
-  each with the key of the exchange - the stored value of its last turn,
-  which an arena does not move - and the width, so a turn renders only its
-  exchange. An exchange the view does not show is measured with the measuring
-  pass of a recap (`fyai_display_turn_range_rows()`) and rendered when a
-  scroll shows it, so a new width renders only what the view shows. A view scrolled back keeps
-  its top row through that: the exchange that holds the row, and the row in
-  it. Rows presented
-  during a turn go to the view through `ui_present()`, never to
-  `fytim_commit()`, and a band that commits gives the view its rows. The wheel
-  over the view and PageUp and PageDown scroll it; a view at its end follows
-  what arrives, and a view scrolled back keeps its top row. A frame repaints
-  only the cells that changed, so a PTY case waits on the screen
-  (`wait-screen`), not on a line of bytes.
-- With `display/command_output: transcript`, the default, a slash command is
-  a part of the transcript: its card is drawn, its output is drawn under the card, and
-  after it runs `fyai_interactive_record_command()` appends a turn with no
-  messages and one `command` display record: the line, which replays as its
-  card, and the rows its output drew. The card names the command, so no
-  heading stands over them. The model never sees the turn. A command that
-  moved the head or changed the branch is recorded by that operation, and a
-  command beside a turn, or in a session that holds no exchange yet, is not
-  stored. A command turn goes with the exchange before it in a merge or a
-  rebase, and `~N` counts it.
-- The output stands on a ground of its own, `markdown_command_ground()`:
-  `display/command_bg` as given, or with `theme` `display/command_bg_mix`
-  percent of the `pane.focus` wash over the ground under the text - the
-  theme's on a fullscreen page with a theme ground, else the background the
-  probe measured. `markdown_ground_rows()` puts the rows on it when they are
-  presented, live and on replay; the record keeps them without it, so a
-  replay takes the settings of its own session.
-- The test harness selects `pane`, which most cases read; a case of the
-  transcript selects `transcript`.
-- `config reset` stores an empty configuration and drops the session layer;
-  `config undo N` stores the configuration of N changes ago, walking the ref
-  log and counting only entries whose configuration differs. Both leave the
-  replaced configuration in the ref log.
-- With `pane`, the transcript keeps nothing of a slash command:
-  no card is drawn and nothing is stored. Its output, and every notice and
-  diagnostic, goes to the pane. `fyai_ui_pane_end()` shows a
-  result of two rows or less above the status, until the input changes or
-  Escape clears it. A longer one opens the log small: the `log_panel` page
-  above the status, a heading and at most `UI_LOG_ROWS` rows, which the fit
-  holds to a third of the page and never takes from the input. A click on its
-  heading or on `[expand]` (`popup.expand`) expands it to a popup that covers
-  the page - the transcript, the tiles and the chrome - under a heading that
-  names it; `[x]` and Escape hide the small log (`popup.hide`). The popup is
-  the `open` case of the `popup.mode` switch of the page, and its keys are the
-  page's: Escape, Enter and `q` collapse it to the small log (`popup.close`),
-  Up and Down scroll it a row (`popup.scroll`), `l` raises the lowest level it
-  shows (`popup.level`) and `x` clears the log (`popup.clear`). PageUp,
-  PageDown and the wheel scroll it too.
-- The popup shows the log of the session. Each result, notice and
-  diagnostic that goes to the pane is an entry with a level - info, notice,
-  warning or error, from the highest severity that the drain reported - and
-  the log keeps the last `UI_LOG_MAX` entries. The popup is a transcript view
-  model made again from the entries at or above the level, with the newest
-  from its heading; a drag over it copies the text of its rows. Hiding the
-  popup keeps the log. The header panel shows its count with the colour of the
-  worst level, and a click on it, or a key bound to `fyai.messages.toggle` in
-  `display/keys`, steps the log from hidden to small, to expanded and back to
-  hidden. A diagnostic that the pane shows
-  has no module prefix: `fyai_diag_set_bare()` holds for the span of
-  `fyai_ui_pane_begin()` to `fyai_ui_pane_end()`, and is process-wide because
-  a configuration change replaces the sink in the middle of a command.
-- A popup hides the tiles, so the page gives them no grant while it is open:
-  a grant of no rows would size every program to nothing.
-- A cell of the page keeps the OSC 8 link it was drawn with, so a URL of
-  the transcript stays a link on the alternate screen. Draw page text with
-  `page_cells_text()`, which uses the link table of the canvas; the page
-  clears that table when it draws every row again. A cell copied from a tile
-  surface names the table of that surface: `page_cells_relink()` gives it the
-  id of the canvas.
-- A drag over the transcript view is a selection of its text region. Its
-  text is the text of the rows in its cells, without styles, links and the
-  blanks that end a row (`fyai_transcript_view_copy()`), and fyai copies it
-  with `fytim_copy()`. When a fullscreen session ends it closes the UI,
-  which gives the terminal its own screen back, and prints nothing there.
-- The head of a tile is drawn on the canvas too. A cell of the grid is a
-  `head:N` slot over a `tile:N` slot: the head slot is as tall as the tallest
-  head of the tiles that start on its row, so their screens stand level, and
-  a cell keeps one screen row. The workpane manager keeps the rendered head
-  (`fyai_workpane_tile_set_head()`), and the page draws it with the margin of
-  the tile and, when the tile holds the keys, its ground through
-  `fytim_cells_ground()`.
-- The screen of a tile that holds a surface is drawn on the canvas too, in the
-  slot `screen:N`, which binds no component of the library. The page reads the
-  cells, the cursor, the margin and the ground back from the surface, and draws
-  them as the library draws a surface: the last rows of a short region, the
-  margin at each row, the cells washed by `fytim_cells_wash()`, and the cursor
-  reversed. A tile shown as its head draws no screen and keeps its grant.
-- Tab completion opens a popup of libfytimui above the prompt. It is a layer:
-  it covers the rows above the prompt and moves nothing. Each row is the word
-  a candidate puts in the line and its title, from `fyai_session_completion()`,
-  which anchors the popup at the word with `fytim_completion_set_anchor()`.
-  The popup takes the page ground (`FYTIM_CHROME_POPUP`). Its other styles
-  come from roles of the theme through `ui_popup_style()`: the frame from
-  `popup.border`, else `chrome.rule`; the selected row from `popup.selected`,
-  else `pane.focus`, else the card; the typed part of a label from
-  `popup.match`, else `prompt`; and the `pane.edge` mark before the selected
-  label. Do not put a colour for them in C. Up, Down, Tab and Shift-Tab
-  select, and Tab wraps; Enter takes the selection. `display/completion: auto` opens the popup as
-  the line is typed, with no Tab (`fytim_set_completion_auto()`).
-- A tile of text - a tool exchange, a notice, the queued-input report - is
-  drawn on the canvas too, in the slot `text:N`. The page reads the content,
-  the top and the bottom chrome and the row cap back from the band with the
-  `fytim_workband_*()` getters, and draws them as the library draws a band:
-  the last rows of the content that fit, a short region shedding the top
-  first, and plain chrome dim under the rule style of the theme.
-- The page owns the grant of the screens it draws. The workpane manager keeps
-  it with the tile, and `fyai_ui_surface_granted_rows()` and
-  `fyai_ui_surface_granted_cols()` take `ctx` to return it; a surface the page
-  does not draw keeps the grant of the library. `fyai_ui_work_tile_cols()`
-  does the same for a tile of text.
-- A head act on the page is named for its tile, `tile:N:act`, because the
-  page is one component: `ui_act()` finds the tile by its slot.
-- A head the page draws is rendered at the granted columns of the tile, as
-  the band stack renders it, so a long row is cut in the same place.
-- The title row of a tile is one row: a title that does not fit beside the
-  buttons and the right-hand text loses its end to an ellipsis, or it would
-  wrap and take the buttons to a row of their own.
-- `tests/cases/ui_page_tiles.sh` compares two tiles side by side under both
-  renderers.
-- Under the page renderer the head of a shell or agent tile is a tile page
-  (`fytim_surface_set_page()`): the rendered head, then a `screen` slot, built
-  by `fyai_page_tile()`. `FYTIM_EVENT_ACT` routes its acts, `tile:focus`
-  and the buttons, as the band stack routes a click on its head.
-- The ladder of a tile selects the view of its page, where the manager
-  reports the presentation: the whole page, the screen alone
-  (`FYAI_WORKPANE_PRESENT_OUTPUT`) or the head alone. A view changes what is
-  drawn, never what a tile asks for or is granted: the presentation is chosen
-  from the grant.
-- A page that cannot be built, rendered or accepted is a display failure: the
-  session reports it, clears the page and the band stack draws the screen. A
-  build without page support says so when `page` is asked for.
-- `$FYAI_TRACE` records one `page:` line for each render.
-
-### Work bands
-
-A work band is a sink object. Ask `fyai_sink_bands_available()` before you
-choose a banded presentation, open with `fyai_sink_band_open()`, repaint with
-`fyai_sink_band_paint()`, and commit the shared band with
-`fyai_sink_band_close()`. Do not call `fyai_ui_*` band functions from a
-producer; the terminal backend owns that.
-
-### Tile chrome
-
-`src/front/fyai_chrome.c` decides the chrome of every tile of the work pane. An
-owner states the content of the head with `struct fyai_chrome_spec` and calls
-`fyai_chrome_update()`. It does not build a head, a button, or a column of its
-own.
-
-- `fyai_chrome_items()` is the one policy: the tile kind, its phase (running,
-  kept, committed), and `display/work_controls` give a mask of
-  `FYAI_CHROME_BUTTONS`, `FYAI_CHROME_SCROLL`, and `FYAI_CHROME_WHEEL`. Do not
-  read `display/work_controls` anywhere else; use `fyai_chrome_level()`.
-- A committed tile has no buttons: a button there acts on nothing. Its head is
-  also the top of the rows that the surface commit writes, so the transcript
-  keeps the title row.
-- A tile of text scrolls too. The manager keeps `scrolled` and `scroll_top` for
-  it (`fyai_workpane_band_scroll()`): a tile scrolled back keeps the first row
-  it shows while the content grows, until it is back at the end, or until the
-  user types (`fyai_workpane_bands_follow()`, called when the line being typed
-  changes). The page draws the bar only when the content outgrows the rows, and
-  `fyai_chrome_bar_part()` is the one geometry of a bar of text and of a screen.
-  The live stream of a tool call renders `display/tool_history_lines` rows and
-  the band shows `display/tool_preview_lines` of them. The stored exchange keeps
-  the preview, so history is a property of the live view only.
-- `fyai_chrome_frame()` divides a row between margin, scroll bar, and body.
-  The head, the screen, and the scroll-bar acts of the page all use it, so
-  they act on the same columns. The page reads `items` from the tile, not a
-  page-wide flag.
-- `fyai_chrome_body()` gives a tile its unfocused look when an owner opens
-  it, and `fyai_chrome_focus()` is the one place that changes it when the keys
-  move: the ground, the edge marker or reversed margin, and the status hint.
-  The theme primitives stay in `fyai_ui.c`; the policy of which tile gets
-  which hint is the chrome's.
-- `fyai_chrome_panel()` builds the panel of the input header: the pane button
-  and the counts of live user shells, model shells, and sub-agents.
-  `fyai_ui_panel_update()` only stores it. A new kind of live work adds a row to
-  the table of that function.
-- `fyai_chrome_cap_source()` writes the cap row from a summary that the
-  manager gathers: height, tiles, hidden tiles, and zoom. The manager owns the
-  facts; the chrome owns the text and the glyphs.
-- A new kind of tile gets its chrome by a line in the policy, not by a draw
-  path. `tests/fyai_chrome_test.c` states the table.
-
-### The work pane
-
-Every live shell session and sub-agent screen is a tile of the one work pane,
-not a band of its own. A stack of full-width screens pushes the oldest off the
-top and says nothing about which screen belongs to which call; one region that
-tiles them says both.
-
-`src/front/fyai_workpane.c` owns the pane. It is the one component that writes a
-pane cap or a tile request, and it holds which tile has the keys and which
-tile is zoomed. A producer states intent through a semantic operation -
-register, focus, zoom, resize - and sizes nothing itself.
-
-- Open a screen tile with `fyai_ui_surface_open()` and a text tile with
-  `fyai_ui_work_tile_create()` - a parallel run of shells and sub-agents is
-  not all of one kind, and both tile in the same region. Either creates the
-  pane on the first call and retires it with the last tile. A producer never
-  places a tile.
-- Every band this program draws is a tile of that pane: the tool exchange,
-  the queued-input report, and the result of a verb or a slash command. There
-  is no second kind of band for a status or an error, and nothing draws
-  beside the pane. A band that is committed leaves the manager with its tile,
-  or the pane keeps a reference to a tile that has gone.
-- A `FYAI_WORKPANE_TILE_NOTICE` is a report to the user rather than work. It
-  takes a full-width row under the screens and is sized to what it holds,
-  through `FYAI_WORKPANE_TRACK_FIT`: scaled down with an elastic screen it
-  keeps only its last rows, and the heading that says what it is goes first.
-- A tile registers with `fyai_workpane_register()`, which takes the height it
-  asks layout for. That preference is explicit state. What the program has
-  drawn, how many rows are dirty, and where its cursor is do not change it: a
-  sub-agent that printed two lines still prefers the height it opened with.
-  `FYAI_WORKPANE_FILL` prefers the whole pane, which follows the terminal, and
-  is what a user-owned program takes.
-- Focus never changes geometry. `fyai_workpane_set_focus()` moves the keys and
-  the focus chrome and nothing else; Ctrl-T is not a layout operation. Zoom is
-  separate: it selects the only visible tile and leaves focus where it was.
-- A grant is an output. `fyai_workpane_layout_complete()` reads what layout
-  gave each tile and hands it to the owner through `apply_grant`, which may
-  size a pseudo-terminal and publish. It must not request rows or set a cap,
-  or the grant becomes the next request and the tile collapses to its content.
-  An acknowledgement records the grid with `fyai_workpane_grid_resized()` and
-  states no intent.
-- Retiring a tile is one transition: `fyai_workpane_unregister()` clears the
-  focus and the zoom that named it in the same pass, so no stale pointer is
-  left for the next keystroke to follow.
-- `fyai_workpane_reconcile()` applies the whole state in one pass, before the
-  frame that solves it. It is the only caller of `fytim_workpane_set_max_rows()`,
-  `fytim_workpane_set_zoom()`, and the tile request functions. `$FYAI_TRACE`
-  records one line per pass and one per tile.
-- A shell reads the same whether or not it has a screen. The head of a tile
-  is the title row of the call and, under it, the command the call was given.
-  A chrome slot draws a row for each of its lines, and a tile too short for
-  the whole head sheds its last row first.
-- The head is chrome, not content. Held in the content the output of the call
-  would scroll it off the top, which is when a reader most needs to know
-  whose output this is, and the row cap would have to reserve rows for it.
-  What the band commits is the head and the output together, so the
-  transcript keeps the whole of it. Being chrome does not dim it: chrome that
-  carries its own styling keeps the emphasis it was given.
-- A tile's rows are hard-wrapped when they are made, so make them at the width
-  the tile was given: `fyai_sink_band_cols()` for a band and
-  `fyai_ui_work_tile_cols()` under it. The share changes as work starts and
-  finishes beside it, so a progressive render has to be made again at the new
-  width. Rows wrapped for the whole terminal are clipped at the tile.
-- A band has no width before the frame that lays it out. The sink band holds
-  a paint made before that frame and presents it when the first grant
-  arrives, or when the band commits. The frame after registration is then
-  the same whether or not the first output line arrived before it. The
-  manager reports each new width to the owner of a band through
-  `repaint_head`. A producer that wraps its own rows sets
-  `fyai_sink_band_set_repaint()` and renders them again there.
-- The cap counts the tiles of the reconciled state. `fyai_workpane_reconcile()`
-  writes it, so a frame drawn after a tile registers counts that tile.
-- The pane owns the grid. A tile learns the size it was given from
-  `fyai_ui_surface_granted_rows()` and `fyai_ui_surface_granted_cols()`, which
-  is what a pseudo-terminal is sized to. Do not size a program to the
-  terminal.
-- A tile request uses the current terminal size, which
-  `workpane_sample_size()` reads from the terminal. The library keeps the size
-  from its last pump. This value is one frame old during a resize. A request
-  that uses it asks for the rows of the old window, and the grant then gives
-  the old height with the new width.
-- A display setting takes on the next frame. `fyai_config_rederive()` tells a
-  live session with `fyai_ui_config_changed()`, which reads the prompt chrome
-  again and has the manager adopt the pane configuration and reconcile. A
-  setting a component caches at open needs a line there, or it takes only on
-  the next run.
-- `display/work_position` says where the pane stands. `above-prompt`, the
-  default, makes it the last band above the prompt block, next to the
-  transcript the work came from. `below-prompt` gives it the rows under the
-  prompt: the user types over the work, and a pane that grows moves nothing
-  that is being read. The chrome is solved in what is left, so the prompt
-  outranks the pane whatever the setting says.
-- The pane holds its tiles oldest first, and an arrangement that names one -
-  the whole top row, a column of its own - means the one that was there
-  first. A cycle of the keys starts there too.
-- No cell of the grid is left empty. A screen is a share of the pane, not a
-  cell of a square that happens to have one spare: three tiles are two and a
-  wide one under them, never two and a hole. The tiles of a short last row
-  share the columns it leaves.
-- `display/work_layout` chooses the arrangement: `auto` fits as many columns
-  as keep every tile at `display/work_min_tile_cols`; `columns` takes `display/work_columns`;
-  `stack` is one screen above another; `main-top` gives the oldest screen the
-  whole top row with the rest sharing the row beneath it; and `main-left`
-  gives it a column of its own with the rest stacked beside it. A terminal
-  too narrow for two tiles stacks whatever the setting says.
-- Every arrangement is an explicit grid: the manager solves the placement
-  and states it with `fytim_workpane_set_grid()`, the track sizes, and one
-  `fytim_surface_set_cell()` per tile. A span is what makes a tile wider or
-  taller than its neighbours, which a grid of equal cells cannot express.
-  `fyai_workpane_place()` is that decision on its own, and is what the tests
-  assert against.
-- `fyai_workpane_set_policy()` installs an arrangement of the user's: it is
-  given the tiles and the terminal, and fills in a grid and a placement for
-  each. A policy that places nothing usable leaves the arrangement to the
-  library, so a bad policy degrades rather than blanks the pane.
-- What a tile draws follows the size it was granted, not what it holds. A
-  tile declares the sizes at which it changes with
-  `fyai_workpane_tile_set_ladder()`, and the manager tells its owner through
-  `set_presentation`: the screen, the screen without its head, the head and
-  an activity mark, or nothing. A screen too small to read is worth less than
-  the one row that says whose call it is, so a collapsed tile blanks its grid
-  rather than showing a corner of a screen.
-- `display/focus_bg` is the ground of what holds the keys - the prompt, a
-  picker and a focused tile - and the one place focus is said. `theme`, the
-  default, is the focus wash of the palette theme: the `pane.focus` role of
-  libfypalette, resolved by `markdown_focus_ground()`. The theme makes it for
-  the variant of the terminal, so its own text reads on it on a light
-  terminal and a dark one. Do not put that colour in C. Without a palette,
-  `theme` is `reverse`. `reverse` is the ground the terminal draws text in,
-  named rather than given: it asks for no colour the terminal may not have,
-  but reverse video turns text of a colour into a ground of that colour. A
-  `#rrggbb` is a ground of your own, which asks for no detection and is thus
-  the one display setting that can leave the input area unreadable:
-  `fyai_config_focus_bg_check()` reports a literal the text of the resolved
-  variant cannot be read on, one time for each value, and the value stands. The prompt stands on the same ground, because that is where
-  the keys are when no tile holds them and a tile that takes them takes the
-  prompt's rows with them: one setting says where the keys are, wherever they
-  went. An empty string draws no ground and reverses the margin of the tile
-  alone. The library draws it under whatever the program
-  draws - every cell with no colour of its own, the margin and the head with
-  them - so focus needs no marker at the edge of a tile.
-  `display/focus_bg_mix` is how much of a colour of your own reaches a cell
-  the program coloured itself: mixing needs 24-bit colour and a colour to mix, so a cell
-  drawn from the terminal's own palette is left alone, and so is the cursor,
-  which reverse video is what makes visible. With no colour configured the
-  margin is reversed instead, which is the mark a terminal of sixteen colours
-  can carry.
-- `display/focus_mark: edge`, the default, drops the wash: `ui_focus_ground()` gives the
-  prompt, a picker and a focused tile the ground of the terminal, and the
-  edge marker alone says where the keys are. The margin is not reversed.
-- Keyboard focus also uses a one-column edge marker because the background
-  wash can be hard to see. Use the palette's `pane.edge` role, or the theme's
-  strong style (`ui_edge()`). For a tile, replace the first blank margin
-  column (`ui_focus_margin()`). For the prompt, use the reserved column before
-  its marker (`fytim_set_prompt_edge()`). Keep that column blank when a tile
-  is focused so changing focus does not move content.
-- `display/work_frame`, `display/tile_frame` and `display/tile_sep` are the
-  chrome. `display/session_margin` is the left gutter of a tile, sized
-  against the tile. The pane draws no frame by default, and the gutter draws
-  no rule, because every tile already carries the title row of the call that
-  opened it and is already bounded by the pane: the gutter only holds the
-  screen under the name of that call. The column rule is not the gutter: one
-  divides two programs and the other runs down the inside of one.
-- `display/work_cap` draws the cap row of the pane in place of the frame
-  above it: the height, the tiles, how many are shown, how many the layout
-  hid, and the keys. `fyai_workpane_cap_source()` writes it and the manager
-  draws it again after each layout, so a tile the ladder hid is counted, not
-  silently gone. It is chrome that fyai writes whole, so it needs no escaping.
-- The head of a tile is UI Markdown. `fyai_chrome_update()`
-  escapes the title with `markdown_ui_escape()` - it holds what a model or a
-  program wrote - and makes it the `tile:focus` label, so a click on the name
-  gives the tile the keys. The manager keeps the regions of the head with the
-  tile (`fyai_workpane_tile_set_regions()`) and frees them with it. A click
-  reaches fyai only when the mouse is grabbed, which `display/work_controls`
-  decides. Never render chrome with UI Markdown without escaping text that
-  fyai did not write.
-- `display/work_controls` draws mouse affordances on a tile. `full` is the
-  default. Anything but `none` grabs the mouse for the whole session: selection
-  and copy are then fyai's, which copies through the terminal, and paste stays
-  the terminal's. The library reports a control as
-  an event and acts on nothing itself: `fyai_tools_surface_request()` asks the
-  component that started the program, because only it can end it.
-- Clicking a tile outside its controls focuses it
-  (`FYTIM_EVENT_SURFACE_FOCUS`). Clicking outside every tile focuses the
-  prompt (`FYTIM_EVENT_FOCUS_PROMPT`). The
-  page draws its tiles itself, so a click on its `head:N` or `screen:N` slot
-  arrives as the second event with the slot named, and
-  `ui_click_off_tiles()` resolves the tile from that slot. Clicking changes
-  only focus and preserves zoom, as does `Ctrl-T`.
-- `display/work_controls: full` gives each screen tile a scroll bar. The
-  terminal view keeps the rows that left the top of the screen with their
-  cells, a history of `display/work_history_rows`, and an offset into it; the
-  program is not told. `fyai_tools_config_changed()` gives a changed size to
-  the views that are open.
-  `fyai_ui_surface_publish()` states the extent on the surface, and the bar
-  is drawn from it: by the library under the band stack, and by the page
-  with `fytim_cells_draw_scroll_bar()`, whose `tile:N:scroll-up`,
-  `scroll-down`, `page-up` and `page-down` actions cover its cells. Scroll
-  events, including the wheel over a tile, reach the owner through
-  `fyai_tools_surface_request()`. A view scrolled back stays on its rows
-  while the program writes, and what the user types shows the live screen
-  again. A program on the alternate screen has no history.
-- What the user acts on in the chrome of a tile - the arrows and the thumb of
-  the bar, and the panel button of the header - has the colour of the
-  buttons of the head, the text colour. It takes the `text` role of a
-  palette theme, else the strong style of the theme, through
-  `FYTIM_CHROME_CONTROL` under the band stack and `control_chrome` on the
-  page. The track stays dim chrome.
-- The head of a tile ends in three buttons when the mouse is grabbed:
-  `tile:minimize`, `tile:maximize` and `tile:close`. They are acts of the
-  head source that `ui_tile_buttons()` writes, so both renderers draw and
-  route them from one source: a click reaches `ui_tile_act()` through
-  `FYTIM_EVENT_SURFACE_CLICK` under the band stack and `FYTIM_EVENT_ACT` on
-  the page. Their regions are regions of the head, so a head is made again
-  at every new width (`repaint_head`), or a click finds a button where the
-  old width put it.
-- Maximize toggles zoom. In a fullscreen session it also gives the tile the
-  whole page (`pane.full` of the page state, `ui->tile_full`): the
-  `tile_full` page draws the grid of the pane alone, the fit gives it every
-  row but a hint row, and the tile has the keys. The page is back when the
-  maximize button is used again, on `Ctrl-]`, or when the tile is no longer
-  zoomed. The expand, collapse and close buttons of the log use the glyphs of
-  these tile buttons (`tile.maximize`, `tile.minimize`, `tile.close`), through
-  `glyphs` of the page state. Minimize is manager state
-  (`fyai_workpane_set_minimized()`). A minimized tile renders only its header
-  in a fitted row below the screens through `fytim_surface_set_collapsed()`.
-  It cannot be focused or zoomed. Its program keeps its current size because
-  the manager does not apply a new grant. Clicking its header restores and
-  focuses it.
-- The input header ends in a panel when the pane holds live work: a button
-  that hides and shows the whole pane, then the live shells of the user,
-  the live shells of the model and the running sub-agents, each only when
-  there is one. `fyai_ui_panel_update()` writes it after every reconcile,
-  and when the last tile takes the pane with it: a reconcile with no pane
-  does nothing else, and a panel left from before counts a shell that ended.
-  The band stack draws it with `fytim_set_header_right()`, and the page
-  draws it in the `header` slot with the button as an act of the page; both
-  route `panel:pane` through `ui_act()`. Its glyphs are glyphs of the theme
-  and its colours are roles of the palette, else styles of the theme of the
-  chrome: never a colour escape in C.
-- A hidden pane (`fyai_workpane_set_hidden()`) keeps its tiles, grants
-  nothing new and takes no keys. A tile given the keys shows the pane again.
-- `Ctrl-T` and `Ctrl-Tab` cycle through what takes the keys in the order the
-  screen shows it, from the top row down and from left to right in a row,
-  then the prompt: tiles and the terminal blocks of the transcript alike.
-  `fyai_tools_focus_next()` sorts them by where the last frame drew them
-  (`fyai_ui_tile_pos()`, `fyai_ui_inline_pos()`); a place the page did not
-  draw goes last. `fyai_workpane_screen_order()` orders the tiles from the
-  placement, so a policy of the user's decides it too. A hidden tile takes no keys, and a
-  zoomed tile is the whole cycle.
-- `/zoom` gives one tile the pane and the keys, so the user works in the
-  program instead of watching it. The prompt keeps its row while a tile holds
-  the keys: it is where the user goes back to, and what says the keys are
-  elsewhere is that it is no longer lit. Nothing on the screen moves when
-  focus does - a tile grows no line and loses none, and the way back is put
-  on the status row, which stands whether it says anything or not. A line
-  added to a tile when the keys arrive moves every tile beside it, twice, for
-  one keystroke. Escape and `^C` are the program's and `^\` and `^Z` are the
-  terminal's, so the way back is `Ctrl-]`. What the user types is echoed by
-  the program, so it reaches the emulator and the line log with it: it is part
-  of the tool result the model is given, and needs no separate path.
-- Every key belongs to the tile that holds them, except the three this
-  program keeps: `Ctrl-Tab`, `Ctrl-T` and `Ctrl-]`. Escape and `^C` are the
-  program's - `^C` is the terminal of this process turning a key into a
-  signal before it can be read as one, so `fyai_ui_interrupt()` gives it to
-  the tile with `fyai_workpane_keys_deliver()` and the turn is not cancelled:
-  the user was typing into a program, not stopping the model. `^\` and `^Z`
-  stay this terminal's, because a program that took them could not be left.
-- The keys of a tile arrive one frame at a time, not one key at a time. A key
-  this program keeps for itself - `Ctrl-Tab`, `Ctrl-T`, and `Ctrl-]` - is a
-  key of the `surface` mode, which the library reports as an event between the
-  bytes before it and the bytes after it, so the bytes after it go to whoever
-  holds the keys once the key is acted on. A handler that stops taking keys
-  for another reason - a closed browser, a finished action - gives the rest of
-  its chunk back with `fyai_ui_keys_return()`, which puts it in front of the
-  input the terminal has sent since, to be read again and routed then.
-  Dropping it loses what the user typed, and a paste or a fast typist makes
-  one chunk of the key and the line under it.
-- Look a tile's owner up by surface. A program that ended must not leave a
-  pointer behind for the next keystroke to follow.
-
-### A live terminal that is resized
-
-A tile that holds a running program is not rewrapped: the program owns its
-grid and draws it again itself. A resize is a barrier between what the program
-wrote at the old size and what it writes at the new one.
-
-- The child owns the pseudo-terminal, so only the child can change its size.
-  The parent sends `tty/resize`, the child drains what the program wrote,
-  sets the new size, and sends `tty/resized`. The parent then resizes the
-  view and publishes the new grid.
-- Do not stop the program for a resize. A stop races with a fork: a process
-  that forks while its group is stopped misses the SIGCONT and stays stopped.
-  The kernel sends SIGWINCH when the size changes. A program that must not
-  see the change during an operation blocks SIGWINCH and gets it when it
-  unblocks it.
-- Publish the grid before the next frame. A resize damages every cell, and the
-  retained surface still holds the mechanically resized old cells. A program
-  that repaints only what it changed never covers them.
-- Do not rewrap a screen-addressed row and do not clear the transcript over a
-  live surface. Claim a clean screen instead and let the next frame paint the
-  whole retained pane.
-- A full-screen program draws in the alternate buffer, so the view enables
-  that buffer. When the program leaves it, the primary screen is empty: the
-  whole-session read returns the stripped log, which is the result of the
-  call.
-
-### Inline tool display
-
-`display/tool_display: inline`, the default, draws the live output of a call
-in the transcript, at the call, in place of a tile of the work pane. The test
-harness selects `pane`, which most cases read.
-`fyai_ui_tools_inline()` is the one decision: it applies to a page, and a
-display without one uses the pane.
-`doc/inline-tool-display-plan.md` gives the design and the steps that remain.
-
-- A live call is a block of the transcript view
-  (`fyai_transcript_view_block_set()`): after the live rows, before the
-  tail, in the order the calls opened. A view scrolled back keeps its top
-  row while a block changes.
-- Producers keep the band interface. The terminal backend of the sink puts
-  an independent band in a block, and the UI puts the shared tool band
-  there. Both render the rows that a tile shows.
-- A live block takes the separation that the flow would draw, and changes
-  no flow state. Its commit drops the block and presents the band as a tile
-  commit does, so the stored exchange replaces the same rows.
-- A block shows the last `display/tool_preview_lines` rows. The transcript
-  scrolls it, so the stream keeps no history for it, and the band opens at
-  once: `display/work_open_delay_ms` hides a jump that a block does not make.
-- `fyai_transcript_view_show_block()` scrolls a block into the view.
-- An inline page has no transcript view: the terminal keeps the committed
-  rows. The UI keeps its blocks in a view of their own (`ui_blocks()`), and
-  the page draws them under the tail rows, which count them. When they do
-  not fit, the last rows stay. A row committed while a block runs goes into
-  the scrollback above it.
-- A terminal block, a session or a sub-agent, has
-  `display/inline_terminal_rows` rows and the width of the transcript less
-  the indent of tool output, and follows that width. Its mark blinks on the
-  timer of a tile.
-- A block of text is rendered again at a new width through the repaint of its
-  band: the sink keeps its bands drawn in the transcript, and the UI calls
-  `fyai_sink_bands_reflow()` when the live rows reflow.
-- `Ctrl-T` takes the terminal blocks in the order of the screen with the
-  tiles. A block has no surface, so the canvas of the page takes the keys
-  for it (`fyai_ui_inline_keys()`), with a callback of its own: the pane
-  clears the callback of a tile when it moves the keys. The block draws the
-  edge in its first indent column, a fullscreen view scrolls to it, `^C` goes
-  to its program, and `Ctrl-]` gives the keys back. A block that commits gives
-  them back too.
-
-### Bang commands
-
-A line that starts with `!` is a command of the user. It is not a model turn.
-`fyai_tools_bang()` starts it as a terminal session in the work pane and gives
-that tile the keys. The prompt returns when the program ends. A bang line needs
-an interactive terminal UI; without one, report that and do not run the
-command.
-
-- A bang session is user-owned. The model cannot close it and cannot read its
-  output as a tool result. A tool call keeps the output limit of a shell tool.
-  A user-owned session has no such limit: the user reads its screen. It is
-  not watched for input waits: the model is not told that it waits, because
-  that would give the model its output and start a turn.
-- A bang command is not a part of the conversation. Its line is not drawn as
-  a card, and its session records nothing and commits nothing: not
-  its screen, not its output, whether or not a turn runs beside it. When the
-  program ends, its tile stays with the outcome, its buttons and the keys it
-  held, and the status row says that Escape closes it, until the user
-  dismisses it with Escape or `q` in the tile, its close button, or `/kill`.
-  The close button of a running bang tile ends its program and the tile with
-  it; `/kill` ends the program and leaves the tile to read. A full-screen program - one that entered the
-  alternate screen - leaves nothing to read, and its tile goes at once.
-- A program that prints once and ends, such as `ls`, reads the size of its
-  terminal when it starts; `ls` takes the terminal size over `COLUMNS`. The
-  tile of a terminal session is registered before its program starts, so
-  `fyai_ui_layout_now()` solves the page then, and `tool/run` carries the
-  grant as `size`: the terminal opens at the size of its tile. A size the
-  call asks for wins. `COLUMNS` and `LINES` stay unset, because a resize
-  cannot change the environment of a running program.
-- A user-owned tile can take more rows than the shared pane granted it. A tile
-  of a tool call keeps the grant.
-- `display/work_zoom_rows` is the height of the work pane. `full` uses the
-  terminal height, `half`, the default, and `quarter` use that fraction of it,
-  and an integer is a direct row count. It is the pane's disposition, not a mode that
-  zoom turns on: the first bang shell opens at it, and a fraction is recomputed
-  from the terminal after every resize. `display/work_max_rows` is a further
-  ceiling on it, not an alternative to it. Zooming, unzooming, and moving focus
-  leave the disposition alone. Kitty `Ctrl-Shift-T` cycles `full`, `half`, and
-  `quarter` for the session.
-- A named session shows its handle in the tile head, so the user can tell two
-  sessions apart and name one in a later command.
-- An editor for `/edit`, `config edit` or a log view runs as a user-owned
-  session too, through `fyai_tools_user_program()`: its tile, `edit-N`, takes
-  the pane and the keys. The session reports the end of the program to its
-  owner through its exit callback, one time, also when the tile goes first.
-  A caller suspends the UI only when `fyai_editor_in_pane()` is false.
-  `display/editor: terminal` gives the editor the whole terminal, and a command
-  without an interactive UI always does.
-
-### Palette themes
-
-`display/theme` can name a libfypalette theme, such as `ember:auto`, in place
-of a libfymd4c theme. A palette theme styles the Markdown, the fenced code, the
-reverse card and the chrome from one set of roles. The theme holds the policy:
-do not put a colour for a role in C.
-
-- Make every Markdown renderer with `markdown_renderer_new()`. It gives the
-  renderer the palette of the configuration. A renderer made with
-  `fymd_renderer_create()` directly keeps the default theme and breaks the
-  one language.
-- `fyai_markdown_load_style()` makes the palette for the resolved variant and
-  the colour of the output. It checks that libfymd4c takes a palette and
-  reports a cause when it does not.
-- A renderer borrows the palette. A long-lived renderer can outlive a change of
-  theme, so a palette stays alive until `fyai_config_cleanup()`. Reuse the
-  current palette when the theme, the variant, the colour and the ground did
-  not change.
-- fyai asks the terminal what it supports one time, with the libfypalette
-  probe, through `fyai_terminal_probe()`. The configuration keeps the result
-  (`cfg->terminal`) and the keys typed during the probe. A copy of the
-  configuration keeps the result and does not probe. The probe sends all its
-  queries in one write, with DA1 last, and waits for the DA1 reply. Every
-  terminal answers DA1, and answers in order, so a query with no reply before
-  it is not supported. Do not query the terminal anywhere else - libfytimui
-  measures a glyph, below, and is the one exception - and do not decide
-  anything from how long a reply takes. The time limit is 1000 ms;
-  `$FYPAL_PROBE_TIMEOUT_MS` changes it. The test harness sets 30000, which a
-  driver that answers never reaches.
-- Terminals draw some glyphs at different widths: VTE draws an emoji base
-  with U+FE0F in one column, most terminals in two. libfytimui measures such
-  a glyph while the program runs, not in the probe: the first time it writes
-  one, it asks for the cursor after it, places the next cell absolutely, and
-  records the advance the reply gives. A session that never shows one never
-  asks. A narrower measure repaints the cells of the library and raises
-  `FYTIM_EVENT_GLYPH_WIDTH`. The UI gives libfymd4c the same measures with
-  `fymd_set_glyph_width()`, so Markdown lays out a table as the cells draw
-  it, and on the event it makes its rows again as a width change does,
-  forgetting the rows of the fullscreen view
-  (`fyai_transcript_view_invalidate()`). A PTY case plays VTE with
-  `emoji_vs: narrow` in its script; the driver answers the cursor query from
-  its terminal model.
-- `fyai_ui_open()` gives the result to the UI. The capabilities that the
-  terminal reported replace the guess from the environment
-  (`fytim_set_caps()`), and the keys typed during the probe go to
-  `fytim_keys_return()`, before anything the terminal sends later. A reply
-  that arrives after the time limit is dropped by the libfytimui input
-  parser. A sub-agent and the branch browser preview do not probe.
-- `display/theme_ground=terminal`, the default, makes the background of the
-  terminal the ground of the palette with `fypal_ctx_set_ground()`, so the neutral ramp of
-  the theme keeps its steps over that background. The theme names the ground
-  and decides what follows it; fyai holds no colour. The background comes
-  from the probe. A background of the other variant is not applied. A PTY
-  case answers the query with `background:` in its script.
-- A theme of the `auto` variant takes its variant from the terminal's measured
-  background when available. Without a background reply, it uses
-  `fypal_term_variant()`: the scheme the terminal reported, then
-  `$COLORFGBG`, else dark. The probe runs one
-  time, so a configuration change during the session gets the same variant,
-  and the colours of the conversation on the screen do not change. A PTY case
-  stops answering OSC 11 when the session is started
-  (`background_while_starting:` in its script).
-- A fullscreen page with `display/theme_ground=theme` fills cells whose
-  background is default with the palette's `ground` colour. Keep explicit
-  backgrounds and cell attributes. Resolve the escape through the palette's
-  capabilities, so ANSI defaults and disabled colour remain defaults. Give
-  the completion status style the same ground. Inline pages and terminal
-  ground do not apply this fill.
-- The reverse-card probe sets the variant of each background on the palette
-  and restores it. The renderer copies the escapes when it takes the palette.
-- Take the colour of an element that fyai draws itself, such as a notice
-  heading or a failure cause, from a role with `markdown_role_on()` and
-  `markdown_role_off()`. Give the escape the element has without a palette as
-  the fallback. Do not write a colour escape for an element that a role names.
-- A diagram takes the palette through `fymm_render_cfg.palette`. The build
-  enables it (`FYAI_FYMM_PALETTE`) only when the libfymermaid header has the
-  field.
-- A fenced `mermaid` block of a Markdown answer is drawn as a diagram.
-  `markdown_renderer_new()` registers the libfymd4c block renderer, which goes
-  through `fyai_sink_diagram_render()`, so the diagram takes the width, the
-  colour and the palette of the configuration. The build enables it
-  (`FYAI_FYMD4C_BLOCKS`) only when libfymd4c has block renderers. A source that
-  does not render stays a code block.
-- A palette theme also gives the glyphs and the gutter. The text column starts
-  one column after the gutter, which is `gutter.cols` of the theme, else two
-  columns. Take a gutter width from `markdown_gutter_cols()`, a blank gutter
-  from `markdown_gutter_blank()`, and a mark from `markdown_glyph()` with the
-  glyph it has without a palette as the fallback. Do not write a gutter of
-  literal blanks: it moves the text column of a palette theme. Indent tool
-  output with `markdown_tool_output_indent()`, which starts it at the text
-  column.
-- A stored assistant document opens reasoning with `FYAI_REASONING_HEAD`.
-  A palette theme that has a `gutter.reasoning` glyph draws reasoning as the
-  quote alone, under the hairline of its quote bar: the renderer removes the
-  heading rows, and the stored document keeps them for every other theme. A
-  path that makes reasoning Markdown asks `markdown_reasoning_quoted()`.
-- The mark of a tool call is its state. `markdown_indicator_margin()` pads
-  every frame of the indicator to the gutter width, so a blinking mark does
-  not move the title row. The ASCII form of a glyph, which the `ascii` diagram
-  charset selects, keeps the gutter width too.
-- The build enables the glyphs (`FYAI_PALETTE_GLYPHS`) only when libfypalette
-  has `fypal_ctx_glyph()` and libfymd4c has
-  `fymd_renderer_set_palette_flags()`.
-- `/theme` completes from `markdown_theme_selectors()`, which asks libfymd4c
-  and libfypalette for their themes. Do not keep a list of theme names in C.
-- libfypalette is optional. Keep the build and the tests correct without it:
-  a palette theme is then not a valid `display/theme`.
-
-### Tables
-
-Render every Markdown table with `fyai_generic_to_markdown()`. Pass a
-`renderopts` generic for titles, selected keys, names, alignment, and formats.
-Build `renderopts` in the transient builder or in the same stack frame as the
-render call. Do not return a builder-less `fy_mapping()` from a helper because
-it uses stack storage. `stats` keeps its own table builder: its cells carry
-currency and percent formatting that `renderopts` does not express.
-
-Export is deliberately outside the sink. `fyai_export_view()` serializes
-canonical messages to a `FILE *` in the `format: 1` textual grammar that
-`src/store/fyai_import.c` reads back, and it must keep working when a conversation
-has no stored `display_outputs`.
+- `src/front/fyai_sink.c` is the only rendering component. Send every
+  user-visible byte through it; producers give Markdown, the sink presents.
+  `tests/sink-only.sh` enforces this (`tests/sink-only-allow.txt`).
+- Streams say what content is: `TRANSCRIPT`, `NOTICE` (command results,
+  tables), `STATUS` (banner, spinner, usage, tool echo), `DIAG`, `MACHINE`
+  (never decorated). Use `fyai_result()`, `fyai_report()` (plain text),
+  `fyai_sink_markdown()`, `fyai_sink_write()`.
+- A backend implements `struct fyai_sink_ops`; any entry can be NULL and a
+  producer does not examine the destination. While the UI is active the
+  terminal backend presents through `fyai_ui_present()`, never stdout.
+- `src/front/fyai_flow.c` is the one separation policy. A producer states its
+  unit with `fyai_sink_unit()` and never counts rows; every path that commits
+  bytes calls `fyai_flow_observe()`.
+- `src/front/fyai_output.c` owns the transcript documents and stores them as
+  `display_outputs`. Do not create a second transcript renderer; tool title
+  rows are drawn only by `markdown_render_tool_head()`. A sub-agent or tool
+  child presents nothing on fd 1 (`sink_may_present()`) and never moves a
+  stream to stderr.
+- Do not call `fytim_pump()` from a render path; set `frame_pending`.
+- The page (`fyai_page.c`, `data/page.yaml`) is rendered every frame from
+  `struct fyai_page_state` only; do not cache it. Record
+  `tests/data/page-source-golden.txt` with `FYAI_PAGE_GOLDEN_WRITE` when the
+  source changes, and say why in the commit.
+- `src/front/fyai_workpane.c` owns pane geometry, focus and zoom;
+  `src/front/fyai_chrome.c` owns tile chrome. Producers state intent and size
+  nothing. Use `fyai_sink_band_*()`, never `fyai_ui_*` band functions.
+- Make every Markdown renderer with `markdown_renderer_new()`. Colours,
+  glyphs and gutters come from the theme roles; never put a colour escape or
+  a list of theme names in C. libfypalette is optional.
+- Query the terminal only through `fyai_terminal_probe()`.
+- Render every Markdown table with `fyai_generic_to_markdown()` and a
+  `renderopts` generic (`stats` keeps its own). Export
+  (`fyai_export_view()`) is outside the sink and must work without
+  `display_outputs`.
 
 ### Interactive rules
 
-The interactive reader uses the shared event loop. Test terminal input,
-signals, and resize behavior under a PTY. Non-TTY functional tests use the
-blocking fallback and do not cover the event-driven path.
-
-In the REPL, `/` starts a slash command and `//` sends a literal slash. Ctrl-C
-discards nonempty input, ends idle input, or cancels an active turn. Escape and
-SIGINT call `fyai_ui_interrupt()`. Keep `ISIG` enabled.
-
-`/resume`, and its alias `/switch`, select another session for the running
-invocation: by name, or through the resume picker. HEAD does not move. In a
-session, Escape in the picker returns to the session; only the picker of the
-`resume` verb ends the invocation.
-
-`/checkout <branch>` selects an existing branch and moves stored HEAD.
-`/checkout <branch>@{N}` and other historical references create a new
-`session/` branch at that state and check it out. `/checkout -b <name> <ref>`
-uses an explicit new branch name. `/reset <ref>` and `/rewind <ref>` move the
-current branch head to a reference; its previous entry remains in the reflog.
-
-`/btw <question>` asks a side question while a turn runs. It forks a
-sub-agent from the current head onto a child branch `agent:btw-N` and does not
-change the conversation of the parent. Its screen is a tile of the work pane.
-The finished answer stays in that tile until the user closes it with Escape,
-the close button, or `/kill`. In the focused tile, arrow keys and PgUp and PgDn
-scroll the answer; one chunk of input can hold several of these keys.
-
-Request-shaping slash settings persist through the common commit path. Display
-settings remain session-only. `--new` has the same state effect as `/clear`.
-`/compact` makes one tools-disabled summary request and stores the previous
-head as `compacted_from`.
+Test terminal input, signals and resize under a PTY; non-TTY tests use the
+blocking fallback. `/` starts a slash command, `//` sends a literal slash.
+Ctrl-C discards input, ends idle input, or cancels a turn; Escape and SIGINT
+call `fyai_ui_interrupt()`. Keep `ISIG` enabled. `/resume` does not move
+HEAD; `/checkout` does, and a historical reference creates a `session/`
+branch. `/reset` and `/rewind` move the branch head. `/btw` forks a sub-agent
+onto `agent:btw-N`. Request-shaping settings persist through the commit path;
+display settings stay session-only. `/compact` stores `compacted_from`.
 
 ## Event loop and process rules
 
-Each invocation owns one lazy `struct fyai_ctx` event loop. Curl, shell
-capture, tool jobs, MCP shutdown, readline, and OAuth borrow that loop.
+Each invocation owns one lazy event loop; curl, shell capture, jobs, MCP,
+readline and OAuth borrow it.
 
-- Each borrower must remove all sources that it registered.
-- Store source pointers in the owner and clear them when callbacks retire a
-  source. Make cleanup idempotent.
-- A child that forks without `exec` must call `fyai_ctx_loop_abandon()`
-  and `fyai_ctx_fork_disown()`.
-- Abandonment closes the child's descriptor copies. It must not call
-  `epoll_ctl()` on the shared epoll object.
-- Do not run a nested event loop from an interactive callback.
-- Use synchronous wrappers only in standalone commands, setup adapters, and
-  isolated tests that own the top-level loop.
-
-Sanitizer builds disable event-loop object recycling by default. Test both
-paths. Set `FYAI_EVENT_NO_POOL=1` to disable pooling in a normal build. Set it
-to `0` to enable pooling under ASAN.
+- A borrower removes every source it registered, keeps source pointers in the
+  owner, clears them on retire, and makes cleanup idempotent.
+- A child that forks without `exec` calls `fyai_ctx_loop_abandon()` and
+  `fyai_ctx_fork_disown()`. Abandonment never calls `epoll_ctl()` on the
+  shared object.
+- No nested event loop in an interactive callback. Synchronous wrappers only
+  in standalone commands, setup adapters and isolated tests.
+- Test with and without object pooling (`FYAI_EVENT_NO_POOL`; off by default
+  under sanitizers).
 
 ### Signals
 
-Do not register SIGINT with `signalfd`. Use
-`fyai_event_interrupt_open()`. The handler sets the pending flag, wakes the
-loop, and starts the watchdog. A pump that sees the interrupt must call
-`fyai_event_interrupt_ack()`. Reserve SIGALRM for the watchdog.
-`fyai_event_interrupt_close()` removes the handlers during context cleanup,
-because they name the context.
-
-A handler has no argument, so it finds the loop component through one pointer,
-`fyai_event_signal_owner()`. That pointer is the only mutable variable of the
-process that a handler reads. Keep every other value that a handler uses in
-`struct fyai_loop`, and compose actions on the handler's stack. Do not add a
-second global for a handler. The pointer goes when the last handler of the loop
-is removed.
-
-The diagnostic dump is the one handler that does more than record and wake. It
-must report a loop that is stuck, which is the state a deferred dump could
-never reach, so it formats and writes from signal context. Keep it able to do
-that: no allocation, no stdio, no `tcgetattr()` - the terminal mode is probed
-when the dump is armed - and no blocking write. It refuses to start a second
-dump while one is running. Its walk of the loop lists is unsynchronized by
-design and stays bounded.
-
-Keep SIGPIPE blocked in the parent. Restore the disposition in children before
-`exec`. Set `CURLOPT_NOSIGNAL` on curl handles. Keep signal handlers
-async-signal-safe.
-
-An interrupted turn keeps its completed steps. Wrap the partial turn with the
-diagnostic indirect through `fyai_with_diag()` and `fyai_report_diag()`.
+Register SIGINT with `fyai_event_interrupt_open()`, never `signalfd`; a pump
+that sees it calls `fyai_event_interrupt_ack()`. SIGALRM is the watchdog's.
+`fyai_event_signal_owner()` is the only mutable global a handler reads; keep
+other handler state in `struct fyai_loop`. Keep handlers async-signal-safe;
+the SIGUSR2 dump writes from signal context with no allocation, stdio,
+`tcgetattr()` or blocking write. Keep SIGPIPE blocked in the parent and
+restore it before `exec`; set `CURLOPT_NOSIGNAL`. An interrupted turn keeps
+its completed steps, wrapped with `fyai_with_diag()`/`fyai_report_diag()`.
 
 ## Tool jobs, shell capture, and time limits
 
-A forked tool child uses descriptors 3 and 4 for its JSON-RPC control channel.
-It does not use standard input and output for this channel. The child is forked
-and does not call `exec`, so these descriptor numbers are a private contract.
-A stray write to descriptor 1 goes to the terminal and not into a JSON-RPC
-frame. Thus, it cannot make the parent read an invalid frame. The control
-channel is close-on-exec. A shell command cannot access it.
-
-Do not change the standard descriptors of an MCP server or the
-`fyai agent --rpc` verb. These peers are separate programs that use standard
-input and output. The sink keeps descriptor 1 clean for these programs.
-
-Close each descriptor above standard error before `exec`. A command must not
-hold the event loop, curl sockets, arena files, a control channel, or pipes from
-a sibling job. Close the descriptor range with `fyai_close_fds_from()`. Do not
-track individual descriptors. This prevents a new descriptor from becoming a
-leak.
-
-Every child that runs another program removes the credentials first with
-`fyai_env_sanitize()`. Do this in the child, and fail closed: a partial
-sanitize still gives the program a provider key. A configured `env` mapping is
-applied after it, because `setenv()` adds and replaces but never removes. An
-MCP stdio child follows the same rules and leads its own process group, so
-teardown can stop its descendants with it. The child
-sends `tool/progress` notifications and returns `{result, ok}`. It uses
-`/dev/null` as standard input and calls `setsid()`. Do not call `setpgid()` in
-the parent.
-
-A forked child keeps what describes the work: the configuration, the arena and
-its builders, the sink, and the credentials. It keeps nothing that names a
-process, a descriptor, a timer, or a screen of the parent. A copy of such state
-addresses another process by mistake, or answers with what belongs to it: an
-inherited session took the name a sub-agent asked for and returned what the
-program of the parent wrote, and an inherited wait took its name. Drop every
-one of them in `fyai_ctx_fork_disown()`, which ends nothing, and add a new kind
-of live context state to that list. Drop the UI model there first: a release
-after it closes texts of the model, and a consumer of the parent would send
-that on its connection.
-
-A child that serves a terminal session ends its program when its control
-channel closes. The child is in a session of its own, so no signal of the
-parent reaches it: a parent that is killed leaves only the closed channel to
-say that nobody owns the session.
-
-Set job fields after `fyai_tool_job_spawn()` because that function clears the
-job. Cancel a complete process tree with
-`fyai_event_add_child_terminate_group()`.
-
-Finish shell capture when the direct child is reaped. Do not wait for pipe EOF.
-A shell descendant can keep a pipe open. Keep the shell child in the process
-group of the tool job.
-
-Arm time limits in the parent with `fyai_tool_job_submit()`. A time limit
-applies to the complete job and not to one child command. Remove the deadline
-when the job finishes. Do not wait until collection. A group is collected only
-after all its jobs finish. Thus, a completed job can wait for a slower sibling.
-An active timer could incorrectly mark that job as timed out. Do not arm a
-second limit in the child when `cfg->tool_child` is set.
-
-`timeout_ms` is the user default. `max_timeout_ms` limits a value supplied by
-the model. Apply the ceiling only to a model-supplied value. Use this order:
-
-- Shell: call `timeout`, then `shell/timeout_ms`.
-- Agent: call `timeout`, persona `timeout_ms`, then `agent/timeout_ms`.
-
-The function shell tool uses argument `timeout`. A native Responses
-`shell_call` uses `action.timeout_ms`. Pass the correct object to
-`fyai_shell_timeout_requested()`.
-
-Only the parent reports expiration. Preserve the normal result shape. A native
-shell result is a list of `{stdout, stderr, outcome}`. On expiration, set the
-outcome to `{type: timeout, timeout_ms}`. Keep all captured output. Do not
-replace the result with an error string or a signal outcome.
-
-A program can send a query to its terminal. It asks for the terminal type or
-for the cursor position, and it waits for the reply. The terminal view is that
-terminal, thus the view makes the reply. Set a reply callback on each view
-with `fyai_terminal_view_reply_cb()`. Write the reply to the program with
-`fyai_terminal_reply_write()` when this process holds the terminal descriptor,
-or with the `shell/write` notification when the tool child holds it. Without a
-reply the program waits for its own time limit, and it then reads the next
-typed input as the reply.
-
-Apply shell `workdir` before Landlock confinement. Exit status 125 reports an
-unreachable working directory. Landlock is Linux-only. Other platforms use
-the same interface with no confinement backend. Keep command admission
-separate from filesystem confinement.
-
-A configured deny is carved out of every granted hierarchy, the broad scratch
-and system trees included. Landlock has no non-recursive rule, so a directory
-above a denied path cannot be granted whole: it is descended, each undenied
-child is granted, and the directory itself keeps only the right to list its
-entries. That cost is why the implicit arena deny stays scoped to the project
-root, and why a deny path that does not exist is left out. A tool that has a cover
-(`fyai_cover_select()`, set by `sandbox_cover`) does not use the carve-out: it
-covers each existing denied path and the arena with an empty read-only mount in a
-private namespace, and Landlock gets no deny, so the project root keeps its right to
-create entries. The tool makes the namespaces itself (`fyai_fsview_hide()`), or joins
-those of a bubblewrap holder (`fyai_cover_join()`) where user namespaces are
-restricted. Where neither works the carve-out stays, and the start says so and
-names the fix: the AppArmor profile of `fyai sandbox apparmor`, or bubblewrap
-(`doc/apparmor-userns.md`). A session in a view keeps the carve-out; the view already
-hides the arena.
-
-The processes that the tools of an exchange start belong to its scope
-(`doc/exchange-scope.md`). The invocation starts one holder for the exchange before
-the first tool child forks (`fyai_scope_ensure()`), and each tool child joins it, so a
-program that detaches lives for the next call. `fyai_scope_exchange()` ends the scope
-with the exchange, and `fyai_scope_pin()` and `fyai_scope_unpin()` keep it for a
-terminal session, a monitor and a background sub-agent; a pin ends with the program,
-not with the object. Where no holder is possible, a tool child is a subreaper and names
-its live children in `detached`; the invocation stops them with `fyai_orphan_sweep()`.
-Do not read a pid from a process in a namespace of a scope: it names another process
-outside it. Do not use `tc.args` after a tool ran: the call can have released it.
-
-Fail closed on network egress. The kernel ABI is not the only condition: a
-build made against headers without the network access definitions restricts
-nothing on any kernel. Ask `fyai_sandbox_net_restrictable()`.
+- A forked tool child uses fds 3 and 4 (close-on-exec) for JSON-RPC, never
+  stdio. MCP servers and `fyai agent --rpc` keep stdio.
+- Before `exec`, close every fd above stderr with `fyai_close_fds_from()` and
+  remove credentials with `fyai_env_sanitize()` in the child, failing closed;
+  apply a configured `env` after it. Children use `/dev/null` stdin and
+  `setsid()`; do not `setpgid()` in the parent.
+- A forked child keeps the configuration, arena, sink and credentials, and
+  drops everything that names a process, fd, timer or screen of the parent in
+  `fyai_ctx_fork_disown()` (the UI model first). Add new live state there.
+- A child serving a terminal session ends its program when its control
+  channel closes.
+- Set job fields after `fyai_tool_job_spawn()`, which clears the job. Cancel a
+  tree with `fyai_event_add_child_terminate_group()`.
+- Finish shell capture when the direct child is reaped, not at pipe EOF.
+- Arm time limits in the parent with `fyai_tool_job_submit()`, per job, and
+  remove the deadline when the job finishes. No second limit in the child.
+  `max_timeout_ms` caps only model-supplied values. Order: shell `timeout`
+  then `shell/timeout_ms`; agent `timeout`, persona `timeout_ms`,
+  `agent/timeout_ms`. Pass the right object to
+  `fyai_shell_timeout_requested()` (`timeout` vs `action.timeout_ms`).
+- Only the parent reports expiration, in the normal result shape (native:
+  outcome `{type: timeout, timeout_ms}`), keeping all output.
+- A terminal view answers program queries through
+  `fyai_terminal_view_reply_cb()`.
+- Apply `workdir` before confinement (exit 125: unreachable). Keep command
+  admission separate from filesystem confinement. Denies are carved out of
+  every granted tree, or covered by `sandbox_cover` namespaces
+  (`doc/apparmor-userns.md`). Fail closed on network egress:
+  `fyai_sandbox_net_restrictable()`.
+- Tool processes belong to the exchange scope (`doc/exchange-scope.md`):
+  `fyai_scope_ensure()`, `fyai_scope_exchange()`, `fyai_scope_pin()`. Do not
+  read a pid from a scope namespace. Do not use `tc.args` after a tool ran.
 
 ## Sub-agents
 
-`fyai_agent_run()` takes the full call arguments: `task`, `name`, and
-`description`. A sub-agent owns its persona, tools, conversation, curl handle,
-and output routing.
+`fyai_agent_run()` takes `task`, `name` and `description`. A sub-agent owns
+its persona, tools, conversation, curl handle and output routing.
 
-- Store each sub-agent conversation on a child branch such as
-  `main/agent:greeter`.
-- Keep `fyai_branch_name_valid()` strict for user-created names.
-- Let `fyai_branch_name_ref_valid()` accept the reserved `agent:` marker.
-- Reject a duplicate agent name. Do not add an ordinal automatically.
-- Refresh the branch table before you test a name.
-- Reserve the name in the parent before `fyai_tool_job_spawn()`.
-- Copy the name into the job after spawn.
-- Set child persona fields after `fyai_arena_reopen()`.
-- Reopen the arena in a forked child before it publishes.
-- On Linux, a sub-agent child executes `fyai agent --tool-child` and receives
-  the `spawn` state in `tool/run`: see `doc/agent-fork-model.md`. Send it
-  what it cannot read from the arena. `agent/spawn: fork`, a transient run
-  and a pinned root keep the forked child; keep both paths correct.
-- In a view, an agent runtime holds its arena only as a close-on-exec
-  descriptor of a detached mount, adopted with `fyai_fsview_arena_adopt()`.
-  Pass it only to an execution of fyai, with `fyai_fsview_arena_pass()` and
-  `--view-arena-fd`; drop it in any other child with
-  `fyai_fsview_arena_drop()`. Do not mount the arena at a path of the view.
-
-`context: fork` starts at the parent head. `context: fresh` sends only the
-task. In fork mode, add the persona as a user instruction message. Do not add a
-second system turn.
-
-Expose only configured persona names and descriptions in the tool schema.
-Resolve a persona model through the catalogue in a scratch configuration.
-Preserve user-set `api_url` and `max_tokens`; replace only derived values.
-
-A directly delegated sub-agent has a terminal of its own. It renders there
-as this program renders to any terminal. The parent interprets that terminal
-and shows it on a surface, behind the session margin. There is no second
-transcript renderer for a sub-agent. A direct sub-agent's screen includes its
-tool results. Grandchildren have compact progress in that screen; deeper work
-contributes descendant counts. Do not allocate a terminal for every descendant.
-Explicit inspection subscribes to bounded document source through the sink.
-`cfg->agent_pty` says that a child has a terminal. It lets `sink_may_present()`
-present, and it stops the child from sending progress that the parent showed
-already.
+- Store its conversation on a child branch (`main/agent:greeter`). Keep
+  `fyai_branch_name_valid()` strict; `fyai_branch_name_ref_valid()` accepts
+  `agent:`. Reject duplicate names (no ordinal); refresh branches before the
+  test; reserve the name before spawn and copy it into the job after.
+- Set persona fields after `fyai_arena_reopen()`; reopen before publish.
+- On Linux the child executes `fyai agent --tool-child`
+  (`doc/agent-fork-model.md`); `agent/spawn: fork`, transient runs and pinned
+  roots keep the forked child. Keep both paths correct.
+- In a view, pass the arena fd only to fyai (`fyai_fsview_arena_pass()`,
+  `--view-arena-fd`); drop it elsewhere. Never mount it in the view.
+- `context: fork` starts at the parent head with the persona as a user
+  instruction (no second system turn); `context: fresh` sends only the task.
+- Expose only configured persona names and descriptions. Resolve a persona
+  model in a scratch configuration; keep user-set `api_url`/`max_tokens`.
+- A direct sub-agent renders to its own terminal, shown on a surface by the
+  parent (`cfg->agent_pty`). Grandchildren show compact progress.
 
 ## OAuth and JSON-RPC
 
-Implement OAuth as a state machine on the borrowed event loop. The start
-function must arm the flow and return. Keep the synchronous wait function as a
-wrapper over the same state machine.
+OAuth is a state machine on the borrowed loop; the start function arms and
+returns, the synchronous wait wraps it. Bind loopback redirects to
+`127.0.0.1`, allow concurrent connections, 404 other paths. Provider specifics
+stay in the caller. Configured MCP clients survive logout; dynamic ones are
+removed. Release discovery state on every terminal path; login/logout cancel
+active work.
 
-Bind loopback redirects to `127.0.0.1`. Allow concurrent browser connections.
-Return 404 for unrelated paths and continue to wait. Keep issuer, client ID,
-scopes, authorization query, token exchange, and credential storage in the
-provider-specific caller.
-
-Configured MCP clients survive logout. Remove dynamic clients on logout
-because they are tied to one redirect URI. Release discovery state on every
-terminal path. Explicit login or logout cancels active browser, discovery, and
-refresh work.
-
-A JSON-RPC standard-I/O connection owns its reader, writer, and buffers. Match
-responses by request ID. Remove a completed request from both connection lists
-before you release its storage.
-
-Every path that ends a connection settles each outstanding request, in
-`pending` and in `flush_wait`. A request with no timeout has no other way to
-complete. An invalid frame is such a path: the peer can hold the connection
-open indefinitely. Destruction also clears the connection pointer on each
-request it settles. One frame has a hard size limit, so a peer that sends no newline
-cannot grow the receive buffer without end.
+A JSON-RPC connection owns its reader, writer and buffers and matches by
+request ID. Remove a completed request from both lists before release. Every
+path that ends a connection (an invalid frame included) settles each request
+in `pending` and `flush_wait` and clears its connection pointer. A frame has
+a hard size limit.
 
 ## Diagnostics
 
-Collect diagnostics in `cfg->diag`. Drain them only at turn, verb, and slash
-command boundaries. Do not print diagnostics during streaming output.
-
-Define `FYAI_MODULE` once in each source file. Let the module add the message
-prefix. Do not type the prefix into each message.
-
-The first error is the cause. Demote subsequent errors to debug until the sink
-is drained or reset. A path that stops must report the cause at that location.
-Do not report only that an operation failed. That report gives no cause.
-`fyai_run_turn()` reports a cause on each path that returns no result. It also
-supplies a fallback cause.
-
-The component that holds an identity owns it. A sub-agent raises the cause.
-Only the caller knows which parallel sub-agent raised it, so the caller adds
-the name. Copy a name from generic storage before you run the sub-agent. The
-operation reopens the arena, and a cast pointer does not remain valid. Use
-`fyai_diag_reset()` after a caller recovers from an error.
-
-A forked tool child exits through `_exit()`. No component drains its sink. The
-child must give its collected diagnostics to the parent.
-`fyai_diag_take_generic()` puts them in the `tool/run` response. The parent
-uses `fyai_diag_adopt()` when it collects the job. Keep the severity and module
-that the child recorded. The parent adds a marker because only the parent knows
-which child raised the diagnostic. For example:
-`[main/agent:greeter] the reason`. Keep an existing marker. During nested
-delegation, the innermost path identifies the source.
-
-Do not remove diagnostics when you quote them. The model reads a reason in a
-tool result. The user must also receive the same reason. Use
-`fyai_diag_string()`. This function renders the diagnostics but does not remove
-them.
-
-A child that terminates can have no diagnostic to send. The parent must state
-how the job ended. Report the signal or the absence of a result. Put all
-details for one failure in one diagnostic. Use a lower severity for a nonfatal
-report.
-
-The diagnostic sink owns its own builder and its own output descriptor. Do not
-use the durable builder or `transient_gb`, and do not route it through the
-rendering sink: diagnostics must report before that sink is created and after
-it is destroyed. It is the one output owner beside the sink.
-
-Parse provider JSON with `FYOPPF_COLLECT_DIAG`. The parser then attaches its
-report to the failed value instead of writing it to standard error, where it
-names the anonymous input buffer by address, sits outside the sink, and cannot
-be attributed to the request that produced it. Report it with
-`parse_diag_text()` from a caller that has a context, in the one diagnostic
-that says what was being read.
-
-### Suppressed results
-
-`(void)` on a call that can fail hides the cause of the failure. Use it only
-where there is nothing to report:
-
-- A cleanup, destroy, or release path, which cannot act on a failure.
-- A callee that reported the failure itself.
-- A function whose result is not a status, such as a count or a predicate.
-
-On a content path, a failure must reach the user. Report it, and stop the
-operation that cannot go on. On a display path, report it as a warning: the
-page is wrong, but the turn continues. State that policy one time for a
-component with a wrapper macro, such as `browser_warn_check()`, instead of a
-warning at each site. Do not report each row of a loop: stop at the first
-failure and report one time.
-
-Input the user typed is content. A key or a line that a component drops must
-be reported.
-
-### Resource failures
-
-Report a resource that cannot be acquired with `fyai_error_check()`. This
-applies to `malloc()`, `calloc()`, `realloc()`, `strdup()`, `open_memstream()`,
-`asprintf()`, a builder, a surface, a request, and a connection. The message
-must name what could not be made. A path that returns a null pointer without a
-diagnostic gives the caller no cause.
-
-### The trace log
-
-The diagnostic sink presents required user actions at a turn boundary. It does
-this in one process. The trace log records each raise when it occurs. It records
-raises from all processes and keeps the original severity. It also records
-raises that the mask removes. The trace remains available if a forked child
-terminates. Use it to examine a stress run.
-
-`$FYAI_TRACE` turns it on: `1` or `on` writes `~/.fyai/trace.log`, any other
-value is the path to write. `$FYAI_TRACE_LEVEL` sets the lowest severity
-recorded and defaults to debug.
-
-Write each record as one line with one `write(2)` operation. Use an append-only,
-close-on-exec descriptor. The parent and its forked children share the file.
-The single write prevents incomplete concurrent lines. Do not use a low
-descriptor number. A tool child uses descriptors 3 and 4 for its control
-channel. A child that closes inherited descriptors must call
-`fyai_diag_trace_reopen()`.
-
-`fyai_diag_trace_tag()` adds the sub-agent branch to process records.
-`fyai_diag_tracef()` records events that are not diagnostics. These events
-include process start and child termination. Tracing must fail silently. A
-trace-write failure must not raise a diagnostic.
-
-Expand formatted text before you intern it. Diagnostic raises are lock-free.
-A drain resets storage. Drain only when all raisers are inactive. A null sink
-prints immediately.
-
-Keep normal output out of the diagnostic sink. The banner, spinner, shell echo,
-approval prompt, stats, usage, and successful command results are presented
-content: send them to the rendering sink on the status or notice stream.
+- Collect in `cfg->diag`; drain only at turn, verb and slash-command
+  boundaries. Define `FYAI_MODULE` once per file; do not type prefixes.
+- The first error is the cause; later ones are demoted until drain or reset.
+  A path that stops reports its cause there, never only "failed".
+  `fyai_diag_reset()` after recovery.
+- The caller adds the name of a parallel sub-agent; copy names before the
+  arena reopens. A forked child returns its diagnostics with
+  `fyai_diag_take_generic()`; the parent uses `fyai_diag_adopt()` and adds a
+  marker (`[main/agent:greeter] reason`), keeping existing ones. A child with
+  no diagnostic: the parent states how it ended, in one diagnostic.
+- Quote diagnostics with `fyai_diag_string()`, which does not remove them.
+- The diagnostic sink has its own builder and fd, separate from the
+  rendering sink. Normal output goes to the rendering sink.
+- Parse provider JSON with `FYOPPF_COLLECT_DIAG`; report with
+  `parse_diag_text()`.
+- `(void)` only on cleanup, a callee that reported, or a non-status result.
+  Content failures reach the user; display failures are warnings through a
+  per-component wrapper, once per loop. Dropped user input is reported.
+- Report resource failures (allocation, builder, surface, request,
+  connection) with `fyai_error_check()`, naming what could not be made.
+- `$FYAI_TRACE` (`1`/`on` or a path) and `$FYAI_TRACE_LEVEL` write one line
+  per record with one `write(2)` to an append-only, close-on-exec, high fd.
+  `fyai_diag_trace_reopen()` after closing fds; `fyai_diag_trace_tag()`,
+  `fyai_diag_tracef()`. Tracing fails silently.
 
 ## Build and test
 
-Configure and build:
-
 ```sh
-cmake -S . -B build -G Ninja
-ninja -C build
-./build/fyai -m gpt-4o-mini "hello"
-./build/fyai dump state
-```
-
-Run the full test suite through the parallel test target. Use `ctest` only for
-targeted test runs:
-
-```sh
-ninja -C build parallel-test
-./build/fyai_test --list
-./build/fyai_test oauth/plain_redirect
+cmake -S . -B build -G Ninja && ninja -C build
+ninja -C build parallel-test          # full suite
+./build/fyai_test --list; ./build/fyai_test oauth/plain_redirect
 ctest --test-dir build -R fyai/unit/oauth
-```
-
-The unit-test binary links production sources except `src/core/main.c`. Do not use
-test stubs. Declare tests with `FYAI_TEST_ENTRY(suite, name, entry)` after the
-includes in a `tests/fyai_*_test.c` file.
-
-Functional cases run the real binary with the scenario-driven mock provider.
-Keep them hermetic: localhost only, with private `HOME` and `XDG_*` paths. A
-case that looks for a process must scope the search to its own run - its
-process tree, or its scratch directory in the command line. A search of the
-whole machine finds another run's children. Never `pkill` a global pattern.
-
-A test driver must read its pseudo-terminal for the full run. A driver that
-sleeps without reading fills the terminal buffer. The program under test then
-blocks in its write until the driver reads again. The buffer is 1 KiB on macOS
-and 12 KiB on Linux, thus a case that stops reading can pass on Linux and fail
-on macOS. Wait by reading with a deadline. Do not sleep.
-
-Do not pace a test with a delay. A delay that is sufficient on one runner is
-too short on a slower runner, and every run spends its full time. Wait for the
-state that the next step needs. The PTY driver does not pause after an action.
-
-A PTY case is a YAML script for `fyai __pty-driver` (`doc/pty-driver.md`) that
-the case gives to `pty_run` from `tests/harness.sh`. Do not set an
-`FYAI_PTY_` variable in a case: `tests/case-lint.sh` fails on it. The script
-waits on the terminal state that the driver models with libfyvterm:
-`wait-screen` for text on the screen, or on a row that scrolled off it or that
-an erase of the display removed since the last key, `wait-repaint` for text
-drawn again after an erase of the display, `wait-row` for a row that holds the
-text alone, `wait-gone` for text that left the screen, `wait-copy` for an OSC
-52 copy, and `frame` for a key that must be acted on. `click` presses and
-releases the mouse on the first cell of a text found on the screen, so a click
-does not depend on the rows around its target. Do not wait on the raw capture
-bytes with `wait` or `wait-frame` for text that the screen shows: a frame
-paints only the cells that changed, so the bytes do not say what the screen
-shows. Do not wait on a word that the command row of a tool also holds: wait
-for the row of its output with `wait-row`. A program in a tile that reports a
-changing value, such as its size, prints it on a short interval, and the case
-waits for the expected value on the screen. A key that must change nothing has
-no state to wait for: send it in one `write` with the key that follows it,
-which keeps their order.
-
-Do not delay a test at all: not in a case, not in the PTY driver, and not in
-a mock scenario. The `sleep` step and a scenario `delay` are for a case that
-tests a wait itself, such as an interrupt of a request in flight. Order the
-steps of a case with state:
-
-- Before input during a turn, wait for text that the turn shows, or for the
-  `served` file of the mock (`wait-file`). The driver then sends the input
-  after that state and not after a time.
-- A shell case waits on a wake source, not on a file that it polls. The
-  mock writes a line to the FIFO that `$FYAI_MOCK_NOTIFY` names, when it
-  binds its port and for each request: `mock_start` waits on it, and a case
-  calls `mock_watch` before the run it waits for, and then
-  `wait_requests N`. A program that reports on standard error is run with a
-  FIFO for its standard error. A process that is not a child is waited for with
-  `tests/wait_exit.py` (a pidfd, or a kqueue on macOS), which wakes at its
-  exit. A program that waits for the case reads a FIFO, and the `touch` step of
-  the PTY driver opens it for writing. Keep the FIFO outside the project: a
-  capture of the project refuses a special file. A deadline on such a read
-  bounds a failure, and does not pace the case.
-- Hold a mock reply with `wait_for: <marker>`. Without `wait_after_event`,
-  the mock holds the whole reply until the marker exists in the run
-  directory. The case creates the marker with a `touch:` step when the state
-  that the reply must follow is on the screen. A marker that is not created in
-  time makes the mock write `stream-wait-failed`; the case must fail on that
-  file.
-- Select the reply for one of several concurrent requests with `match`, for
-  example `body_contains`, and not with the order of arrival. A forked
-  sub-agent request contains the conversation of its parent, so put the
-  more specific match first.
-- Wait for the state that a key acts on before you send the key. A status
-  hint or a heading that the state shows is such a text.
-
-Run the suite under load before you push a change to a PTY case or to event
-timing. A test that passes one time can fail on a loaded CI runner:
-
-```sh
-ctest --test-dir build -j96 --repeat until-fail:5
-```
-
-A case that fails only under this load has a race. Fix the order of its
-steps; do not raise a deadline.
-
-A driver that plays a terminal answers DA1 (`tests/term_reply.py`), as
-every terminal does. fyai waits for that reply before it opens the UI.
-
-A case that stops a run does not leave its processes behind. The driver sends
-SIGTERM before SIGKILL, and a case that kills fyai on purpose ends the programs
-it recorded if the run left them.
-
-### Sanitizers
-
-Use ASAN for parser, storage, tool, event, and YAML changes:
-
-```sh
 cmake -S . -B build-asan -G Ninja -DENABLE_ASAN=ON -DCMAKE_BUILD_TYPE=Debug
-ninja -C build-asan
-ninja -C build-asan parallel-test
 ```
 
-The complete functional suite must also pass under ASAN.
-
-Every deadline in the suite is multiplied by `FYAI_TIMEOUT_SCALE`, which CMake
-sets to 3 for a sanitized tree and to 1 otherwise. A run raises it without
-reconfiguring:
-
-```sh
-FYAI_TIMEOUT_SCALE=4 ninja -C build parallel-test
-```
-
-Scale a deadline only. A value that paces a case, such as how long the PTY
-driver waits before it types, is a step of the case: scaling it changes what
-the case does.
-
-### Static builds
-
-- `FYAI_MOSTLY_STATIC`: statically link dependencies, but keep glibc, libm,
-  and the loader dynamic. This mode includes the glibc C23 compatibility
-  wrappers.
-- `FYAI_MUSL_STATIC`: build a fully static musl binary with the Docker static
-  builder.
-- `FYAI_STATIC`: use the legacy fully static host-libc mode only for controlled
-  same-host tests.
-
-Static dependency modes require `libfyaml.a`. Glibc modes also require static
-OpenSSL and zlib libraries. A mostly-static binary must list only libc, libm,
-and the loader in `ldd`. A musl-static binary must report that it is not a
-dynamic executable.
-
-### Terminal rendering tests
-
-Use libfyvterm when correctness depends on terminal cells, wrapping, cursor
-position, background fill, or SGR state. A PTY byte capture cannot prove these
-properties.
-
-Use two `struct fyvt_screen` screens. Feed direct libfymd4c output to one
-screen. Feed the same content through the libfytimui path to the other.
-Compare the complete stable row and adjacent blank rows. Inspect cells after
-the final glyph. Normalize colors with `fyvt_screen_convert_color_to_rgb()`
-and compare them with `fyvt_color_is_equal()`. Do not compare
-`union fyvt_color` with `memcmp()`.
-
-Make the new test fail before the fix. Register it as an individual CTest test.
-After the fix, run both the libfytimui and fyai suites. If renderer bytes are
-correct but cells differ, trace transport writes and later compositor cleanup.
+- Use ASAN for parser, storage, tool, event and YAML changes; the full
+  functional suite must pass under it. `FYAI_TIMEOUT_SCALE` scales deadlines
+  only, never pacing.
+- The unit binary links production sources except `main.c`; no stubs. Declare
+  tests with `FYAI_TEST_ENTRY(suite, name, entry)` in `tests/fyai_*_test.c`.
+- Functional cases are hermetic: localhost, private `HOME` and `XDG_*`.
+  Scope process searches to the run; never `pkill` a global pattern. A case
+  that kills fyai ends the programs it recorded.
+- PTY cases are YAML scripts for `fyai __pty-driver` via `pty_run`
+  (`doc/pty-driver.md`); no `FYAI_PTY_` variables (`tests/case-lint.sh`).
+  Wait on screen state (`wait-screen`, `wait-row`, `wait-gone`,
+  `wait-repaint`, `wait-copy`, `frame`), not raw bytes. A key that changes
+  nothing is sent in one `write` with the next key. Drivers read the PTY for
+  the whole run and answer DA1.
+- Never pace with a delay (`sleep`, scenario `delay`) unless the case tests a
+  wait. Order steps by state: `wait-file` on `served`, `mock_watch` +
+  `wait_requests N`, FIFOs outside the project, `tests/wait_exit.py`, mock
+  `wait_for:` markers (fail on `stream-wait-failed`), and `match` to select
+  replies.
+- Before pushing a PTY or timing change, run
+  `ctest --test-dir build -j96 --repeat until-fail:5`. Fix the order; do not
+  raise a deadline.
+- Static modes: `FYAI_MOSTLY_STATIC` (only libc, libm, loader in `ldd`),
+  `FYAI_MUSL_STATIC` (not a dynamic executable), `FYAI_STATIC` (legacy).
+- When correctness depends on cells, wrapping, cursor, fill or SGR, test with
+  libfyvterm: two `struct fyvt_screen`s, direct libfymd4c output vs the
+  libfytimui path; compare colours with `fyvt_screen_convert_color_to_rgb()`
+  and `fyvt_color_is_equal()`, never `memcmp()`. The test fails before the
+  fix and is its own CTest test; run both libfytimui and fyai suites.
 
 ## C style
 
-Use Linux kernel C style:
+Linux kernel style: hard tabs (8), kernel braces, locals at the start of the
+function and never inside branches or loops, `lower_snake_case`, uppercase
+CMake options with four-space indent, GNU C2x with `-Wall -Wextra
+-Wdeclaration-after-statement`, SPDX headers, no whitespace-only alignment
+changes. State ownership and non-obvious arena, mmap, atomic, durability and
+filesystem assumptions near the code.
 
-- Use hard tabs with 8-column stops.
-- Use kernel braces and spacing.
-- Declare local variables at the start of the function.
-- Do not declare variables inside branches or loops.
-- Use `lower_snake_case` for C names.
-- Use uppercase names for CMake options.
-- Use four spaces in CMake files.
-- Compile as GNU C2x with `-Wall -Wextra` and
-  `-Wdeclaration-after-statement`.
-- Add SPDX headers to new source files.
-- Avoid whitespace-only alignment changes.
-- State ownership and non-obvious arena, mmap, atomic, durability, and
-  filesystem assumptions near the code.
-
-Do not put an operation inside an error-check predicate. Run the operation,
-store its result, and then test the result:
+Do not put an operation inside an error-check predicate; store the result,
+then test it:
 
 ```c
 	rc = epoll_ctl(el->backend_fd, op, fd, &ee);
@@ -2473,101 +574,48 @@ store its result, and then test the result:
 			       "epoll_ctl: %s", strerror(errno));
 ```
 
-Do not write `fyai_event_error_check(el, !epoll_ctl(...), ...)`. Apply this
-rule to all error-check macros. If a subsystem reports through another handle,
-define one wrapper macro instead of repeating `->ctx`.
+Handle errors with `goto` to one label at the end that releases and returns.
+Use `fyai_error_check()` when a `ctx` is available; name labels for what
+they do when there are several. Define one wrapper macro for a subsystem
+that reports through another handle.
 
-Handle an error with a `goto` to one label at the end of the function, as the
-Linux kernel does. Do not free and return in each branch. Run the call, store
-the result, test it, and jump. The label releases what the function holds and
-returns the error:
-
-```c
-	rc = foo(x);
-	if (rc)
-		goto err_out;
-
-	return 0;
-err_out:
-	free(x);
-	return -1;
-```
-
-When a `ctx` is available, use `fyai_error_check()`: it reports the cause and
-jumps. Use a plain test and `goto` only where the failure is not a resource
-failure or is reported already. Name a label for what it does (`err_kill`,
-`err_respond`) when a function has more than one. A label that only returns
-can be a `return`.
-
-Use ASD-STE100 Simplified Technical English for changed documentation,
-retained comments, and commit messages.
+Use ASD-STE100 Simplified Technical English for documentation, comments and
+commit messages.
 
 ## Commits and patch series
 
-Use an imperative commit subject with a subsystem prefix, for example:
-
-```text
-cli: add interactive prompt mode
-```
-
-Use two or three short body lines. State what changed and why. Wrap at 80
-columns. End with exactly this trailer:
+Imperative subject with a subsystem prefix (`cli: add interactive prompt
+mode`), two or three short body lines (what and why), wrapped at 80, ending
+with exactly:
 
 ```text
 Signed-off-by: Pantelis Antoniou <pantelis.antoniou@konsulko.com>
 ```
 
-Do not add another attribution trailer.
-
-Make each patch one logical change. Build each intermediate patch. Keep these
-changes in separate patches and in this order:
-
-1. implementation;
-2. tests; and
-3. documentation.
-
-Fold a fix into the patch that introduced the defect. Do not add a later fixup
-patch. Remove temporary notes and revision history from the final series. Run
-the applicable tests after each test patch. Run normal and ASAN suites on the
-final patch. Run `git diff --check` on each patch.
+No other attribution trailer. One logical change per patch, each buildable,
+in the order implementation, tests, documentation. Fold fixes into the patch
+that introduced the defect. No temporary notes. Run `git diff --check` on
+each patch, tests after each test patch, and normal and ASAN suites on the
+final patch.
 
 ## Patch review workflow
 
-Review `master..devel` as a mail series. Before the first review, tag the tip as
-`start-of-review` and generate the series:
+Review `master..devel` as a mail series. Before the first review, tag the tip
+`start-of-review` and run `git format-patch -o x master..devel`.
 
-```sh
-git format-patch -o x master..devel
-```
-
-The reviewer writes notes that start with `panto>>` into numbered patch files.
-Before you rewrite commits, find every annotated file:
-
-```sh
-rg -l '^panto>>' x/[0-9][0-9][0-9][0-9]-*.patch
-```
-
-Move every annotated numbered file to `_ANNOTATED-NNNN-...patch`. Preserve all
-of them before you regenerate any numbered file. Never edit, replace, or
-remove an `_ANNOTATED` file.
-
-Fold each requested change into the commit represented by its patch. Carry
-interface and semantic changes through all later commits. Keep every
-intermediate commit buildable. Resolve commits again from the current series
-order after each history rewrite.
-
-When a patch is accepted, rename its preserved file to
-`_REVIEWED-NNNN-...patch`. Never edit or replace a `_REVIEWED` file. Remove
-only numbered patch files before you regenerate the series. Confirm that new
-numbered files contain no `panto>>` notes and that preserved files still
-contain their notes.
-
-Keep branch `reviewed` based on `master`. Apply accepted rewritten commits to
-it in order. Confirm that its tree matches `devel` at the last accepted patch.
-Then switch back to `devel`. Do not apply annotated mail files.
-
-Before regeneration, run `git diff --check master..devel`, build the normal
-tree, and run relevant tests. Run the complete ASAN suite after semantic or
-structural changes. Remove temporary checkpoint commits and safety tags when
-the rewrite is complete. Leave `devel` checked out. Do not change untracked
-review data except for the requested files under `x/`.
+- Notes start with `panto>>`. Before rewriting, find them with
+  `rg -l '^panto>>' x/[0-9][0-9][0-9][0-9]-*.patch` and move every annotated
+  file to `_ANNOTATED-NNNN-...patch` before regenerating anything. Never edit,
+  replace or remove `_ANNOTATED` or `_REVIEWED` files.
+- Fold each change into the commit of its patch and carry it through later
+  commits; keep each commit buildable; re-resolve commits after each rewrite.
+- An accepted patch's preserved file becomes `_REVIEWED-NNNN-...patch`. Remove
+  only numbered files before regenerating; confirm new files have no
+  `panto>>` notes and preserved files keep theirs.
+- Keep branch `reviewed` on `master` with accepted commits applied in order;
+  its tree matches `devel` at the last accepted patch. Never apply annotated
+  mail files. Switch back to `devel`.
+- Before regenerating: `git diff --check master..devel`, build, relevant
+  tests; full ASAN after semantic or structural changes. Remove checkpoint
+  commits and safety tags when done. Leave `devel` checked out. Touch no
+  untracked review data except the requested files under `x/`.
