@@ -281,8 +281,8 @@ int uimodel_bands(void)
 	struct fyai_uistores uistores = {};
 	struct fyai_screen screen = {};
 	struct fyai_ctx ctx = { .cfg = &cfg, .out = &fout, .uistores = &uistores, .screen = &screen };
-	/* The registry knows a band by its address only. */
-	char one, two, owner_a, owner_b, state[32] = "";
+	/* The registry knows a band, and a source its owner, by address only. */
+	char one = 0, two = 0, owner_a = 0, owner_b = 0, state[32] = "";
 	int rc;
 	struct fyai_sink_band *a = (struct fyai_sink_band *)&one;
 	struct fyai_sink_band *b = (struct fyai_sink_band *)&two;
@@ -298,8 +298,7 @@ int uimodel_bands(void)
 	FYAI_TCHECK(!strcmp(fy_get(band, "text", ""), "rows\n"));
 	FYAI_TCHECK(!strcmp(fy_get(band, "command", ""), "ls"));
 	/* The source of a stream replaces what was painted. */
-	fyai_uiwork_band_source(&ctx, a, &owner_a, "terminal", NULL, 8, true,
-				"ab", 2);
+	fyai_uiwork_band_source(&ctx, a, &owner_a, "terminal", NULL, 8, true, "ab", 2);
 	fyai_uiwork_band_source(&ctx, a, &owner_a, "terminal", NULL, 8, true,
 				"\rc", 2);
 	band = uimodel_band(&ctx, 0);

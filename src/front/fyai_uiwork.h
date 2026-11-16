@@ -41,6 +41,7 @@ void fyai_uiwork_band_paint(struct fyai_ctx *ctx, struct fyai_sink_band *band,
 /*
  * A fenced stream of @owner that paints @band was given @len bytes of source.
  * A stream that is not the owner of the source of the band starts it again.
+ * @owner is only compared; @format and @language are copied.
  */
 void fyai_uiwork_band_source(struct fyai_ctx *ctx, struct fyai_sink_band *band,
 			     const void *owner, const char *format,

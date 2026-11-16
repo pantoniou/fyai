@@ -19,7 +19,7 @@ struct uiwork_band {
 	bool shared;
 	char *title, *command;
 	char *rows;			/* a body painted in its final form */
-	const char *format;		/* a static string */
+	char *format;			/* a copy */
 	char *language;
 	size_t lines;			/* the rows a stream keeps */
 	bool indent;			/* under the indent of tool output */
@@ -101,6 +101,7 @@ static void uiwork_free(struct fyai_ctx *ctx, struct uiwork_band *b)
 	free(b->title);
 	free(b->command);
 	free(b->rows);
+	free(b->format);
 	free(b->language);
 	free(b->cause);
 	fy_generic_builder_destroy(b->view_gb);
@@ -121,7 +122,7 @@ static void uiwork_publish(struct fyai_ctx *ctx)
 			item = fy_mapping(gb, "id", b->id, "shared", b->shared,
 				"title", b->title ? b->title : "",
 				"command", b->command ? b->command : "",
-				"format", b->format);
+				"format", b->format ?: "rows");
 			if (b->view_gb) {
 				item = fy_assoc(gb, item,
 					"text", fy_get(b->view, "text", ""),
@@ -175,8 +176,8 @@ void fyai_uiwork_band_open(struct fyai_ctx *ctx, struct fyai_sink_band *band,
 	b->band = band;
 	b->id = ++w->next_id;
 	b->shared = shared;
-	b->format = "rows";
-	if ((title && uiwork_keep(ctx, &b->title, title, strlen(title))) ||
+	if (uiwork_keep(ctx, &b->format, "rows", 4) ||
+	    (title && uiwork_keep(ctx, &b->title, title, strlen(title))) ||
 	    (command && uiwork_keep(ctx, &b->command, command,
 				    strlen(command)))) {
 		uiwork_free(ctx, b);
@@ -230,7 +231,8 @@ void fyai_uiwork_band_source(struct fyai_ctx *ctx, struct fyai_sink_band *band,
 		if (!b->source)
 			return;
 		b->owner = owner;
-		b->format = format;
+		if (uiwork_keep(ctx, &b->format, format, strlen(format)))
+			return;
 		b->lines = lines;
 		b->indent = indent;
 		free(b->rows);
@@ -262,7 +264,8 @@ void fyai_uiwork_band_view(struct fyai_ctx *ctx, struct fyai_sink_band *band,
 	fy_generic_builder_destroy(b->view_gb);
 	b->view_gb = gb;
 	b->view = fy_gb_internalize(gb, view);
-	b->format = "tool-view";
+	if (uiwork_keep(ctx, &b->format, "tool-view", 9))
+		return;
 	free(b->rows);
 	b->rows = NULL;
 	uiwork_publish(ctx);
