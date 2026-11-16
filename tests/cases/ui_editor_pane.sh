@@ -12,6 +12,11 @@ set -eu
 . "$(dirname "$0")/../harness.sh"
 
 fyai_test_setup
+# The editor runs confined: it can read the scratch directory of the case and
+# not the directory of the mock, so the FIFO is made in the scratch directory,
+# which is outside the project.
+fyai_test_scratch
+MOCK_NOTIFY_DIR="$(mktemp -d "$TEST_SCRATCH/fyai-mock-XXXXXX")"
 
 session()
 {
