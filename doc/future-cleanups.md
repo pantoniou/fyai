@@ -11,6 +11,12 @@ Nothing keeps compatibility with old arenas or old interfaces.
 Status: plan. The measurement is done and one defect it found is fixed. No
 step of the split is done.
 
+Related designs: `doc/remote-sessions-sdd.md` (the protocol),
+`doc/fyai-background-sessions-sdd.md` (retained sessions, controller and
+watchers, protocol 2) and `doc/fyai-mobile-tailscale-sdd.md` (a web client with
+no arena and no terminal). The split is a client of the same worker as those
+two, so it takes their rules and adds none of its own to the protocol.
+
 An earlier version of this plan put the TUI in a second thread of the
 invocation. That needs two contexts, a loop context, a diagnostic context, a
 shared-memory channel and a safe `fork` with two threads. The plan now uses two
@@ -97,10 +103,13 @@ a worker that it forks.
    call that is neither is a defect of this step.
 4. Signals and lifecycle. The worker starts its own session (`setsid()`), so a
    key of the terminal reaches the client only, and the client sends
-   `interrupt`. An end of the channel ends the worker: it finishes the turn as
-   an interrupted one, commits and exits. A death of the worker makes the
-   client restore the terminal and print the cause. The client waits for the
-   worker and returns its status.
+   `interrupt`. The retention policy of the session decides what an end of the
+   channel does (background sessions, section 6.2). The local fork is an
+   ephemeral session: the worker finishes the turn as an interrupted one,
+   commits and exits, and it is never retained, so no resident process
+   appears. A session of `fyai serve` with `retention: server` keeps running.
+   A death of the worker makes the client restore the terminal and print the
+   cause. The client waits for the worker and returns its status.
 5. Diagnostics. The worker drains at its boundaries and sends the drain as log
    entries. The client reports its own faults to its terminal.
 6. A client with no arena. A client on another machine has no arena, so it
@@ -135,9 +144,12 @@ this order: implementation, tests, documentation.
    error. The capabilities (size of the window, colour depth, image
    input) and the interest of the client (see Interest below) go in the
    `initialize` request of the client, which carries only the model version
-   today, and in a frame at each change. Check each of the 68 keys against
-   the four kinds below. A client with no arena must work: add a
-   case that connects with an empty `HOME`.
+   today, and in a frame at each change. This lands with the protocol 2
+   change of the background sessions design (section 7), not as a second
+   bump of the protocol constant. The web client of the mobile design has no
+   arena and no terminal either, so the same request serves it. Check each of
+   the 68 keys against the four kinds below. A client with no arena must work:
+   add a case that connects with an empty `HOME`.
 6. Default. The split is the way of an interactive run. Remove the option, the
    in-process presentation of an interactive run and the `fyai_ui_*` calls of
    the core that nothing uses. This removes the blockers that the thread plan
@@ -157,6 +169,7 @@ keeps the plain sink. This plan does not change it.
 | Credentials | The worker holds them, and the client needs none. The transport of a worker with no server needs a check. |
 | A client that is slow | The flow control of section 5.3 applies. A store frame replaces the root. |
 | A stream that is off but a consumer needs it | A tool band that waits for an answer or a question must still reach the client: a question is an `ask` frame, never a stream. List the producers and check that none of them mixes presentation with a request. |
+| Order against the background sessions work | Both change the frames of `initialize` and the attachment. Steps 1 to 4 run on protocol 1 and the existing attach. Step 5 and the protocol 2 change land together, so a client is not changed twice. |
 | Memory | The client mirrors the model, so the live document is twice in memory, in two processes. Check with a long session. |
 | The start time | One fork more. Measure it with the local fork. |
 | Slash commands | A command runs in the worker, with `scope: view` as the exception. Its output reaches the client as a store frame. |
@@ -196,7 +209,9 @@ is not a key:
 3. Capability. What the TUI knows and the core needs: the size of the window
    for the size of a pseudo-terminal, image input, the colour depth. They go
    from the TUI to the core as a frame, at start and at each change. They are
-   never configuration.
+   never configuration. Only the controller of a session gives them: a watcher
+   cannot resize or send keys (background sessions R8, mobile design 9.5), so
+   its values are ignored.
 
 Interest. What a client wants the worker to make and send of the live
 presentation. A session that does not show the progress of a shell, the
@@ -220,9 +235,19 @@ model reads.
   the program still runs and the core still captures its output for the
   model. Only the copy for a tile stops, and a user that opens the tile later
   gets a fresh screen.
-- The set is per connection, so two clients of one worker may differ. The
-  default of the client is all streams on, and a file of the client (the view
-  file) can set the default for a person.
+- The set is per attachment, and the worker acts on the union. A session
+  has one controller and any watchers. A stream is made if any attachment
+  wants it, and each attachment gets only the streams it named. A phone that
+  watches a session for the transcript turns the terminal bytes off (the
+  mobile design leaves rich terminals to a later gate), and the controller on
+  the desktop keeps them on. When the last attachment that wants a stream
+  leaves, the worker stops making it. An attachment that turns a stream on
+  later gets a snapshot first.
+- A slow attachment is evicted from the stream, never from the session, and
+  never slows another one (background sessions R9). The interest of an
+  attachment does not outlive it. The defaults of the client are all streams
+  on, and a file of the client (the view file) can set the default for a
+  person.
 
 Place the view keys in a regular user configuration file, with a session
 layer in the TUI context, and not in an arena:
@@ -249,7 +274,9 @@ arena has no copy.
 Effects:
 
 - The `settings` tool and the model write access. A change of a view key
-  becomes a request frame to the TUI, which applies it. The keys keep a
+  becomes a request frame to the controller of the session, which applies it.
+  A watcher gets none, and a device scope that lacks control cannot make
+  one (mobile design 8.2). The keys keep a
   `review` access, because a key that hides the work of the model from the user
   must stay visible to the user. A headless run has no such keys to change.
 - Remote sessions. The client reads its own file, so the `display` frame that
