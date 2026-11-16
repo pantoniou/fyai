@@ -5715,6 +5715,25 @@ int fyai_ui_size(struct fyai_ctx *ctx, int *cols, int *rows)
 	return fytim_size(ui->ft, cols, rows) == FYTIM_OK ? 0 : -1;
 }
 
+/*
+ * The candidates of a completion came after the popup asked for them. Ask
+ * the popup again for the line that is typed, and draw it.
+ */
+void fyai_ui_completion_refresh(struct fyai_ctx *ctx)
+{
+	struct fyai_ui *ui = ctx && ctx->screen ? ctx->screen->ui : NULL;
+	enum fytim_result rc;
+
+	if (!ui || !ui->ft)
+		return;
+	rc = fytim_completion_refresh(ui->ft);
+	if (rc != FYTIM_OK) {
+		fyai_warning(ctx, "cannot refresh the completion popup");
+		return;
+	}
+	fyai_ui_wake(ctx);
+}
+
 /* Schedule a frame after a producer changes a surface. */
 void fyai_ui_wake(struct fyai_ctx *ctx)
 {

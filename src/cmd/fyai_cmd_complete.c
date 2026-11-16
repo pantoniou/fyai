@@ -713,6 +713,7 @@ struct complete_entry {
 	struct complete_cand *cands;
 	size_t n;
 	unsigned long long id;		/* the query in flight, or 0 */
+	bool asking;			/* the query is being made: answered now is in time */
 	bool ready;			/* the answer came */
 	bool complete;			/* it holds every candidate of the partial */
 };
@@ -792,10 +793,10 @@ static void complete_answered(void *arg, fy_generic answer)
 	/* An error leaves the entry with no candidates: the same word does not
 	 * ask again until the next line. */
 	if (!fy_is_sequence(rows) || !fy_len(rows))
-		return;
+		goto out;
 	e->cands = calloc(fy_len(rows), sizeof(*e->cands));
 	if (!e->cands)
-		return;
+		goto out;
 	fy_foreach(row, rows) {
 		value = fy_get(row, "value", "");
 		desc = fy_get(row, "description", "");
@@ -806,6 +807,10 @@ static void complete_answered(void *arg, fy_generic answer)
 	}
 	e->n = n;
 	e->complete = fy_is_null(fy_get(answer, "next", fy_null));
+out:
+	/* An answer that comes after the popup asked is given to it again. */
+	if (!e->asking)
+		fyai_ui_completion_refresh(complete_entry_ctx(e));
 }
 
 static void complete_entry_emit(struct complete_req *r,
@@ -884,7 +889,9 @@ static void complete_remote(struct complete_req *r, const char *kind,
 		params = fy_assoc(r->gb, params, "prev", prev);
 	request = fy_mapping(r->gb, "what", "complete", "params", params,
 			     "limit", (long long)COMPLETE_ROWS_MAX);
+	e->asking = true;
 	rc = fyai_uimodel_query(ctx, request, complete_answered, e, &e->id);
+	e->asking = false;
 	/* The owner of a mirror that answers at once is served at once. */
 	if (!rc && e->ready)
 		complete_entry_emit(r, e);
