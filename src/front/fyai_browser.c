@@ -23,6 +23,7 @@
 #include "fyai_turn.h"
 #include "fyai_ui.h"
 #include "fyai_uimodel.h"
+#include "fyai_query.h"
 #include "fyai_workpane.h"
 
 struct browser_row {
@@ -30,6 +31,13 @@ struct browser_row {
 	char *cwd;		/* the directory the session started in */
 	char *path;		/* source transcript for an unimported session */
 	char *title;
+	/* What the page draws of a branch: the owner of the arena gives it, so
+	 * that this process reads no entry. */
+	char *model;
+	char *description;
+	char *import_title;	/* the title of the session that the branch imports */
+	char *state;		/* the state of a live agent, or "" */
+	bool agent;		/* a sub-agent branch, stored or live */
 	uint64_t updated;	/* the time of its last entry */
 	long long turns;
 	long long tokens;
@@ -69,6 +77,15 @@ struct fyai_browser {
 	struct browser_row *rows;
 	size_t count, selected, top, offset;
 	fy_generic root, branches;
+	/* The branch tree comes from the owner of the arena by a query. */
+	long long rev;		/* of the tree shown; valid when @rev_known */
+	bool rev_known;
+	char *head;		/* the branch that HEAD names */
+	unsigned long long query;	/* the query in flight, or 0 */
+	bool querying;		/* a page of the tree is being asked for */
+	bool loaded;		/* the tree came at least once */
+	struct fy_generic_builder *tree_gb;	/* the pages that came */
+	fy_generic tree;
 	int64_t refreshed;
 	unsigned long generation;
 	bool dirty, closing;
@@ -109,6 +126,7 @@ struct fyai_browser {
 	char preview_branch[FYAI_BRANCH_NAME_MAX + 1];
 	unsigned long preview_generation;
 	fy_generic preview_root;
+	long long preview_rev;
 	uint64_t preview_updated;
 	int preview_rows, preview_cols;
 	enum fyai_sink_split preview_split;
@@ -208,6 +226,18 @@ static long long browser_session_tokens(fy_generic head)
 	return tokens;
 }
 
+static void browser_row_clear(struct browser_row *row)
+{
+	free(row->name);
+	free(row->cwd);
+	free(row->path);
+	free(row->title);
+	free(row->model);
+	free(row->description);
+	free(row->import_title);
+	free(row->state);
+}
+
 static const char *browser_foreign_id(const struct browser_row *row)
 {
 	const char *id;
@@ -230,17 +260,13 @@ static char *browser_foreign_diagram_label(const struct browser_row *row)
 	return label;
 }
 
-static char *browser_import_diagram_label(fy_generic import)
+static char *browser_import_diagram_label(const char *title)
 {
-	fy_generic title;
 	char *label, *p;
 
-	if (!fy_is_mapping(import))
+	if (!title || !*title)
 		return NULL;
-	title = fy_get(import, "title", fy_invalid);
-	if (!fy_is_string(title) || fy_empty(title))
-		return NULL;
-	if (asprintf(&label, "%s", fy_castp(&title, "")) < 0)
+	if (asprintf(&label, "%s", title) < 0)
 		return NULL;
 	for (p = label; *p; p++)
 		if (strchr("\"<>#%", *p))
@@ -322,6 +348,22 @@ static int browser_add_path(struct fyai_browser *b, const char *name,
  * Add each resumable session and its branch-name ancestors. The source order
  * identifies the initial session before the shared tree order is applied.
  */
+/* What the page draws of a stored branch, from its entry. */
+static void browser_row_entry(struct browser_row *row,
+			      const struct fyai_branch *branch)
+{
+	fy_generic title = fy_get(branch->import, "title", fy_invalid);
+
+	free(row->model);
+	free(row->description);
+	free(row->import_title);
+	row->model = strdup(fy_get(branch->config, "model", ""));
+	row->description = strdup(fy_castp((fy_generic *)&branch->description, ""));
+	row->import_title = fy_is_string(title) ?
+		strdup(fy_castp(&title, "")) : NULL;
+	row->agent = fy_is_valid(branch->agent);
+}
+
 static void browser_refresh_sessions(struct fyai_browser *b, char **newest)
 {
 	struct fy_generic_builder_cfg gbcfg = {
@@ -350,8 +392,10 @@ static void browser_refresh_sessions(struct fyai_browser *b, char **newest)
 			break;
 		b->rows[n].updated = (uint64_t)fy_get(row, "updated", 0LL);
 		b->rows[n].turns = fy_get(row, "turns", 0LL);
-		if (fyai_branch_lookup(b->branches, b->rows[n].name, &branch))
+		if (fyai_branch_lookup(b->branches, b->rows[n].name, &branch)) {
 			b->rows[n].tokens = browser_session_tokens(branch.head);
+			browser_row_entry(&b->rows[n], &branch);
+		}
 		stored = fy_get(row, "cwd", fy_invalid);
 		dir = fy_castp(&stored, "");
 		b->rows[n].cwd = dir && *dir ? strdup(dir) : NULL;
@@ -450,68 +494,17 @@ static void browser_foreign_scan(void *userdata)
 	}
 }
 
-static void browser_refresh(struct fyai_browser *b)
+/*
+ * The rows are made, in the order of the names: keep the selection and the
+ * folds of the rows that were there, and free those.
+ */
+static void browser_rows_finish(struct fyai_browser *b, struct browser_row *old,
+				size_t old_count, const char *selected,
+				const char *newest)
 {
-	struct browser_row *old = b->rows;
-	size_t old_count = b->count, old_selected = b->selected, i, j;
-	fy_generic root, name, entry;
-	fy_generic live;
-	struct fy_generic_builder_cfg config = {
-		.flags = FYGBCF_SCOPE_LEADER | FYGBCF_DEDUP_ENABLED,
-	};
-	struct fy_generic_builder *gb;
-	char *newest = NULL;
-	const char *selected;
+	size_t i, j;
 	bool restored = false;
-	int rc;
 
-	root = fyai_branches_snapshot(fyai_browser_ctx(b));
-	b->refreshed = fyai_event_now_ms();
-	if (fy_is_valid(root) && root.v == b->root.v &&
-	    !fyai_browser_ctx(b)->cfg->transient && b->generation == fyai_agents_generation(fyai_browser_ctx(b)))
-		return;
-	b->generation = fyai_agents_generation(fyai_browser_ctx(b));
-	b->root = root;
-	b->branches = fy_is_valid(root) && !fyai_browser_ctx(b)->cfg->transient ?
-		fy_get(root, "branches", fy_invalid) : fyai_browser_ctx(b)->bstate->branches;
-	/* The picker opens on the newest session: the branch HEAD names is not
-	 * what a user resuming a session is choosing between. */
-	selected = old_selected < old_count ? old[old_selected].name :
-		b->resume ? "" : fyai_ctx_branch(fyai_browser_ctx(b));
-	b->rows = NULL;
-	b->count = b->selected = 0;
-	if (b->resume) {
-		browser_refresh_sessions(b, &newest);
-		qsort(b->rows, b->count, sizeof(*b->rows), browser_compare);
-		goto sorted;
-	}
-	/* A row that cannot be made leaves a branch off the page, so the walk
-	 * stops at the first one and says so rather than drawing a table that
-	 * silently omits it. */
-	rc = 0;
-	fy_foreach_key_value(name, entry, b->branches) {
-		(void)entry;
-		/* browser_add_path() copies the name to split it. */
-		rc = browser_add_path(b, fy_castp(&name, ""), true, NULL);
-		if (rc)
-			goto incomplete;
-	}
-	gb = fy_generic_builder_create(&config);
-	browser_warn_check(b, gb, incomplete,
-			   "cannot read the live agents of the branch table");
-	live = fyai_agents_rows(fyai_browser_ctx(b), gb);
-	fy_foreach(entry, live) {
-		name = fy_get(entry, "branch", fy_invalid);
-		rc = browser_add(b, fy_castp(&name, ""), true);
-		if (rc)
-			break;
-	}
-	fy_generic_builder_destroy(gb);
-	if (rc)
-		goto incomplete;
-incomplete:
-	qsort(b->rows, b->count, sizeof(*b->rows), browser_compare);
-sorted:
 	for (i = 0; i < b->count; i++) {
 		if (!strcmp(b->rows[i].name, selected)) {
 			b->selected = i;
@@ -527,15 +520,204 @@ sorted:
 				b->selected = i;
 				break;
 			}
-	for (i = 0; i < old_count; i++) {
-		free(old[i].name);
-		free(old[i].cwd);
-		free(old[i].path);
-		free(old[i].title);
-	}
+	for (i = 0; i < old_count; i++)
+		browser_row_clear(&old[i]);
 	free(old);
-	free(newest);
 	b->dirty = true;
+}
+
+/* The name of the row that is selected, which the new rows look for. */
+static const char *browser_selected_name(struct fyai_browser *b)
+{
+	return b->selected < b->count ? b->rows[b->selected].name :
+	       b->resume ? "" : fyai_ctx_branch(fyai_browser_ctx(b));
+}
+
+/* The picker of sessions, read from the arena of this process. */
+static void browser_refresh_resume(struct fyai_browser *b)
+{
+	struct browser_row *old = b->rows;
+	size_t old_count = b->count;
+	const char *selected;
+	fy_generic root;
+	char *newest = NULL;
+
+	root = fyai_branches_snapshot(fyai_browser_ctx(b));
+	b->refreshed = fyai_event_now_ms();
+	if (fy_is_valid(root) && root.v == b->root.v &&
+	    !fyai_browser_ctx(b)->cfg->transient && b->generation == fyai_agents_generation(fyai_browser_ctx(b)))
+		return;
+	b->generation = fyai_agents_generation(fyai_browser_ctx(b));
+	b->root = root;
+	b->branches = fy_is_valid(root) && !fyai_browser_ctx(b)->cfg->transient ?
+		fy_get(root, "branches", fy_invalid) : fyai_browser_ctx(b)->bstate->branches;
+	free(b->head);
+	b->head = strdup(fy_get(root, "HEAD", ""));
+	/* The picker opens on the newest session: the branch HEAD names is not
+	 * what a user resuming a session is choosing between. */
+	selected = browser_selected_name(b);
+	b->rows = NULL;
+	b->count = b->selected = 0;
+	browser_refresh_sessions(b, &newest);
+	qsort(b->rows, b->count, sizeof(*b->rows), browser_compare);
+	browser_rows_finish(b, old, old_count, selected, newest);
+	free(newest);
+}
+
+/* Make a row of the tree: the name, and what the page draws of it. */
+static void browser_row_tree(struct browser_row *row, fy_generic from)
+{
+	const char *text;
+
+	free(row->model);
+	free(row->description);
+	free(row->import_title);
+	free(row->state);
+	row->updated = (uint64_t)fy_get(from, "updated", 0LL);
+	row->agent = fy_get(from, "agent", false);
+	text = fy_get(from, "model", "");
+	row->model = strdup(text);
+	text = fy_get(from, "description", "");
+	row->description = strdup(text);
+	text = fy_get(fy_get(from, "import", fy_invalid), "title", "");
+	row->import_title = *text ? strdup(text) : NULL;
+	text = fy_get(from, "state", "");
+	row->state = *text ? strdup(text) : NULL;
+}
+
+/* Build browser rows after all tree pages arrive. */
+static void browser_tree_apply(struct fyai_browser *b, fy_generic tree,
+			       const char *head)
+{
+	struct browser_row *old = b->rows;
+	size_t old_count = b->count, n;
+	fy_generic row, name;
+	const char *selected;
+	char *kept;
+
+	selected = browser_selected_name(b);
+	/* Copy the selection before freeing the old rows. */
+	kept = strdup(selected);
+	free(b->head);
+	b->head = strdup(head);
+	b->rows = NULL;
+	b->count = b->selected = 0;
+	/* A row that cannot be made leaves a branch off the page, so the walk
+	 * stops at the first one rather than drawing a table that silently
+	 * omits it. */
+	fy_foreach(row, tree) {
+		name = fy_get(row, "branch", fy_invalid);
+		/* browser_add_path() copies the name to split it. */
+		if (browser_add_path(b, fy_castp(&name, ""), true, &n))
+			break;
+		browser_row_tree(&b->rows[n], row);
+	}
+	qsort(b->rows, b->count, sizeof(*b->rows), browser_compare);
+	browser_rows_finish(b, old, old_count, kept ? kept : "", NULL);
+	free(kept);
+	b->loaded = true;
+}
+
+static void browser_tree_ask(struct fyai_browser *b, const char *after);
+
+/* A page of the tree came, or the answer that it did not change. */
+static void browser_tree_answer(void *arg, fy_generic answer)
+{
+	struct fyai_browser *b = arg;
+	fy_generic row, next, error = fy_get(answer, "error", fy_invalid);
+	const char *code;
+
+	b->query = 0;
+	if (fy_is_mapping(error)) {
+		b->querying = false;
+		code = fy_get(error, "code", "failed");
+		/* Restart pagination if the tree revision changes. */
+		if (!strcmp(code, "stale_cursor")) {
+			b->rev_known = false;
+			browser_tree_ask(b, NULL);
+			return;
+		}
+		fyai_warning(fyai_browser_ctx(b), "the branch tree: %s: %s", code,
+			     (const char *)fy_get(error, "message", "no cause"));
+		return;
+	}
+	if (fy_get(answer, "unchanged", false)) {
+		b->querying = false;
+		return;
+	}
+	fy_foreach(row, fy_get(answer, "rows", fy_seq_empty))
+		b->tree = fy_append(b->tree_gb, b->tree,
+				    fy_gb_internalize(b->tree_gb, row));
+	next = fy_get(answer, "next", fy_null);
+	if (fy_is_string(next)) {
+		browser_tree_ask(b, fy_castp(&next, ""));
+		return;
+	}
+	b->rev = fy_get(answer, "rev", 0LL);
+	b->rev_known = true;
+	browser_tree_apply(b, b->tree, fy_get(answer, "head", ""));
+	b->querying = false;
+	fy_generic_builder_reset(b->tree_gb);
+	b->tree = fy_seq_empty;
+}
+
+/*
+ * Ask the owner of the arena for the tree: the first page, or the one that
+ * follows @after. A tree that is still as the rev says comes as a word, and
+ * a tree that comes in pages is shown when the last one is here.
+ */
+static void browser_tree_ask(struct fyai_browser *b, const char *after)
+{
+	struct fy_generic_builder *gb;
+	fy_generic request;
+	int rc;
+
+	if (b->querying && !after)
+		return;
+	if (!b->tree_gb) {
+		b->tree_gb = fy_generic_builder_create(NULL);
+		if (!b->tree_gb) {
+			fyai_warning(fyai_browser_ctx(b), "cannot ask for the branch tree");
+			return;
+		}
+	}
+	gb = fy_generic_builder_create(NULL);
+	if (!gb) {
+		fyai_warning(fyai_browser_ctx(b), "cannot ask for the branch tree");
+		return;
+	}
+	if (!after) {
+		fy_generic_builder_reset(b->tree_gb);
+		b->tree = fy_seq_empty;
+	}
+	request = fy_mapping(gb, "what", "branch_tree", "limit",
+			     (long long)FYAI_QUERY_LIMIT_MAX);
+	if (after)
+		request = fy_assoc(gb, request, "after", after);
+	else if (b->rev_known)
+		request = fy_assoc(gb, request, "if_rev", b->rev);
+	b->refreshed = fyai_event_now_ms();
+	b->querying = true;
+	rc = fyai_uimodel_query(fyai_browser_ctx(b), request, browser_tree_answer,
+				b, &b->query);
+	if (rc)			/* the model says why */
+		b->querying = false;
+	fy_generic_builder_destroy(gb);
+}
+
+static void browser_refresh(struct fyai_browser *b)
+{
+	if (b->resume)
+		browser_refresh_resume(b);
+	else
+		browser_tree_ask(b, NULL);
+}
+
+/* Invalidate the data so the next refresh reloads it. */
+static void browser_invalidate(struct fyai_browser *b)
+{
+	b->root = fy_invalid;
+	b->rev_known = false;
 }
 
 static bool browser_visible(struct fyai_browser *b, size_t n)
@@ -810,7 +992,6 @@ static void browser_session_detail(struct fyai_browser *b, FILE *fp)
 static void browser_build(struct fyai_browser *b, size_t limit,
 			  struct browser_page *p)
 {
-	struct fyai_branch branch;
 	struct fy_generic_builder_cfg gbcfg = { .flags = FYGBCF_SCOPE_LEADER | FYGBCF_DEDUP_ENABLED };
 	struct fy_generic_builder *gb = NULL;
 	fy_generic graph_rows = fy_invalid;
@@ -879,7 +1060,7 @@ static void browser_build(struct fyai_browser *b, size_t limit,
 	}
 	fflush(fp);
 	p->header_len = len;
-	head = fy_get(b->root, "HEAD", "");
+	head = b->head ? b->head : "";
 	for (i = b->top, shown = 0; i < b->count && shown < limit; i++) {
 		if (!browser_visible(b, i))
 			continue;
@@ -898,27 +1079,21 @@ static void browser_build(struct fyai_browser *b, size_t limit,
 				"current", !strcmp(b->rows[i].name, fyai_ctx_branch(fyai_browser_ctx(b))),
 				"head", !strcmp(b->rows[i].name, head),
 				"collapsed", b->rows[i].collapsed,
-				"state", fyai_agents_state(fyai_browser_ctx(b), b->rows[i].name) ?
-					fyai_agents_state(fyai_browser_ctx(b), b->rows[i].name) : ""));
+				"state", b->rows[i].state ? b->rows[i].state : ""));
 		name = fyai_prompt_literal(b->rows[i].title && *b->rows[i].title ?
 			b->rows[i].title : b->rows[i].name);
 		child = i + 1 < b->count &&
 			fyai_branch_is_below(b->rows[i + 1].name, b->rows[i].name);
 		/* A grouping row stores no branch and reads as an empty one. */
-		memset(&branch, 0, sizeof(branch));
-		state = NULL;
-		if (!b->rows[i].foreign) {
-			(void)fyai_branch_lookup(b->branches, b->rows[i].name,
-						 &branch);
-			state = fyai_agents_state(fyai_browser_ctx(b), b->rows[i].name);
-		}
+		state = b->rows[i].foreign ? NULL : b->rows[i].state;
 		model = b->rows[i].foreign ?
 			fyai_prompt_literal(fyai_foreign_source_name(b->rows[i].source)) :
-			fyai_prompt_literal(fy_get(branch.config, "model", ""));
+			fyai_prompt_literal(b->rows[i].model ? b->rows[i].model : "");
 		description = b->rows[i].foreign ||
 			(b->resume && b->rows[i].title) ?
 			fyai_prompt_literal(browser_foreign_id(&b->rows[i])) :
-			fyai_prompt_literal(fy_castp(&branch.description, ""));
+			fyai_prompt_literal(b->rows[i].description ?
+					    b->rows[i].description : "");
 		if (b->rows[i].foreign && description && strlen(description) > 8)
 			description[8] = '\0';
 		fprintf(fp, "%s%s %s%s%s%s%s%s%s%s%s  \n",
@@ -928,7 +1103,7 @@ static void browser_build(struct fyai_browser *b, size_t limit,
 			!strcmp(b->rows[i].name, fyai_ctx_branch(fyai_browser_ctx(b))) ? " [current]" : "",
 			!strcmp(b->rows[i].name, head) ? " [HEAD]" : "",
 			b->rows[i].foreign ? "" : !b->rows[i].branch ? " [group]" :
-			state ? state : fy_is_valid(branch.agent) ? " [agent · stored]" : "",
+			state ? state : b->rows[i].agent ? " [agent · stored]" : "",
 			model && *model ? " · " : "", model ? model : "",
 			description && *description ? " · " : "",
 			description && *description ? description : "");
@@ -940,7 +1115,7 @@ static void browser_build(struct fyai_browser *b, size_t limit,
 			leaf = strrchr(b->rows[i].name, '/');
 			diagram_label = b->rows[i].foreign ?
 				browser_foreign_diagram_label(&b->rows[i]) :
-				browser_import_diagram_label(branch.import);
+				browser_import_diagram_label(b->rows[i].import_title);
 			if (!diagram_label && b->resume)
 				diagram_label = browser_native_diagram_label(&b->rows[i]);
 			/* treeView has no literal-label escape for these delimiters. */
@@ -963,7 +1138,7 @@ static void browser_build(struct fyai_browser *b, size_t limit,
 				!strcmp(b->rows[i].name, head) ? " [HEAD]" : "",
 				b->rows[i].foreign ? "" :
 				!b->rows[i].branch ? " [group]" : state ? state :
-				fy_is_valid(branch.agent) ? " [agent]" : "");
+				b->rows[i].agent ? " [agent]" : "");
 			free(diagram_label);
 		}
 		free(name);
@@ -974,9 +1149,11 @@ static void browser_build(struct fyai_browser *b, size_t limit,
 	b->drawn_count = b->drawn ? shown : 0;
 	if (!shown) {
 		fprintf(fp, b->resume ? "No sessions to resume.  \n" :
+			!b->loaded ? "Loading branches.  \n" :
 			"No matching branches.  \n");
 		if (diagram)
-			fprintf(diagram, "No matching branches.\n");
+			fprintf(diagram, b->loaded || b->resume ?
+				"No matching branches.\n" : "Loading branches.\n");
 	}
 	fclose(fp);
 	if (diagram) {
@@ -1333,12 +1510,12 @@ void fyai_browser_close(struct fyai_ctx *ctx)
 	if (b->resume && b->quit_on_cancel && !b->picked)
 		fyai_ui_quit_request(ctx);
 	fyai_ui_surface_close(ctx, b->surface);
-	for (i = 0; i < b->count; i++) {
-		free(b->rows[i].name);
-		free(b->rows[i].cwd);
-		free(b->rows[i].path);
-		free(b->rows[i].title);
-	}
+	if (b->query)
+		fyai_uimodel_query_cancel(ctx, b->query);
+	for (i = 0; i < b->count; i++)
+		browser_row_clear(&b->rows[i]);
+	fy_generic_builder_destroy(b->tree_gb);
+	free(b->head);
 	free(b->rows);
 	free(b->drawn);
 	free(b->diagram);
@@ -1521,7 +1698,7 @@ static void browser_key(struct fyai_browser *b, unsigned char c)
 					      browser_foreign_scan, b);
 			free(b->message);
 			b->message = NULL;
-			b->root = fy_invalid;
+			browser_invalidate(b);
 			browser_refresh(b);
 		}
 		return;
@@ -1539,7 +1716,7 @@ static void browser_key(struct fyai_browser *b, unsigned char c)
 	if (c == 'R') {
 		fyai_event_defer_cancel(fyai_ctx_loop(fyai_browser_ctx(b)),
 					browser_foreign_scan, b);
-		b->root = fy_invalid;
+		browser_invalidate(b);
 		browser_refresh(b);
 		if (b->resume) {
 			if (b->foreign != BROWSER_FOREIGN_OFF)
@@ -1673,6 +1850,25 @@ static bool browser_preview_style(struct fyai_browser *b, struct fyai_cfg *cfg,
 
 /* Render a read-only view of one branch through a capture sink. Returns the
  * captured Markdown source, which the caller owns. */
+/*
+ * The branch table that a view renders from: the arena of this process. The
+ * tree of the browser comes from a query and holds no entries, so a render
+ * reads the table when it needs one. A client with no arena has none.
+ */
+static fy_generic browser_table(struct fyai_browser *b)
+{
+	struct fyai_ctx *ctx = fyai_browser_ctx(b);
+	fy_generic root;
+
+	if (fy_is_mapping(b->branches))
+		return b->branches;
+	if (fyai_uimodel_mirrored(ctx))
+		return fy_invalid;
+	root = fyai_branches_snapshot(ctx);
+	return fy_is_valid(root) && !ctx->cfg->transient ?
+	       fy_get(root, "branches", fy_invalid) : ctx->bstate->branches;
+}
+
 static char *browser_capture(struct fyai_browser *b, char *name,
 			     char action, int cols, int rows)
 {
@@ -1685,7 +1881,7 @@ static char *browser_capture(struct fyai_browser *b, char *name,
 		.flags = FYGBCF_SCOPE_LEADER | FYGBCF_DEDUP_ENABLED,
 	};
 	struct fy_generic_builder *gb;
-	fy_generic data;
+	fy_generic data, table = browser_table(b);
 	const char *captured;
 	char *out = NULL;
 	size_t len = 0;
@@ -1694,7 +1890,7 @@ static char *browser_capture(struct fyai_browser *b, char *name,
 	int rc;
 
 	fyai_cfg_copy_muted(&cfg, fyai_browser_ctx(b)->cfg);
-	if (!fyai_branch_lookup(b->branches, name, &branch))
+	if (!fyai_branch_lookup(table, name, &branch))
 		return NULL;
 	gb = fy_generic_builder_create(&gbcfg);
 	browser_warn_check(b, gb, none, "cannot build the branch preview of %s", name);
@@ -1703,7 +1899,7 @@ static char *browser_capture(struct fyai_browser *b, char *name,
 	view.out->display_output = NULL;
 	view.screen->browser = NULL;
 	view.bstate->name = name;
-	view.bstate->branches = b->branches;
+	view.bstate->branches = table;
 	view.bstate->prev = branch.entry;
 	view.turn->last_message = branch.head;
 	fyai_transient_init(&transient);
@@ -1858,7 +2054,7 @@ static void browser_preview_update(struct fyai_browser *b, int cols, int rows)
 	name = row->name;
 	if (b->preview && !strcmp(b->preview_branch, name) &&
 	    b->preview_generation == b->generation &&
-	    b->preview_root.v == b->root.v &&
+	    b->preview_root.v == b->root.v && b->preview_rev == b->rev &&
 	    b->preview_updated == row->updated &&
 	    b->preview_cols == cols && b->preview_rows == rows)
 		return;
@@ -1869,6 +2065,7 @@ static void browser_preview_update(struct fyai_browser *b, int cols, int rows)
 	snprintf(b->preview_branch, sizeof(b->preview_branch), "%s", name);
 	b->preview_generation = b->generation;
 	b->preview_root = b->root;
+	b->preview_rev = b->rev;
 	b->preview_updated = row->updated;
 	b->preview_cols = cols;
 	b->preview_rows = rows;
@@ -1970,6 +2167,11 @@ void fyai_browser_step(struct fyai_ctx *ctx)
 			browser_message(b, "This branch has no reachable live owner.");
 		goto out;
 	}
+	/* The arena is the owner's: a change goes there as a command. */
+	if (fyai_uimodel_mirrored(ctx)) {
+		browser_message(b, "A client with no arena cannot change a branch yet.");
+		goto out;
+	}
 	if (fyai_ui_busy(ctx) || fyai_tools_active(ctx) || fyai_agents_attached(ctx)) {
 		browser_message(b, "Branch changes require idle model and tool work.");
 		goto out;
@@ -2069,7 +2271,7 @@ report:
 	}
 	if (!rc && (action == 'x' || action == 'm' || action == 'b'))
 		fyai_ui_repaint(ctx);
-	b->root = fy_invalid;
+	browser_invalidate(b);
 	browser_refresh(b);
 out:
 	b->dirty = true;
