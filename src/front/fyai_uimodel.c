@@ -11,6 +11,7 @@
 #include "fyai.h"
 #include "fyai_uidraw.h"
 #include "fyai_scratch.h"
+#include "fyai_query.h"
 #include "fyai_uimodel.h"
 #include "utils.h"
 
@@ -63,6 +64,8 @@ struct fyai_uimodel {
 	void *intent_data;
 	const struct fyai_uimodel_tile_ops *tiles;
 	void *tiles_data;
+	const struct fyai_uimodel_query_ops *queries;
+	void *queries_data;
 };
 
 static const char *const store_names[FYAI_UI_STORE_COUNT] = {
@@ -516,6 +519,52 @@ int fyai_uimodel_intent(struct fyai_ctx *ctx, const char *subtype,
 	if (!m || !m->mirror || !m->intent)
 		return -1;
 	return m->intent(m->intent_data, subtype, request);
+}
+
+void fyai_uimodel_mirror_queries(struct fyai_ctx *ctx,
+				 const struct fyai_uimodel_query_ops *ops,
+				 void *data)
+{
+	struct fyai_uimodel *m = uimodel(ctx);
+
+	if (!m)
+		return;
+	m->queries = ops;
+	m->queries_data = data;
+}
+
+int fyai_uimodel_query(struct fyai_ctx *ctx, fy_generic request,
+		       fyai_uimodel_answer_fn fn, void *arg,
+		       unsigned long long *idp)
+{
+	struct fyai_uimodel *m = uimodel(ctx);
+	struct fy_generic_builder *gb;
+	fy_generic answer;
+
+	if (idp)
+		*idp = 0;
+	if (m && m->mirror) {
+		fyai_error_check(ctx, m->queries, err,
+				 "the owner of the model does not answer queries");
+		return m->queries->start(m->queries_data, request, fn, arg, idp);
+	}
+	/* This process has the arena: the answer is here. */
+	gb = fy_generic_builder_create(NULL);
+	fyai_error_check(ctx, gb, err, "cannot make a builder for a query");
+	answer = fyai_query(ctx, gb, request);
+	fn(arg, answer);
+	fy_generic_builder_destroy(gb);
+	return 0;
+err:
+	return -1;
+}
+
+void fyai_uimodel_query_cancel(struct fyai_ctx *ctx, unsigned long long id)
+{
+	struct fyai_uimodel *m = uimodel(ctx);
+
+	if (id && m && m->mirror && m->queries && m->queries->cancel)
+		m->queries->cancel(m->queries_data, id);
 }
 
 void fyai_uimodel_view_detach(struct fyai_ctx *view,

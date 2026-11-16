@@ -193,6 +193,33 @@ int fyai_uimodel_intent(struct fyai_ctx *ctx, const char *subtype,
 			fy_generic request);
 
 /*
+ * A query of data that the owner of the arena holds
+ * (doc/future-cleanups.md, The data of the client). @request is {what, params,
+ * after, limit, if_rev}, borrowed for the call. @fn gets the answer, a
+ * mapping that the owner built: {what, rows, next, total, rev},
+ * {unchanged, rev} or {error: {code, message}}. The answer is borrowed for the
+ * call of @fn. The process that owns the arena answers before
+ * fyai_uimodel_query() returns. A mirror asks its owner, and @fn runs later
+ * from the event loop, never after fyai_uimodel_query_cancel() and never
+ * after the view of the mirror closed. *@idp, when it is not NULL, names the
+ * query for the cancel, and is 0 for a query that was answered. -1 when the
+ * query cannot be made, with a diagnostic.
+ */
+typedef void (*fyai_uimodel_answer_fn)(void *arg, fy_generic answer);
+struct fyai_uimodel_query_ops {
+	int (*start)(void *data, fy_generic request, fyai_uimodel_answer_fn fn,
+		     void *arg, unsigned long long *idp);
+	void (*cancel)(void *data, unsigned long long id);
+};
+void fyai_uimodel_mirror_queries(struct fyai_ctx *ctx,
+				 const struct fyai_uimodel_query_ops *ops,
+				 void *data);
+int fyai_uimodel_query(struct fyai_ctx *ctx, fy_generic request,
+		       fyai_uimodel_answer_fn fn, void *arg,
+		       unsigned long long *idp);
+void fyai_uimodel_query_cancel(struct fyai_ctx *ctx, unsigned long long id);
+
+/*
  * The components that a view context owns instead of sharing them with the
  * context it copies: it changes them to render one exchange, and the context
  * must not see that. The storage outlives the view.
