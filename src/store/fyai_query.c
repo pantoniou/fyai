@@ -11,12 +11,14 @@
 #include "fyai_browser.h"
 #include "fyai_cmd.h"
 #include "fyai_query.h"
+#include "fyai_turn.h"
 #include "fyai_storage.h"
 
 #define FYAI_MODULE FYAIEM_UNKNOWN
 
 static const char *const query_names[] = { "branches", "branch_tree",
-					   "branch_preview", "complete" };
+					   "branch_preview", "branch_turns",
+					   "complete" };
 
 const char *const *fyai_query_names(size_t *n)
 {
@@ -258,6 +260,84 @@ static fy_generic query_tree(struct fy_generic_builder *gb,
 			   tree_rows);
 }
 
+/* Estimate the size of a stored turn for the byte budget. */
+static size_t turn_bytes(fy_generic wire)
+{
+	fy_generic item;
+	size_t n = 64;
+
+	fy_foreach(item, fy_get(wire, "display_outputs", fy_seq_empty))
+		n += fy_len(fy_get(item, "markdown", fy_invalid)) +
+		     fy_len(fy_get(item, "text", fy_invalid)) + 64;
+	fy_foreach(item, fy_get(wire, "messages", fy_seq_empty))
+		n += fy_len(fy_get(item, "content", fy_invalid)) +
+		     fy_len(fy_get(item, "output", fy_invalid)) + 64;
+	return n;
+}
+
+/*
+ * The last turns of a branch, oldest first, as a client that has no arena
+ * renders its history from them: `branch_turns` {branch, depth}. The `rev`
+ * is the word of the entry of the branch, and `if_rev` answers a word.
+ */
+static fy_generic query_branch_turns(struct fy_generic_builder *gb,
+				     const struct fyai_query_source *src,
+				     fy_generic request)
+{
+	fy_generic params = fy_get(request, "params", fy_map_empty);
+	fy_generic if_rev = fy_get(request, "if_rev", fy_invalid);
+	fy_generic table = fy_is_mapping(src->branches) ? src->branches :
+			   fy_map_empty;
+	fy_generic turns = fy_seq_empty, wire, answer, display;
+	struct fyai_turn_stack stack = { 0 };
+	struct fyai_branch b;
+	const char *name = fy_get(params, "branch", "");
+	long long depth = fy_get(params, "depth", 8LL);
+	size_t i, begin, bytes = 0;
+	bool more;
+	int rc;
+
+	if (fy_str_empty(name))
+		return query_error(gb, FYAI_QUERY_BAD_REQUEST,
+				   "a query of turns names a branch");
+	if (!fyai_branch_lookup(table, name, &b))
+		return fy_mapping(gb, "what", "branch_turns", "found", false,
+				  "turns", fy_seq_empty);
+	if (fy_is_int(if_rev) && fy_get(request, "if_rev", 0LL) ==
+	    (long long)b.entry.v)
+		return fy_mapping(gb, "unchanged", true, "rev",
+				  fy_value(gb, (long long)b.entry.v));
+	if (depth < 1)
+		depth = 1;
+	if (depth > 64)
+		depth = 64;
+	rc = fyai_turn_stack_init(&stack, b.head, fy_invalid);
+	if (rc)
+		return query_error(gb, FYAI_QUERY_BAD_REQUEST,
+				   "the turns of the branch cannot be read");
+	begin = stack.count > (size_t)depth ? stack.count - (size_t)depth : 0;
+	/* The newest turns stay when the answer would pass its limit. */
+	for (i = stack.count; i > begin; i--) {
+		wire = fyai_turn_wire(gb, stack.items[i - 1]);
+		bytes += turn_bytes(wire);
+		if (i < stack.count && bytes > FYAI_QUERY_BYTES_MAX) {
+			begin = i;
+			break;
+		}
+	}
+	more = begin > 0;
+	for (i = begin; i < stack.count; i++)
+		turns = fy_append(gb, turns, fyai_turn_wire(gb, stack.items[i]));
+	fyai_turn_stack_cleanup(&stack);
+	/* Include the branch display settings for the client recap. */
+	answer = fy_mapping(gb, "what", "branch_turns", "found", true, "turns",
+			    turns, "more", more,
+			    "rev", fy_value(gb, (long long)b.entry.v));
+	display = fy_get(b.config, "display", fy_invalid);
+	return fy_is_mapping(display) ?
+	       fy_assoc(gb, answer, "display", display) : answer;
+}
+
 fy_generic fyai_query_answer(struct fy_generic_builder *gb,
 			     const struct fyai_query_source *src,
 			     fy_generic request)
@@ -272,6 +352,8 @@ fy_generic fyai_query_answer(struct fy_generic_builder *gb,
 		return query_branches(gb, src, request);
 	if (!strcmp(what, "branch_tree"))
 		return query_tree(gb, src, request);
+	if (!strcmp(what, "branch_turns"))
+		return query_branch_turns(gb, src, request);
 	return query_error(gb, FYAI_QUERY_UNSUPPORTED,
 			   "this worker does not answer that query");
 }
