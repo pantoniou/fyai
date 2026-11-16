@@ -963,6 +963,65 @@ commands:
           x-fyai-surfaces: [cli]
           x-fyai-hidden: true
 
+  - command: query
+    scope: view
+    title: ask for rows of data of the arena
+    description: |
+      Ask the process that owns the arena for a page of rows of `WHAT`: this
+      process, or the worker of a session. The answer has the `rows`, `next`,
+      the cursor of the following page, `total`, and `rev`, the generation of
+      the data. A query with `--after` and the cursor gives the next page, and
+      fails with `stale_cursor` when the data changed since. A query with
+      `--if-rev` and a `rev` answers `unchanged` when the data is as it was.
+      A client that has no arena asks for what it shows in the same way.
+    surfaces: [cli, session]
+    handler: query
+    mode: async
+    flags: [transient]
+    view: true
+    while_busy: run
+    examples:
+      - args: query branches --limit 20
+        text: the 20 newest branches of this directory
+      - args: query branches --all --output json
+        text: every branch, as JSON
+    arguments:
+      type: object
+      additionalProperties: false
+      properties:
+        what:
+          type: string
+          enum: [branches]
+          default: branches
+          description: the data to ask for
+          x-fyai-positional: 0
+          x-fyai-meta: WHAT
+        limit:
+          type: integer
+          minimum: 1
+          maximum: 1000
+          description: the most rows of the page (default 200)
+          x-fyai-meta: N
+        after:
+          type: string
+          description: the cursor `next` of the page before
+          x-fyai-meta: CURSOR
+        if_rev:
+          type: integer
+          description: answer `unchanged` when the data still has this `rev`
+          x-fyai-long: if-rev
+          x-fyai-meta: REV
+        all:
+          type: boolean
+          description: the branches of every directory, not of this one
+        dir:
+          type: string
+          description: the branches that started in this directory
+          x-fyai-meta: DIR
+          x-fyai-complete: dir
+    render:
+      document: yaml
+
   - command: diff
     title: compare two ref-log entries
     description: |

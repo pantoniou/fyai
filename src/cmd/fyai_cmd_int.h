@@ -150,6 +150,7 @@ int fyai_cmd_api(struct fyai_cmd_call *call, fy_generic *result);
 int fyai_cmd_context(struct fyai_cmd_call *call, fy_generic *result);
 int fyai_cmd_stats(struct fyai_cmd_call *call, fy_generic *result);
 int fyai_cmd_list(struct fyai_cmd_call *call, fy_generic *result);
+int fyai_cmd_query(struct fyai_cmd_call *call, fy_generic *result);
 int fyai_cmd_diff(struct fyai_cmd_call *call, fy_generic *result);
 int fyai_cmd_root(struct fyai_cmd_call *call, fy_generic *result);
 int fyai_cmd_join(struct fyai_cmd_call *call, fy_generic *result);

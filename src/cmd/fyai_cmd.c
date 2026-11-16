@@ -92,6 +92,7 @@ static const struct {
 	{ "context",		fyai_cmd_context },
 	{ "stats",		fyai_cmd_stats },
 	{ "list",		fyai_cmd_list },
+	{ "query",		fyai_cmd_query },
 	{ "diff",		fyai_cmd_diff },
 	{ "root",		fyai_cmd_root },
 	{ "join",		fyai_cmd_join },

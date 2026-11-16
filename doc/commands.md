@@ -658,6 +658,50 @@ In a session, `sessions` lists the live shells and sub-agents, and
 | `--output FORMAT` | write the result as markdown, json, or yaml; see `help output` |
 | `-h`, `--help` | show this help |
 
+## fyai query
+
+ask for rows of data of the arena
+
+**Usage:** `fyai query [--limit N] [--after CURSOR] [--if-rev REV] [--all] [--dir DIR] [WHAT]`
+
+Ask the process that owns the arena for a page of rows of `WHAT`: this
+process, or the worker of a session. The answer has the `rows`, `next`,
+the cursor of the following page, `total`, and `rev`, the generation of
+the data. A query with `--after` and the cursor gives the next page, and
+fails with `stale_cursor` when the data changed since. A query with
+`--if-rev` and a `rev` answers `unchanged` when the data is as it was.
+A client that has no arena asks for what it shows in the same way.
+
+
+### Arguments
+
+| Argument | Description |
+| --- | --- |
+| `WHAT` | the data to ask for (branches); default branches |
+
+### Options
+
+| Option | Description |
+| --- | --- |
+| `--limit N` | the most rows of the page (default 200) |
+| `--after CURSOR` | the cursor `next` of the page before |
+| `--if-rev REV` | answer `unchanged` when the data still has this `rev` |
+| `--all` | the branches of every directory, not of this one |
+| `--dir DIR` | the branches that started in this directory |
+| `--output FORMAT` | write the result as markdown, json, or yaml; see `help output` |
+| `-h`, `--help` | show this help |
+
+### Examples
+
+    fyai query branches --limit 20
+
+the 20 newest branches of this directory
+
+    fyai query branches --all --output json
+
+every branch, as JSON
+
+
 ## fyai diff
 
 compare two ref-log entries
@@ -4180,6 +4224,49 @@ In a session, `sessions` lists the live shells and sub-agents, and
 | --- | --- |
 | `--full` | include the details of each item |
 | `-h`, `--help` | show this help |
+
+## /query
+
+ask for rows of data of the arena
+
+**Usage:** `/query [--limit N] [--after CURSOR] [--if-rev REV] [--all] [--dir DIR] [WHAT]`
+
+Ask the process that owns the arena for a page of rows of `WHAT`: this
+process, or the worker of a session. The answer has the `rows`, `next`,
+the cursor of the following page, `total`, and `rev`, the generation of
+the data. A query with `--after` and the cursor gives the next page, and
+fails with `stale_cursor` when the data changed since. A query with
+`--if-rev` and a `rev` answers `unchanged` when the data is as it was.
+A client that has no arena asks for what it shows in the same way.
+
+
+### Arguments
+
+| Argument | Description |
+| --- | --- |
+| `WHAT` | the data to ask for (branches); default branches |
+
+### Options
+
+| Option | Description |
+| --- | --- |
+| `--limit N` | the most rows of the page (default 200) |
+| `--after CURSOR` | the cursor `next` of the page before |
+| `--if-rev REV` | answer `unchanged` when the data still has this `rev` |
+| `--all` | the branches of every directory, not of this one |
+| `--dir DIR` | the branches that started in this directory |
+| `-h`, `--help` | show this help |
+
+### Examples
+
+    /query branches --limit 20
+
+the 20 newest branches of this directory
+
+    /query branches --all --output json
+
+every branch, as JSON
+
 
 ## /diff
 
