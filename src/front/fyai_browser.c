@@ -91,6 +91,7 @@ struct fyai_browser {
 	struct browser_ask {
 		unsigned long long id;	/* the query in flight, or 0 */
 		char branch[FYAI_BRANCH_NAME_MAX + 1];
+		char action;
 		int cols, rows;
 		uint64_t updated;
 		long long rev;
@@ -1901,14 +1902,33 @@ static fy_generic browser_table(struct fyai_browser *b)
  * the configuration of @ctx has colour. The caller owns it. A process that
  * has the arena renders for a client that has none.
  */
+static char *browser_render(struct fyai_ctx *ctx, fy_generic table,
+			    const char *name, const struct fyai_branch *branchp,
+			    char action, int cols, int rows);
+
 char *fyai_browser_capture(struct fyai_ctx *ctx, fy_generic table,
 			   const char *name, char action, int cols, int rows)
+{
+	struct fyai_branch branch;
+
+	if (!fyai_branch_lookup(table, name, &branch))
+		return NULL;
+	return browser_render(ctx, table, name, &branch, action, cols, rows);
+}
+
+/*
+ * Render @branchp, which a lookup of @table gave or a replica of the turns of
+ * a branch makes, as fyai_browser_capture() does.
+ */
+static char *browser_render(struct fyai_ctx *ctx, fy_generic table,
+			    const char *name, const struct fyai_branch *branchp,
+			    char action, int cols, int rows)
 {
 	struct fyai_ctx view = *ctx;
 	struct fyai_cfg cfg;
 	struct fyai_transient transient;
 	struct fyai_view_own own;
-	struct fyai_branch branch;
+	const struct fyai_branch branch = *branchp;
 	struct fy_generic_builder_cfg gbcfg = {
 		.flags = FYGBCF_SCOPE_LEADER | FYGBCF_DEDUP_ENABLED,
 	};
@@ -1922,8 +1942,6 @@ char *fyai_browser_capture(struct fyai_ctx *ctx, fy_generic table,
 	int rc;
 
 	fyai_cfg_copy_muted(&cfg, ctx->cfg);
-	if (!fyai_branch_lookup(table, name, &branch))
-		return NULL;
 	gb = fy_generic_builder_create(&gbcfg);
 	capture_warn_check(ctx, gb, none, "cannot build the branch preview of %s", name);
 	view.cfg = &cfg;
@@ -2102,18 +2120,58 @@ out:
 	return out;
 }
 
+/*
+ * The text of an answer: a render that the owner made, or the turns that it
+ * gave, which this process renders itself, as it renders its history. The
+ * owner has no display records to recap, and the client has the renderer.
+ * The caller owns the text; NULL when there is none.
+ */
+static char *browser_answer_text(struct fyai_browser *b,
+				 const struct browser_ask *ask, fy_generic answer)
+{
+	struct fy_generic_builder *gb;
+	struct fyai_branch branch;
+	fy_generic turn, head = fy_null;
+	char *text;
+
+	if (fy_is_mapping(fy_get(answer, "error", fy_invalid)) ||
+	    !fy_get(answer, "found", false))
+		return NULL;
+	if (!fy_is_sequence(fy_get(answer, "turns", fy_invalid))) {
+		text = strdup(fy_get(answer, "text", ""));
+		return text;
+	}
+	gb = fy_generic_builder_create(NULL);
+	if (!gb)
+		return NULL;
+	/* A chain of the turns, the newest last, as the history of a client. */
+	fy_foreach(turn, fy_get(answer, "turns", fy_seq_empty))
+		head = fy_gb_internalize(gb, fy_mapping(gb, "messages",
+			fy_get(turn, "messages", fy_seq_empty), "display_outputs",
+			fy_get(turn, "display_outputs", fy_seq_empty),
+			"previous", head));
+	fyai_branch_decode(fy_invalid, &branch);
+	branch.head = fy_is_null(head) ? fy_invalid : head;
+	if (fy_is_mapping(fy_get(answer, "display", fy_invalid)))
+		branch.config = fy_mapping(gb, "display",
+					   fy_get(answer, "display"));
+	text = browser_render(fyai_browser_ctx(b), fy_invalid, ask->branch, &branch,
+			      ask->action, ask->cols, ask->rows);
+	fy_generic_builder_destroy(gb);
+	return text;
+}
+
 static void browser_preview_answered(void *arg, fy_generic answer)
 {
 	struct fyai_browser *b = arg;
-	const char *text;
+	char *text;
 
 	b->preview_ask.id = 0;
-	if (fy_is_mapping(fy_get(answer, "error", fy_invalid)) ||
-	    !fy_get(answer, "found", false))
+	text = browser_answer_text(b, &b->preview_ask, answer);
+	if (!text)
 		return;
-	text = fy_get(answer, "text", "");
 	free(b->preview);
-	b->preview = strdup(text);
+	b->preview = text;
 	snprintf(b->preview_branch, sizeof(b->preview_branch), "%s",
 		 b->preview_ask.branch);
 	b->preview_generation = b->generation;
@@ -2129,15 +2187,14 @@ static void browser_preview_answered(void *arg, fy_generic answer)
 static void browser_details_answered(void *arg, fy_generic answer)
 {
 	struct fyai_browser *b = arg;
-	const char *text;
+	char *text;
 
 	b->details_ask.id = 0;
-	if (fy_is_mapping(fy_get(answer, "error", fy_invalid)) ||
-	    !fy_get(answer, "found", false))
+	text = browser_answer_text(b, &b->details_ask, answer);
+	if (!text)
 		return;
-	text = fy_get(answer, "text", "");
 	free(b->details);
-	b->details = strdup(text);
+	b->details = text;
 	b->offset = 0;
 	b->dirty = true;
 	fyai_ui_wake(fyai_browser_ctx(b));
@@ -2162,14 +2219,22 @@ static void browser_render_ask(struct fyai_browser *b, struct browser_ask *ask,
 	gb = fy_generic_builder_create(NULL);
 	if (!gb)
 		return;
-	params = fy_mapping(gb, "branch", name, "action", act, "cols",
-			    (long long)cols, "rows", (long long)rows);
-	if (ctx->cfg->color)
-		params = fy_assoc(gb, params, "color", ctx->cfg->color);
-	if (ctx->cfg->theme_variant)
-		params = fy_assoc(gb, params, "theme_variant",
-				  ctx->cfg->theme_variant);
-	request = fy_mapping(gb, "what", "branch_preview", "params", params);
+	if (action == 'p' || action == 't') {
+		/* The recap is drawn from the turns, here. */
+		params = fy_mapping(gb, "branch", name, "depth",
+				    action == 't' ? 10LL : (long long)(rows / 2 + 3));
+		request = fy_mapping(gb, "what", "branch_turns", "params", params);
+	} else {
+		params = fy_mapping(gb, "branch", name, "action", act, "cols",
+				    (long long)cols, "rows", (long long)rows);
+		if (ctx->cfg->color)
+			params = fy_assoc(gb, params, "color", ctx->cfg->color);
+		if (ctx->cfg->theme_variant)
+			params = fy_assoc(gb, params, "theme_variant",
+					  ctx->cfg->theme_variant);
+		request = fy_mapping(gb, "what", "branch_preview", "params", params);
+	}
+	ask->action = action;
 	snprintf(ask->branch, sizeof(ask->branch), "%s", name);
 	ask->cols = cols;
 	ask->rows = rows;
