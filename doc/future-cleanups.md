@@ -308,12 +308,18 @@ session, until the default step removes it, calls the same function directly.
    - Merge and rebase from the browser (CLI commands only), and `list_long`: the
      output of a `view` command of the worker goes to a pane of the client and
      not to its scrollback.
-   - The browser of a process with the arena hangs if it is closed, opened and
-     closed again after a change (checked on a build before this work), so the
-     case leaves the reopen out.
-   - Workers outlive a client that is killed: 13 stood after the cases that
-     time out, and 5 kept running after SIGTERM. The worker has to end on the
-     end of its channel (step 3).
+   - A line typed at once after the second Escape of a browser that was opened,
+     changed and opened again is not taken, with or without a worker (checked on
+     a build before this work). The process is not hung: it waits at its prompt,
+     and a wait of three frames before the line takes it. The case leaves the
+     reopen out.
+   - Done: a worker ended with its client only when it was idle. A question
+     that waited for an answer, and a wait that the model asked for, kept the
+     worker for good (13 stood after the cases that time out, and none ended
+     on SIGTERM). The connection now calls the worker when it closes, and the
+     worker settles its questions, interrupts the turn, and asks the waits to
+     look. `split_worker_asked` and `split_worker_waiting` kill the client
+     while the worker waits; each fails without the fix.
 5. The PTY cases of the branch and resume family (`ui_branch_*`,
    `ui_resume_*`) pass in split mode.
 
