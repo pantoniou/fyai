@@ -3317,6 +3317,7 @@ enum {
 	OPT_PROJECT,
 	OPT_REMOTE,
 	OPT_SINK_FRAMES,
+	OPT_SPLIT,
 };
 
 static const struct option long_options[] = {
@@ -3334,6 +3335,7 @@ static const struct option long_options[] = {
 	{ "project", required_argument, NULL, OPT_PROJECT },
 	{ "remote", required_argument, NULL, OPT_REMOTE },
 	{ "sink-frames", no_argument, NULL, OPT_SINK_FRAMES },
+	{ "split", no_argument, NULL, OPT_SPLIT },
 	{ "sandbox", required_argument, NULL, OPT_SANDBOX },
 	{ "color", required_argument, NULL, OPT_COLOR },
 	{ "theme", required_argument, NULL, OPT_THEME },
@@ -4021,8 +4023,13 @@ static int config_parse_cli_options(struct fyai_cfg *cfg, int argc, char *argv[]
 			break;
 		case OPT_PROJECT:
 		case OPT_REMOTE:
+		case OPT_SPLIT:
 			if (opt == OPT_PROJECT) {
 				cfg->project = fy_gb_intern_string(cfg->gb, optarg);
+			} else if (opt == OPT_SPLIT) {
+				/* The words of --remote, to a worker of this process. */
+				cfg->remote = true;
+				cfg->split = true;
 			} else {
 				/* "." is the server that this directory finds. */
 				cfg->remote = true;

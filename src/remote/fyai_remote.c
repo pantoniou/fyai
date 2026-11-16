@@ -213,6 +213,8 @@ struct remote_client {
 	struct fyai_remote_ui *view;	/* the full-screen client, or NULL */
 	int fd;
 	pid_t ssh;			/* the ssh child of an ssh:// target, or -1 */
+	bool split;			/* worker is a direct child */
+	int worker_err;			/* the standard error of that worker */
 	bool failed;
 	enum remote_phase phase;
 	/* The id of the control request in flight, and its answer when it came. */
@@ -687,6 +689,132 @@ static int remote_hello(struct remote_client *client)
 		"protocol", FYAI_REMOTE_PROTOCOL, "features", features));
 }
 
+/* The most of the standard error of a worker that is kept for a report. */
+#define REMOTE_SPLIT_ERR_MAX	4096
+
+/*
+ * Start the worker of a session of this process: a program that speaks the
+ * frames of `fyai serve` on a socketpair, with no server between. It has its
+ * own session, so no key of the terminal reaches it, and no terminal: its
+ * standard error is kept and reported if it fails.
+ */
+static int remote_split_open(struct remote_client *client)
+{
+	struct fyai_ctx *ctx = remote_client_ctx(client);
+	struct fyai_cfg *cfg = ctx->cfg;
+	int sv[2] = { -1, -1 }, err = -1, rc;
+	char **args = NULL, *self = NULL;
+	const char *word;
+	size_t n = 0, i = 0;
+	pid_t pid;
+
+	self = realpath(cfg->argv[0], NULL);
+	fyai_error_check(ctx, self || !strchr(cfg->argv[0], '/'), out,
+			 "cannot resolve the executable '%s': %s", cfg->argv[0],
+			 strerror(errno));
+	args = calloc(cfg->remote_globals + 6, sizeof(*args));
+	fyai_error_check(ctx, args, out, "cannot allocate the arguments of a worker");
+	args[n++] = self ? self : (char *)cfg->argv[0];
+	fy_foreach(word, cfg->remote_args) {
+		if (i++ >= cfg->remote_globals)
+			break;
+		args[n++] = (char *)word;
+	}
+	args[n++] = "claude-sdk";
+	args[n++] = "--remote-worker";
+	args[n++] = "--session-type";
+	args[n++] = "fyai";
+	rc = fyai_remote_socketpair(SOCK_STREAM, sv);
+	fyai_error_check(ctx, !rc, out, "cannot make the channel of a worker: %s",
+			 strerror(errno));
+	if (fyai_host_memfd_available())
+		err = fyai_host_memfd("fyai-worker-error", true);
+	if (err < 0)
+		err = open("/dev/null", O_WRONLY | O_CLOEXEC);
+	fyai_error_check(ctx, err >= 0, out,
+			 "cannot keep the standard error of a worker: %s",
+			 strerror(errno));
+	pid = fork();
+	fyai_error_check(ctx, pid >= 0, out, "cannot fork a worker: %s",
+			 strerror(errno));
+	if (!pid) {
+		if ((cfg->project && chdir(cfg->project)) || setsid() < 0 ||
+		    dup2(sv[1], STDIN_FILENO) < 0 ||
+		    dup2(sv[1], STDOUT_FILENO) < 0 ||
+		    dup2(err, STDERR_FILENO) < 0)
+			_exit(126);
+		fyai_close_fds_from(STDERR_FILENO + 1);
+		fyai_loop_restore_signal_mask(ctx->loop);
+		signal(SIGPIPE, SIG_DFL);
+		execvp(args[0], args);
+		_exit(127);
+	}
+	client->split = true;
+	client->ssh = pid;
+	client->fd = sv[0];
+	client->worker_err = err;
+	sv[0] = -1;
+	err = -1;
+	client->peer = jsonrpc_conn_socket(ctx, client->fd, 0, "remote worker", NULL);
+	fyai_error_check(ctx, client->peer, out, "cannot open the channel of a worker");
+	jsonrpc_conn_expect_close(client->peer);
+	/* Both peers use this program and support images from startup. */
+	(void)jsonrpc_conn_set_image(client->peer);
+	rc = jsonrpc_conn_frames(client->peer, remote_output, client);
+	fyai_error_check(ctx, !rc, out, "cannot receive frames from the worker");
+	free(args);
+	free(self);
+	close(sv[1]);
+	return 0;
+out:
+	free(args);
+	free(self);
+	if (sv[0] >= 0)
+		close(sv[0]);
+	if (sv[1] >= 0)
+		close(sv[1]);
+	if (err >= 0)
+		close(err);
+	return -1;
+}
+
+/*
+ * Wait for the worker that ended with the channel, and report what it wrote
+ * to its standard error if it did not end well.
+ */
+static void remote_split_reap(struct remote_client *client)
+{
+	struct fyai_ctx *ctx = remote_client_ctx(client);
+	char text[REMOTE_SPLIT_ERR_MAX + 1];
+	int status = 0, rc;
+	ssize_t got = 0;
+
+	if (client->ssh > 0) {
+		do {
+			rc = waitpid(client->ssh, &status, 0);
+		} while (rc < 0 && errno == EINTR);
+		if (rc < 0)
+			status = 0;
+	}
+	client->ssh = -1;
+	if (client->worker_err >= 0) {
+		got = pread(client->worker_err, text, REMOTE_SPLIT_ERR_MAX, 0);
+		close(client->worker_err);
+	}
+	client->worker_err = -1;
+	if (!status)
+		return;
+	if (got < 0)
+		got = 0;
+	text[got] = '\0';
+	if (WIFEXITED(status))
+		fyai_error(ctx, "the worker ended with status %d%s%s",
+			   WEXITSTATUS(status), got ? ": " : "", text);
+	else
+		fyai_error(ctx, "the worker ended on signal %d%s%s",
+			   WTERMSIG(status), got ? ": " : "", text);
+}
+
 static void remote_client_close(struct remote_client *client)
 {
 	fyai_event_interrupt_ack(remote_client_ctx(client)->loop);
@@ -697,7 +825,9 @@ static void remote_client_close(struct remote_client *client)
 	if (client->fd >= 0)
 		close(client->fd);
 	client->fd = -1;
-	if (client->ssh > 0) {
+	if (client->split)
+		remote_split_reap(client);
+	else if (client->ssh > 0) {
 		/* The end of the channel ends the bridge, and ssh with it. */
 		kill(client->ssh, SIGTERM);
 		while (waitpid(client->ssh, NULL, 0) < 0 && errno == EINTR)
@@ -1050,6 +1180,27 @@ static char *remote_run_endpoint(struct fyai_ctx *ctx)
 	return fyai_remote_socket_path(ctx, NULL, true, false);
 }
 
+/* An interactive session whose worker is a child of this process. */
+static int remote_split_run(struct fyai_cmd_call *call)
+{
+	struct fyai_ctx *ctx = fyai_cmd_call_ctx(call);
+	struct fyai_cfg *cfg = ctx->cfg;
+	struct remote_client client = { .ctx = ctx, .gb = call->gb, .fd = -1,
+		.ssh = -1, .worker_err = -1 };
+	int rc = -1;
+
+	fyai_error_check(ctx, cfg->interactive, out,
+			 "--split runs an interactive session: give no command line");
+	fyai_error_check(ctx, fy_is_invalid(cfg->remote_resume), out,
+			 "--split does not take a resume yet");
+	if (remote_split_open(&client))
+		goto out;
+	rc = remote_view_run(&client, false);
+out:
+	remote_client_close(&client);
+	return rc ? -1 : 0;
+}
+
 int fyai_cmd_remote_run(struct fyai_cmd_call *call, fy_generic *result)
 {
 	struct fyai_ctx *ctx = fyai_cmd_call_ctx(call);
@@ -1062,6 +1213,8 @@ int fyai_cmd_remote_run(struct fyai_cmd_call *call, fy_generic *result)
 	int rc = -1;
 
 	(void)result;
+	if (cfg->split)
+		return remote_split_run(call);
 	path = remote_run_endpoint(ctx);
 	if (!path)
 		goto out;

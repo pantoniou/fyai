@@ -63,6 +63,10 @@ global:
         description: "run the command, or the interactive session, at the server TARGET: `.` is the server of the project (`fyai serve`), else the server of projects; a path is the socket of a server; `ssh://[USER@]HOST[:PORT]/DIR` is the server of projects of HOST, reached through ssh, with the project DIR; `http://HOST:PORT/DIR` and `https://HOST:PORT/DIR` are servers that `serve --listen` opened"
         x-fyai-meta: TARGET
         x-fyai-complete: file
+      split:
+        type: boolean
+        description: run the interactive session at a worker that is a child of this process
+        x-fyai-hidden: true
       view-project:
         type: string
         description: use this project root in an internal view child

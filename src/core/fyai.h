@@ -554,6 +554,8 @@ struct fyai_cfg {
 	const char *serve_daemon;
 	/* --remote: the rest of the command line runs at a server (`remote run`). */
 	bool remote;
+	/* --split: the interactive session runs at a worker that is a child. */
+	bool split;
 	const char *remote_socket;	/* the socket of --remote TARGET, or NULL */
 	/* The global options and the words to run there, without the above. */
 	fy_generic remote_args;

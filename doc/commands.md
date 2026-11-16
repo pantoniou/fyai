@@ -16,6 +16,7 @@ Do not edit; run `ninja docs-commands` to write it again.
 | `--root HANDLE` | read one exact state by root handle (read-only) |
 | `--project DIR` | work in the directory DIR; with --remote, DIR is relative to the directory of the server of projects |
 | `--remote TARGET` | run the command, or the interactive session, at the server TARGET: `.` is the server of the project (`fyai serve`), else the server of projects; a path is the socket of a server; `ssh://[USER@]HOST[:PORT]/DIR` is the server of projects of HOST, reached through ssh, with the project DIR; `http://HOST:PORT/DIR` and `https://HOST:PORT/DIR` are servers that `serve --listen` opened |
+| `--split` | run the interactive session at a worker that is a child of this process |
 | `--view-project DIR` | use this project root in an internal view child |
 | `--sink-frames` | send each output as a frame on standard output, for a server that runs a remote command |
 | `--view-scratch DIR` | use this scratch directory in an internal view child |
