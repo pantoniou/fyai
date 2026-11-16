@@ -1063,13 +1063,18 @@ static int ui_commit_open_row(struct fyai_ui *ui)
 
 /* Present rendered rows: to the scrollback, or to the transcript view of a
  * fullscreen page, which has none. */
+static void ui_rearm(struct fyai_ui *ui);
+
 static int ui_present(struct fyai_ui *ui, const char *buf, size_t len)
 {
 	if (!ui->fullscreen)
 		return ui_commit_rows(ui, buf, len);
 	if (fyai_transcript_view_append_live(ui->view, buf, len))
 		return -1;
+	/* The armed timer may be the slow activity one: take the frame
+	 * deadline into it. */
 	ui->frame_pending = true;
+	ui_rearm(ui);
 	return 0;
 }
 
@@ -5719,6 +5724,15 @@ void fyai_ui_wake(struct fyai_ctx *ctx)
 		return;
 	ui_frame_now(ui);
 	ui_rearm(ui);
+}
+
+/* Take a frame that a producer requested without a wake into the timer. */
+void fyai_ui_settle(struct fyai_ctx *ctx)
+{
+	struct fyai_ui *ui = ctx ? ctx->screen->ui : NULL;
+
+	if (ui && ui->ft && ui->frame_pending)
+		ui_rearm(ui);
 }
 
 void fyai_ui_surface_commit(struct fyai_ctx *ctx, struct fytim_surface *sf)

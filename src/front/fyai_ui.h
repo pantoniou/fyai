@@ -296,6 +296,7 @@ int fyai_ui_surface_publish(struct fytim_surface *sf,
 			    struct fyai_terminal_view *view);
 /* Ask for a frame: the content of a surface changed. */
 void fyai_ui_wake(struct fyai_ctx *ctx);
+void fyai_ui_settle(struct fyai_ctx *ctx);
 
 /* The terminal geometry the display last sampled, in cells. */
 int fyai_ui_size(struct fyai_ctx *ctx, int *cols, int *rows);

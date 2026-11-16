@@ -919,6 +919,7 @@ int fyai_remote_ui_step(struct fyai_remote_ui *view)
 		if (view->opened && remote_ui_release(view))
 			return -1;
 	}
+	fyai_ui_settle(ctx);
 	view->inbox = fy_seq_empty;
 	fy_generic_builder_reset(view->inbox_gb);
 	if (view->error) {
