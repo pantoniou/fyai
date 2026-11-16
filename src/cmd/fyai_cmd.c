@@ -637,8 +637,10 @@ int fyai_cmd_walk(enum fyai_cmd_surface surface, size_t nwords,
 	fy_generic reg, def, sub, dflt, name_v;
 	const char *name;
 	long long gpos;
-	size_t i, len;
-	int n, np, k;
+	size_t i, len, plen = 0;
+	char *pbuf = NULL;
+	FILE *pf;
+	int np, k;
 
 	memset(w, 0, sizeof(*w));
 	w->def = fy_invalid;
@@ -657,7 +659,10 @@ int fyai_cmd_walk(enum fyai_cmd_surface surface, size_t nwords,
 	w->surfaces = fyai_cmd_def_surfaces(def, fy_invalid);
 	name_v = fy_get(def, "command", fy_invalid);
 	name = fy_castp(&name_v, "");
-	n = snprintf(w->path, sizeof(w->path), "%s", name);
+	pf = open_memstream(&pbuf, &plen);
+	if (!pf)
+		return -1;
+	fputs(name, pf);
 	gpos = 0;
 	for (i = 1; fy_is_valid(fy_get(def, "commands", fy_invalid)); ) {
 		if (!fy_equal(w->last_group, def) &&
@@ -696,8 +701,7 @@ int fyai_cmd_walk(enum fyai_cmd_surface surface, size_t nwords,
 							w->surfaces);
 				name_v = fy_get(def, "command", fy_invalid);
 				name = fy_castp(&name_v, "");
-				n += snprintf(w->path + n, sizeof(w->path) - n,
-					      " %s", name);
+				fprintf(pf, " %s", name);
 				i++;
 				continue;
 			}
@@ -720,8 +724,14 @@ int fyai_cmd_walk(enum fyai_cmd_surface surface, size_t nwords,
 		w->surfaces = fyai_cmd_def_surfaces(def, w->surfaces);
 		name_v = fy_get(def, "command", fy_invalid);
 		name = fy_castp(&name_v, "");
-		n += snprintf(w->path + n, sizeof(w->path) - n, " %s", name);
+		fprintf(pf, " %s", name);
 	}
+	fclose(pf);
+	if (plen >= sizeof(w->path))
+		plen = sizeof(w->path) - 1;
+	memcpy(w->path, pbuf, plen);
+	w->path[plen] = '\0';
+	free(pbuf);
 	w->def = def;
 	w->consumed = i;
 	return 0;

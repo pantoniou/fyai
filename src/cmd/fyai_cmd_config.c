@@ -426,45 +426,68 @@ static void schema_default_str(fy_generic node, char *buf, size_t bufsz)
 	snprintf(buf, bufsz, "%s", fy_str(v) ?: "");
 }
 
+/* Copy the memstream text @src of @len bytes to @buf, truncated to fit. */
+static void memstream_copy(char *buf, size_t bufsz, const char *src,
+			   size_t len)
+{
+	if (!bufsz)
+		return;
+	if (len >= bufsz)
+		len = bufsz - 1;
+	memcpy(buf, src, len);
+	buf[len] = '\0';
+}
+
+/* Close @mf and copy its text to @buf; @buf gets @dflt when it is empty. */
+static void memstream_finish(FILE *mf, char **text, size_t *len, char *buf,
+			     size_t bufsz, const char *dflt)
+{
+	if (fclose(mf) || !*text || !*len)
+		snprintf(buf, bufsz, "%s", dflt);
+	else
+		memstream_copy(buf, bufsz, *text, *len);
+	free(*text);
+	*text = NULL;
+}
+
 static void schema_type_str(fy_generic node, char *buf, size_t bufsz)
 {
 	fy_generic type, v, branches;
-	char sub[64];
-	size_t off;
-	int n;
+	char sub[64], *text = NULL;
+	size_t len = 0;
+	FILE *mf;
 
 	type = fy_get(node, "type");
 	if (fy_is_string(type)) {
 		snprintf(buf, bufsz, "%s", fy_castp(&type, ""));
 		return;
 	}
-	off = 0;
-	if (fy_is_sequence(type)) {
-		fy_foreach(v, type) {
-			n = snprintf(buf + off, off < bufsz ? bufsz - off : 0,
-				    "%s%s", off ? "|" : "", fy_castp(&v, ""));
-			if (n > 0)
-				off += (size_t)n;
-		}
-		if (off)
-			return;
-	}
 	branches = fy_get(node, "oneOf");
 	if (fy_is_invalid(branches))
 		branches = fy_get(node, "anyOf");
+	mf = open_memstream(&text, &len);
+	if (!mf) {
+		snprintf(buf, bufsz, "any");
+		return;
+	}
+	if (fy_is_sequence(type)) {
+		fy_foreach(v, type)
+			fprintf(mf, "%s%s", ftell(mf) > 0 ? "|" : "",
+				fy_castp(&v, ""));
+		fflush(mf);
+		if (len) {
+			memstream_finish(mf, &text, &len, buf, bufsz, "any");
+			return;
+		}
+	}
 	if (fy_is_sequence(branches)) {
-		off = 0;
+		rewind(mf);
 		fy_foreach(v, branches) {
 			schema_type_str(v, sub, sizeof(sub));
-			n = snprintf(buf + off, off < bufsz ? bufsz - off : 0,
-				    "%s%s", off ? " or " : "", sub);
-			if (n > 0)
-				off += (size_t)n;
+			fprintf(mf, "%s%s", ftell(mf) > 0 ? " or " : "", sub);
 		}
-		if (off)
-			return;
 	}
-	snprintf(buf, bufsz, "any");
+	memstream_finish(mf, &text, &len, buf, bufsz, "any");
 }
 
 static double schema_num(fy_generic v)
@@ -480,22 +503,21 @@ static void schema_constraint_str(fy_generic node, bool required, char *buf,
 				  size_t bufsz)
 {
 	fy_generic v, sub;
-	char items[192], itype[64];
-	size_t off, ioff;
+	char itype[64], *text = NULL, *items = NULL;
+	size_t len = 0, ilen = 0;
 	bool first, ifirst;
-	int n;
+	FILE *mf, *imf;
 
-	off = 0;
+	mf = open_memstream(&text, &len);
+	if (!mf) {
+		snprintf(buf, bufsz, "-");
+		return;
+	}
 	first = true;
 
 #define ADD(...) do { \
-	n = snprintf(buf + off, off < bufsz ? bufsz - off : 0, "%s", \
-		    first ? "" : "; "); \
-	if (n > 0) \
-		off += (size_t)n; \
-	n = snprintf(buf + off, off < bufsz ? bufsz - off : 0, __VA_ARGS__); \
-	if (n > 0) \
-		off += (size_t)n; \
+	fputs(first ? "" : "; ", mf); \
+	fprintf(mf, __VA_ARGS__); \
 	first = false; \
 } while (0)
 
@@ -508,17 +530,19 @@ static void schema_constraint_str(fy_generic node, bool required, char *buf,
 
 	v = fy_get(node, "enum");
 	if (fy_is_sequence(v)) {
-		ioff = 0;
+		imf = open_memstream(&items, &ilen);
 		ifirst = true;
 		fy_foreach(sub, v) {
-			n = snprintf(items + ioff,
-				    ioff < sizeof(items) ? sizeof(items) - ioff : 0,
-				    "%s%s", ifirst ? "" : ", ", fy_castp(&sub, ""));
-			if (n > 0)
-				ioff += (size_t)n;
+			if (imf)
+				fprintf(imf, "%s%s", ifirst ? "" : ", ",
+					fy_castp(&sub, ""));
 			ifirst = false;
 		}
-		ADD("one of: %s", items);
+		if (imf && fclose(imf))
+			ilen = 0;
+		ADD("one of: %.*s", (int)ilen, items ?: "");
+		free(items);
+		items = NULL;
 	}
 
 	v = fy_get(node, "minimum");
@@ -559,8 +583,7 @@ static void schema_constraint_str(fy_generic node, bool required, char *buf,
 	}
 
 #undef ADD
-	if (first)
-		snprintf(buf, bufsz, "-");
+	memstream_finish(mf, &text, &len, buf, bufsz, "-");
 }
 
 /* Descend into `properties`, transparently trying oneOf/anyOf branches. */

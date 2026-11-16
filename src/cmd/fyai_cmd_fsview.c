@@ -4224,8 +4224,9 @@ int fyai_project_state_restore(struct fyai_ctx *ctx, const char *spec, bool forc
 	struct fyai_apply_summary summary;
 	fy_generic rows, row, forced = fy_invalid;
 	const char *path, *action;
-	char *root = NULL, *objects = NULL, list[512] = "";
-	size_t shown = 0;
+	char *root = NULL, *objects = NULL, *list = NULL;
+	size_t shown = 0, list_len = 0;
+	FILE *lf;
 	int project = -1, cas = -1, rc = -1, saved;
 	bool have_current;
 
@@ -4280,15 +4281,19 @@ int fyai_project_state_restore(struct fyai_ctx *ctx, const char *spec, bool forc
 	if (rc)
 		goto out;
 	if (summary.conflicts || summary.skipped) {
+		lf = open_memstream(&list, &list_len);
+		fyai_error_check(ctx, lf, out, "reset: cannot list the changed paths");
 		fy_foreach(row, rows) {
 			action = fy_get(row, "action", "");
 			if (!strcmp(action, "applied") || !strcmp(action, "satisfied") || shown >= 5)
 				continue;
 			path = fy_get(row, "path", "");
-			snprintf(list + strlen(list), sizeof(list) - strlen(list), "%s%s",
-				 shown ? ", " : "", path);
+			fprintf(lf, "%s%s", shown ? ", " : "", path);
 			shown++;
 		}
+		saved = fclose(lf);
+		fyai_error_check(ctx, !saved && list, out,
+				 "reset: cannot list the changed paths");
 		fyai_error(ctx, "reset: the project changed since its state was recorded (%s); "
 				"nothing was changed. Use --force to take the state of '%s' over "
 				"the changes", list, spec);
@@ -4320,6 +4325,7 @@ out:
 	fyai_manifest_close(&manifests[1]);
 	free(root);
 	free(objects);
+	free(list);
 	errno = saved;
 	return rc ? -1 : 0;
 }

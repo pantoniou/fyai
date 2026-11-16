@@ -817,6 +817,35 @@ out:
 }
 
 /*
+ * Write @head and each string of @list, as @fmt, to @why of @why_size bytes.
+ * The text is cut to fit.
+ */
+static void settings_why_list(char *why, size_t why_size, const char *head,
+			      fy_generic list, const char *fmt)
+{
+	char *text = NULL;
+	size_t len = 0;
+	fy_generic item;
+	FILE *mf;
+
+	mf = open_memstream(&text, &len);
+	if (!mf) {
+		snprintf(why, why_size, "%s", head);
+		return;
+	}
+	fputs(head, mf);
+	fy_foreach(item, list)
+		fprintf(mf, fmt, fy_castp(&item, ""));
+	if (fclose(mf) || !text) {
+		snprintf(why, why_size, "%s", head);
+		free(text);
+		return;
+	}
+	snprintf(why, why_size, "%s", text);
+	free(text);
+}
+
+/*
  * Build the configuration after @c in the branch, or in the session layer
  * for a trial. Both are checked; the diff is made from them.
  */
@@ -826,10 +855,9 @@ static int settings_change_build(struct settings_walk *w,
 {
 	struct fyai_ctx *ctx = settings_walk_ctx(w);
 	struct fyai_cfg *cfg = ctx->cfg;
-	fy_generic stored0, session0, stored, session, item, value, problems, p;
+	fy_generic stored0, session0, stored, session, item, value, problems;
 	bool in_session, any_stored = false, any_session = false;
 	const char *path;
-	size_t len;
 
 	stored0 = fy_is_mapping(ctx->bstate->config) ? ctx->bstate->config :
 		  fy_map_empty;
@@ -864,13 +892,9 @@ static int settings_change_build(struct settings_walk *w,
 	if (any_stored) {
 		problems = fyai_config_check(cfg, &stored);
 		if (!fy_empty(problems)) {
-			len = (size_t)snprintf(why, why_size,
-				"the configuration would not be valid:");
-			fy_foreach(p, problems)
-				if (len < why_size)
-					len += (size_t)snprintf(why + len,
-						why_size - len, " %s;",
-						fy_castp(&p, ""));
+			settings_why_list(why, why_size,
+				"the configuration would not be valid:",
+				problems, " %s;");
 			return -1;
 		}
 		c->stored = stored;
@@ -1443,7 +1467,6 @@ static int settings_revert_build(struct settings_walk *w, fy_generic entry,
 	fy_generic before, after, item, cur, out, paths, conflicts, b;
 	const char *path;
 	bool in_session;
-	size_t len;
 	int access;
 
 	memset(c, 0, sizeof(*c));
@@ -1471,13 +1494,9 @@ static int settings_revert_build(struct settings_walk *w, fy_generic entry,
 	}
 	*conflictsp = conflicts;
 	if (!fy_empty(conflicts) && !force) {
-		len = (size_t)snprintf(why, why_size, "changed since the "
-				       "change, so nothing is taken back:");
-		fy_foreach(item, conflicts)
-			if (len < why_size)
-				len += (size_t)snprintf(why + len,
-					why_size - len, " %s",
-					fy_castp(&item, ""));
+		settings_why_list(why, why_size, "changed since the "
+				  "change, so nothing is taken back:",
+				  conflicts, " %s");
 		return 1;
 	}
 	if (fy_empty(out)) {
