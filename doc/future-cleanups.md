@@ -126,8 +126,15 @@ this order: implementation, tests, documentation.
 
 0. Done. The measurement, and the timer fix (`eb2d20a5`). Add the benchmark
    to `tests/bench/` so that the numbers can be repeated.
-1. Spawn. Add the local fork behind an option (`--split`). Start with the
-   smallest session: one turn, `/quit`. Add a PTY case for it.
+1. Done. Spawn. The hidden global option `--split` forks the worker on a
+   socketpair and runs the client of `--remote` against it, with no server
+   (`remote_split_open()`). The worker has its own session, and its standard
+   error is kept and reported if it fails. `tests/cases/split_session.sh` runs
+   two sessions on a PTY. A session of 10 turns with a 200 KB answer takes 515
+   to 566 ms, against 460 ms in process and 480 to 530 ms through a server.
+   Start and `/quit` take 71 ms, against 55 ms in process. Gaps left for the
+   steps that follow: the client waits for the worker without a limit when it
+   ends, `resume` is refused, and a command line is refused.
 2. Parity. Run the PTY suite with the option on, by an environment variable of
    the harness, and fix each divergence in the worker or in the client. The
    oracle cases must pass. Do not add a second path in the worker for a split
