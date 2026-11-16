@@ -810,42 +810,65 @@ err_out:
 	return -1;
 }
 
+fy_generic fyai_branch_select_page(struct fyai_ctx *ctx,
+				   struct fy_generic_builder *gb,
+				   fy_generic branches, const char *cwd,
+				   bool all, size_t first, size_t count,
+				   bool with_rev, size_t *totalp)
+{
+	struct branch_pick *picks;
+	struct fyai_branch b;
+	fy_generic out, row;
+	size_t from, to, i;
+	ssize_t n;
+
+	out = fy_seq_empty;
+	if (totalp)
+		*totalp = 0;
+	if (!gb)
+		return out;
+	n = branch_collect(ctx, branches, cwd, all, NULL, &picks);
+	if (n < 0)
+		return out;
+	if (totalp)
+		*totalp = (size_t)n;
+	from = first < (size_t)n ? first : (size_t)n;
+	to = (size_t)n - from > count ? from + count : (size_t)n;
+	for (i = from; i < to; i++) {
+		if (!fyai_branch_decode(picks[i].entry, &b))
+			continue;
+		row = fy_mapping(gb,
+				 "branch", picks[i].name,
+				 "updated", fy_value(gb, (long long)
+					picks[i].updated),
+				 "created", fy_value(gb, (long long)
+					fyai_branch_created(&b)),
+				 "cwd", fy_value(gb,
+					fyai_branch_cwd(&b) ? : ""),
+				 "turns", fy_value(gb,
+					fyai_branch_turn_count(b.head,
+						FYAI_BRANCH_WALK_MAX)),
+				 "model", fy_value(gb,
+					fy_get(b.config, "model", "-")),
+				 "description", fy_value(gb,
+					fy_castp(&b.description, "")));
+		/* The word of the entry: it moves when the entry does. */
+		if (with_rev)
+			row = fy_assoc(gb, row, "rev",
+				       fy_value(gb, (long long)picks[i].entry.v));
+		out = fy_append(gb, out, row);
+	}
+	free(picks);
+	return out;
+}
+
 fy_generic fyai_branch_select_rows(struct fyai_ctx *ctx,
 				   struct fy_generic_builder *gb,
 				   fy_generic branches, const char *cwd,
 				   bool all)
 {
-	struct branch_pick *picks;
-	struct fyai_branch b;
-	fy_generic out;
-	ssize_t n, i;
-
-	out = fy_seq_empty;
-	if (!gb)
-		return out;
-	n = branch_collect(ctx, branches, cwd, all, NULL, &picks);
-	for (i = 0; i < n; i++) {
-		if (!fyai_branch_decode(picks[i].entry, &b))
-			continue;
-		out = fy_append(gb, out,
-			fy_mapping(gb,
-				   "branch", picks[i].name,
-				   "updated", fy_value(gb, (long long)
-					picks[i].updated),
-				   "created", fy_value(gb, (long long)
-					fyai_branch_created(&b)),
-				   "cwd", fy_value(gb,
-					fyai_branch_cwd(&b) ? : ""),
-				   "turns", fy_value(gb,
-					fyai_branch_turn_count(b.head,
-						FYAI_BRANCH_WALK_MAX)),
-				   "model", fy_value(gb,
-					fy_get(b.config, "model", "-")),
-				   "description", fy_value(gb,
-					fy_castp(&b.description, ""))));
-	}
-	free(picks);
-	return out;
+	return fyai_branch_select_page(ctx, gb, branches, cwd, all, 0,
+				       (size_t)-1, false, NULL);
 }
 
 fy_generic fyai_branch_pick_last(struct fyai_ctx *ctx, fy_generic branches,

@@ -214,6 +214,20 @@ fy_generic fyai_branches_set(struct fy_generic_builder *gb, fy_generic branches,
 			     const char *name, fy_generic entry);
 
 /*
+ * The rows from @first, at most @count of them, of the listing that
+ * fyai_branch_select_rows() makes, and the number of branches it has in all
+ * in *@totalp when that is not NULL. Only the rows returned are projected, so
+ * the walk of their turns is bounded by @count. With @with_rev, each row also
+ * has "rev", the word of its entry: an entry that did not change keeps it.
+ * The rows live in @gb.
+ */
+fy_generic fyai_branch_select_page(struct fyai_ctx *ctx,
+				   struct fy_generic_builder *gb,
+				   fy_generic branches, const char *cwd,
+				   bool all, size_t first, size_t count,
+				   bool with_rev, size_t *totalp);
+
+/*
  * The resumable sessions of @branches, newest first, then by name. A sub-agent
  * branch is left out. Without @all, only a branch whose recorded directory is
  * @cwd is included, so a branch that records none appears only under @all.
