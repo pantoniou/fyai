@@ -411,7 +411,7 @@ static int foreign_summary_read(struct fyai_ctx *ctx, const char *path,
 
 	memset(summary, 0, sizeof(*summary));
 	summary->source = requested;
-	records = foreign_records_read(ctx->transient->gb,
+	records = foreign_records_read(fyai_ctx_transient_gb(ctx),
 			path && strcmp(path, "-") ? path : "-");
 	fyai_error_check(ctx, fy_is_sequence(records), err_out,
 			 "foreign import: cannot parse the JSONL session");
@@ -825,7 +825,7 @@ int fyai_foreign_import_list(struct fyai_ctx *ctx,
 
 	memset(&list, 0, sizeof(list));
 	list.ctx = ctx;
-	list.row_gb = ctx->transient->gb;
+	list.row_gb = fyai_ctx_transient_gb(ctx);
 	list.rows = fy_seq_empty;
 	list.cwd = getcwd(cwd, sizeof(cwd)) ? cwd : NULL;
 	list.all = all;
@@ -846,7 +846,7 @@ int fyai_foreign_import_list(struct fyai_ctx *ctx,
 		return -1;
 	}
 	if (json) {
-		emitted = fy_gb_emit(ctx->transient->gb, list.rows,
+		emitted = fy_gb_emit(fyai_ctx_transient_gb(ctx), list.rows,
 				     FYOPEF_DISABLE_DIRECTORY | FYOPEF_MODE_JSON |
 				     FYOPEF_STYLE_COMPACT | FYOPEF_WIDTH_INF,
 				     NULL);
@@ -1250,7 +1250,7 @@ static fy_generic foreign_claude_messages(struct foreign_build *build,
 
 static fy_generic foreign_system_head(struct fyai_ctx *ctx)
 {
-	struct fy_generic_builder *gb = ctx->transient->gb;
+	struct fy_generic_builder *gb = fyai_ctx_transient_gb(ctx);
 	fy_generic messages;
 
 	messages = fy_sequence(gb,
@@ -1270,9 +1270,9 @@ static fy_generic foreign_append_turn(struct fyai_ctx *ctx, fy_generic head,
 	if (!fy_is_valid(turn))
 		return fy_invalid;
 	meta = fyai_turn_meta(turn);
-	meta = fy_assoc(ctx->transient->gb, meta, "imported", true);
-	meta = fy_assoc(ctx->transient->gb, meta, "import_source", source);
-	return fy_assoc(ctx->transient->gb, turn, "metadata", meta);
+	meta = fy_assoc(fyai_ctx_transient_gb(ctx), meta, "imported", true);
+	meta = fy_assoc(fyai_ctx_transient_gb(ctx), meta, "import_source", source);
+	return fy_assoc(fyai_ctx_transient_gb(ctx), turn, "metadata", meta);
 }
 
 static void foreign_name_component(const char *input, char *output, size_t size)
@@ -1299,7 +1299,7 @@ static int foreign_import_build(struct fyai_ctx *ctx, const char *path,
 				const char *title_override, bool preview,
 				int max_exchanges, int max_rows)
 {
-	struct fy_generic_builder *gb = ctx->transient->gb;
+	struct fy_generic_builder *gb = fyai_ctx_transient_gb(ctx);
 	fy_generic records, record, payload, messages, item, head, candidate;
 	fy_generic canonical;
 	fy_generic id, cwd, title, fallback, provenance, type;
@@ -1315,7 +1315,7 @@ static int foreign_import_build(struct fyai_ctx *ctx, const char *path,
 	struct foreign_display display;
 	bool codex_has_context, codex_context;
 
-	records = foreign_records_read(ctx->transient->gb,
+	records = foreign_records_read(fyai_ctx_transient_gb(ctx),
 				path && strcmp(path, "-") ? path : "-");
 	if (!fy_is_sequence(records)) {
 		fyai_error(ctx, "foreign import: cannot parse the JSONL session");
@@ -1553,7 +1553,7 @@ int fyai_foreign_import_session(struct fyai_ctx *ctx,
 		return -1;
 	memset(&list, 0, sizeof(list));
 	list.ctx = ctx;
-	list.row_gb = ctx->transient->gb;
+	list.row_gb = fyai_ctx_transient_gb(ctx);
 	list.rows = fy_seq_empty;
 	list.source = source;
 	list.cwd = getcwd(cwd, sizeof(cwd)) ? cwd : NULL;
@@ -1602,7 +1602,7 @@ int fyai_foreign_import_dry_run(struct fyai_ctx *ctx, const char *path,
 	if (rc)
 		return rc;
 	if (json) {
-		report = fy_mapping(ctx->transient->gb,
+		report = fy_mapping(fyai_ctx_transient_gb(ctx),
 			"source", fyai_foreign_source_name(summary.source),
 			"records", (long long)summary.records,
 			"messages", (long long)summary.messages,
@@ -1610,7 +1610,7 @@ int fyai_foreign_import_dry_run(struct fyai_ctx *ctx, const char *path,
 			"tool_results", (long long)summary.results,
 			"compactions", (long long)summary.compactions,
 			"losses", (long long)summary.losses);
-		emitted = fy_gb_emit(ctx->transient->gb, report,
+		emitted = fy_gb_emit(fyai_ctx_transient_gb(ctx), report,
 			FYOPEF_DISABLE_DIRECTORY | FYOPEF_MODE_JSON |
 			FYOPEF_STYLE_COMPACT | FYOPEF_WIDTH_INF, NULL);
 		if (!fy_is_string(emitted))

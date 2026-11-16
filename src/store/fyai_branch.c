@@ -1132,7 +1132,7 @@ fy_generic fyai_branch_list_data(struct fyai_ctx *ctx,
 
 int fyai_branch_list(struct fyai_ctx *ctx, const char *under, bool all)
 {
-	struct fy_generic_builder *gb = ctx->transient->gb;
+	struct fy_generic_builder *gb = fyai_ctx_transient_gb(ctx);
 	fy_generic opts, keys, columns, c_current, c_branch, c_turns, c_model;
 	fy_generic c_updated, c_desc;
 
@@ -1190,7 +1190,7 @@ err_out:
 
 int fyai_branch_show(struct fyai_ctx *ctx, const char *name)
 {
-	struct fy_generic_builder *gb = ctx->transient->gb;
+	struct fy_generic_builder *gb = fyai_ctx_transient_gb(ctx);
 	fy_generic data, opts;
 
 	if (fyai_branch_show_data(ctx, gb, name, &data))
