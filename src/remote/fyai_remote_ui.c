@@ -112,8 +112,12 @@ struct fyai_remote_ui {
 	struct fy_generic_builder *held_gb;
 	fy_generic held;
 	bool opened;			/* the display is open */
-	struct remote_ui_command *commands;	/* the commands that wait for their output, oldest first */
-	bool restarted;			/* a new worker: the next stored turns are recapped */
+	size_t syncs;			/* the syncs in flight */
+	bool idle_held;			/* keep UI busy until turns arrive */
+	struct remote_ui_command *commands;	/*
+						 * pending output, oldest first
+						 */
+	bool restarted;			/* recap the new worker's turns */
 	/* The lines typed during a turn stay in the queue of the display,
 	 * which shows them as pending. The worker has the first @queued of
 	 * them and says how many it took; the client drops those. */
@@ -955,7 +959,14 @@ static int remote_ui_store(struct fyai_remote_ui *view, fy_generic frame)
 		busy = fy_get(fy_get(root, "turn", fy_invalid), "busy", false);
 		if (busy != view->busy) {
 			view->busy = busy;
-			fyai_ui_set_busy(ctx, busy);
+			/* The UI repaints when it is idle: the turns of the
+			 * worker are to be there first. */
+			if (!busy && view->syncs)
+				view->idle_held = true;
+			else {
+				view->idle_held = false;
+				fyai_ui_set_busy(ctx, busy);
+			}
 		}
 		/* The lines that the worker took leave the queue, which showed
 		 * them as pending. */
@@ -1001,6 +1012,7 @@ static int remote_ui_sync(struct fyai_remote_ui *view)
 			break;
 	}
 	fyai_diag_tracef("sync", "client: asks, holds %zu turns", view->nturns);
+	view->syncs++;
 	return remote_ui_request(view, "fyai_sync", fy_mapping(gb,
 		"have", have, "depth", (long long)REMOTE_UI_HISTORY));
 }
@@ -1130,8 +1142,12 @@ static int remote_ui_history(struct fyai_remote_ui *view, fy_generic response)
 	 * them in a local session: the transcript view reads them on its next
 	 * frame, and an inline screen keeps the rows it committed. */
 	if (!view->opened && remote_ui_display_open(view)) {
-		if (gb != view->history_gb)
+		if (gb != view->history_gb) {
+			/* The arena no longer names the builder that goes. */
+			ctx->arena->gb = view->history_gb;
+			ctx->turn->last_message = fy_invalid;
 			fy_generic_builder_destroy(gb);
+		}
 		goto err;
 	}
 	/* A worker that started again begins a session of its own: the screen
@@ -1302,6 +1318,7 @@ static int remote_ui_response(struct fyai_remote_ui *view, fy_generic frame)
 	fy_generic response = fy_get(frame, "response", fy_invalid);
 	const char *id = fy_get(response, "request_id", "");
 	bool init = !strncmp(id, "ui-initialize-", 14);
+	int rc;
 
 	if (!strncmp(id, "ui-fyai_query-", 14))
 		return remote_ui_query_answer(view, strtoull(id + 14, NULL, 10),
@@ -1332,8 +1349,15 @@ static int remote_ui_response(struct fyai_remote_ui *view, fy_generic frame)
 	if (!strncmp(id, "ui-fyai_sync-", 13)) {
 		/* The snapshot of the stores came before this answer. */
 		fyai_uidraw_attached(ctx);
-		return remote_ui_history(view, fy_get(response, "response",
-						      fy_invalid));
+		if (view->syncs)
+			view->syncs--;
+		rc = remote_ui_history(view, fy_get(response, "response",
+						    fy_invalid));
+		if (!view->syncs && view->idle_held) {
+			view->idle_held = false;
+			fyai_ui_set_busy(ctx, false);
+		}
+		return rc;
 	}
 	return 0;
 err:
@@ -1373,6 +1397,16 @@ static int remote_ui_frame(struct fyai_remote_ui *view, fy_generic frame)
 				       remote_ui_init_fields(ctx));
 		fyai_error_check(ctx, !rc, err, "cannot send the initialize");
 		return 0;
+	}
+	if (!strcmp(subtype, "history")) {
+		/* The turns that the head names, sent before the store that
+		 * names it: nothing is left to ask for. */
+		fyai_uidraw_attached(ctx);
+		rc = remote_ui_history(view, fy_get(frame, "response",
+						    fy_invalid));
+		if (!rc)
+			view->head = fy_get(frame, "updated", 0LL);
+		return rc;
 	}
 	if (!strcmp(subtype, "marker")) {
 		fyai_ui_marker(ctx, fy_get(frame, "label", ""));

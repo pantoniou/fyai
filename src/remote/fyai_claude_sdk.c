@@ -218,7 +218,9 @@ struct sdk_server {
 	bool busy;
 	bool failed;			/* a frame could not be queued */
 	bool session_failed;		/* the session ends on a failure */
-	bool marking;			/* a marker is on its way to the client */
+	bool marking;			/* sending a marker to the client */
+	char client_head[24];		/* newest turn ID known to client */
+	long long push_updated;		/* last head pushed to the client */
 	bool channel_lost;		/* the client of a worker went */
 	bool last_error;		/* the last result is an error */
 	/* What the session asks of the SDK. */
@@ -1989,6 +1991,8 @@ static fy_generic sdk_model_sync(struct sdk_server *srv, fy_generic req)
 			 fy_is_string(base) ? "found" : "none",
 			 stack.count - begin);
 	fyai_turn_stack_cleanup(&stack);
+	snprintf(srv->client_head, sizeof(srv->client_head), "%s",
+		 fy_is_string(head) ? fy_castp(&head, "") : "");
 	snprintf(epoch, sizeof(epoch), "%llx",
 		 (unsigned long long)srv->epoch);
 	return fy_mapping(gb, "epoch", fy_value(gb, epoch), "head", head,
@@ -2396,7 +2400,30 @@ static void sdk_model_store(void *data, enum fyai_ui_store store,
 			    unsigned long long seq, fy_generic root)
 {
 	struct sdk_server *srv = data;
+	struct fy_generic_builder *gb;
+	fy_generic answer;
+	long long updated;
 
+	/*
+	 * When the head moves, the turns that follow what the client holds go
+	 * to it before the store that names the head: it draws from them as a
+	 * local session does, with no round trip.
+	 */
+	if (srv->model_stream && store == FYAI_UI_SESSION && srv->client_head[0]) {
+		updated = fy_get(fy_get(root, "head", fy_invalid), "updated", 0LL);
+		gb = fyai_ctx_transient_gb(sdk_server_ctx(srv));
+		if (gb && updated && updated != srv->push_updated) {
+			srv->push_updated = updated;
+			answer = sdk_model_sync(srv, fy_mapping(gb, "have",
+				fy_sequence(gb, srv->client_head),
+				"depth", 64LL));
+			if (fy_is_valid(answer))
+				sdk_send(srv, fy_mapping("type", "fyai",
+					"subtype", "history",
+					"updated", updated,
+					"response", answer));
+		}
+	}
 	if (srv->model_stream)
 		sdk_send(srv, fy_mapping("type", "fyai", "subtype", "store",
 			"store", fyai_ui_store_name(store),
