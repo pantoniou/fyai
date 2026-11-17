@@ -4573,8 +4573,11 @@ void fyai_ui_quit_request(struct fyai_ctx *ctx)
 {
 	struct fyai_ui *ui = ctx ? ctx->screen->ui : NULL;
 
-	if (!ui)
+	if (!ui) {
+		if (ctx)
+			ctx->screen->quit = true;
 		return;
+	}
 	ui->quit = true;
 	ui->ready = true;
 }

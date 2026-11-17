@@ -133,7 +133,7 @@ static FILE *config_reload_file(struct fyai_cfg *cfg)
 
 int fyai_config_reload_exec(struct fyai_cfg *cfg)
 {
-	const char *argv[13];
+	const char *argv[18];
 	const char *text;
 	fy_generic config, session, state;
 	FILE *fp;
@@ -218,7 +218,23 @@ int fyai_config_reload_exec(struct fyai_cfg *cfg)
 	}
 	argv[argc++] = "-b";
 	argv[argc++] = cfg->reload_branch;
-	argv[argc++] = "-i";
+	if (cfg->reload_worker) {
+		/* The client keeps the channel: the worker starts again on it. */
+		argv[argc++] = "claude-sdk";
+		argv[argc++] = "--remote-worker";
+		argv[argc++] = "--session-type";
+		argv[argc++] = "fyai";
+		argv[argc++] = "--local-session";
+		if (setenv("FYAI_SESSION_RESTART", "1", 1)) {
+			fyai_cfg_error(cfg, "reload: cannot mark the restart: %s",
+				       strerror(errno));
+			unsetenv(FYAI_RELOAD_FD_ENV);
+			fclose(fp);
+			return -1;
+		}
+	} else {
+		argv[argc++] = "-i";
+	}
 	argv[argc] = NULL;
 	fyai_exec_self(argv);
 	fyai_cfg_error(cfg, "reload: cannot execute this binary: %s",

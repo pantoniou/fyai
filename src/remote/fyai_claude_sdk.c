@@ -184,6 +184,9 @@ struct sdk_server {
 	/* A worker of `fyai serve`: a client that reattaches initializes again,
 	 * and the serving process learns the branch from internal frames. */
 	bool remote_worker;
+	int chan_in, chan_out;		/*
+					 * worker channel, separate from stdio
+					 */
 	char *reported_branch;		/* the branch the serving process knows */
 	/* The client reads the UI model: its stores and texts go as frames. */
 	bool model_wanted, model_stream;
@@ -692,7 +695,8 @@ int fyai_cmd_claude_sdk_early(struct fyai_cfg *cfg, fy_generic args)
 	 */
 	named = !resume && !sid && cfg->branch_explicit && cfg->branch;
 	if (named) {
-		rc = fyai_peek_arena_config(cfg->arena_dir, cfg->branch,
+		rc = fyai_peek_arena_config(cfg->view_arena ? cfg->view_arena :
+					    cfg->arena_dir, cfg->branch,
 					    cfg->root_spec, cfg->gb, &stored,
 					    NULL, NULL, NULL);
 		if (rc || fy_is_invalid(stored)) {
@@ -3427,6 +3431,8 @@ static int sdk_cmd_setup(struct fyai_cmd_call *call, struct sdk_server *srv)
 	int rc;
 
 	srv->remote_worker = fyai_cmd_arg_bool(call, "remote_worker");
+	ctx->cfg->reload_worker = srv->remote_worker &&
+				  fyai_cmd_arg_bool(call, "local_session");
 	/*
 	 * A worker presents nothing: its sink gives the client Markdown and
 	 * bands, which the client renders at its own width. The invocation
@@ -3538,6 +3544,8 @@ static int sdk_cmd_channel(struct sdk_server *srv)
 		fyai_error_check(ctx, !rc, out,
 				 "claude-sdk: cannot free the standard descriptors");
 		rc = -1;
+		srv->chan_in = chan_in;
+		srv->chan_out = chan_out;
 	}
 	srv->conn = jsonrpc_conn_stdio(ctx, chan_out, chan_in, 0,
 				      "claude-sdk", NULL);
@@ -3637,7 +3645,16 @@ static int sdk_cmd_serve(struct sdk_server *srv)
 	struct sdk_input *in;
 	int rc;
 
-	while (!srv->failed && !srv->channel_lost) {
+	/*
+	 * A session that starts again on a new view is a new worker on the
+	 * channel of the old one. The client has to initialize it again.
+	 */
+	if (getenv("FYAI_SESSION_RESTART")) {
+		unsetenv("FYAI_SESSION_RESTART");
+		sdk_send(srv, fy_mapping("type", "fyai", "subtype", "restarted"));
+	}
+	while (!srv->failed && !srv->channel_lost && !ctx->screen->quit &&
+	       !ctx->cfg->reload_branch) {
 		/* An edit that the user finished in a tile applies between
 		 * turns, as it does in a local session. */
 		if (ctx->screen->config_edit)
@@ -3685,6 +3702,15 @@ static int sdk_cmd_serve(struct sdk_server *srv)
 	while (jsonrpc_conn_has_output(srv->conn))
 		if (fyai_event_loop_step(el, 1000) <= 0)
 			break;
+	/* The replacement worker uses the channel as standard I/O. */
+	if (ctx->cfg->reload_branch && srv->remote_worker &&
+	    (dup2(srv->chan_in, STDIN_FILENO) < 0 ||
+	     dup2(srv->chan_out, STDOUT_FILENO) < 0)) {
+		fyai_error(ctx, "claude-sdk: cannot keep the channel for the restart: %s",
+			   strerror(errno));
+		ctx->cfg->reload_branch = NULL;
+		srv->failed = true;
+	}
 	ctx->cfg->exit_status = srv->last_error || srv->failed ? 1 : 0;
 	return 0;
 out:

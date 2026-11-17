@@ -59,7 +59,9 @@ session() {
 timeout: 60
 steps:
   - type: edit the files
-  - wait: Session edit done.
+  - wait-frame: Session edit done.
+    timeout: session
+  - wait-screen: "\u276f"
     timeout: session
 PTY
 	    printf '%s\n' "$steps"

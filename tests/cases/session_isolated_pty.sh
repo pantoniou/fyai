@@ -23,7 +23,9 @@ pty_run "$TEST_DIR/pty.out" \
 timeout: 60
 steps:
   - type: edit the files
-  - wait: Session edit done.
+  - wait-frame: Session edit done.
+    timeout: session
+  - wait-screen: "\u276f"
     timeout: session
 PTY
 if [ "$driver" -ne 0 ]; then

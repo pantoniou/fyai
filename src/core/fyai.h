@@ -524,6 +524,7 @@ struct fyai_cfg {
 	const char *fresh_session_from;
 	/* Owned branch name for a restart after the session closes. */
 	char *reload_branch;
+	bool reload_worker;	/* the restart runs the worker of a split client */
 	char *reload_config;
 	char *reload_session;
 	char *reload_key;

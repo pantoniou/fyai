@@ -31,6 +31,7 @@
 #include "fyai_host.h"
 #include "fyai_jsonrpc.h"
 #include "fyai_remote.h"
+#include "fyai_fsview.h"
 #include "fyai_remote_int.h"
 #include "fyai_sandbox.h"
 #include "fyai_sink.h"
@@ -745,7 +746,11 @@ static int remote_split_open(struct remote_client *client)
 		    dup2(sv[1], STDOUT_FILENO) < 0 ||
 		    dup2(err, STDERR_FILENO) < 0)
 			_exit(126);
-		fyai_close_fds_from(STDERR_FILENO + 1);
+		/* A session in a view keeps the arena of the view, which the
+		 * options that the worker takes name by descriptor. */
+		if (cfg->view_arena_fd >= 0 && fyai_fsview_arena_pass(cfg))
+			_exit(126);
+		fyai_close_fds_except(STDERR_FILENO + 1, cfg->view_arena_fd);
 		fyai_loop_restore_signal_mask(ctx->loop);
 		signal(SIGPIPE, SIG_DFL);
 		execvp(args[0], args);
@@ -782,7 +787,7 @@ out:
 
 /*
  * Wait for the worker that ended with the channel, and report what it wrote
- * to its standard error if it did not end well.
+ * to its standard error: a notice when it ended well, else an error.
  */
 static void remote_split_reap(struct remote_client *client)
 {
@@ -804,11 +809,14 @@ static void remote_split_reap(struct remote_client *client)
 		close(client->worker_err);
 	}
 	client->worker_err = -1;
-	if (!status)
-		return;
 	if (got < 0)
 		got = 0;
 	text[got] = '\0';
+	if (!status) {
+		if (got)
+			fyai_notice(ctx, "%s", text);
+		return;
+	}
 	if (WIFEXITED(status))
 		fyai_error(ctx, "the worker ended with status %d%s%s",
 			   WEXITSTATUS(status), got ? ": " : "", text);

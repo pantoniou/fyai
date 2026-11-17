@@ -881,6 +881,11 @@ static int remote_ui_response(struct fyai_remote_ui *view, fy_generic frame)
 		return remote_ui_query_answer(view, strtoull(id + 16, NULL, 10),
 					      response);
 	if (fy_equal(fy_get(response, "subtype", ""), "error")) {
+		/* A sync that reached a restarted worker before its
+		 * initialize: the initialize that follows syncs again. */
+		if (!view->initialized && !init &&
+		    !strncmp(id, "ui-fyai_sync-", 13))
+			return 0;
 		fyai_error(ctx, "the worker refused %s: %s", id,
 			   fy_get(response, "error", "no cause"));
 		return init || !strncmp(id, "ui-fyai_sync-", 13) ? -1 : 0;
@@ -912,6 +917,7 @@ static int remote_ui_frame(struct fyai_remote_ui *view, fy_generic frame)
 	struct remote_ui_term *t;
 	fy_generic type = fy_get(frame, "type", fy_invalid);
 	const char *subtype = fy_get(frame, "subtype", "");
+	int rc;
 
 	if (fy_equal(type, "control_response"))
 		return remote_ui_response(view, frame);
@@ -925,6 +931,16 @@ static int remote_ui_frame(struct fyai_remote_ui *view, fy_generic frame)
 	}
 	if (!fy_equal(type, "fyai"))
 		return 0;
+	if (!strcmp(subtype, "restarted")) {
+		/* A new worker took the channel: it waits for the initialize. */
+		view->initialized = false;
+		view->busy = false;
+		(void)fyai_report(ctx, "the session restarted\n");
+		rc = remote_ui_request(view, "initialize", fy_mapping(
+			"fyai", fy_mapping("model", 1LL)));
+		fyai_error_check(ctx, !rc, err, "cannot send the initialize");
+		return 0;
+	}
 	if (!strcmp(subtype, "store"))
 		return remote_ui_store(view, frame);
 	if (!strcmp(subtype, "text")) {
@@ -939,6 +955,8 @@ static int remote_ui_frame(struct fyai_remote_ui *view, fy_generic frame)
 				return remote_ui_term_feed(view, t);
 	}
 	return 0;
+err:
+	return -1;
 }
 
 static enum fyai_event_action remote_ui_timeout(const struct fyai_event *ev)

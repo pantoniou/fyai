@@ -195,6 +195,10 @@ pty_run() {
 	# command is already a client of a server.
 	# Keep the oracle baseline in-process.
 	if [ -n "${FYAI_TEST_SPLIT:-}" ] && [ -z "${FYAI_TEST_NO_SPLIT:-}" ]; then
+		# The client keeps its UI over a restart of the session, so it
+		# says that the new worker started instead of taking the
+		# keyboard protocol again.
+		sed -i '/^  - wait-count: "\\e\[>1u"$/{N;s/.*/  - wait-screen: the session restarted/}' "$script"
 		local -a args=()
 		local word done_split=
 		for word in "$@"; do
