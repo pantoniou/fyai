@@ -378,29 +378,52 @@ session, until the default step removes it, calls the same function directly.
      reads `Usage / calls | 0`, and the client shows the status rows with the
      box glyph `│`. The worker formats the rows of a `message` render with no
      terminal, where a local session formats them for its own terminal.
-   - Still failing in split mode, not examined: `ui_interactive` (the edited
-     prompt), `ui_idle_escape`, `ui_work_cap`, `ui_resize_tool_prose`,
-     `ui_command_transcript`, `ui_diag_notice_panel`, `ui_focus_wash_rederive`,
-     `ui_catalog_update`, `ui_parallel_result_order`, `skill_session_pty`,
-     `ui_mcp_stdio_interrupt`, `ui_cast*`, `ui_page_*` and the resume and
-     branch cases.
+   - Done in this series: the cases `ui_interactive`, `ui_idle_escape`,
+     `ui_work_cap`, `ui_recap_fills_screen`, `ui_command_transcript`,
+     `ui_diag_notice_panel`, `ui_catalog_update`, `skill_session_pty`,
+     `ui_cast*`, `cast_player`, `async_state_debug`, `image_card_pty`,
+     `slash_midturn`, `session_profile_view`, `ui_resume_picker` and
+     `ui_shell_render` pass in split mode. The causes were:
+     - a wait for a reply that a recap shows already, in the cases of
+       `ui_interactive`, `ui_recap_fills_screen` and `ui_work_cap` (they wait
+       for one more copy of the text);
+     - an interrupt flag that was no signal ended an idle session; each signal
+       is handled once, as in a local session;
+     - a queued line that the client recalls on an interrupt ran as well: the
+       worker drops the lines it holds, and the client forgets its count;
+     - a skill line sent as a command; the worker runs it as a turn;
+     - the diagnostics of a turn, the result of a catalogue update and of an
+       import, and a failed config edit had no span of the log, so the client
+       never drew them;
+     - a command with `display/command_output` at `transcript`: the worker draws
+       the card, the client sends back the output its transcript took
+       (`fyai_record`), and the worker stores both;
+     - a table written as Markdown for a client that shows the source: the
+       worker keeps the user setting (`markdown_unshown`);
+     - the markers of a recording come from the worker (`marker` frames);
+     - a new worker numbers its log from the first entry: the client resets its
+       count;
+     - the turns go to the client with the store of the head (`history`
+       frame), and the client stays busy until they came.
+   - Open in split mode: `ui_resize_tool_prose`. In a fullscreen page the
+     row of a sub-agent call stands above the prose that came before it. In a
+     local session the prose is committed first. The row is the tile of the
+     work pane in the client. A pause of the live document that comes with the
+     checkpoint of a call does not reach the view of the client in the right
+     order; it needs the client to commit the rows of the document when a tile
+     opens. `catalog_available` fails with or without the split.
+     `remote_oracle_fullscreen` fails in about 4 runs in 10 (the tile of a bang
+     is one column wider).
    - The resume picker of a client: the query `sessions` gives the rows, a
      choice runs `/resume NAME` in the worker, `/resume` with no name runs
      the picker in the client, and `--split resume [SESSION]` opens the picker
      or starts the worker on the session. `--split resume --last` is refused.
      A session of another program is listed (the client reads the files of
-     its host) but cannot be chosen: the import needs the arena of the
-     worker. `ui_resume_picker` fails there; its foreign part also selects a
-     different row than a local session does, and the cause is not known.
+     its host), and a choice asks the worker to import it (`fyai_import`)
+     before `/resume`. The picker is of the branch that HEAD names, as in a
+     local session.
      `ui_resume_slash`, `ui_recap`, `ui_branch_*` and `ui_branch_preview_theme`
      pass. A `display/` key of `config set` and `config get` is the client's.
-   - Open: the last scenario of `session_profile_view`. A worker that is not in
-     a view runs `/session profile` for a profile that asks for one. The
-     command says that the session restarts and nothing follows: the restart
-     into a view is the job of the process that runs the supervisor
-     (`fyai_view_session_bootstrap()`), and the worker is not that process.
-     The same holds for a restart that needs the view when it is the client
-     that is outside.
    - The tile of a client takes the margin of the display (`fyai_chrome_body()`).
      `ui_shell_session_display` passes: its margin step did not wait for the
      tile, which the client draws after the text. It waits for it now.
