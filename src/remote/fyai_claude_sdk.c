@@ -3468,8 +3468,10 @@ static void sdk_turn(struct sdk_server *srv, const struct sdk_input *in)
 	}
 	if (!in->composed)
 		prompt = sdk_mentions(srv, prompt);
-	/* The attachments of the message wait for sdk_add_user(). */
-	fyai_media_pending_clear(ctx);
+	/* The attachments of the message wait for sdk_add_user(). A client of
+	 * a worker attached its own with a command: they stay. */
+	if (!srv->remote_worker)
+		fyai_media_pending_clear(ctx);
 	for (img = in->images; img; img = img->next) {
 		rc = fyai_media_attach_bytes(ctx, img->data, img->len,
 					     *img->media_type ?
