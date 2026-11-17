@@ -2155,6 +2155,13 @@ bool fyai_cmd_session_local(const char *line)
 					local = false;
 		}
 	}
+	/* Run subcommands of view groups in the client. */
+	if (!local && n > 0 &&
+	    !fyai_cmd_walk(FYAI_CMD_SESSION, 1, (const char *const *)words, 1,
+			   &w) &&
+	    (fy_equal(fy_get(w.def, "scope", ""), "view") ||
+	     fy_equal(fy_get(w.group, "scope", ""), "view")))
+		local = true;
 	/* A display key set by `config set` is the session's view state too. */
 	if (!local && n >= 3 && !strcmp(words[0], "config") &&
 	    (!strcmp(words[1], "set") || !strcmp(words[1], "get")) &&

@@ -3414,6 +3414,11 @@ int fyai_display_recorded_result(struct fyai_ctx *ctx, const char *md,
 
 	if (!preview)
 		return 0;
+	/* A tool that wrote Markdown for the user records it as it is. */
+	if (lang && !strcmp(lang, FYAI_RESULT_MARKDOWN)) {
+		fyai_render_tool_markdown(ctx->out->sink, ctx->cfg, md, len);
+		return 0;
+	}
 	/* The record is a fenced block: the text is between the fences. */
 	if (len < 3 || memcmp(md, "```", 3)) {
 		text = md;
