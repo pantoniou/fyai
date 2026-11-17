@@ -368,7 +368,16 @@ session, until the default step removes it, calls the same function directly.
      runs it after the turn, and publishes the count of the lines it took
      (`queued` of the session store); the client drops that many from its
      queue. `ui_pending_panel` and `ui_pending_user_tool_loop` pass.
-     `slash_midturn` fails in split mode, with or without this.
+     `slash_midturn` fails in split mode, with or without this: the case
+     reads `Usage / calls | 0`, and the client shows the status rows with the
+     box glyph `│`. The worker formats the rows of a `message` render with no
+     terminal, where a local session formats them for its own terminal.
+   - Still failing in split mode, not examined: `ui_interactive` (the edited
+     prompt), `ui_idle_escape`, `ui_work_cap`, `ui_resize_tool_prose`,
+     `ui_command_transcript`, `ui_diag_notice_panel`, `ui_focus_wash_rederive`,
+     `ui_catalog_update`, `ui_parallel_result_order`, `skill_session_pty`,
+     `ui_mcp_stdio_interrupt`, `ui_cast*`, `ui_page_*` and the resume and
+     branch cases.
    - Open: the last scenario of `session_profile_view`. A worker that is not in
      a view runs `/session profile` for a profile that asks for one. The
      command says that the session restarts and nothing follows: the restart
