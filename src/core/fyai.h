@@ -460,6 +460,7 @@ struct fyai_cfg {
 	int debug;
 	bool pretty;
 	bool markdown;
+	bool markdown_unshown;		/* a worker renders for a client that shows the source */
 	bool thinking;
 	bool cache_info;
 	bool stats;

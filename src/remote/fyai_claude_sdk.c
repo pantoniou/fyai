@@ -3750,6 +3750,7 @@ static int sdk_cmd_setup(struct fyai_cmd_call *call, struct sdk_server *srv)
 	 */
 	if (srv->remote_worker) {
 		ctx->uistores->uidraw_off = true;
+		ctx->cfg->markdown_unshown = !ctx->cfg->markdown;
 		rc = fyai_config_invocation_set(ctx, "display/markdown",
 						fy_true);
 		if (!rc)

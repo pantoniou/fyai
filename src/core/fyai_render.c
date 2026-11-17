@@ -458,7 +458,7 @@ int fyai_generic_to_markdown(struct fyai_ctx *ctx, fy_generic renderopts,
 	 * string is. */
 	if (fy_get(renderopts, "raw", false))
 		rc = fyai_sink_write(ctx->out->sink, FYAI_SINK_NOTICE, md, strlen(md));
-	else if (!ctx->cfg->markdown)
+	else if (!ctx->cfg->markdown || ctx->cfg->markdown_unshown)
 		rc = fyai_sink_markdown_source(ctx->out->sink, FYAI_SINK_NOTICE, md);
 	else
 		rc = fyai_sink_markdown(ctx->out->sink, FYAI_SINK_NOTICE, md);
