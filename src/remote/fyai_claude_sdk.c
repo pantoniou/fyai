@@ -2500,8 +2500,11 @@ static void sdk_control(struct sdk_server *srv, fy_generic frame)
 		return;
 	}
 		if (!strcmp(subtype, "interrupt")) {
-		if (srv->busy)
+		if (srv->busy) {
 			sdk_server_ctx(srv)->loop->interrupt_pending = true;
+			/* A wait on the loop looks at it now. */
+			fyai_waiters_kick(sdk_server_ctx(srv));
+		}
 		sdk_respond(srv, id, fy_invalid, NULL);
 		return;
 	}
