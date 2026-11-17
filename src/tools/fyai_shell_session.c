@@ -109,7 +109,9 @@ void fyai_tools_work_update(struct fyai_ctx *ctx)
 						   FYAI_SESSION_STOP_NONE),
 					"timed_out", (_Bool)(sess->stop ==
 						   FYAI_SESSION_STOP_IDLE));
-			if (sess->model_text && sess->view) {
+			/* A terminal that wrote nothing yet has no text: its
+			 * source is 0, and a client opens its block empty. */
+			if (sess->view) {
 				fyai_terminal_view_size(sess->view, &rows,
 							&cols);
 				item = fy_assoc(gb, item, "terminal",
@@ -688,12 +690,14 @@ void fyai_shell_session_resized(struct fyai_shell_session *sess,
 				int rows, int cols)
 {
 	if (!sess || (!sess->surface && !sess->inline_block &&
-		      !sess->model_text) || rows <= 0 || cols <= 0)
+		      !fyai_uimodel_consumed(fyai_shell_session_ctx(sess))) ||
+	    rows <= 0 || cols <= 0)
 		return;
 	fyai_terminal_view_resize(sess->view, rows, cols);
 	/* A consumer replays the bytes that follow at the new size. */
-	if (sess->model_text)
-		fyai_tools_work_update(fyai_shell_session_ctx(sess));
+	fyai_tools_work_update(fyai_shell_session_ctx(sess));
+	if (sess->inline_block)
+		sess->rows = rows;
 	if (sess->inline_block || !sess->surface) {
 		fyai_terminal_view_damage_all(sess->view);
 		if (rows == sess->resize_rows && cols == sess->resize_cols) {

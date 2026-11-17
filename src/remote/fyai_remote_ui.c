@@ -1108,8 +1108,9 @@ static int remote_ui_frame(struct fyai_remote_ui *view, fy_generic frame)
 		fyai_error_check(ctx, !rc, err, "cannot send the initialize");
 		return 0;
 	}
-	if (!strcmp(subtype, "store"))
-		return remote_ui_store(view, frame);
+	if (!strcmp(subtype, "store")) {
+			return remote_ui_store(view, frame);
+	}
 	if (!strcmp(subtype, "text")) {
 		if (fyai_uimodel_mirror_text(ctx, fy_get(frame, "id", 0LL),
 				fy_get(frame, "offset", (size_t)0),
