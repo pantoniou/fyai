@@ -58,6 +58,7 @@ struct remote_ui_term {
 	bool exited;
 	bool dismissed;			/* closed here; the worker drops it */
 	char *title;			/* the title that the worker gave */
+	unsigned int frame;		/* the step of the running mark */
 	struct fyai_terminal_view *view;
 	struct fytim_surface *surface;
 };
@@ -88,6 +89,7 @@ struct fyai_remote_ui {
 	size_t garbage;
 	const char *epoch;		/* the incarnation of the worker */
 	struct fyai_event_source *deadline;
+	struct fyai_event_source *animation;	/* agent animation */
 	unsigned long long requests;
 	long long head;			/* the time of the stored head shown */
 	struct remote_ui_term *terms;
@@ -218,10 +220,54 @@ static const char *remote_ui_term_title(const struct remote_ui_term *t,
 	return t->agent && *title ? title : NULL;
 }
 
+static enum fyai_event_action remote_ui_animate(const struct fyai_event *ev);
+
+/* Draw the running header of an agent tile, and arm the mark to turn. */
+static void remote_ui_term_run(struct fyai_remote_ui *view,
+			       struct remote_ui_term *t, const char *title)
+{
+	struct fyai_ctx *ctx = fyai_remote_ui_ctx(view);
+	unsigned int ms = 0;
+
+	(void)fyai_chrome_update(ctx, t->surface, &(struct fyai_chrome_spec){
+		.title = title,
+		.mark = FYAI_UI_MARK_RUNNING,
+		.frame = t->frame,
+	}, &ms);
+	if (ms && !view->animation)
+		(void)fyai_event_add_timer(fyai_ctx_loop(ctx), ms, ms,
+					   remote_ui_animate, view,
+					   &view->animation);
+}
+
+static enum fyai_event_action remote_ui_animate(const struct fyai_event *ev)
+{
+	struct fyai_remote_ui *view = ev->userdata;
+	struct remote_ui_term *t;
+	bool running = false;
+
+	for (t = view->terms; t; t = t->next) {
+		if (!t->agent || t->exited || t->dismissed || !t->surface ||
+		    !t->title)
+			continue;
+		running = true;
+		t->frame++;
+		remote_ui_term_run(view, t, t->title);
+	}
+	if (!running) {
+		fyai_event_source_remove(view->animation);
+		view->animation = NULL;
+		return FYAIEA_CONTINUE;
+	}
+	fyai_ui_wake(fyai_remote_ui_ctx(view));
+	return FYAIEA_CONTINUE;
+}
+
 static int remote_ui_term_open(struct fyai_remote_ui *view,
 			       struct remote_ui_term *t, fy_generic item)
 {
 	struct fyai_ctx *ctx = fyai_remote_ui_ctx(view);
+	const char *title;
 	int rc;
 
 	t->view = fyai_terminal_view_create(ctx, t->rows, t->cols, 0);
@@ -235,12 +281,18 @@ static int remote_ui_term_open(struct fyai_remote_ui *view,
 				    &remote_ui_term_ops, t->rows, 0);
 	fyai_error_check(ctx, !rc, err, "cannot place the terminal %s",
 			 t->name);
-	(void)fyai_chrome_update(ctx, t->surface, &(struct fyai_chrome_spec){
-		.title = remote_ui_term_title(t, item) ? :
-			 fy_sprintfa("**%s** %s", t->agent ? "agent" :
-				     "shell", t->name),
-		.mark = FYAI_UI_MARK_RUNNING,
-	}, NULL);
+	title = remote_ui_term_title(t, item) ? :
+		fy_sprintfa("**%s** %s", t->agent ? "agent" : "shell", t->name);
+	if (t->agent) {
+		t->title = strdup(title);
+		remote_ui_term_run(view, t, title);
+	} else {
+		(void)fyai_chrome_update(ctx, t->surface,
+			&(struct fyai_chrome_spec){
+				.title = title,
+				.mark = FYAI_UI_MARK_RUNNING,
+			}, NULL);
+	}
 	return remote_ui_term_feed(view, t);
 err:
 	return -1;
@@ -490,11 +542,7 @@ static int remote_ui_terms(struct fyai_remote_ui *view, fy_generic root)
 			free(t->title);
 			t->title = strdup(title);
 			if (!t->exited)
-				(void)fyai_chrome_update(ctx, t->surface,
-					&(struct fyai_chrome_spec){
-						.title = title,
-						.mark = FYAI_UI_MARK_RUNNING,
-					}, NULL);
+				remote_ui_term_run(view, t, t->title);
 		}
 		/* A program that ended leaves its screen to read. */
 		if (!t->exited && fy_get(item, "exited", false)) {
@@ -1278,6 +1326,7 @@ void fyai_remote_ui_close(struct fyai_remote_ui *view)
 		return;
 	ctx = fyai_remote_ui_ctx(view);
 	fyai_event_source_remove(view->deadline);
+	fyai_event_source_remove(view->animation);
 	/* Suppress query callbacks during view teardown. */
 	fyai_cmd_complete_reset(ctx);
 	fyai_uimodel_mirror_queries(ctx, NULL, NULL);

@@ -2487,6 +2487,10 @@ static void browser_remote_action(struct fyai_browser *b, char action)
 		browser_word(&line, b->target);
 		browser_word(&line, b->reference);
 		break;
+	case 'K':
+		(void)fyai_buf_append_data(&line, "/kill", 5);
+		browser_word(&line, b->target);
+		break;
 	case 'd':
 		(void)fyai_buf_append_data(&line, "/branch delete -f", 17);
 		browser_word(&line, b->target);
@@ -2537,6 +2541,10 @@ void fyai_browser_step(struct fyai_ctx *ctx)
 	if (action == 'A') {
 		if (!fyai_agents_zoom(ctx, b->target, true))
 			browser_message(b, "This branch has no reachable live owner.");
+		goto out;
+	}
+	if (action == 'K' && fyai_uimodel_mirrored(ctx)) {
+		browser_remote_action(b, action);
 		goto out;
 	}
 	if (action == 'K') {
