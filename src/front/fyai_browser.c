@@ -35,7 +35,8 @@ struct browser_row {
 	 * that this process reads no entry. */
 	char *model;
 	char *description;
-	char *import_title;	/* the title of the session that the branch imports */
+	char *import_title;	/* imported session title */
+	char *import_source, *import_id;	/* import provenance */
 	char *state;		/* the state of a live agent, or "" */
 	bool agent;		/* a sub-agent branch, stored or live */
 	uint64_t updated;	/* the time of its last entry */
@@ -256,6 +257,8 @@ static void browser_row_clear(struct browser_row *row)
 	free(row->model);
 	free(row->description);
 	free(row->import_title);
+	free(row->import_source);
+	free(row->import_id);
 	free(row->state);
 }
 
@@ -432,6 +435,16 @@ static void browser_refresh_sessions(struct fyai_browser *b, char **newest)
 	fy_generic_builder_destroy(gb);
 }
 
+static bool browser_has_row(const struct fyai_browser *b, const char *name)
+{
+	size_t i;
+
+	for (i = 0; i < b->count; i++)
+		if (!strcmp(b->rows[i].name, name))
+			return true;
+	return false;
+}
+
 static void browser_foreign_scan(void *userdata)
 {
 	struct fyai_browser *b = userdata;
@@ -473,7 +486,9 @@ static void browser_foreign_scan(void *userdata)
 	fy_foreach(row, foreign_rows) {
 		name = fy_get(row, "branch", fy_invalid);
 		if (!fy_is_string(name) ||
-		    fyai_branch_lookup(b->branches, fy_castp(&name, ""), &existing))
+		    fyai_branch_lookup(b->branches, fy_castp(&name, ""), &existing) ||
+		    (fyai_uimodel_mirrored(fyai_browser_ctx(b)) &&
+		     browser_has_row(b, fy_castp(&name, ""))))
 			continue;
 		if (browser_add_path(b, fy_castp(&name, ""), true, &n))
 			break;
@@ -555,6 +570,8 @@ static const char *browser_selected_name(struct fyai_browser *b)
 }
 
 /* The picker of sessions, read from the arena of this process. */
+static void browser_sessions_ask(struct fyai_browser *b);
+
 static void browser_refresh_resume(struct fyai_browser *b)
 {
 	struct browser_row *old = b->rows;
@@ -563,6 +580,11 @@ static void browser_refresh_resume(struct fyai_browser *b)
 	fy_generic root;
 	char *newest = NULL;
 
+	/* A client that has no arena asks for the sessions. */
+	if (fyai_uimodel_mirrored(fyai_browser_ctx(b))) {
+		browser_sessions_ask(b);
+		return;
+	}
 	root = fyai_branches_snapshot(fyai_browser_ctx(b));
 	b->refreshed = fyai_event_now_ms();
 	if (fy_is_valid(root) && root.v == b->root.v &&
@@ -583,6 +605,101 @@ static void browser_refresh_resume(struct fyai_browser *b)
 	qsort(b->rows, b->count, sizeof(*b->rows), browser_compare);
 	browser_rows_finish(b, old, old_count, selected, newest);
 	free(newest);
+}
+
+/* Build picker rows from the session query response. */
+static void browser_sessions_answer(void *arg, fy_generic answer)
+{
+	struct fyai_browser *b = arg;
+	struct browser_row *old = b->rows;
+	size_t old_count = b->count, n;
+	fy_generic row, name, v;
+	const char *selected, *text;
+	char *newest = NULL, *kept;
+
+	b->query = 0;
+	b->querying = false;
+	if (fy_is_mapping(fy_get(answer, "error", fy_invalid))) {
+		fyai_warning(fyai_browser_ctx(b), "the sessions: %s",
+			     (const char *)fy_get(fy_get(answer, "error",
+				fy_invalid), "message", "no cause"));
+		return;
+	}
+	/* The rows stay as they are while the table does: the foreign
+	 * sessions that were read are among them. */
+	if (b->rev_known && b->rev == fy_get(answer, "rev", 0LL))
+		return;
+	b->rev = fy_get(answer, "rev", 0LL);
+	b->rev_known = true;
+	selected = browser_selected_name(b);
+	kept = strdup(selected);
+	b->rows = NULL;
+	b->count = b->selected = 0;
+	fy_foreach(row, fy_get(answer, "rows", fy_seq_empty)) {
+		name = fy_get(row, "branch", fy_invalid);
+		if (!fy_is_string(name))
+			continue;
+		if (!newest)
+			newest = strdup(fy_castp(&name, ""));
+		if (browser_add_path(b, fy_castp(&name, ""), true, &n))
+			break;
+		b->rows[n].updated = (uint64_t)fy_get(row, "updated", 0LL);
+		b->rows[n].turns = fy_get(row, "turns", 0LL);
+		b->rows[n].tokens = fy_get(row, "tokens", 0LL);
+		free(b->rows[n].model);
+		b->rows[n].model = strdup(fy_get(row, "model", ""));
+		b->rows[n].agent = fy_get(row, "agent", false);
+		v = fy_get(row, "description", fy_invalid);
+		text = fy_castp(&v, "");
+		free(b->rows[n].description);
+		b->rows[n].description = strdup(text);
+		b->rows[n].title = fy_is_string(v) &&
+			browser_session_title_usable(text) ? strdup(text) : NULL;
+		v = fy_get(row, "cwd", fy_invalid);
+		text = fy_castp(&v, "");
+		b->rows[n].cwd = *text ? strdup(text) : NULL;
+		v = fy_get(row, "import_title", fy_invalid);
+		b->rows[n].import_title = fy_is_string(v) ?
+			strdup(fy_castp(&v, "")) : NULL;
+		v = fy_get(fy_get(row, "import", fy_invalid), "source", fy_invalid);
+		b->rows[n].import_source = fy_is_string(v) ?
+			strdup(fy_castp(&v, "")) : NULL;
+		v = fy_get(fy_get(row, "import", fy_invalid), "session_id",
+			   fy_invalid);
+		b->rows[n].import_id = fy_is_string(v) ?
+			strdup(fy_castp(&v, "")) : NULL;
+	}
+	qsort(b->rows, b->count, sizeof(*b->rows), browser_compare);
+	browser_rows_finish(b, old, old_count, kept ? kept : "", newest);
+	free(kept);
+	free(newest);
+	b->loaded = true;
+}
+
+static void browser_sessions_ask(struct fyai_browser *b)
+{
+	struct fy_generic_builder *gb;
+	fy_generic request;
+	int rc;
+
+	if (b->querying)
+		return;
+	gb = fy_generic_builder_create(NULL);
+	if (!gb) {
+		fyai_warning(fyai_browser_ctx(b), "cannot ask for the sessions");
+		return;
+	}
+	request = fy_mapping(gb, "what", "sessions", "params",
+			     fy_mapping(gb, "all", b->resume_all));
+	b->refreshed = fyai_event_now_ms();
+	b->querying = true;
+	rc = fyai_uimodel_query(fyai_browser_ctx(b), request,
+				browser_sessions_answer, b, &b->query);
+	if (rc) {
+		b->querying = false;
+		b->query = 0;
+	}
+	fy_generic_builder_destroy(gb);
 }
 
 /* Make a row of the tree: the name, and what the page draws of it. */
@@ -981,13 +1098,22 @@ static void browser_session_detail(struct fyai_browser *b, FILE *fp)
 		source_text = fyai_foreign_source_name(row->source);
 		id_text = browser_foreign_id(row);
 	} else {
-		if (!fyai_branch_lookup(b->branches, row->name, &branch))
-			return;
-		source = fy_get(branch.import, "source", fy_invalid);
-		id = fy_get(branch.import, "session_id", fy_invalid);
-		source_text = fy_is_string(source) ? fy_castp(&source, "") : "fyai";
-		id_text = fy_is_string(id) ? fy_castp(&id, "") : row->name;
-		model = fyai_prompt_literal(fy_get(branch.config, "model", ""));
+		if (fyai_uimodel_mirrored(fyai_browser_ctx(b))) {
+			/* The rows came with what the header says. */
+			source_text = row->import_source ? row->import_source :
+				      "fyai";
+			id_text = row->import_id ? row->import_id : row->name;
+			model = fyai_prompt_literal(row->model ? row->model : "");
+		} else {
+			if (!fyai_branch_lookup(b->branches, row->name, &branch))
+				return;
+			source = fy_get(branch.import, "source", fy_invalid);
+			id = fy_get(branch.import, "session_id", fy_invalid);
+			source_text = fy_is_string(source) ? fy_castp(&source, "") :
+				      "fyai";
+			id_text = fy_is_string(id) ? fy_castp(&id, "") : row->name;
+			model = fyai_prompt_literal(fy_get(branch.config, "model", ""));
+		}
 	}
 	dir = b->resume_all && row->cwd ? fyai_prompt_literal(row->cwd) : NULL;
 	fprintf(fp, "> **%s · %.8s**%s%s  \n",
@@ -2010,6 +2136,47 @@ static char *browser_capture(struct fyai_browser *b, char *name,
 }
 
 /*
+ * The answer to the query `sessions` {all}: the sessions that the picker
+ * offers, from the arena of this process, with what a row draws of each: its
+ * model, its tokens and its import.
+ */
+fy_generic fyai_browser_sessions_answer(struct fyai_ctx *ctx,
+					struct fy_generic_builder *gb,
+					fy_generic request)
+{
+	fy_generic params = fy_get(request, "params", fy_map_empty), root, table;
+	fy_generic rows, row, name, out = fy_seq_empty, title;
+	struct fyai_branch branch;
+	char cwd[PATH_MAX];
+
+	root = fyai_branches_snapshot(ctx);
+	table = fy_is_valid(root) && !ctx->cfg->transient ?
+		fy_get(root, "branches", fy_invalid) : ctx->bstate->branches;
+	rows = fyai_branch_select_rows(ctx, gb, table,
+				       getcwd(cwd, sizeof(cwd)) ? cwd : NULL,
+				       fy_get(params, "all", false));
+	fy_foreach(row, rows) {
+		name = fy_get(row, "branch", fy_invalid);
+		if (fy_is_string(name) &&
+		    fyai_branch_lookup(table, fy_castp(&name, ""), &branch)) {
+			title = fy_get(branch.import, "title", fy_invalid);
+			row = fy_assoc(gb, row, "tokens",
+				       browser_session_tokens(branch.head),
+				       "model", fy_value(gb, fy_get(branch.config,
+							"model", "")),
+				       "agent", fy_is_valid(branch.agent));
+			if (fy_is_string(title))
+				row = fy_assoc(gb, row, "import_title", title);
+			if (fy_is_mapping(branch.import))
+				row = fy_assoc(gb, row, "import", branch.import);
+		}
+		out = fy_append(gb, out, row);
+	}
+	return fy_mapping(gb, "what", "sessions", "rows", out, "rev",
+			  fy_value(gb, (long long)table.v));
+}
+
+/*
  * The answer of the owner of the arena to `branch_preview`: the render of a
  * branch for a client that has no arena. The client names the colour and the
  * variant of its theme, which the render takes in place of those of this
@@ -2439,6 +2606,12 @@ static void browser_command_done(void *arg, fy_generic answer)
 			break;
 		}
 	}
+	/* The picker that chose a session has done its work. */
+	if (ok && b->resume && (action == 's' || action == 'S')) {
+		b->picked = true;
+		fyai_browser_close(ctx);
+		return;
+	}
 	browser_message(b, ok ? "Done." : "The operation failed; see the diagnostic.");
 	/* The browser that took a branch has done its work. */
 	if (ok && action == 'S') {
@@ -2470,7 +2643,15 @@ static void browser_remote_action(struct fyai_browser *b, char action)
 	}
 	switch (action) {
 	case 's': case 'S':
-		(void)fyai_buf_append_data(&line, "/checkout", 9);
+		if (b->resume && b->selected < b->count &&
+		    b->rows[b->selected].foreign) {
+			browser_message(b, "A session of another program cannot be read through a worker yet.");
+			goto out;
+		}
+		/* The picker selects a session for this invocation: HEAD
+		 * stays where it is. */
+		(void)fyai_buf_append_data(&line, b->resume ? "/resume" :
+					   "/checkout", b->resume ? 7 : 9);
 		browser_word(&line, b->target);
 		break;
 	case 'n': case 'N':

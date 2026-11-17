@@ -221,6 +221,8 @@ struct remote_client {
 	/* The id of the control request in flight, and its answer when it came. */
 	const char *request_id;
 	fy_generic answer;
+	const char *resume_branch;	/* branch for --split resume SESSION */
+	bool picker, picker_all;	/* client picker for --split resume */
 	const char *refusal;
 	/* A client that ends its input waits for the result of each message. */
 	unsigned long long messages, results;
@@ -713,13 +715,17 @@ static int remote_split_open(struct remote_client *client)
 	fyai_error_check(ctx, self || !strchr(cfg->argv[0], '/'), out,
 			 "cannot resolve the executable '%s': %s", cfg->argv[0],
 			 strerror(errno));
-	args = calloc(cfg->remote_globals + 7, sizeof(*args));
+	args = calloc(cfg->remote_globals + 9, sizeof(*args));
 	fyai_error_check(ctx, args, out, "cannot allocate the arguments of a worker");
 	args[n++] = self ? self : (char *)cfg->argv[0];
 	fy_foreach(word, cfg->remote_args) {
 		if (i++ >= cfg->remote_globals)
 			break;
 		args[n++] = (char *)word;
+	}
+	if (client->resume_branch) {
+		args[n++] = "-b";
+		args[n++] = (char *)client->resume_branch;
 	}
 	args[n++] = "claude-sdk";
 	args[n++] = "--remote-worker";
@@ -864,6 +870,8 @@ static int remote_view_run(struct remote_client *client, bool watch)
 	if (!client->view)
 		return -1;
 	fyai_remote_ui_watch(client->view, watch);
+	if (client->picker)
+		fyai_remote_ui_resume(client->view, client->picker_all);
 	while (!client->failed && !jsonrpc_conn_closed(client->peer) &&
 	       !ctx->loop->terminate_pending) {
 		rc = fyai_remote_ui_step(client->view);
@@ -1201,8 +1209,16 @@ static int remote_split_run(struct fyai_cmd_call *call)
 
 	fyai_error_check(ctx, cfg->interactive, out,
 			 "--split runs an interactive session: give no command line");
-	fyai_error_check(ctx, fy_is_invalid(cfg->remote_resume), out,
-			 "--split does not take a resume yet");
+	if (fy_is_valid(cfg->remote_resume)) {
+		/* The session is the one of the worker; with none, the client
+		 * shows the picker over what the worker knows. */
+		fyai_error_check(ctx, !fy_get(cfg->remote_resume, "last", false),
+				 out, "--split does not take --last yet");
+		client.resume_branch = fy_get(cfg->remote_resume, "session",
+					      (const char *)NULL);
+		client.picker = !client.resume_branch;
+		client.picker_all = fy_get(cfg->remote_resume, "all", false);
+	}
 	if (remote_split_open(&client))
 		goto out;
 	rc = remote_view_run(&client, false);

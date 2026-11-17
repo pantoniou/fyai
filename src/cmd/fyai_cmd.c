@@ -2146,6 +2146,14 @@ bool fyai_cmd_session_local(const char *line)
 		key = fy_get(fy_get(w.def, "setting", fy_invalid), "key", "");
 		local = fy_equal(fy_get(w.def, "scope", ""), "view") ||
 			!strncmp(key, "display/", 8);
+		/* The picker of /resume is view state; a named session is
+		 * the worker's. */
+		if (!local && fy_equal(fy_get(w.def, "handler", ""), "resume")) {
+			local = true;
+			for (int i = 1; i < n; i++)
+				if (words[i][0] != '-')
+					local = false;
+		}
 	}
 	fyai_cmd_split_free(words, n, offs);
 	return local;

@@ -30,6 +30,8 @@ struct fyai_remote_ui *fyai_remote_ui_open(struct fyai_ctx *ctx,
  * an interrupt. It asks for the model of the UI and for stored turns only.
  */
 void fyai_remote_ui_watch(struct fyai_remote_ui *view, bool watch);
+/* Open the resume picker when the display opens; Escape ends the client. */
+void fyai_remote_ui_resume(struct fyai_remote_ui *view, bool all);
 /* Keep a frame of the worker for the next step. */
 void fyai_remote_ui_receive(struct fyai_remote_ui *view, fy_generic frame);
 /* Serve the frames and the typed input; 1 to detach, -1 on error. */

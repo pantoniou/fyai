@@ -111,6 +111,7 @@ struct fyai_remote_ui {
 	long long taken;
 	bool initialized, busy, failed;
 	bool watch;			/* reads a session that another client drives */
+	bool picker, picker_all;	/* show resume picker on open */
 	char *error;			/* the cause of the last failed turn */
 	/* The queries that the renderer asked: sent in order, a few at a time,
 	 * and answered by the number of their request. */
@@ -707,6 +708,11 @@ static int remote_ui_display_open(struct fyai_remote_ui *view)
 		fyai_ui_pane_end(ctx, "remote", true, true);
 	}
 	view->opened = true;
+	if (view->picker) {
+		view->picker = false;
+		rc = fyai_browser_open_resume(ctx, view->picker_all);
+		fyai_error_check(ctx, !rc, err, "cannot open the resume picker");
+	}
 	return 0;
 err:
 	return -1;
@@ -1218,6 +1224,12 @@ err:
 void fyai_remote_ui_watch(struct fyai_remote_ui *view, bool watch)
 {
 	view->watch = watch;
+}
+
+void fyai_remote_ui_resume(struct fyai_remote_ui *view, bool all)
+{
+	view->picker = true;
+	view->picker_all = all;
 }
 
 void fyai_remote_ui_receive(struct fyai_remote_ui *view, fy_generic frame)

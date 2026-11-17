@@ -58,7 +58,8 @@ pty_run "$TEST_DIR/third.out" \
     "$FYAI_BIN" "${common_args[@]}" --set display/recap_exchanges=0 <<'PTY'
 steps:
   - type: third
-  - wait: Second reply from the mock.
+  - wait-count: Second reply from the mock.
+    count: 2
     timeout: session
 PTY
 mock_stop 1

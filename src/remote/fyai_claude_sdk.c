@@ -1916,6 +1916,16 @@ static fy_generic sdk_model_sync(struct sdk_server *srv, fy_generic req)
 	size_t i, begin;
 	bool found, more;
 
+	/* A branch with no turn has nothing to send: the client drops what it
+	 * held. */
+	if (!fy_is_valid(ctx->turn->last_message) ||
+	    fy_is_null(ctx->turn->last_message)) {
+		snprintf(epoch, sizeof(epoch), "%llx",
+			 (unsigned long long)srv->epoch);
+		return fy_mapping(gb, "epoch", fy_value(gb, epoch), "head",
+				  fy_null, "base", fy_null, "turns",
+				  fy_seq_empty, "more", false);
+	}
 	if (fyai_turn_stack_init(&stack, ctx->turn->last_message, fy_invalid))
 		return fy_invalid;
 	if (depth < 1)

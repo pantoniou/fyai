@@ -18,6 +18,10 @@ char *fyai_browser_capture(struct fyai_ctx *ctx, fy_generic table,
 fy_generic fyai_browser_preview_answer(struct fyai_ctx *ctx,
 				       struct fy_generic_builder *gb,
 				       fy_generic request);
+/* The answer to the query `sessions`: the rows of the resume picker. */
+fy_generic fyai_browser_sessions_answer(struct fyai_ctx *ctx,
+					struct fy_generic_builder *gb,
+					fy_generic request);
 int fyai_browser_open(struct fyai_ctx *ctx);
 /*
  * Open the browser as the resume picker: the recent sessions, over the whole

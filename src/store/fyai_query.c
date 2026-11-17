@@ -373,6 +373,8 @@ fy_generic fyai_query(struct fyai_ctx *ctx, struct fy_generic_builder *gb,
 	/* Resolve completion candidates on the worker. */
 	if (!strcmp(fy_get(request, "what", ""), "complete"))
 		return fyai_cmd_complete_answer(ctx, gb, request);
+	if (!strcmp(fy_get(request, "what", ""), "sessions"))
+		return fyai_browser_sessions_answer(ctx, gb, request);
 	if (!strcmp(fy_get(request, "what", ""), "branch_preview"))
 		return fyai_browser_preview_answer(ctx, gb, request);
 	/* The latest root, which another process may have published, and no
