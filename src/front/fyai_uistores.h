@@ -39,6 +39,9 @@ struct fyai_uistores {
 	 * whose client draws the model it replicates.
 	 */
 	bool uidraw_off;
+	/* A worker sends recording markers to its recording client. */
+	void (*marker)(const char *label, void *data);
+	void *marker_data;
 	/* A mirror sends transcript output captured for a log entry. */
 	void (*log_kept)(void *data, const char *request, char *kept);
 	void *log_data;

@@ -179,6 +179,18 @@ static int remote_ui_request(struct fyai_remote_ui *view, const char *subtype,
 		"request", fy_assoc(gb, fields, "subtype", subtype)));
 }
 
+/* The initialize asks for the model, and for the markers of a recording. */
+static fy_generic remote_ui_init_fields(struct fyai_ctx *ctx)
+{
+	struct fy_generic_builder *gb = fyai_ctx_transient_gb(ctx);
+	bool cast = ctx->cfg->cast_path && *ctx->cfg->cast_path;
+	bool trace = cast && !ctx->cfg->cast_compat;
+
+	return fy_mapping(gb, "fyai", fy_mapping(gb, "model", 1LL,
+				"cast", cast,
+				"cast_trace", trace));
+}
+
 static int remote_ui_intent(void *data, const char *subtype,
 			    fy_generic request)
 {
@@ -1357,9 +1369,13 @@ static int remote_ui_frame(struct fyai_remote_ui *view, fy_generic frame)
 		view->taken = 0;
 		fyai_uidraw_restart(ctx);
 		(void)fyai_report(ctx, "the session restarted\n");
-		rc = remote_ui_request(view, "initialize", fy_mapping(
-			"fyai", fy_mapping("model", 1LL)));
+		rc = remote_ui_request(view, "initialize",
+				       remote_ui_init_fields(ctx));
 		fyai_error_check(ctx, !rc, err, "cannot send the initialize");
+		return 0;
+	}
+	if (!strcmp(subtype, "marker")) {
+		fyai_ui_marker(ctx, fy_get(frame, "label", ""));
 		return 0;
 	}
 	if (!strcmp(subtype, "store")) {
@@ -1416,8 +1432,7 @@ struct fyai_remote_ui *fyai_remote_ui_open(struct fyai_ctx *ctx,
 	/* A branch that is only at the worker has no configuration here. */
 	view->base = fy_is_mapping(ctx->cfg->config_doc) ?
 		     ctx->cfg->config_doc : fy_map_empty;
-	rc = remote_ui_request(view, "initialize", fy_mapping(
-		"fyai", fy_mapping("model", 1LL)));
+	rc = remote_ui_request(view, "initialize", remote_ui_init_fields(ctx));
 	fyai_error_check(ctx, !rc, err_view, "cannot send the initialize");
 	rc = fyai_event_add_timer(fyai_ctx_loop(ctx), REMOTE_UI_INIT_MS, 0,
 				  remote_ui_timeout, view, &view->deadline);

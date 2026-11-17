@@ -3559,6 +3559,8 @@ void fyai_ui_marker(struct fyai_ctx *ctx, const char *label)
 {
 	if (ctx && ctx->screen->ui)
 		fyai_cast_marker(ctx->screen->ui->cast, label);
+	else if (ctx && ctx->uistores->marker)
+		ctx->uistores->marker(label, ctx->uistores->marker_data);
 }
 
 int fyai_ui_open(struct fyai_ctx *ctx)

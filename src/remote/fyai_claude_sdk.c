@@ -217,6 +217,7 @@ struct sdk_server {
 	bool busy;
 	bool failed;			/* a frame could not be queued */
 	bool session_failed;		/* the session ends on a failure */
+	bool marking;			/* a marker is on its way to the client */
 	bool channel_lost;		/* the client of a worker went */
 	bool last_error;		/* the last result is an error */
 	/* What the session asks of the SDK. */
@@ -2549,6 +2550,49 @@ static void sdk_queued_drop(struct sdk_server *srv)
 		srv->tail = &in->next;
 }
 
+/*
+ * The client of a worker that records a session takes the markers that tell
+ * what the worker did: its trace records and the start of a turn.
+ */
+static void sdk_marker(const char *label, void *data)
+{
+	struct sdk_server *srv = data;
+
+	if (srv->marking)
+		return;
+	srv->marking = true;
+	sdk_send(srv, fy_mapping("type", "fyai", "subtype", "marker",
+				 "label", label));
+	srv->marking = false;
+}
+
+static void sdk_trace_tap(const char *kind, const char *text, void *user)
+{
+	static const char *const quiet[] = {
+		"sinkunit", "flowfence", "page", "workpane", "sync",
+	};
+	size_t i;
+
+	for (i = 0; i < ARRAY_SIZE(quiet); i++)
+		if (!strcmp(kind, quiet[i]))
+			return;
+	sdk_marker(fy_sprintfa("%s: %.200s", kind, text), user);
+}
+
+static void sdk_marks(struct sdk_server *srv, fy_generic req)
+{
+	struct fyai_ctx *ctx = sdk_server_ctx(srv);
+
+	if (!srv->remote_worker ||
+	    !fy_get(fy_get(req, "fyai", fy_invalid), "cast", false))
+		return;
+	ctx->uistores->marker = sdk_marker;
+	ctx->uistores->marker_data = srv;
+	/* A plain asciicast holds the starts of the turns and no more. */
+	if (fy_get(fy_get(req, "fyai", fy_invalid), "cast_trace", false))
+		fyai_diag_trace_tap(sdk_trace_tap, srv);
+}
+
 static void sdk_control(struct sdk_server *srv, fy_generic frame)
 {
 	struct fy_generic_builder *gb = fyai_ctx_transient_gb(sdk_server_ctx(srv));
@@ -2569,6 +2613,7 @@ static void sdk_control(struct sdk_server *srv, fy_generic frame)
 			if (srv->remote_worker) {
 				srv->model_wanted = fy_get(fy_get(req, "fyai",
 					fy_invalid), "model", 0LL) == 1;
+				sdk_marks(srv, req);
 				sdk_respond_init(srv, id);
 			}
 			else
@@ -2595,6 +2640,7 @@ static void sdk_control(struct sdk_server *srv, fy_generic frame)
 		srv->forward_text = fy_get(req, "forwardSubagentText", false);
 		srv->model_wanted = fy_get(fy_get(req, "fyai", fy_invalid),
 					   "model", 0LL) == 1;
+		sdk_marks(srv, req);
 		srv->initialized = true;
 		/* As Claude Code, answer once the MCP servers have connected. */
 		if (srv->mcp_starting) {
