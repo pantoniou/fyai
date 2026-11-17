@@ -44,6 +44,8 @@ char *fyai_ui_readline(struct fyai_ctx *ctx);
 char *fyai_ui_take_line(struct fyai_ctx *ctx);
 /* The head of the input queue. The line stays queued. */
 const char *fyai_ui_peek_line(struct fyai_ctx *ctx);
+/* The line @n places behind the head of the queue, or NULL. */
+const char *fyai_ui_peek_line_nth(struct fyai_ctx *ctx, size_t n);
 /* Whether the input queue holds an unprocessed line. */
 bool fyai_ui_has_line(struct fyai_ctx *ctx);
 /* End the session at the next pass, as an end of input does. */

@@ -83,6 +83,7 @@ struct sdk_input {
 	char *origin_json;		/* the origin that the SDK stamped */
 	char *command_id;		/* a slash command of a remote client */
 	bool composed;			/* the text goes as written */
+	bool queued;			/* queued on the client during a turn */
 	bool event;			/* a queued event, in @ev */
 	struct fyai_event_input ev;
 };
@@ -194,6 +195,7 @@ struct sdk_server {
 	/* The client reads the UI model: its stores and texts go as frames. */
 	bool model_wanted, model_stream;
 	unsigned long long epoch;	/* the incarnation of the model stream */
+	long long queued_taken;		/* the queued lines taken so far */
 	char *command_id;		/* the async command that runs */
 	bool mcp_starting;		/* the servers of --mcp-config connect */
 	char *init_id;			/* an initialize that waits for them */
@@ -2785,6 +2787,7 @@ static void sdk_user(struct sdk_server *srv, fy_generic frame)
 		return;
 	}
 	in->composed = fy_get(frame, "client_composed", false);
+	in->queued = fy_get(frame, "queued", false);
 	origin = fy_get(frame, "origin", fy_invalid);
 	if (fy_is_mapping(origin)) {
 		json = emit_json_string(fyai_ctx_transient_gb(sdk_server_ctx(srv)), origin);
@@ -2792,6 +2795,47 @@ static void sdk_user(struct sdk_server *srv, fy_generic frame)
 	}
 	*srv->tail = in;
 	srv->tail = &in->next;
+}
+
+/*
+ * A line that the client typed during a turn joins the turn at its next tool
+ * boundary, as a line of a local session does. Only a plain line that the
+ * client holds in its queue is taken; the client drops it when it sees the
+ * count.
+ */
+static struct sdk_input *sdk_queued_head(struct sdk_server *srv)
+{
+	struct sdk_input *in = srv->head;
+
+	if (!in || !in->queued || in->command_id || in->event || in->images ||
+	    in->origin_json)
+		return NULL;
+	return in;
+}
+
+static const char *sdk_line_peek(struct fyai_ctx *ctx, void *data)
+{
+	struct sdk_input *in = sdk_queued_head(data);
+
+	(void)ctx;
+	return in ? in->text : NULL;
+}
+
+static char *sdk_line_take(struct fyai_ctx *ctx, void *data)
+{
+	struct sdk_server *srv = data;
+	struct sdk_input *in = sdk_queued_head(srv);
+	char *text;
+
+	if (!in)
+		return NULL;
+	srv->head = in->next;
+	if (!srv->head)
+		srv->tail = &srv->head;
+	text = in->text;
+	free(in);
+	fyai_session_queued_set(ctx, ++srv->queued_taken);
+	return text;
 }
 
 static void sdk_frame(struct jsonrpc_conn *conn, fy_generic frame, void *data)
@@ -3525,6 +3569,11 @@ static int sdk_cmd_setup(struct fyai_cmd_call *call, struct sdk_server *srv)
 	int rc;
 
 	srv->remote_worker = fyai_cmd_arg_bool(call, "remote_worker");
+	if (srv->remote_worker) {
+		ctx->turn->line_peek = sdk_line_peek;
+		ctx->turn->line_take = sdk_line_take;
+		ctx->turn->line_data = srv;
+	}
 	ctx->cfg->reload_worker = srv->remote_worker &&
 				  fyai_cmd_arg_bool(call, "local_session");
 	/*
@@ -3774,6 +3823,9 @@ static int sdk_cmd_serve(struct sdk_server *srv)
 			srv->head = in->next;
 			if (!srv->head)
 				srv->tail = &srv->head;
+			if (in->queued)
+				fyai_session_queued_set(ctx,
+							++srv->queued_taken);
 			if (in->command_id)
 				sdk_model_command_run(srv, in);
 			else if (sdk_is_clear(in->text))

@@ -4562,6 +4562,18 @@ const char *fyai_ui_peek_line(struct fyai_ctx *ctx)
 	return ui->head->text;
 }
 
+const char *fyai_ui_peek_line_nth(struct fyai_ctx *ctx, size_t n)
+{
+	struct fyai_ui *ui = ctx ? ctx->screen->ui : NULL;
+	struct ui_line *line;
+
+	if (!ui || ui->quit)
+		return NULL;
+	for (line = ui->head; line && n; line = line->next)
+		n--;
+	return line ? line->text : NULL;
+}
+
 bool fyai_ui_has_line(struct fyai_ctx *ctx)
 {
 	struct fyai_ui *ui = ctx ? ctx->screen->ui : NULL;

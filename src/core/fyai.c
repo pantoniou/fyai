@@ -1525,6 +1525,22 @@ static int fyai_turn_run_append_user(struct fyai_turn_run *run, const char *text
 	return fy_is_valid(run->turn) ? 0 : -1;
 }
 
+/* The next line of the user that waits for a turn: the hook of a worker, or
+ * the input queue of the display. */
+static const char *fyai_turn_peek_line(struct fyai_ctx *ctx)
+{
+	if (ctx->turn->line_peek)
+		return ctx->turn->line_peek(ctx, ctx->turn->line_data);
+	return fyai_ui_peek_line(ctx);
+}
+
+static char *fyai_turn_take_line(struct fyai_ctx *ctx)
+{
+	if (ctx->turn->line_take)
+		return ctx->turn->line_take(ctx, ctx->turn->line_data);
+	return fyai_ui_take_line(ctx);
+}
+
 /*
  * Add queued events and user lines before the next model request. An event
  * enters first, as it was queued before the line that is read now. Commands
@@ -1543,7 +1559,7 @@ static int fyai_turn_run_take_pending_user(struct fyai_turn_run *run)
 		return 0;
 	/* A stale event is dropped here, so a live one is taken before output ends. */
 	have_event = fyai_event_take_live_input(ctx->waitq, &event);
-	head = fyai_ui_peek_line(ctx);
+	head = fyai_turn_peek_line(ctx);
 	if (!have_event && !fyai_interactive_is_user_line(head))
 		return 0;
 	run->turn = fyai_output_finalize(ctx, run->turn, false);
@@ -1558,8 +1574,8 @@ static int fyai_turn_run_take_pending_user(struct fyai_turn_run *run)
 				 "could not append the pending event");
 		have_event = fyai_event_take_live_input(ctx->waitq, &event);
 	}
-	while (fyai_interactive_is_user_line(head = fyai_ui_peek_line(ctx))) {
-		line = fyai_ui_take_line(ctx);
+	while (fyai_interactive_is_user_line(head = fyai_turn_peek_line(ctx))) {
+		line = fyai_turn_take_line(ctx);
 		fyai_error_check(ctx, line, err,
 				 "could not take pending input");
 		if (fyai_interactive_prepare_user_line(ctx, run->histfile,

@@ -1770,6 +1770,17 @@ void fyai_session_turn_set(struct fyai_ctx *ctx, bool busy)
 	fyai_ui_set_busy(ctx, busy);
 }
 
+void fyai_session_queued_set(struct fyai_ctx *ctx, long long taken)
+{
+	struct fy_generic_builder *gb;
+
+	gb = fyai_uimodel_begin(ctx);
+	if (gb)
+		(void)fyai_uimodel_set_member(ctx, FYAI_UI_SESSION, "queued",
+					      fy_value(gb, taken));
+	fyai_uimodel_end(ctx);
+}
+
 void fyai_session_head_set(struct fyai_ctx *ctx, fy_generic entry)
 {
 	struct fy_generic_builder *gb;

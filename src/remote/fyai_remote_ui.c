@@ -104,6 +104,11 @@ struct fyai_remote_ui {
 	fy_generic held;
 	bool opened;			/* the display is open */
 	bool restarted;			/* a new worker: the next stored turns are recapped */
+	/* The lines typed during a turn stay in the queue of the display,
+	 * which shows them as pending. The worker has the first @queued of
+	 * them and says how many it took; the client drops those. */
+	size_t queued;
+	long long taken;
 	bool initialized, busy, failed;
 	bool watch;			/* reads a session that another client drives */
 	char *error;			/* the cause of the last failed turn */
@@ -713,7 +718,7 @@ static int remote_ui_store(struct fyai_remote_ui *view, fy_generic frame)
 	struct fyai_ctx *ctx = fyai_remote_ui_ctx(view);
 	const char *name = fy_get(frame, "store", "");
 	fy_generic root = fy_get(frame, "root", fy_invalid);
-	long long head;
+	long long head, taken;
 	bool busy;
 
 	if (!strcmp(name, "state") && remote_ui_state(view, root))
@@ -729,6 +734,14 @@ static int remote_ui_store(struct fyai_remote_ui *view, fy_generic frame)
 		if (busy != view->busy) {
 			view->busy = busy;
 			fyai_ui_set_busy(ctx, busy);
+		}
+		/* The lines that the worker took leave the queue, which showed
+		 * them as pending. */
+		taken = fy_get(root, "queued", 0LL);
+		while (view->queued && view->taken < taken) {
+			free(fyai_ui_take_line(ctx));
+			view->queued--;
+			view->taken++;
 		}
 		/* The stored turns replace the live rows when the head
 		 * moves, as a published turn replaces them in a local
@@ -1124,9 +1137,12 @@ static int remote_ui_frame(struct fyai_remote_ui *view, fy_generic frame)
 	if (!fy_equal(type, "fyai"))
 		return 0;
 	if (!strcmp(subtype, "restarted")) {
-		/* A new worker took the channel: it waits for the initialize. */
+		/* A new worker took the channel: it waits for the initialize.
+		 * It has none of the lines that the old one held. */
 		view->initialized = false;
 		view->busy = false;
+		view->queued = 0;
+		view->taken = 0;
 		fyai_uidraw_restart(ctx);
 		(void)fyai_report(ctx, "the session restarted\n");
 		rc = remote_ui_request(view, "initialize", fy_mapping(
@@ -1239,6 +1255,17 @@ static int remote_ui_line(struct fyai_remote_ui *view, const char *line)
 						      "content", line)));
 }
 
+/* Send a line that the user typed during a turn. It is not echoed: its card
+ * comes from the worker when the turn takes it. */
+static int remote_ui_queued(struct fyai_remote_ui *view, const char *line)
+{
+	struct fy_generic_builder *gb = fyai_ctx_transient_gb(fyai_remote_ui_ctx(view));
+
+	return jsonrpc_conn_send_frame(view->conn, fy_mapping(gb,
+		"type", "user", "queued", true,
+		"message", fy_mapping(gb, "role", "user", "content", line)));
+}
+
 /* A frame that draws: a store other than the state, or a text. */
 static bool remote_ui_waits(fy_generic frame)
 {
@@ -1284,6 +1311,7 @@ int fyai_remote_ui_step(struct fyai_remote_ui *view)
 	sig_atomic_t interrupt_seq;
 	bool delivered;
 	char *line;
+	const char *head;
 	int rc, rows, cols;
 
 	if (view->failed)
@@ -1338,7 +1366,17 @@ int fyai_remote_ui_step(struct fyai_remote_ui *view)
 	}
 	if (fyai_ui_quit_requested(ctx))
 		return 1;
-	while (view->initialized && (line = fyai_ui_take_line(ctx))) {
+	/* A line typed during a turn stays in the queue, which shows it as
+	 * pending. The worker has it, and joins it to the turn. */
+	while (view->initialized && !view->watch && view->busy &&
+	       (head = fyai_ui_peek_line_nth(ctx, view->queued)) &&
+	       head[0] != '/' && head[0] != '!') {
+		if (remote_ui_queued(view, head))
+			return -1;
+		view->queued++;
+	}
+	while (view->initialized && !view->queued &&
+	       (line = fyai_ui_take_line(ctx))) {
 		/* A new line asks for new candidates. */
 		fyai_cmd_complete_reset(ctx);
 		if (line[0] == '/' && fyai_cmd_session_ends(line + 1)) {

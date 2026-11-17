@@ -69,6 +69,14 @@ struct fyai_turnstate {
 			     void *data);
 	void *text_observe_data;
 	/*
+	 * The lines the user typed during a turn, when this program has no
+	 * display to hold them: a worker takes them from its client. Peek
+	 * returns the first line or NULL; take removes it and returns a copy.
+	 */
+	const char *(*line_peek)(struct fyai_ctx *ctx, void *data);
+	char *(*line_take)(struct fyai_ctx *ctx, void *data);
+	void *line_data;
+	/*
 	 * Why the last turn stopped short. A turn sets it; a caller that reports
 	 * it clears it before the turn.
 	 */

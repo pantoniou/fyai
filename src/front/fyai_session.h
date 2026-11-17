@@ -131,6 +131,11 @@ void fyai_session_banner_update(struct fyai_ctx *ctx);
  */
 void fyai_session_turn_set(struct fyai_ctx *ctx, bool busy);
 /*
+ * Say how many lines that the client queued during a turn the worker has
+ * taken: the client keeps the others in its queue, which shows them.
+ */
+void fyai_session_queued_set(struct fyai_ctx *ctx, long long taken);
+/*
  * Write the member "head" of the session store from the branch entry that
  * the context adopted: {updated, op}, or null for none. A renderer that has
  * no arena reads the stored turns again when it changes.
