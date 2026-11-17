@@ -32,7 +32,8 @@ void fyai_uilog_begin(struct fyai_ctx *ctx);
  * error when @error is set or a drained record was one. A span that gave
  * nothing adds no entry.
  */
-void fyai_uilog_end(struct fyai_ctx *ctx, const char *title, bool error);
+void fyai_uilog_end(struct fyai_ctx *ctx, const char *title, bool error,
+		    bool show_output, bool command);
 
 /*
  * Record what the sink was given while a span is open: Markdown source when

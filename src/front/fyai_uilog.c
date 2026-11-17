@@ -115,7 +115,8 @@ void fyai_uilog_sink_source(struct fyai_ctx *ctx, enum fyai_sink_stream stream,
 		"source", true));
 }
 
-void fyai_uilog_end(struct fyai_ctx *ctx, const char *title, bool error)
+void fyai_uilog_end(struct fyai_ctx *ctx, const char *title, bool error,
+		    bool show_output, bool command)
 {
 	struct fyai_uilog *l = ctx ? ctx->uistores->uilog : NULL;
 	struct fy_generic_builder *gb;
@@ -137,7 +138,8 @@ void fyai_uilog_end(struct fyai_ctx *ctx, const char *title, bool error)
 		entry = fy_mapping(gb, "id", ++l->next_id,
 				   "title", title ? title : "",
 				   "error", error, "level", (long long)level,
-				   "parts", l->parts);
+				   "show_output", show_output,
+				   "command", command, "parts", l->parts);
 		entries = fy_get(fyai_uimodel_get(ctx, FYAI_UI_LOG), "entries",
 				 fy_seq_empty);
 		n = fy_len(entries);

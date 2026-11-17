@@ -235,7 +235,8 @@ char *fyai_ui_pane_captured(struct fyai_ctx *ctx, size_t *lenp);
  * for each new entry of the log store.
  */
 void fyai_ui_log_show(struct fyai_ctx *ctx, const char *title, bool error,
-		      enum fyai_error_type level, const char *rows, size_t len);
+		      enum fyai_error_type level, bool show_output,
+		      bool command, const char *rows, size_t len);
 void fyai_ui_diag_drain(struct fyai_ctx *ctx, const char *title);
 
 /* A grid of terminal cells displayed in a work band. */

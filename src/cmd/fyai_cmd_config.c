@@ -106,8 +106,19 @@ err:
 int fyai_cmd_config_get(struct fyai_cmd_call *call, fy_generic *result)
 {
 	const char *key = fyai_cmd_arg_str(call, "key");
+	struct fyai_ctx *ctx = fyai_cmd_call_ctx(call);
 	fy_generic v;
 
+	/* Read display settings from the client session layer. */
+	if (fyai_uimodel_mirrored(ctx) && !strncmp(key, "display/", 8)) {
+		v = fy_get_at_pathstr(call->gb, ctx->cfg->config_session, key);
+		if (fy_is_invalid(v))
+			v = fy_get_at_pathstr(call->gb, ctx->cfg->config_doc, key);
+		fyai_error_check(ctx, fy_is_valid(v), err, "key '%s' not set",
+				 key);
+		*result = v;
+		return 0;
+	}
 	if (config_need_arena(call))
 		return -1;
 	v = fy_get_at_pathstr(call->gb, fyai_cmd_call_ctx(call)->bstate->config, key);
@@ -123,11 +134,27 @@ int fyai_cmd_config_set(struct fyai_cmd_call *call, fy_generic *result)
 {
 	const char *key = fyai_cmd_arg_str(call, "key");
 	const char *value = fyai_cmd_arg_str(call, "value");
+	struct fyai_ctx *ctx = fyai_cmd_call_ctx(call);
+	fy_generic v;
 
-	if (fyai_config_set(fyai_cmd_call_ctx(call), key, value) || config_changed(call))
+	/* Keep display settings local to the client invocation. */
+	if (fyai_uimodel_mirrored(ctx) && !strncmp(key, "display/", 8)) {
+		v = fy_parse(call->gb, value, FYAI_YAML_PARSE_FLAGS |
+			     FYOPPF_INPUT_TYPE_STRING, NULL);
+		fyai_error_check(ctx, fy_is_valid(v), err,
+				 "%s: invalid value '%s'", key, value);
+		if (fyai_config_invocation_set(ctx, key, v) ||
+		    fyai_config_rederive(ctx))
+			return -1;
+		*result = fy_mapping(call->gb, "key", key, "value", value);
+		return 0;
+	}
+	if (fyai_config_set(ctx, key, value) || config_changed(call))
 		return -1;
 	*result = fy_mapping(call->gb, "key", key, "value", value);
 	return 0;
+err:
+	return -1;
 }
 
 int fyai_cmd_config_delete(struct fyai_cmd_call *call, fy_generic *result)

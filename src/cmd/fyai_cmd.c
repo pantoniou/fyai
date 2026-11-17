@@ -2155,6 +2155,11 @@ bool fyai_cmd_session_local(const char *line)
 					local = false;
 		}
 	}
+	/* A display key set by `config set` is the session's view state too. */
+	if (!local && n >= 3 && !strcmp(words[0], "config") &&
+	    (!strcmp(words[1], "set") || !strcmp(words[1], "get")) &&
+	    !strncmp(words[2], "display/", 8))
+		local = true;
 	fyai_cmd_split_free(words, n, offs);
 	return local;
 }

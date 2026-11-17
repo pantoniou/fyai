@@ -3972,7 +3972,7 @@ static void ui_pane_end(struct fyai_ctx *ctx, const char *title, bool error,
 			level = FYAIET_ERROR;
 	}
 	if (!ui || !ui->capture) {
-		fyai_uilog_end(ctx, title, error);
+		fyai_uilog_end(ctx, title, error, show_output, command);
 		return;
 	}
 	/* What the sink presented, then what a stray writer spooled. */
@@ -3982,7 +3982,7 @@ static void ui_pane_end(struct fyai_ctx *ctx, const char *title, bool error,
 		fyai_error(ctx, "could not keep the output of %s",
 			   title ? title : "the command");
 		ui->capture = false;
-		fyai_uilog_end(ctx, title, error);
+		fyai_uilog_end(ctx, title, error, show_output, command);
 		return;
 	}
 	ui->pane_out.len = 0;
@@ -3997,7 +3997,7 @@ static void ui_pane_end(struct fyai_ctx *ctx, const char *title, bool error,
 	ui->pane_show_output = show_output;
 	ui->pane_command = command;
 	ui->pane_span = UI_SPAN_ENDING;
-	fyai_uilog_end(ctx, title, error);
+	fyai_uilog_end(ctx, title, error, show_output, command);
 	shown = ui->pane_span == UI_SPAN_PLACED;
 	ui->pane_span = UI_SPAN_NONE;
 	/* No entry of the store: a command of a mirror runs here and writes no
@@ -4042,11 +4042,12 @@ err:
 }
 
 void fyai_ui_log_show(struct fyai_ctx *ctx, const char *title, bool error,
-		      enum fyai_error_type level, const char *rows, size_t len)
+		      enum fyai_error_type level, bool entry_show_output,
+		      bool entry_command, const char *rows, size_t len)
 {
 	struct fyai_ui *ui = ctx ? ctx->screen->ui : NULL;
 	struct fyai_buf out = {0};
-	bool show_output = true, command = true;
+	bool show_output = entry_show_output, command = entry_command;
 
 	if (!ui)
 		return;

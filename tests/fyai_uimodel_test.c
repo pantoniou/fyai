@@ -193,7 +193,7 @@ int uimodel_log_entry(void)
 	fyai_uilog_begin(&ctx);
 	fyai_uilog_sink(&ctx, FYAI_SINK_NOTICE, true, "**done**", 8);
 	fyai_uilog_sink(&ctx, FYAI_SINK_STATUS, false, "status\n", 7);
-	fyai_uilog_end(&ctx, "status", false);
+	fyai_uilog_end(&ctx, "status", false, true, true);
 	entry = uimodel_log_last(&ctx);
 	parts = fy_get(entry, "parts", fy_seq_empty);
 	FYAI_TCHECK(!strcmp(fy_get(entry, "title", ""), "status"));
@@ -208,12 +208,12 @@ int uimodel_log_entry(void)
 	/* A span that gave nothing adds no entry. */
 	seq = fyai_uimodel_seq(&ctx, FYAI_UI_LOG);
 	fyai_uilog_begin(&ctx);
-	fyai_uilog_end(&ctx, "quiet", false);
+	fyai_uilog_end(&ctx, "quiet", false, true, true);
 	FYAI_TCHECK(fyai_uimodel_seq(&ctx, FYAI_UI_LOG) == seq);
 	/* An error span is an error entry. */
 	fyai_uilog_begin(&ctx);
 	fyai_uilog_sink(&ctx, FYAI_SINK_NOTICE, false, "failed\n", 7);
-	fyai_uilog_end(&ctx, "fail", true);
+	fyai_uilog_end(&ctx, "fail", true, true, true);
 	entry = uimodel_log_last(&ctx);
 	FYAI_TCHECK(fy_get(entry, "level", -1LL) == FYAIET_ERROR);
 	FYAI_TCHECK(fy_get(entry, "error", false));
@@ -237,7 +237,7 @@ int uimodel_log_bounded(void)
 	for (i = 0; i < FYAI_UILOG_MAX + 25; i++) {
 		fyai_uilog_begin(&ctx);
 		fyai_uilog_sink(&ctx, FYAI_SINK_NOTICE, false, "x\n", 2);
-		fyai_uilog_end(&ctx, "n", false);
+		fyai_uilog_end(&ctx, "n", false, true, true);
 	}
 	entries = fy_get(fyai_uimodel_get(&ctx, FYAI_UI_LOG), "entries",
 			 fy_seq_empty);

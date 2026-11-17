@@ -312,7 +312,8 @@ static void uidraw_log(struct fyai_ctx *ctx, struct fyai_uidraw *d,
 			fyai_ui_log_show(ctx, fy_get(entry, "title", ""),
 				fy_get(entry, "error", false),
 				fy_get(entry, "level", FYAIET_INFO),
-				rows, len);
+				fy_get(entry, "show_output", true),
+				fy_get(entry, "command", true), rows, len);
 		free(rows);
 	}
 }
