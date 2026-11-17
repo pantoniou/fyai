@@ -44,7 +44,9 @@ PYEOF
 
 mock_stop 6
 
-# The setting persists with the branch: turned off, the pane draws no cap.
+# The setting persists with the branch: turned off, the pane draws no cap. The
+# session recaps the first run, which holds the same reply: the run waits for
+# one more copy of it.
 mock_start shell_session.json
 pty_run "$TEST_DIR/nocap.out" \
     "$FYAI_BIN" -b main -k test-key --theme dark \
@@ -56,7 +58,8 @@ pty_run "$TEST_DIR/nocap.out" \
 timeout: 30
 steps:
   - type: drive the shell
-  - wait: done.
+  - wait-count: done.
+    more: 1
     timeout: session
 PTY
 

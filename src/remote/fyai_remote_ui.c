@@ -103,6 +103,7 @@ struct fyai_remote_ui {
 	struct fy_generic_builder *held_gb;
 	fy_generic held;
 	bool opened;			/* the display is open */
+	bool restarted;			/* a new worker: the next stored turns are recapped */
 	bool initialized, busy, failed;
 	bool watch;			/* reads a session that another client drives */
 	char *error;			/* the cause of the last failed turn */
@@ -805,8 +806,10 @@ static int remote_ui_history(struct fyai_remote_ui *view, fy_generic response)
 	bool fresh = !gb, first, dropped = false;
 	size_t k, held = view->nturns;
 
-	if (view->epoch && strcmp(view->epoch, epoch))
+	if (view->epoch && strcmp(view->epoch, epoch)) {
 		view->nturns = 0;
+		view->restarted = true;
+	}
 	if (!view->epoch || strcmp(view->epoch, epoch)) {
 		view->epoch = fyai_ctx_keep_str(ctx, epoch);
 		fyai_error_check(ctx, view->epoch, err,
@@ -838,6 +841,8 @@ static int remote_ui_history(struct fyai_remote_ui *view, fy_generic response)
 							   fy_seq_empty),
 					"display_outputs", fy_get(turn,
 						"display_outputs", fy_seq_empty),
+					"reply", fy_get(turn, "reply",
+							fy_null),
 					"previous", head));
 				if (fy_is_invalid(head)) {
 					fy_generic_builder_destroy(gb);
@@ -866,6 +871,7 @@ static int remote_ui_history(struct fyai_remote_ui *view, fy_generic response)
 			fy_get(turn, "messages", fy_seq_empty),
 			"display_outputs",
 			fy_get(turn, "display_outputs", fy_seq_empty),
+			"reply", fy_get(turn, "reply", fy_null),
 			"previous", head));
 		if (fy_is_invalid(head) ||
 		    remote_ui_turns_push(view, fy_get(turn, "id", ""), head)) {
@@ -891,18 +897,22 @@ static int remote_ui_history(struct fyai_remote_ui *view, fy_generic response)
 			fy_generic_builder_destroy(gb);
 		goto err;
 	}
-	first = fresh;
+	/* A worker that started again begins a session of its own: the screen
+	 * says what the conversation holds, as a restarted process does. */
+	first = fresh || view->restarted;
+	view->restarted = false;
 	if (gb != view->history_gb) {
 		fy_generic_builder_destroy(view->history_gb);
 		view->history_gb = gb;
 	}
-	if (first) {
-		fyai_interactive_recap(ctx);
-		fyai_ui_drain_output(ctx);
-	} else if (dropped) {
+	if (dropped) {
 		/* The head moved to another line, as a command of a local
 		 * session moves it: the screen is made again. */
 		fyai_ui_repaint(ctx);
+	}
+	if (first) {
+		fyai_interactive_recap(ctx);
+		fyai_ui_drain_output(ctx);
 	}
 	return 0;
 err:
@@ -1117,6 +1127,7 @@ static int remote_ui_frame(struct fyai_remote_ui *view, fy_generic frame)
 		/* A new worker took the channel: it waits for the initialize. */
 		view->initialized = false;
 		view->busy = false;
+		fyai_uidraw_restart(ctx);
 		(void)fyai_report(ctx, "the session restarted\n");
 		rc = remote_ui_request(view, "initialize", fy_mapping(
 			"fyai", fy_mapping("model", 1LL)));

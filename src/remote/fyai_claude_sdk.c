@@ -1857,10 +1857,40 @@ static int sdk_mcp_send(void *userdata, fy_generic frame)
 	return 0;
 }
 
+#define SDK_REPLY_MAX 80
+
 /* The id of a stored turn on the wire: its arena word, in hexadecimal. */
 static void sdk_turn_id(fy_generic turn, char id[SDK_TURN_ID_SIZE])
 {
 	snprintf(id, SDK_TURN_ID_SIZE, "%llx", (unsigned long long)turn.v);
+}
+
+/*
+ * The first line of the last reply of @turn, bounded: what the recap of a
+ * client says of it. A wire turn carries no assistant message. Null when
+ * the turn has no reply.
+ */
+static fy_generic sdk_turn_reply(struct fyai_ctx *ctx,
+				 struct fy_generic_builder *gb, fy_generic turn)
+{
+	fy_generic msgs = fy_get(turn, "messages", fy_seq_empty), m, text;
+	const char *t;
+	size_t i, len;
+
+	for (i = fy_len(msgs); i-- > 0;) {
+		m = fy_get(msgs, i);
+		if (!fy_equal(fy_get(m, "role", fy_invalid), "assistant") &&
+		    !fy_equal(fy_get(m, "type", fy_invalid), "message"))
+			continue;
+		text = fyai_item_text(ctx, m);
+		if (!fy_is_string(text))
+			return fy_null;
+		t = fy_castp(&text, "");
+		len = strcspn(t, "\n");
+		return fy_stringf(gb, "%.*s", (int)(len > SDK_REPLY_MAX ?
+						   SDK_REPLY_MAX : len), t);
+	}
+	return fy_null;
 }
 
 /*
@@ -1917,7 +1947,8 @@ static fy_generic sdk_model_sync(struct sdk_server *srv, fy_generic req)
 		sdk_turn_id(stack.items[i], id);
 		turns = fy_append(gb, turns, fy_assoc(gb,
 			fyai_turn_wire(gb, stack.items[i]), "id",
-			fy_value(gb, id)));
+			fy_value(gb, id), "reply",
+			sdk_turn_reply(ctx, gb, stack.items[i])));
 	}
 	if (stack.count) {
 		sdk_turn_id(stack.items[stack.count - 1], id);

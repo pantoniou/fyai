@@ -643,6 +643,14 @@ err:
 	return -1;
 }
 
+void fyai_uidraw_restart(struct fyai_ctx *ctx)
+{
+	struct fyai_uidraw *d = ctx ? ctx->uistores->uidraw : NULL;
+
+	if (d)
+		d->log_shown = 0;
+}
+
 void fyai_uidraw_finish(struct fyai_ctx *ctx)
 {
 	struct fyai_uidraw *d = ctx ? ctx->uistores->uidraw : NULL;

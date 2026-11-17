@@ -27,7 +27,8 @@ with open(sys.argv[2], "w") as out:
     json.dump(scenario, out)
 PY
 
-# Store more exchanges than one screen can hold.
+# Store more exchanges than one screen can hold. The session recaps the stored
+# exchanges, which hold the same reply: each run waits for one more copy of it.
 for _ in 1 2 3; do
 	mock_start "$TEST_DIR/reflow-fast.json"
 	set_args
@@ -36,7 +37,8 @@ for _ in 1 2 3; do
 timeout: 40
 steps:
   - type: say it
-  - wait: Reflow streaming done.
+  - wait-count: Reflow streaming done.
+    more: 1
     timeout: session
 PTY
 	mock_stop 1

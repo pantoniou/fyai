@@ -50,6 +50,8 @@ void fyai_uidraw_bands_release(struct fyai_ctx *ctx);
 
 /* End what the renderer draws, before the display of @ctx closes. */
 void fyai_uidraw_finish(struct fyai_ctx *ctx);
+/* Log numbering restarts with each worker. */
+void fyai_uidraw_restart(struct fyai_ctx *ctx);
 
 /* Release the renderer at cleanup. */
 void fyai_uidraw_release(struct fyai_ctx *ctx);

@@ -4912,6 +4912,10 @@ void fyai_interactive_recap(struct fyai_ctx *ctx)
 			break;
 		}
 	}
+	/* A turn that a worker sent has no assistant message: its reply is
+	 * the first line that the worker kept. */
+	if (!fy_is_string(preview))
+		preview = fy_get(last, "reply", fy_invalid);
 	if (fy_is_string(preview) && !replayed) {
 		t = fy_castp(&preview, "");
 		len = strcspn(t, "\n");
