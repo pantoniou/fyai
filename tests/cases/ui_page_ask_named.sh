@@ -15,13 +15,13 @@ ask()
     mock_start "$1"
     driver=0
     {
-        cat <<'PTY'
+        cat <<PTY
 cols: 100
 timeout: 20
 wait_timeout: 10
 steps:
   - type: ask me without waiting
-  - wait: "How wide?"
+  - wait: "${ASK_READY}"
     timeout: session
 PTY
         printf '%s\n' "$steps"
@@ -45,7 +45,7 @@ TOOL='{m["tool_call_id"]: m["content"] for m in r["body"]["messages"] if m.get("
 
 # The wait of the same response holds until the user chooses; the list in
 # between saw the question waiting.
-ask ask_user_named.json <<'PTY'
+ASK_READY='How wide?' ask ask_user_named.json <<'PTY'
   - wait-screen: "How wide?"
   - wait-screen: still running
   - write: "2"
@@ -59,7 +59,8 @@ assert_request 3 "\"[question 'ask-1' answered]\" in $TOOL[\"call_wait\"] and \"
 mock_stop 4
 
 # Cancel takes the question out of the input area, and list no longer has it.
-ask ask_user_cancel.json <<'PTY'
+# The question is withdrawn at once: the result of the call is what shows.
+ASK_READY="question 'later' asked" ask ask_user_cancel.json <<'PTY'
   - wait-gone: or type an answer
   - wait-screen: Question withdrawn.
 PTY
