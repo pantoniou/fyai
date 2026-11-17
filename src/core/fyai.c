@@ -2490,7 +2490,10 @@ fy_generic fyai_run_turn(struct fyai_ctx *ctx, fy_generic turn)
 	run = fyai_turn_run_submit(ctx, turn);
 	if (!run)
 		return fy_invalid;
-	run->accept_pending_user = ctx->cfg->agent_child;
+	/* A worker takes the events that came during its turn, as a local
+	 * session does. */
+	run->accept_pending_user = ctx->cfg->agent_child ||
+				   fyai_uimodel_consumed(ctx);
 	el = fyai_ctx_loop(ctx);
 	assert(el);
 	while (!fyai_turn_run_done(run)) {
