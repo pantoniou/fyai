@@ -1680,6 +1680,9 @@ void fyai_browser_close(struct fyai_ctx *ctx)
 	free(b->draft);
 	free(b);
 	ctx->screen->browser = NULL;
+	/* Restore the client header after closing the browser. */
+	if (fyai_uimodel_mirrored(ctx))
+		fyai_ui_header_refresh(ctx);
 	fyai_ui_wake(ctx);
 }
 
@@ -2419,7 +2422,8 @@ static void browser_inspect(struct fyai_browser *b, char action)
 
 	/* A client that has no arena asks for the card, and shows it when it
 	 * comes. */
-	if (fyai_uimodel_mirrored(fyai_browser_ctx(b))) {
+	if (fyai_uimodel_mirrored(fyai_browser_ctx(b)) &&
+	    !b->rows[b->selected].foreign) {
 		browser_render_ask(b, &b->details_ask, b->target, action, 0, 0,
 				   browser_details_answered);
 		return;
@@ -2464,7 +2468,7 @@ static void browser_preview_update(struct fyai_browser *b, int cols, int rows)
 	name = row->name;
 	/* A client that has no arena asks for the render of the end of the
 	 * session, once for the geometry and the data that it is drawn at. */
-	if (fyai_uimodel_mirrored(fyai_browser_ctx(b))) {
+	if (fyai_uimodel_mirrored(fyai_browser_ctx(b)) && !row->foreign) {
 		if ((b->preview && !strcmp(b->preview_branch, name) &&
 		     b->preview_rev == b->rev && b->preview_updated == row->updated &&
 		     b->preview_cols == cols && b->preview_rows == rows) ||
@@ -2643,10 +2647,23 @@ static void browser_remote_action(struct fyai_browser *b, char action)
 	}
 	switch (action) {
 	case 's': case 'S':
+		/* A session of another program is imported where the arena
+		 * is, before it is resumed; the requests keep their order. */
 		if (b->resume && b->selected < b->count &&
 		    b->rows[b->selected].foreign) {
-			browser_message(b, "A session of another program cannot be read through a worker yet.");
-			goto out;
+			struct fy_generic_builder *gb = fy_generic_builder_create(NULL);
+
+			if (!gb ||
+			    fyai_uimodel_intent(fyai_browser_ctx(b), "fyai_import",
+				fy_mapping(gb, "path", b->rows[b->selected].path,
+					   "source", (long long)b->rows[b->selected].source,
+					   "title", b->rows[b->selected].title ?
+						b->rows[b->selected].title : ""))) {
+				fy_generic_builder_destroy(gb);
+				browser_message(b, "The session could not be imported.");
+				goto out;
+			}
+			fy_generic_builder_destroy(gb);
 		}
 		/* The picker selects a session for this invocation: HEAD
 		 * stays where it is. */

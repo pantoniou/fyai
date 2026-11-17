@@ -728,6 +728,12 @@ static int remote_split_open(struct remote_client *client)
 	if (client->resume_branch) {
 		args[n++] = "-b";
 		args[n++] = (char *)client->resume_branch;
+	} else if (client->picker && !ctx->bstate->session_unstored) {
+		/* The picker is of the branch that HEAD names, as it is of a
+		 * local session, where the options that change the
+		 * configuration apply. */
+		args[n++] = "-b";
+		args[n++] = (char *)fyai_ctx_branch(ctx);
 	}
 	args[n++] = "claude-sdk";
 	args[n++] = "--remote-worker";

@@ -38,6 +38,7 @@
 #include "fyai_claude_sdk.h"
 #include "fyai_catalog.h"
 #include "fyai_cmd.h"
+#include "fyai_foreign_import.h"
 #include "fyai_uilog.h"
 #include "fyai_cmd_int.h"
 #include "fyai_config.h"
@@ -2692,6 +2693,31 @@ static void sdk_control(struct sdk_server *srv, fy_generic frame)
 			sdk_server_ctx(srv), fy_get(req, "name", ""), fy_castp(&model, ""),
 			strlen(fy_castp(&model, ""))) ?
 			"no live terminal session has the name" : NULL);
+		return;
+	}
+		if (!strcmp(subtype, "fyai_import") && srv->model_stream) {
+		/* A session of another program, which the client chose in its
+		 * picker, becomes a branch that it resumes next. */
+		const char *path = fy_get(req, "path", "");
+		const char *title = fy_get(req, "title", "");
+		struct fyai_cfg *cfg = sdk_server_ctx(srv)->cfg;
+		bool explicit = cfg->branch_explicit;
+		int rc = -1;
+
+		/* The branch of the session is not the destination: the import
+		 * names its own. */
+		if (!srv->busy && *path) {
+			fyai_ui_pane_begin(sdk_server_ctx(srv));
+			cfg->branch_explicit = false;
+			rc = fyai_foreign_import_view(sdk_server_ctx(srv), path,
+				(enum fyai_foreign_source)fy_get(req, "source", 0LL),
+				*title ? title : NULL);
+			cfg->branch_explicit = explicit;
+			if (!rc)
+				rc = fyai_branches_refresh(sdk_server_ctx(srv));
+			fyai_ui_pane_end(sdk_server_ctx(srv), "import", rc, true);
+		}
+		sdk_respond(srv, id, fy_invalid, rc ? "cannot import the session" : NULL);
 		return;
 	}
 		if (!strcmp(subtype, "fyai_record") && srv->model_stream) {
