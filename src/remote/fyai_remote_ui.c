@@ -111,6 +111,13 @@ struct fyai_remote_ui {
 	long long taken;
 	bool initialized, busy, failed;
 	bool watch;			/* reads a session that another client drives */
+	/* The view of an agent that the worker shows here: its document, which
+	 * the client draws at its own size and scrolls, and the draft that the
+	 * prompt held while the keys are the agent's. */
+	struct fytim_surface *av_surface;
+	char *av_md, *av_draft;
+	size_t av_offset;
+	bool av_attached;
 	bool picker, picker_all;	/* show resume picker on open */
 	char *error;			/* the cause of the last failed turn */
 	/* The queries that the renderer asked: sent in order, a few at a time,
@@ -403,6 +410,100 @@ static bool remote_ui_term_closes(const char *bytes, size_t len)
 	       (len == 1 || (bytes[1] != '[' && bytes[1] != 'O'));
 }
 
+/* Draw the document of the view of an agent into its tile. */
+static void remote_ui_av_paint(struct fyai_remote_ui *view)
+{
+	struct fyai_ctx *ctx = fyai_remote_ui_ctx(view);
+
+	if (view->av_surface && view->av_md &&
+	    fyai_sink_page(ctx->out->sink, view->av_surface, view->av_md,
+			   view->av_offset))
+		fyai_warning(ctx, "the agent view did not render");
+}
+
+static void remote_ui_av_grant(void *owner, int rows, int cols)
+{
+	struct fyai_remote_ui *view = owner;
+	struct fyai_ctx *ctx = fyai_remote_ui_ctx(view);
+
+	if (fyai_ui_surface_resize(view->av_surface, rows, cols))
+		fyai_warning(ctx, "the agent view did not take its grant");
+	fyai_workpane_grid_resized(ctx->screen->workpane, view->av_surface,
+				   rows, cols);
+	remote_ui_av_paint(view);
+}
+
+static const struct fyai_workpane_tile_ops remote_ui_av_ops = {
+	.apply_grant = remote_ui_av_grant,
+};
+
+/* Take the view of an agent away. */
+static void remote_ui_av_close(struct fyai_remote_ui *view)
+{
+	struct fyai_ctx *ctx = fyai_remote_ui_ctx(view);
+
+	if (view->av_surface) {
+		fyai_workpane_unregister(ctx->screen->workpane, view->av_surface);
+		fyai_ui_surface_close(ctx, view->av_surface);
+		view->av_surface = NULL;
+	}
+	if (view->av_attached && view->av_draft)
+		fyai_ui_input_set(ctx, view->av_draft);
+	free(view->av_draft);
+	view->av_draft = NULL;
+	free(view->av_md);
+	view->av_md = NULL;
+	view->av_attached = false;
+	view->av_offset = 0;
+	fyai_ui_wake(ctx);
+}
+
+/* The member "agent_view" of the work store: show, change or end the view. */
+static int remote_ui_av(struct fyai_remote_ui *view, fy_generic av)
+{
+	struct fyai_ctx *ctx = fyai_remote_ui_ctx(view);
+	bool attached;
+	int rc;
+
+	if (!fy_is_mapping(av)) {
+		if (view->av_surface || view->av_md)
+			remote_ui_av_close(view);
+		return 0;
+	}
+	attached = fy_get(av, "attached", false);
+	if (!view->av_surface) {
+		view->av_surface = fyai_ui_surface_open(ctx, 16, 80);
+		fyai_error_check(ctx, view->av_surface, err,
+				 "cannot open the agent view");
+		rc = fyai_workpane_register(ctx->screen->workpane, view->av_surface,
+				FYAI_WORKPANE_TILE_AGENT_VIEW, view,
+				&remote_ui_av_ops, 16, 0);
+		fyai_error_check(ctx, !rc, err,
+				 "cannot place the agent view in the work pane");
+		(void)fyai_ui_surface_zoom(ctx, view->av_surface);
+		view->av_attached = attached;
+		if (attached) {
+			view->av_draft = fyai_ui_input_copy(ctx);
+			fyai_ui_input_set(ctx, "");
+		} else {
+			(void)fyai_tools_focus_next(ctx);
+			fyai_workpane_set_focus(ctx->screen->workpane,
+						view->av_surface);
+		}
+	}
+	free(view->av_md);
+	view->av_md = strdup(fy_get(av, "md", ""));
+	fyai_error_check(ctx, view->av_md, err, "cannot keep the agent view");
+	(void)fyai_ui_surface_set_title(view->av_surface,
+					fy_get(av, "branch", ""),
+					fy_get(av, "state", ""));
+	remote_ui_av_paint(view);
+	fyai_ui_wake(ctx);
+	return 0;
+err:
+	return -1;
+}
+
 /*
  * The keys of the tile of a terminal go to its program in the worker. The
  * tile of a program that ended goes here at once when a key closes it, and
@@ -417,6 +518,30 @@ static bool remote_ui_term_keys(void *data, struct fytim_surface *sf,
 	struct remote_ui_term *t;
 	size_t keylen;
 
+	size_t i;
+
+	if (view->av_surface && view->av_surface == sf) {
+		for (i = 0; i < len; i++) {
+			if (bytes[i] == 'j' || bytes[i] == 'k') {
+				if (bytes[i] == 'j')
+					view->av_offset++;
+				else if (view->av_offset)
+					view->av_offset--;
+				remote_ui_av_paint(view);
+				fyai_ui_wake(ctx);
+				continue;
+			}
+			/* Escape or ^C leaves the view: the worker detaches. */
+			if (bytes[i] == FYAI_KEY_ESC || bytes[i] == FYAI_KEY_INTR) {
+				if (remote_ui_request(view, "fyai_command",
+						fy_mapping("line",
+							   "/branch detach")))
+					view->failed = true;
+				break;
+			}
+		}
+		return true;
+	}
 	for (t = view->terms; t && t->surface != sf; t = t->next)
 		;
 	if (!t || !len)
@@ -760,6 +885,8 @@ static int remote_ui_store(struct fyai_remote_ui *view, fy_generic frame)
 				return -1;
 		}
 	} else if (!strcmp(name, "work")) {
+		if (remote_ui_av(view, fy_get(root, "agent_view", fy_invalid)))
+			return -1;
 		return remote_ui_terms(view, root);
 	}
 	return 0;
@@ -1257,6 +1384,11 @@ static int remote_ui_line(struct fyai_remote_ui *view, const char *line)
 
 	if (view->watch)
 		return 0;
+	/* A line for an attached agent is not a message of the session. */
+	if (view->av_attached)
+		return jsonrpc_conn_send_frame(view->conn, fy_mapping(gb,
+			"type", "user", "message", fy_mapping(gb, "role",
+				"user", "content", line)));
 	fyai_echo_user_turn(fyai_remote_ui_ctx(view), line);
 	fyai_ui_drain_output(fyai_remote_ui_ctx(view));
 	if (fyai_uidraw_echoed(fyai_remote_ui_ctx(view), line))
@@ -1455,6 +1587,7 @@ void fyai_remote_ui_close(struct fyai_remote_ui *view)
 	}
 	fy_generic_builder_destroy(view->query_gb);
 	fyai_uidraw_finish(ctx);
+	remote_ui_av_close(view);
 	while ((t = view->terms)) {
 		view->terms = t->next;
 		remote_ui_term_free(ctx, t);

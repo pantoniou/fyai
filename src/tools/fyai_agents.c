@@ -58,6 +58,8 @@ struct fyai_agents {
 	long long next_execution, selected, sequence;
 	unsigned long generation, painted;
 	bool subscribed, attached, question_presented;
+	bool remote;		/* a client shows the view; this process draws none */
+	bool present_pending;	/* a deferred present is queued */
 	char *draft;
 	char *question_draft;
 	char *history;
@@ -69,6 +71,29 @@ struct fyai_agents {
 static inline struct fyai_ctx *fyai_agents_ctx(const struct fyai_agents *o)
 {
 	return o->ctx;
+}
+
+static void agents_publish_view(struct fyai_ctx *ctx, const char *branch,
+				const char *state, const char *md, bool attached);
+
+/* Present the view that a client shows, once the loop is free again. */
+static void agents_present_deferred(void *data)
+{
+	struct fyai_agents *a = data;
+
+	a->present_pending = false;
+	if (a->remote && !a->closing)
+		fyai_agents_present(fyai_agents_ctx(a));
+}
+
+/* Notify the view when an agent changes state. */
+static void agents_changed(struct fyai_agents *a)
+{
+	a->generation++;
+	if (a->remote && !a->present_pending &&
+	    !fyai_event_defer(fyai_ctx_loop(fyai_agents_ctx(a)),
+			      agents_present_deferred, a))
+		a->present_pending = true;
 }
 
 static struct fyai_agents *agents_get(struct fyai_ctx *ctx)
@@ -433,7 +458,7 @@ static struct agent_record *agents_add(struct fyai_agents *a,
 	r->state = AGENT_STARTING;
 	r->next = a->records;
 	a->records = r;
-	a->generation++;
+	agents_changed(a);
 	return r;
 
 err_out:
@@ -493,7 +518,7 @@ static void agents_event(struct fyai_ctx *ctx, struct jsonrpc_conn *from,
 		free(r->source);
 		r->source = copy;
 	}
-	a->generation++;
+	agents_changed(a);
 	if (ctx->astate->execution && ctx->jobs->rpc) {
 		rc = jsonrpc_notify(ctx->jobs->rpc, "agent/event", params);
 		fyai_error_check(ctx, !rc, err_out,
@@ -603,7 +628,7 @@ static int agents_question(struct fyai_ctx *ctx, struct jsonrpc_conn *conn,
 	*a->question_tail = q;
 	a->question_tail = &q->next;
 	jsonrpc_conn_defer(conn);
-	a->generation++;
+	agents_changed(a);
 	fyai_ui_wake(ctx);
 	return 0;
 
@@ -1020,7 +1045,7 @@ void fyai_agents_conn_closed(struct fyai_ctx *ctx, struct jsonrpc_conn *conn)
 		if (agent_active(r))
 			r->state = AGENT_INTERRUPTED;
 	}
-	a->generation++;
+	agents_changed(a);
 }
 
 unsigned long fyai_agents_generation(const struct fyai_ctx *ctx)
@@ -1255,29 +1280,39 @@ const char *fyai_agents_zoom(struct fyai_ctx *ctx, const char *name, bool attach
 {
 	struct fyai_agents *a;
 	struct agent_record *r;
+	bool remote;
 	int rc;
 
 	a = agents_get(ctx);
 	r = agents_named(ctx, name);
-	if (!a || !r || !fyai_ui_active(ctx))
+	/* The client renders the worker's agent view. */
+	remote = !fyai_ui_active(ctx) && fyai_uimodel_consumed(ctx);
+	if (!a || !r || (!fyai_ui_active(ctx) && !remote))
 		return NULL;
 	fyai_agents_detach(ctx);
 	a->selected = r->execution;
 	a->attached = attach;
 	a->history = agents_history(ctx, r->branch);
 	a->offset = 0;
-	a->draft = attach ? fyai_ui_input_copy(ctx) : NULL;
-	a->surface = fyai_ui_surface_open(ctx, AGENT_VIEW_ROWS, AGENT_VIEW_COLS);
-	fyai_error_check(ctx, a->surface, fail, "cannot open the agent view");
-	rc = fyai_workpane_register(ctx->screen->workpane, a->surface,
-		FYAI_WORKPANE_TILE_AGENT_VIEW, a, &agents_ops, AGENT_VIEW_ROWS, 0);
-	fyai_error_check(ctx, !rc, fail, "cannot place the agent view in the work pane");
-	(void)fyai_ui_surface_zoom(ctx, a->surface);
-	if (attach)
-		fyai_ui_input_set(ctx, "");
-	else {
-		(void)fyai_tools_focus_next(ctx);
-		fyai_workpane_set_focus(ctx->screen->workpane, a->surface);
+	a->remote = remote;
+	if (!remote) {
+		a->draft = attach ? fyai_ui_input_copy(ctx) : NULL;
+		a->surface = fyai_ui_surface_open(ctx, AGENT_VIEW_ROWS,
+						  AGENT_VIEW_COLS);
+		fyai_error_check(ctx, a->surface, fail,
+				 "cannot open the agent view");
+		rc = fyai_workpane_register(ctx->screen->workpane, a->surface,
+			FYAI_WORKPANE_TILE_AGENT_VIEW, a, &agents_ops,
+			AGENT_VIEW_ROWS, 0);
+		fyai_error_check(ctx, !rc, fail,
+				 "cannot place the agent view in the work pane");
+		(void)fyai_ui_surface_zoom(ctx, a->surface);
+		if (attach)
+			fyai_ui_input_set(ctx, "");
+		else {
+			(void)fyai_tools_focus_next(ctx);
+			fyai_workpane_set_focus(ctx->screen->workpane, a->surface);
+		}
 	}
 	rc = agents_control(ctx, r, "subscribe", NULL, true);
 	fyai_error_check(ctx, !rc, fail, "agent %s does not answer", r->branch);
@@ -1285,6 +1320,7 @@ const char *fyai_agents_zoom(struct fyai_ctx *ctx, const char *name, bool attach
 	a->painted = 0;
 	fyai_session_banner_update(ctx);
 	fyai_ui_wake(ctx);
+	agents_changed(a);
 	return r->branch;
 fail:
 	fyai_agents_detach(ctx);
@@ -1307,7 +1343,10 @@ void fyai_agents_detach(struct fyai_ctx *ctx)
 	if (a->surface)
 		fyai_ui_surface_close(ctx, a->surface);
 	a->surface = NULL;
-	if (a->attached)
+	if (a->remote)
+		agents_publish_view(ctx, NULL, NULL, NULL, false);
+	a->remote = false;
+	if (a->attached && fyai_ui_active(ctx))
 		fyai_ui_input_set(ctx, a->draft);
 	free(a->draft);
 	a->draft = NULL;
@@ -1345,7 +1384,7 @@ static void agents_settle(struct fyai_ctx *ctx, struct fyai_agents *a,
 	free(a->question_draft);
 	a->question_draft = NULL;
 	a->question_presented = false;
-	a->generation++;
+	agents_changed(a);
 }
 
 /* Put question @n of the head of the queue to the user as plain text. */
@@ -1703,7 +1742,7 @@ bool fyai_agents_keys(struct fyai_ctx *ctx, const char *data, size_t len)
 				a->offset++;
 			else if (a->offset)
 				a->offset--;
-			a->generation++;
+			agents_changed(a);
 			fyai_ui_wake(ctx);
 			continue;
 		}
@@ -1772,6 +1811,24 @@ static void agents_present_question(struct fyai_ctx *ctx, struct fyai_agents *a)
 }
 
 /*
+ * Give the view of an agent to the client that shows it, as the member
+ * "agent_view" of the work store: the document, and whether the keys of the
+ * client are the agent's. A NULL @branch takes the view away.
+ */
+static void agents_publish_view(struct fyai_ctx *ctx, const char *branch,
+				const char *state, const char *md, bool attached)
+{
+	struct fy_generic_builder *gb = fyai_uimodel_begin(ctx);
+
+	if (gb)
+		(void)fyai_uimodel_set_member(ctx, FYAI_UI_WORK, "agent_view",
+			branch ? fy_mapping(gb, "branch", branch, "state", state,
+					    "md", md ? md : "",
+					    "attached", attached) : fy_null);
+	fyai_uimodel_end(ctx);
+}
+
+/*
  * Draw the selected agent in its tile: what it has stored, what it is
  * writing now, and a heading for each child an attached view subscribes to.
  */
@@ -1784,7 +1841,8 @@ static void agents_present_view(struct fyai_ctx *ctx, struct fyai_agents *a,
 	FILE *fp;
 	int rc;
 
-	if (fyai_ui_surface_set_title(a->surface, selected->branch,
+	if (a->surface &&
+	    fyai_ui_surface_set_title(a->surface, selected->branch,
 				       agent_state_name(selected->state)))
 		fyai_warning(ctx, "the agent view is not named");
 	fp = open_memstream(&md, &size);
@@ -1809,6 +1867,12 @@ static void agents_present_view(struct fyai_ctx *ctx, struct fyai_agents *a,
 		(void)agents_progress(fp, a, r->execution);
 	}
 	fclose(fp);
+	if (a->remote) {
+		agents_publish_view(ctx, selected->branch,
+				    agent_state_name(selected->state), md,
+				    a->attached);
+		goto err_out;
+	}
 	rc = fyai_sink_page(ctx->out->sink, a->surface, md, a->offset);
 	if (rc)
 		fyai_warning(ctx, "the agent view did not render");
@@ -1855,7 +1919,7 @@ void fyai_agents_present(struct fyai_ctx *ctx)
 	if (a->questions && !a->question_presented)
 		agents_present_question(ctx, a);
 	selected = agents_record(a, a->selected);
-	if (a->surface && selected)
+	if ((a->surface || a->remote) && selected)
 		agents_present_view(ctx, a, selected);
 	if (ctx->astate->execution && fyai_sink_bands_available(ctx->out->sink))
 		agents_present_progress(ctx, a);

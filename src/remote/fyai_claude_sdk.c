@@ -46,6 +46,7 @@
 #include "fyai_provider.h"
 #include "fyai_skill.h"
 #include "fyai_session.h"
+#include "fyai_agents.h"
 #include "fyai_ask.h"
 #include "fyai_wait.h"
 #include "fyai_uimodel.h"
@@ -2798,6 +2799,17 @@ static void sdk_user(struct sdk_server *srv, fy_generic frame)
 	}
 	in->composed = fy_get(frame, "client_composed", false);
 	in->queued = fy_get(frame, "queued", false);
+	/* A line for an attached agent, or the answer to its question, is not
+	 * a message of the conversation. */
+	if (srv->remote_worker && !in->images &&
+	    fyai_agents_input(sdk_server_ctx(srv), in->text)) {
+		if (in->queued)
+			fyai_session_queued_set(sdk_server_ctx(srv),
+						++srv->queued_taken);
+		free(in->text);
+		free(in);
+		return;
+	}
 	origin = fy_get(frame, "origin", fy_invalid);
 	if (fy_is_mapping(origin)) {
 		json = emit_json_string(fyai_ctx_transient_gb(sdk_server_ctx(srv)), origin);
