@@ -128,6 +128,7 @@ struct fyai_tool_job {
 	bool terminating;
 	bool timed_out;
 	bool overdue;
+	bool ended, ended_ok;		/* an agent: its tile ended, with this outcome */
 	unsigned int timeout_ms;	/* 0 = no limit */
 	unsigned int hang_timeout_ms;
 	fyai_event_ms_t started_ms;
@@ -421,6 +422,7 @@ void fyai_agent_inline_paint(struct fyai_tool_job *job, bool done,
 			     bool ok);
 void fyai_agent_view_refresh(struct fyai_tool_job *job);
 void fyai_agent_head_paint(struct fyai_tool_job *job);
+char *fyai_agent_head_title(struct fyai_tool_job *job);
 void fyai_agent_view_reply(const char *data, size_t len, void *user);
 fy_generic fyai_agent_input_tool(struct fyai_ctx *ctx, fy_generic args,
 				 bool *okp);

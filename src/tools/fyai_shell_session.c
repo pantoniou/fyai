@@ -86,6 +86,7 @@ void fyai_tools_work_update(struct fyai_ctx *ctx)
 	struct fyai_shell_session *sess;
 	struct fyai_tool_job *job;
 	fy_generic items = fy_seq_empty, item;
+	char *head;
 	int rows, cols;
 
 	if (gb) {
@@ -120,10 +121,21 @@ void fyai_tools_work_update(struct fyai_ctx *ctx)
 			items = fy_append(gb, items, item);
 		}
 		for (job = ctx->jobs->tools; job; job = job->next) {
-			if (!job->agent || job->phase == FYAI_JOB_DONE)
+			if (!job->agent || (job->phase == FYAI_JOB_DONE &&
+					    !job->ended))
 				continue;
 			item = fy_mapping(gb, "kind", "agent",
 					  "name", job->branch ? job->branch : "");
+			/* The title names the call, the model and the id. */
+			head = fyai_agent_head_title(job);
+			if (head) {
+				item = fy_assoc(gb, item, "title",
+						fy_value(gb, head));
+				free(head);
+			}
+			if (job->ended)
+				item = fy_assoc(gb, item, "exited", true, "ok",
+						job->ended_ok);
 			if (job->model_text && job->view) {
 				fyai_terminal_view_size(job->view, &rows,
 							&cols);

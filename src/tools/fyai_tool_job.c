@@ -374,6 +374,9 @@ void fyai_tool_agent_title_refresh(struct fyai_ctx *ctx, const char *branch)
 	job = fyai_tool_job_by_branch(ctx, branch);
 	if (job && job->surface)
 		fyai_agent_head_paint(job);
+	/* A client of the UI model draws the title from the work store. */
+	if (job)
+		fyai_tools_work_update(ctx);
 }
 
 /* Spawn a tool child, optionally with a PTY on its standard descriptors. */

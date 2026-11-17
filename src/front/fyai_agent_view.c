@@ -293,7 +293,7 @@ void fyai_agent_view_refresh(struct fyai_tool_job *job)
  * the model, and the execution id from the agent registry. Leave out a field
  * that the registry does not have. The caller frees the result.
  */
-static char *fyai_agent_head_title(struct fyai_tool_job *job)
+char *fyai_agent_head_title(struct fyai_tool_job *job)
 {
 	const char *base, *end, *leaf, *model, *id;
 	const char *leaf_part, *model_part, *text;
@@ -660,6 +660,10 @@ void fyai_agent_view_close(struct fyai_tool_job *job, bool ok,
 {
 	char *title;
 
+	/* A client of the UI model ends its tile as this outcome says. */
+	job->ended = true;
+	job->ended_ok = ok;
+	fyai_tools_work_update(fyai_tool_job_ctx(job));
 	if (job->animation) {
 		fyai_event_source_remove(job->animation);
 		job->animation = NULL;

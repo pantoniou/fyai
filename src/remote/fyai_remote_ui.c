@@ -57,6 +57,7 @@ struct remote_ui_term {
 	bool agent;			/* the terminal of a sub-agent */
 	bool exited;
 	bool dismissed;			/* closed here; the worker drops it */
+	char *title;			/* the title that the worker gave */
 	struct fyai_terminal_view *view;
 	struct fytim_surface *surface;
 };
@@ -177,6 +178,7 @@ static void remote_ui_term_free(struct fyai_ctx *ctx, struct remote_ui_term *t)
 		fyai_ui_surface_close(ctx, t->surface);
 	}
 	fyai_terminal_view_destroy(t->view);
+	free(t->title);
 	free(t);
 }
 
@@ -207,8 +209,17 @@ static int remote_ui_term_feed(struct fyai_remote_ui *view,
 }
 
 /* Open the view and the tile of @t at the size the worker gives. */
+/* The title that the worker gave to an agent tile, or NULL. */
+static const char *remote_ui_term_title(const struct remote_ui_term *t,
+					fy_generic item)
+{
+	const char *title = fy_get(item, "title", "");
+
+	return t->agent && *title ? title : NULL;
+}
+
 static int remote_ui_term_open(struct fyai_remote_ui *view,
-			       struct remote_ui_term *t)
+			       struct remote_ui_term *t, fy_generic item)
 {
 	struct fyai_ctx *ctx = fyai_remote_ui_ctx(view);
 	int rc;
@@ -225,8 +236,9 @@ static int remote_ui_term_open(struct fyai_remote_ui *view,
 	fyai_error_check(ctx, !rc, err, "cannot place the terminal %s",
 			 t->name);
 	(void)fyai_chrome_update(ctx, t->surface, &(struct fyai_chrome_spec){
-		.title = fy_sprintfa("**%s** %s", t->agent ? "agent" :
-			     "shell", t->name),
+		.title = remote_ui_term_title(t, item) ? :
+			 fy_sprintfa("**%s** %s", t->agent ? "agent" :
+				     "shell", t->name),
 		.mark = FYAI_UI_MARK_RUNNING,
 	}, NULL);
 	return remote_ui_term_feed(view, t);
@@ -356,12 +368,39 @@ static const struct fyai_uimodel_tile_ops remote_ui_tile_ops = {
 };
 
 /* Show each terminal that the member "items" of the work store names. */
+/*
+ * True when an agent that started before @item still runs and has no terminal:
+ * its tile is to open first. The items come newest first.
+ */
+static bool remote_ui_term_waits(fy_generic items, fy_generic item)
+{
+	fy_generic other;
+	bool after = false;
+
+	if (!fy_equal(fy_get(item, "kind", ""), "agent"))
+		return false;
+	fy_foreach(other, items) {
+		if (!after && !strcmp(fy_get(other, "name", ""),
+				      fy_get(item, "name", ""))) {
+			after = true;
+			continue;
+		}
+		if (after && fy_equal(fy_get(other, "kind", ""), "agent") &&
+		    !fy_get(other, "btw", false) &&
+		    !fy_get(other, "exited", false) &&
+		    !fy_is_mapping(fy_get(other, "terminal", fy_invalid)))
+			return true;
+	}
+	return false;
+}
+
 static int remote_ui_terms(struct fyai_remote_ui *view, fy_generic root)
 {
 	struct fyai_ctx *ctx = fyai_remote_ui_ctx(view);
 	struct remote_ui_term **tp, *t;
 	fy_generic items = fy_get(root, "items", fy_seq_empty), item, term;
-	const char *name;
+	const char *name, *title;
+	size_t i;
 	bool found;
 
 	tp = &view->terms;
@@ -379,7 +418,9 @@ static int remote_ui_terms(struct fyai_remote_ui *view, fy_generic root)
 		*tp = t->next;
 		remote_ui_term_free(ctx, t);
 	}
-	fy_foreach(item, items) {
+	/* Open tiles in agent start order. */
+	for (i = fy_len(items); i-- > 0;) {
+		item = fy_get_at(items, i);
 		term = fy_get(item, "terminal", fy_invalid);
 		if (!fy_is_mapping(term))
 			continue;
@@ -409,6 +450,11 @@ static int remote_ui_terms(struct fyai_remote_ui *view, fy_generic root)
 			remote_ui_term_free(ctx, t);
 			t = NULL;
 		}
+		/* The tiles of agents open in the order they started: the
+		 * worker lists the newest first, and an older agent that has
+		 * no terminal yet comes first. */
+		if (!t && remote_ui_term_waits(items, item))
+			continue;
 		if (!t) {
 			t = calloc(1, sizeof(*t));
 			fyai_error_check(ctx, t, err, "cannot keep a terminal");
@@ -428,7 +474,7 @@ static int remote_ui_terms(struct fyai_remote_ui *view, fy_generic root)
 					return -1;
 				continue;
 			}
-			if (remote_ui_term_open(view, t))
+			if (remote_ui_term_open(view, t, item))
 				return -1;
 			/* A command of the user takes the keys, as it does
 			 * in a local session. */
@@ -438,18 +484,49 @@ static int remote_ui_terms(struct fyai_remote_ui *view, fy_generic root)
 		/* A tile closed here waits for the worker to drop it. */
 		if (t->dismissed)
 			continue;
+		/* Add the model to the title once it is known. */
+		title = remote_ui_term_title(t, item);
+		if (title && (!t->title || strcmp(t->title, title))) {
+			free(t->title);
+			t->title = strdup(title);
+			if (!t->exited)
+				(void)fyai_chrome_update(ctx, t->surface,
+					&(struct fyai_chrome_spec){
+						.title = title,
+						.mark = FYAI_UI_MARK_RUNNING,
+					}, NULL);
+		}
 		/* A program that ended leaves its screen to read. */
 		if (!t->exited && fy_get(item, "exited", false)) {
 			t->exited = true;
 			(void)fyai_chrome_update(ctx, t->surface,
 				&(struct fyai_chrome_spec){
-					.title = fy_sprintfa("**%s** %s",
+					.title = t->title ? t->title :
+						 fy_sprintfa("**%s** %s",
 						t->agent ? "agent" : "shell",
 						t->name),
 					.mark = fy_get(item, "ok", false) ?
 						FYAI_UI_MARK_OK :
 						FYAI_UI_MARK_FAILED,
 				}, NULL);
+			/* The screen of an agent that ended goes to the
+			 * scrollback, as a local session commits it. */
+			if (t->agent) {
+				if (remote_ui_term_feed(view, t))
+					return -1;
+				fyai_workpane_tile_set_selectable(
+					ctx->screen->workpane, t->surface, false);
+				if (fyai_workpane_focused(ctx->screen->workpane) ==
+				    t->surface)
+					fyai_workpane_clear_focus(ctx->screen->workpane);
+				if (fyai_workpane_zoomed(ctx->screen->workpane) ==
+				    t->surface)
+					fyai_workpane_clear_zoom(ctx->screen->workpane);
+				fyai_ui_surface_commit(ctx, t->surface);
+				t->surface = NULL;
+				t->dismissed = true;
+				continue;
+			}
 			/* The hint of a focused tile says that Escape closes
 			 * it now. */
 			if (fyai_workpane_focused(ctx->screen->workpane) == t->surface)
