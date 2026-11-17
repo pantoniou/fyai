@@ -3591,6 +3591,7 @@ commands:
       pid that `list daemons` shows. It gets SIGTERM, and SIGKILL after `sandbox_grace_ms`.
     surfaces: [session]
     handler: kill
+    while_busy: run
     render:
       message: "{action} {name}"
     arguments:
