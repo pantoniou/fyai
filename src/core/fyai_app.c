@@ -291,7 +291,9 @@ void fyai_out_abandon(struct fyai_out *out)
 
 void fyai_uistores_abandon(struct fyai_uistores *stores)
 {
-	(void)stores;	/* the stores and the renderers are released with the objects */
+	/* The stores and the renderers are released with the objects. */
+	stores->log_kept = NULL;
+	stores->log_data = NULL;
 }
 
 void fyai_screen_abandon(struct fyai_screen *screen)

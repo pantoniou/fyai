@@ -70,6 +70,15 @@ struct remote_ui_term {
  * mirror of the model of the worker: the frames of the worker write it, and
  * the renderer of this process draws from it as it draws a local session.
  */
+/* A command sent to the worker, whose output the transcript may take. */
+struct remote_ui_command {
+	struct remote_ui_command *next;
+	char id[48];			/* the request id */
+	char *line;
+};
+
+#define REMOTE_UI_COMMANDS_MAX	32
+
 struct fyai_remote_ui {
 	struct fyai_ctx *ctx;
 	struct jsonrpc_conn *conn;
@@ -103,6 +112,7 @@ struct fyai_remote_ui {
 	struct fy_generic_builder *held_gb;
 	fy_generic held;
 	bool opened;			/* the display is open */
+	struct remote_ui_command *commands;	/* the commands that wait for their output, oldest first */
 	bool restarted;			/* a new worker: the next stored turns are recapped */
 	/* The lines typed during a turn stay in the queue of the display,
 	 * which shows them as pending. The worker has the first @queued of
@@ -843,6 +853,75 @@ err:
 	return -1;
 }
 
+/* Keep @line, which is about to go as the next request, for its output. */
+static void remote_ui_command_add(struct fyai_remote_ui *view, const char *line)
+{
+	struct remote_ui_command *c, **link;
+	size_t n = 0;
+
+	c = calloc(1, sizeof(*c));
+	if (!c)
+		return;
+	snprintf(c->id, sizeof(c->id), "ui-fyai_command-%llu",
+		 view->requests + 1);
+	c->line = strdup(line);
+	if (!c->line) {
+		free(c);
+		return;
+	}
+	/* A command with no output never comes back: the oldest go. */
+	for (link = &view->commands; *link; link = &(*link)->next)
+		if (++n >= REMOTE_UI_COMMANDS_MAX) {
+			struct remote_ui_command *old = *link;
+
+			*link = old->next;
+			free(old->line);
+			free(old);
+			break;
+		}
+	for (link = &view->commands; *link; link = &(*link)->next)
+		;
+	*link = c;
+}
+
+static void remote_ui_commands_free(struct fyai_remote_ui *view)
+{
+	struct remote_ui_command *c;
+
+	while ((c = view->commands)) {
+		view->commands = c->next;
+		free(c->line);
+		free(c);
+	}
+}
+
+/*
+ * The output that the transcript took for the entry of the log that the
+ * request names goes back to the worker, which stores it with the command.
+ */
+static void remote_ui_log_kept(void *data, const char *request, char *kept)
+{
+	struct fyai_remote_ui *view = data;
+	struct remote_ui_command *c, **link;
+
+	if (!request)
+		goto out;
+	for (link = &view->commands; (c = *link); link = &c->next)
+		if (!strcmp(c->id, request))
+			break;
+	if (!c)
+		goto out;
+	*link = c->next;
+	if (kept && remote_ui_request(view, "fyai_record",
+			fy_mapping("command", c->id, "line", c->line,
+				   "output", kept)))
+		view->failed = true;
+	free(c->line);
+	free(c);
+out:
+	free(kept);
+}
+
 /* A store of the worker changed: apply it, then draw what follows from it. */
 static int remote_ui_store(struct fyai_remote_ui *view, fy_generic frame)
 {
@@ -1332,6 +1411,8 @@ struct fyai_remote_ui *fyai_remote_ui_open(struct fyai_ctx *ctx,
 	fyai_error_check(ctx, !rc, err_view, "cannot mirror the UI model");
 	fyai_uimodel_mirror_tiles(ctx, &remote_ui_tile_ops, view);
 	fyai_uimodel_mirror_queries(ctx, &remote_ui_query_ops, view);
+	ctx->uistores->log_kept = remote_ui_log_kept;
+	ctx->uistores->log_data = view;
 	/* A branch that is only at the worker has no configuration here. */
 	view->base = fy_is_mapping(ctx->cfg->config_doc) ?
 		     ctx->cfg->config_doc : fy_map_empty;
@@ -1567,6 +1648,10 @@ int fyai_remote_ui_step(struct fyai_remote_ui *view)
 			free(line);
 			continue;
 		}
+		/* The output of a command that the transcript takes is stored
+		 * with the command, which the worker names by its line. */
+		if (line[0] == '/')
+			remote_ui_command_add(view, line);
 		rc = line[0] == '/' ?
 			remote_ui_request(view, "fyai_command",
 					  fy_mapping("line", line)) :
@@ -1604,6 +1689,9 @@ void fyai_remote_ui_close(struct fyai_remote_ui *view)
 		view->terms = t->next;
 		remote_ui_term_free(ctx, t);
 	}
+	remote_ui_commands_free(view);
+	ctx->uistores->log_kept = NULL;
+	ctx->uistores->log_data = NULL;
 	fyai_ui_set_busy(ctx, false);
 	fyai_ui_close(ctx);
 	fyai_cleanup_transient_builder(ctx);

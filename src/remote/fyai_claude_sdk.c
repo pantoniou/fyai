@@ -37,6 +37,7 @@
 #include "fyai_query.h"
 #include "fyai_claude_sdk.h"
 #include "fyai_cmd.h"
+#include "fyai_uilog.h"
 #include "fyai_cmd_int.h"
 #include "fyai_config.h"
 #include "fyai_event.h"
@@ -66,6 +67,7 @@
 /* The size of the id of a turn on the wire, and the most turns that follow
  * the newest turn a client holds in one answer. */
 #define SDK_TURN_ID_SIZE	24
+#define SDK_RECORDS_MAX		32	/* commands awaiting output */
 #define SDK_SYNC_MAX		4096
 
 /* An image block of a user message: the bytes, decoded. */
@@ -78,6 +80,14 @@ struct sdk_image {
 };
 
 /* One user message that waits for its turn. */
+/* A command of a client whose output the client may send back to store. */
+struct sdk_record {
+	struct sdk_record *next;
+	char *id;			/* the request of the command */
+	char *branch;			/* the branch that it ran on */
+	unsigned long turns_run;	/* turn count at command start */
+};
+
 struct sdk_input {
 	struct sdk_input *next;
 	char *text;
@@ -199,6 +209,8 @@ struct sdk_server {
 	unsigned long long epoch;	/* the incarnation of the model stream */
 	long long queued_taken;		/* the queued lines taken so far */
 	char *command_id;		/* the async command that runs */
+	struct sdk_record *records;	/* commands awaiting output */
+	unsigned long turns_run;	/* the turns that started so far */
 	bool mcp_starting;		/* the servers of --mcp-config connect */
 	char *init_id;			/* an initialize that waits for them */
 	bool busy;
@@ -1984,6 +1996,81 @@ static fy_generic sdk_model_sync(struct sdk_server *srv, fy_generic req)
  * Queue the slash command @line of a remote client behind the inputs before
  * it: it runs between turns, as a typed command does.
  */
+/* Keep the command of @id, which ran on @branch, for its output. */
+static void sdk_record_add(struct sdk_server *srv, const char *id,
+			   const char *branch)
+{
+	struct sdk_record *r, **link;
+	size_t n = 0;
+
+	r = calloc(1, sizeof(*r));
+	if (!r)
+		return;
+	r->id = strdup(id);
+	r->branch = strdup(branch);
+	if (!r->id || !r->branch) {
+		free(r->id);
+		free(r->branch);
+		free(r);
+		return;
+	}
+	r->turns_run = srv->turns_run;
+	/* The oldest go: a command with no output never comes back. */
+	for (link = &srv->records; *link; link = &(*link)->next)
+		if (++n >= SDK_RECORDS_MAX) {
+			struct sdk_record *old = *link;
+
+			*link = old->next;
+			free(old->id);
+			free(old->branch);
+			free(old);
+			break;
+		}
+	for (link = &srv->records; *link; link = &(*link)->next)
+		;
+	*link = r;
+}
+
+static void sdk_record_free(struct sdk_server *srv)
+{
+	struct sdk_record *r;
+
+	while ((r = srv->records)) {
+		srv->records = r->next;
+		free(r->id);
+		free(r->branch);
+		free(r);
+	}
+}
+
+/*
+ * Store the command of @id with @output when no turn ran since: the head is
+ * the head of the session now, which the commands before it moved.
+ */
+static void sdk_record_take(struct sdk_server *srv, const char *id,
+			    const char *line, const char *output)
+{
+	struct fyai_ctx *ctx = sdk_server_ctx(srv);
+	struct sdk_record *r, **link;
+	char *text;
+
+	for (link = &srv->records; (r = *link); link = &r->next)
+		if (!strcmp(r->id, id))
+			break;
+	if (!r)
+		return;
+	*link = r->next;
+	if (!srv->busy && r->turns_run == srv->turns_run) {
+		text = output ? strdup(output) : NULL;
+		fyai_command_record(ctx, line, ctx->turn->last_message,
+				    r->branch, text);
+		free(text);
+	}
+	free(r->id);
+	free(r->branch);
+	free(r);
+}
+
 static void sdk_model_command_run(struct sdk_server *srv, struct sdk_input *in);
 
 /* A line of the client waits for its turn: the turn is as good as running. */
@@ -2049,9 +2136,23 @@ static void sdk_model_command_run(struct sdk_server *srv, struct sdk_input *in)
 {
 	struct fyai_ctx *ctx = sdk_server_ctx(srv);
 	struct fy_generic_builder *gb = fyai_ctx_transient_gb(ctx);
+	bool status, transcript;
 	int rc;
 
+	/* The client may store the command with its output: the head says
+	 * that nothing moved it meanwhile. */
+	status = fyai_cmd_session_is_status(in->text + 1);
+	transcript = !status && !fyai_skill_user_line(ctx, in->text) &&
+		     !strcmp(ctx->cfg->command_output, "transcript");
+	if (transcript)
+		sdk_record_add(srv, in->command_id, fyai_ctx_branch(ctx));
+	fyai_uilog_request(ctx, in->command_id);
+	fyai_uilog_status(ctx, status);
+	if (transcript)
+		fyai_echo_user_turn(ctx, in->text);
 	rc = fyai_session_slash(ctx, in->text);
+	fyai_uilog_status(ctx, false);
+	fyai_uilog_request(ctx, NULL);
 	if (ctx->screen->cmd_call) {
 		srv->command_id = in->command_id;
 		in->command_id = NULL;
@@ -2544,6 +2645,14 @@ static void sdk_control(struct sdk_server *srv, fy_generic frame)
 			sdk_server_ctx(srv), fy_get(req, "name", ""), fy_castp(&model, ""),
 			strlen(fy_castp(&model, ""))) ?
 			"no live terminal session has the name" : NULL);
+		return;
+	}
+		if (!strcmp(subtype, "fyai_record") && srv->model_stream) {
+		/* The command and its output, as the client drew them. */
+		sdk_record_take(srv, fy_get(req, "command", ""),
+				fy_get(req, "line", ""),
+				fy_get(req, "output", (const char *)NULL));
+		sdk_respond(srv, id, fy_invalid, NULL);
 		return;
 	}
 		if (!strcmp(subtype, "fyai_command") && srv->model_stream) {
@@ -3311,6 +3420,7 @@ static void sdk_turn(struct sdk_server *srv, const struct sdk_input *in)
 	long status;
 	int rc, retries;
 
+	srv->turns_run++;
 	clock_gettime(CLOCK_MONOTONIC, &start);
 	in0 = ctx->usage->input;
 	out0 = ctx->usage->output;
@@ -3973,6 +4083,7 @@ static void sdk_cmd_cleanup(struct fyai_ctx *ctx, struct sdk_server *srv)
 		t->conn = NULL;
 	fyai_cmd_session_cancel(ctx);
 	free(srv->command_id);
+	sdk_record_free(srv);
 	while ((in = srv->head)) {
 		srv->head = in->next;
 		free(in->command_id);

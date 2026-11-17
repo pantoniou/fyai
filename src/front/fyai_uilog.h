@@ -15,7 +15,8 @@ struct fyai_ctx;
  * the span of a command gave the sink and the diagnostics it drained, as
  * source:
  *
- *   {id, title, error, level, parts: [{stream, md | text | item, source}]}
+ *   {id, title, error, level, status,
+ *    parts: [{stream, md | text | item, source}]}
  *
  * @stream is the sink stream, or "drain" for a drained record in @item.
  * @source says that the medium was given Markdown as written: the producer
@@ -34,6 +35,12 @@ void fyai_uilog_begin(struct fyai_ctx *ctx);
  */
 void fyai_uilog_end(struct fyai_ctx *ctx, const char *title, bool error,
 		    bool show_output, bool command);
+
+/* Name the request of the command whose entries follow, or NULL for none. */
+void fyai_uilog_request(struct fyai_ctx *ctx, const char *request);
+
+/* Say that the command of the next entry reports a status. */
+void fyai_uilog_status(struct fyai_ctx *ctx, bool status);
 
 /*
  * Record what the sink was given while a span is open: Markdown source when

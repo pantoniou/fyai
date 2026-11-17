@@ -39,6 +39,9 @@ struct fyai_uistores {
 	 * whose client draws the model it replicates.
 	 */
 	bool uidraw_off;
+	/* A mirror sends transcript output captured for a log entry. */
+	void (*log_kept)(void *data, const char *request, char *kept);
+	void *log_data;
 	struct fyai_uitranscript *uitranscript;	/* the live document (src/front/fyai_uitranscript.h) */
 	struct fyai_uilog *uilog;	/* the span of a command (src/front/fyai_uilog.h) */
 	struct fyai_uidraw *uidraw;	/* the renderer of the model (src/front/fyai_uidraw.h) */

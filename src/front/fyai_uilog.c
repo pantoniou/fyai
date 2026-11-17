@@ -17,6 +17,8 @@ struct fyai_uilog {
 	enum fyai_error_type level;
 	long long next_id;
 	bool open;
+	bool status;		/* the command reports a status */
+	char *request;		/* active request ID, or NULL */
 };
 
 static const char *uilog_stream_name(enum fyai_sink_stream stream)
@@ -91,6 +93,41 @@ err:
 	return;
 }
 
+void fyai_uilog_status(struct fyai_ctx *ctx, bool status)
+{
+	struct fyai_uilog *l;
+
+	if (!ctx || ctx->uistores->uimodel_detached)
+		return;
+	l = ctx->uistores->uilog;
+	if (!l) {
+		l = calloc(1, sizeof(*l));
+		fyai_error_check(ctx, l, err, "cannot keep the log of the session");
+		ctx->uistores->uilog = l;
+	}
+	l->status = status;
+err:
+	return;
+}
+
+void fyai_uilog_request(struct fyai_ctx *ctx, const char *request)
+{
+	struct fyai_uilog *l;
+
+	if (!ctx || ctx->uistores->uimodel_detached)
+		return;
+	l = ctx->uistores->uilog;
+	if (!l) {
+		l = calloc(1, sizeof(*l));
+		fyai_error_check(ctx, l, err, "cannot keep the log of the session");
+		ctx->uistores->uilog = l;
+	}
+	free(l->request);
+	l->request = request ? strdup(request) : NULL;
+err:
+	return;
+}
+
 void fyai_uilog_sink(struct fyai_ctx *ctx, enum fyai_sink_stream stream,
 		     bool markdown, const char *text, size_t len)
 {
@@ -139,7 +176,10 @@ void fyai_uilog_end(struct fyai_ctx *ctx, const char *title, bool error,
 				   "title", title ? title : "",
 				   "error", error, "level", (long long)level,
 				   "show_output", show_output,
-				   "command", command, "parts", l->parts);
+				   "command", command, "status", l->status,
+				   "parts", l->parts);
+		if (l->request)
+			entry = fy_assoc(gb, entry, "request", l->request);
 		entries = fy_get(fyai_uimodel_get(ctx, FYAI_UI_LOG), "entries",
 				 fy_seq_empty);
 		n = fy_len(entries);
@@ -164,6 +204,7 @@ void fyai_uilog_release(struct fyai_ctx *ctx)
 	if (l->open)
 		fyai_diag_drain_tap(NULL, NULL);
 	fy_generic_builder_destroy(l->gb);
+	free(l->request);
 	free(l);
 	ctx->uistores->uilog = NULL;
 }

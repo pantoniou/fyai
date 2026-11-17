@@ -307,6 +307,9 @@ static void uidraw_log(struct fyai_ctx *ctx, struct fyai_uidraw *d,
 				break;
 		}
 		rows = fyai_ui_pane_captured(ctx, &len);
+		/* A local session set it for the span; a mirror reads it. */
+		if (fyai_uimodel_mirrored(ctx))
+			fyai_ui_pane_status(ctx, fy_get(entry, "status", false));
 		uidraw_warn_check(ctx, !rc && rows, "the output of a command");
 		if (rows)
 			fyai_ui_log_show(ctx, fy_get(entry, "title", ""),
@@ -314,6 +317,13 @@ static void uidraw_log(struct fyai_ctx *ctx, struct fyai_uidraw *d,
 				fy_get(entry, "level", FYAIET_INFO),
 				fy_get(entry, "show_output", true),
 				fy_get(entry, "command", true), rows, len);
+		if (fyai_uimodel_mirrored(ctx))
+			fyai_ui_pane_status(ctx, false);
+		/* The output that the transcript took goes with its command. */
+		if (fyai_uimodel_mirrored(ctx) && ctx->uistores->log_kept)
+			ctx->uistores->log_kept(ctx->uistores->log_data,
+				fy_get(entry, "request", (const char *)NULL),
+				fyai_ui_pane_take(ctx));
 		free(rows);
 	}
 }

@@ -3176,19 +3176,16 @@ static void fyai_interactive_prepare(struct fyai_ctx *ctx,
  * A command that moved the head, or changed the branch, is recorded by the
  * operation that it did, and not here.
  */
-static void fyai_interactive_record_command(struct fyai_ctx *ctx,
-					    const char *line, fy_generic head,
-					    const char *branch)
+void fyai_command_record(struct fyai_ctx *ctx, const char *line,
+			 fy_generic head, const char *branch, char *output)
 {
 	struct fy_generic_builder *gb;
 	fy_generic turn, record;
-	char *output;
 
-	output = fyai_ui_pane_take(ctx);
 	/* A session that holds no exchange yet is not stored for a command. */
 	if (ctx->bstate->session_unstored ||
 	    ctx->turn->last_message.v != head.v || fy_is_invalid(head) ||
-	    !ctx->bstate->name || !branch || strcmp(ctx->bstate->name, branch))
+	    !branch || strcmp(fyai_ctx_branch(ctx), branch))
 		goto out;
 	gb = fyai_ctx_transient_gb(ctx);
 	fyai_error_check(ctx, gb, out, "could not store the command %s", line);
@@ -3208,10 +3205,18 @@ static void fyai_interactive_record_command(struct fyai_ctx *ctx,
 		fyai_error(ctx, "could not publish the command %s on branch %s",
 			   line, branch);
 out:
-	free(output);
 	return;
 err_restore:
 	ctx->turn->last_message = head;
+}
+
+static void fyai_interactive_record_command(struct fyai_ctx *ctx,
+					    const char *line, fy_generic head,
+					    const char *branch)
+{
+	char *output = fyai_ui_pane_take(ctx);
+
+	fyai_command_record(ctx, line, head, branch, output);
 	free(output);
 }
 
@@ -3242,7 +3247,7 @@ static int fyai_interactive_handle_slash(struct fyai_ctx *ctx,
 	if (transcript)
 		fyai_echo_user_turn(ctx, line);
 	head = ctx->turn->last_message;
-	branch = ctx->bstate->name;
+	branch = fyai_ctx_branch(ctx);
 	fyai_ui_pane_status(ctx, status);
 	rc = fyai_session_slash(ctx, line);
 	fyai_ui_pane_status(ctx, false);
