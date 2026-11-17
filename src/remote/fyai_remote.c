@@ -31,6 +31,7 @@
 #include "fyai_host.h"
 #include "fyai_jsonrpc.h"
 #include "fyai_remote.h"
+#include "fyai_claude_sdk.h"
 #include "fyai_fsview.h"
 #include "fyai_remote_int.h"
 #include "fyai_sandbox.h"
@@ -823,9 +824,12 @@ static void remote_split_reap(struct remote_client *client)
 			fyai_notice(ctx, "%s", text);
 		return;
 	}
-	if (WIFEXITED(status))
+	if (WIFEXITED(status)) {
+		if (WEXITSTATUS(status) == FYAI_WORKER_EXIT_SESSION)
+			ctx->cfg->exit_status = EXIT_FAILURE;
 		fyai_error(ctx, "the worker ended with status %d%s%s",
 			   WEXITSTATUS(status), got ? ": " : "", text);
+	}
 	else
 		fyai_error(ctx, "the worker ended on signal %d%s%s",
 			   WTERMSIG(status), got ? ": " : "", text);

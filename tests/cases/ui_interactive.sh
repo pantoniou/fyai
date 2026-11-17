@@ -59,6 +59,8 @@ assert_request 0 'r["body"]["messages"][-1]["content"] == "hello"'
 mock_stop 1
 
 mock_start chat_stream.json
+# The session recaps the stored exchange, which holds the same reply: the case
+# waits for one more copy of it.
 # The case releases the editor when its screen shows that it runs: the editor
 # reads a FIFO, and the touch step of the driver opens it for writing, which
 # wakes the read. The FIFO is outside the project. The path is in the script:
@@ -86,7 +88,8 @@ steps:
   - wait: edited prompt
     timeout: 3
   - write: "\n"
-  - wait: Streaming hello from the mock.
+  - wait-count: Streaming hello from the mock.
+    more: 1
     timeout: session
 PTY
 assert_request 0 \

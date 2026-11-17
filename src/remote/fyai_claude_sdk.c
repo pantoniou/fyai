@@ -202,6 +202,7 @@ struct sdk_server {
 	char *init_id;			/* an initialize that waits for them */
 	bool busy;
 	bool failed;			/* a frame could not be queued */
+	bool session_failed;		/* the session ends on a failure */
 	bool channel_lost;		/* the client of a worker went */
 	bool last_error;		/* the last result is an error */
 	/* What the session asks of the SDK. */
@@ -2420,6 +2421,31 @@ static const char *sdk_model_answer(struct sdk_server *srv, fy_generic req)
 	return NULL;
 }
 
+/*
+ * An interrupt returns the lines that the client holds in its queue to its
+ * prompt, as it does in a local session: the worker drops the same lines, so
+ * none of them runs as well.
+ */
+static void sdk_queued_drop(struct sdk_server *srv)
+{
+	struct sdk_input **link = &srv->head;
+	struct sdk_input *in;
+
+	while ((in = *link)) {
+		if (!in->queued || in->command_id || in->event || in->images ||
+		    in->origin_json) {
+			link = &in->next;
+			continue;
+		}
+		*link = in->next;
+		free(in->text);
+		free(in);
+	}
+	srv->tail = &srv->head;
+	for (in = srv->head; in; in = in->next)
+		srv->tail = &in->next;
+}
+
 static void sdk_control(struct sdk_server *srv, fy_generic frame)
 {
 	struct fy_generic_builder *gb = fyai_ctx_transient_gb(sdk_server_ctx(srv));
@@ -2545,6 +2571,7 @@ static void sdk_control(struct sdk_server *srv, fy_generic frame)
 	}
 		if (!strcmp(subtype, "interrupt")) {
 		if (srv->busy) {
+			sdk_queued_drop(srv);
 			sdk_server_ctx(srv)->loop->interrupt_pending = true;
 			/* A wait on the loop looks at it now. */
 			fyai_waiters_kick(sdk_server_ctx(srv));
@@ -3165,19 +3192,22 @@ static int sdk_add_user(struct sdk_server *srv, const char *text)
 {
 	struct fyai_ctx *ctx = sdk_server_ctx(srv);
 	struct fy_generic_builder *gb = fyai_ctx_transient_gb(ctx);
-	fy_generic user, turn;
-	const char *shown;
+	fy_generic user, turn, skill;
+	const char *shown, *body;
 	int rc;
 
 	/*
 	 * The images that the user message carries are pending. They go with
 	 * this message and no other; a message that the program writes carries
-	 * none.
+	 * none. A line "/NAME ARGS" that names a skill sends the skill, and
+	 * the transcript shows the line.
 	 */
 	shown = fyai_media_pending_display(ctx, text);
+	skill = fyai_skill_user_message(ctx, gb, text);
+	body = fy_is_string(skill) ? fy_castp(&skill, text) : text;
 	user = fyai_media_pending_any(ctx) ?
-		fyai_make_user_message(ctx, text) :
-		fyai_make_instruction_message(ctx, text);
+		fyai_make_user_message(ctx, body) :
+		fyai_make_instruction_message(ctx, body);
 	turn = fyai_turn_append(ctx, ctx->turn->last_message, fy_sequence(gb, user));
 	turn = fyai_output_record(ctx, turn, FYAI_OUTPUT_USER,
 				  shown ? shown : text);
@@ -3818,12 +3848,14 @@ static int sdk_cmd_serve(struct sdk_server *srv)
 		unsetenv("FYAI_SESSION_RESTART");
 		sdk_send(srv, fy_mapping("type", "fyai", "subtype", "restarted"));
 	}
-	while (!srv->failed && !srv->channel_lost && !ctx->screen->quit &&
+	while (!srv->failed && !srv->session_failed && !srv->channel_lost &&
+	       !ctx->screen->quit &&
 	       !ctx->cfg->reload_branch) {
 		/* An edit that the user finished in a tile applies between
 		 * turns, as it does in a local session. */
-		if (ctx->screen->config_edit)
-			(void)fyai_interactive_config_edit_step(ctx);
+		if (ctx->screen->config_edit &&
+		    fyai_interactive_config_edit_step(ctx))
+			srv->session_failed = true;
 		/* An async command holds the inputs behind it. */
 		if (ctx->screen->cmd_call) {
 			if (fyai_cmd_session_step(ctx)) {
@@ -3848,7 +3880,13 @@ static int sdk_cmd_serve(struct sdk_server *srv)
 			if (in->queued)
 				fyai_session_queued_set(ctx,
 							++srv->queued_taken);
-			if (in->command_id)
+			if (in->command_id && fyai_skill_user_line(ctx, in->text)) {
+				/* A skill that the user runs is a turn. */
+				sdk_respond(srv, fy_value(
+					fyai_ctx_transient_gb(ctx),
+					in->command_id), fy_invalid, NULL);
+				sdk_turn(srv, in);
+			} else if (in->command_id)
 				sdk_model_command_run(srv, in);
 			else if (sdk_is_clear(in->text))
 				sdk_clear(srv);
@@ -3894,7 +3932,8 @@ static int sdk_cmd_serve(struct sdk_server *srv)
 		ctx->cfg->reload_branch = NULL;
 		srv->failed = true;
 	}
-	ctx->cfg->exit_status = srv->last_error || srv->failed ? 1 : 0;
+	ctx->cfg->exit_status = srv->session_failed ? FYAI_WORKER_EXIT_SESSION :
+				srv->last_error || srv->failed ? 1 : 0;
 	return 0;
 out:
 	return -1;

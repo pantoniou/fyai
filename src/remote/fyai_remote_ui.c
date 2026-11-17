@@ -1498,10 +1498,14 @@ int fyai_remote_ui_step(struct fyai_remote_ui *view)
 		}
 		ctx->loop->interrupt_pending =
 			ctx->loop->interrupt_seq != interrupt_seq;
-		/* A turn of the worker is the worker's to cancel. */
-		if (!delivered && view->busy &&
-		    remote_ui_request(view, "interrupt", fy_map_empty))
-			return -1;
+		/* A turn of the worker is the worker's to cancel. The
+		 * interrupt returns the queued lines to the prompt, and the
+		 * worker drops the lines that it holds. */
+		if (!delivered && view->busy) {
+			view->queued = 0;
+			if (remote_ui_request(view, "interrupt", fy_map_empty))
+				return -1;
+		}
 	}
 	/* The display opens with the state of the worker. */
 	if (!view->opened) {

@@ -4100,7 +4100,10 @@ void fyai_ui_diag_drain(struct fyai_ctx *ctx, const char *title)
 	if (!ctx || !ctx->cfg)
 		return;
 	diag = fyai_ctx_diag(ctx);
-	if (!fyai_ui_active(ctx) || !fyai_diag_pending(diag)) {
+	/* A worker has no screen: the log store carries the error pane to its
+	 * client. */
+	if ((!fyai_ui_active(ctx) && !fyai_uimodel_consumed(ctx)) ||
+	    !fyai_diag_pending(diag)) {
 		fyai_diag_drain(diag);
 		return;
 	}
