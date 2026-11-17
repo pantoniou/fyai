@@ -378,6 +378,16 @@ session, until the default step removes it, calls the same function directly.
      `ui_catalog_update`, `ui_parallel_result_order`, `skill_session_pty`,
      `ui_mcp_stdio_interrupt`, `ui_cast*`, `ui_page_*` and the resume and
      branch cases.
+   - The resume picker of a client: the query `sessions` gives the rows, a
+     choice runs `/resume NAME` in the worker, `/resume` with no name runs
+     the picker in the client, and `--split resume [SESSION]` opens the picker
+     or starts the worker on the session. `--split resume --last` is refused.
+     A session of another program is listed (the client reads the files of
+     its host) but cannot be chosen: the import needs the arena of the
+     worker. `ui_resume_picker` fails there; its foreign part also selects a
+     different row than a local session does, and the cause is not known.
+     `ui_resume_slash`, `ui_recap`, `ui_branch_*` and `ui_branch_preview_theme`
+     pass. A `display/` key of `config set` and `config get` is the client's.
    - Open: the last scenario of `session_profile_view`. A worker that is not in
      a view runs `/session profile` for a profile that asks for one. The
      command says that the session restarts and nothing follows: the restart
