@@ -412,8 +412,10 @@ session, until the default step removes it, calls the same function directly.
      checkpoint of a call does not reach the view of the client in the right
      order; it needs the client to commit the rows of the document when a tile
      opens. `catalog_available` fails with or without the split.
-     `remote_oracle_fullscreen` fails in about 4 runs in 10 (the tile of a bang
-     is one column wider).
+     The oracle cases keep their local run local
+     (`FYAI_TEST_NO_SPLIT`): with a split client in that role, the tile of a bang
+     is one column narrower in about a third of the loaded runs, and the
+     cause is not known.
    - The resume picker of a client: the query `sessions` gives the rows, a
      choice runs `/resume NAME` in the worker, `/resume` with no name runs
      the picker in the client, and `--split resume [SESSION]` opens the picker
