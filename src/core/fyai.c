@@ -3246,13 +3246,7 @@ out:
  * that runs beside the turn must use neither. Enter sets both aside and
  * gives the line scratch storage. Leave restores them.
  */
-struct fyai_scratch_state {
-	struct fyai_transient saved;
-	fy_generic held;
-	bool entered;
-};
-
-static int fyai_scratch_enter(struct fyai_ctx *ctx,
+int fyai_scratch_enter(struct fyai_ctx *ctx,
 			      struct fyai_scratch_state *st)
 {
 	int rc;
@@ -3276,7 +3270,7 @@ static int fyai_scratch_enter(struct fyai_ctx *ctx,
 }
 
 /* Restore the turn state. Call after the line drains its own diagnostics. */
-static void fyai_scratch_leave(struct fyai_ctx *ctx,
+void fyai_scratch_leave(struct fyai_ctx *ctx,
 			       struct fyai_scratch_state *st)
 {
 	if (!st->entered)

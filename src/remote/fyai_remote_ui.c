@@ -58,6 +58,7 @@ struct remote_ui_term {
 	bool exited;
 	bool dismissed;			/* closed here; the worker drops it */
 	bool inline_block;		/* drawn in the transcript, no tile */
+	bool btw;			/* keep the side-question tile */
 	char *title;			/* the title that the worker gave */
 	unsigned int frame;		/* the step of the running mark */
 	struct fyai_terminal_view *view;
@@ -300,7 +301,7 @@ static int remote_ui_term_open(struct fyai_remote_ui *view,
 	t->view = fyai_terminal_view_create(ctx, t->rows, t->cols, 0);
 	fyai_error_check(ctx, t->view, err, "cannot replay the terminal %s",
 			 t->name);
-	t->inline_block = t->agent && fyai_ui_tools_inline(ctx);
+	t->inline_block = t->agent && !t->btw && fyai_ui_tools_inline(ctx);
 	if (t->inline_block) {
 		title = remote_ui_term_title(t, item) ? : "**agent**";
 		t->title = strdup(title);
@@ -417,7 +418,8 @@ static bool remote_ui_term_keys(void *data, struct fytim_surface *sf,
 		/* A program that ended reads nothing more. */
 		if (!remote_ui_term_closes(bytes, len))
 			return true;
-		if (remote_ui_request(view, "fyai_terminal_input", fy_mapping(
+		if (!t->btw &&
+		    remote_ui_request(view, "fyai_terminal_input", fy_mapping(
 				"name", t->name, "data", fy_string_size(bytes, keylen))))
 			view->failed = true;
 		t->dismissed = true;
@@ -497,7 +499,8 @@ static int remote_ui_terms(struct fyai_remote_ui *view, fy_generic root)
 							      fy_invalid)) &&
 					  !strcmp(fy_get(item, "name", ""),
 						  t->name));
-		if (found) {
+		/* Keep the side-question tile until the user closes it. */
+		if (found || (t->btw && t->exited && !t->dismissed)) {
 			tp = &t->next;
 			continue;
 		}
@@ -546,6 +549,7 @@ static int remote_ui_terms(struct fyai_remote_ui *view, fy_generic root)
 			fyai_error_check(ctx, t, err, "cannot keep a terminal");
 			t->name = fyai_ctx_keep_str(ctx, name);
 			t->agent = !strcmp(fy_get(item, "kind", ""), "agent");
+			t->btw = fy_get(item, "btw", false);
 			t->source = fy_get(term, "source", 0LL);
 			t->rows = fy_get(term, "rows", 24);
 			t->cols = fy_get(term, "cols", 80);
@@ -599,6 +603,16 @@ static int remote_ui_terms(struct fyai_remote_ui *view, fy_generic root)
 						FYAI_UI_MARK_OK :
 						FYAI_UI_MARK_FAILED,
 				}, NULL);
+			/* A side question keeps its tile, which takes the
+			 * pane until the user closes it. */
+			if (t->btw) {
+				if (remote_ui_term_feed(view, t))
+					return -1;
+				(void)fyai_tools_focus_tile(ctx, t->surface);
+				(void)fyai_ui_surface_zoom(ctx, t->surface);
+				fyai_chrome_focus(ctx, t->surface, true);
+				continue;
+			}
 			/* The screen of an agent that ended goes to the
 			 * scrollback, as a local session commits it. */
 			if (t->agent) {

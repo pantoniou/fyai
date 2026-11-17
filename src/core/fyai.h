@@ -926,6 +926,14 @@ void fyai_background_reset(struct fyai_ctx *ctx);
 void fyai_waitq_bind(struct fyai_ctx *ctx);
 /* Give the background questions their way to the user (this run). */
 void fyai_askq_bind(struct fyai_ctx *ctx);
+/* The state set aside for a line that runs beside a turn. */
+struct fyai_scratch_state {
+	struct fyai_transient saved;
+	fy_generic held;
+	bool entered;
+};
+int fyai_scratch_enter(struct fyai_ctx *ctx, struct fyai_scratch_state *st);
+void fyai_scratch_leave(struct fyai_ctx *ctx, struct fyai_scratch_state *st);
 fy_generic fyai_turn_append_event(struct fyai_ctx *ctx, fy_generic turn,
 				  const struct fyai_event_input *input);
 

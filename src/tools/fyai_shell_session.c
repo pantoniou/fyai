@@ -127,7 +127,8 @@ void fyai_tools_work_update(struct fyai_ctx *ctx)
 					    !job->ended))
 				continue;
 			item = fy_mapping(gb, "kind", "agent",
-					  "name", job->branch ? job->branch : "");
+					  "name", job->branch ? job->branch : "",
+					  "btw", job->btw);
 			/* The title names the call, the model and the id. */
 			head = fyai_agent_head_title(job);
 			if (head) {

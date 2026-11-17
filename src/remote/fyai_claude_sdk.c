@@ -44,6 +44,7 @@
 #include "fyai_output.h"
 #include "fyai_grammar.h"
 #include "fyai_provider.h"
+#include "fyai_skill.h"
 #include "fyai_session.h"
 #include "fyai_ask.h"
 #include "fyai_wait.h"
@@ -82,6 +83,8 @@ struct sdk_input {
 	char *origin_json;		/* the origin that the SDK stamped */
 	char *command_id;		/* a slash command of a remote client */
 	bool composed;			/* the text goes as written */
+	bool event;			/* a queued event, in @ev */
+	struct fyai_event_input ev;
 };
 
 /* A permission rule: a tool, and the text in its parentheses or NULL. */
@@ -1935,9 +1938,24 @@ static fy_generic sdk_model_sync(struct sdk_server *srv, fy_generic req)
  * Queue the slash command @line of a remote client behind the inputs before
  * it: it runs between turns, as a typed command does.
  */
+static void sdk_model_command_run(struct sdk_server *srv, struct sdk_input *in);
+
+/* A line of the client waits for its turn: the turn is as good as running. */
+static bool sdk_turn_queued(const struct sdk_server *srv)
+{
+	const struct sdk_input *in;
+
+	for (in = srv->head; in; in = in->next)
+		if (!in->command_id)
+			return true;
+	return false;
+}
+
 static void sdk_model_command(struct sdk_server *srv, fy_generic id,
 			      const char *line)
 {
+	struct fyai_ctx *ctx = sdk_server_ctx(srv);
+	struct fyai_scratch_state st;
 	struct sdk_input *in;
 
 	if (!fy_is_string(id) || fy_str_empty(line) || line[0] != '/') {
@@ -1957,6 +1975,20 @@ static void sdk_model_command(struct sdk_server *srv, fy_generic id,
 		}
 		sdk_respond(srv, id, fy_invalid, "cannot queue the command");
 		return;
+	}
+	/* A command that cannot disturb a turn runs beside it, as in a local
+	 * session; the others wait for the turn. */
+	if ((srv->busy || sdk_turn_queued(srv)) && !ctx->screen->cmd_call &&
+	    !fyai_skill_user_line(ctx, line) &&
+	    fyai_session_slash_immediate(ctx, line, true)) {
+		if (!fyai_scratch_enter(ctx, &st)) {
+			sdk_model_command_run(srv, in);
+			fyai_scratch_leave(ctx, &st);
+			free(in->command_id);
+			free(in->text);
+			free(in);
+			return;
+		}
 	}
 	*srv->tail = in;
 	srv->tail = &in->next;
@@ -3062,6 +3094,27 @@ err:
 	return -1;
 }
 
+/* Add the queued event @ev to the conversation and store it. */
+static int sdk_add_event(struct sdk_server *srv,
+			 const struct fyai_event_input *ev)
+{
+	struct fyai_ctx *ctx = sdk_server_ctx(srv);
+	fy_generic turn;
+	int rc;
+
+	turn = fyai_turn_append_event(ctx, ctx->turn->last_message, ev);
+	fyai_error_check(ctx, fy_is_valid(turn), err,
+			 "claude-sdk: cannot add the event");
+	ctx->turn->last_message = fy_gb_internalize(ctx->arena->gb, turn);
+	fyai_error_check(ctx, fy_is_valid(ctx->turn->last_message), err,
+			 "claude-sdk: cannot keep the event");
+	rc = fyai_publish_state(ctx);
+	fyai_error_check(ctx, !rc, err, "claude-sdk: cannot store the event");
+	return 0;
+err:
+	return -1;
+}
+
 /*
  * Run the model on the conversation and store what it did. Returns the cause
  * of a turn that stopped, owned by the caller, or NULL.
@@ -3146,6 +3199,12 @@ static void sdk_turn(struct sdk_server *srv, const struct sdk_input *in)
 	gb = fyai_ctx_transient_gb(ctx);
 	sdk_send_init(srv);
 
+	if (in->event) {
+		rc = sdk_add_event(srv, &in->ev);
+		if (rc)		/* sdk_add_event() says why */
+			goto done;
+		goto run;
+	}
 	prompt = text;
 	if (sdk_has_hooks(srv, "UserPromptSubmit")) {
 		input = fy_assoc(gb, sdk_hook_input(srv, "UserPromptSubmit"),
@@ -3185,6 +3244,7 @@ static void sdk_turn(struct sdk_server *srv, const struct sdk_input *in)
 	if (rc)		/* sdk_add_user() says why */
 		goto done;
 
+run:
 	for (again = false, retries = 0; ; ) {
 		cause = sdk_run(srv, &ok);
 		if (!ok)
@@ -3688,6 +3748,7 @@ static int sdk_cmd_serve(struct sdk_server *srv)
 				sdk_turn(srv, in);
 			free(in->command_id);
 			free(in->text);
+			fyai_event_input_clear(&in->ev);
 			sdk_images_free(in->images);
 			free(in->origin_json);
 			free(in);
@@ -3695,6 +3756,20 @@ static int sdk_cmd_serve(struct sdk_server *srv)
 		}
 		if (jsonrpc_conn_closed(srv->conn))
 			break;
+		/* A worker takes an event that arrives between turns, as a
+		 * local session does: the report of a background agent. */
+		in = srv->remote_worker && fyai_event_queued(ctx->waitq) ?
+		     calloc(1, sizeof(*in)) : NULL;
+		if (in && fyai_event_take_live_input(ctx->waitq, &in->ev)) {
+			in->event = true;
+			in->text = strdup(in->ev.text);
+			in->next = srv->head;
+			srv->head = in;
+			if (!in->next)
+				srv->tail = &in->next;
+			continue;
+		}
+		free(in);
 		rc = fyai_event_loop_step(el, -1);
 		fyai_error_check(ctx, rc >= 0, out,
 				 "claude-sdk: the event loop stopped");
