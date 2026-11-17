@@ -3449,7 +3449,7 @@ enum fyai_line_result {
  * Commit a finished catalogue update between turns: the commit publishes the
  * branch store and derives the model again, which a turn must not see change.
  */
-static void fyai_interactive_catalog_update_step(struct fyai_ctx *ctx)
+void fyai_interactive_catalog_update_step(struct fyai_ctx *ctx)
 {
 	int rc;
 

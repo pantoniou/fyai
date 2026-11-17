@@ -217,6 +217,7 @@ struct remote_client {
 	pid_t ssh;			/* the ssh child of an ssh:// target, or -1 */
 	bool split;			/* worker is a direct child */
 	int worker_err;			/* the standard error of that worker */
+	off_t worker_err_off;		/* stderr offset already reported */
 	bool failed;
 	enum remote_phase phase;
 	/* The id of the control request in flight, and its answer when it came. */
@@ -793,6 +794,26 @@ out:
 }
 
 /*
+ * A worker in debug mode reports its transitions on its standard error. The
+ * client writes them as they come, as a local session does.
+ */
+static void remote_split_forward(struct remote_client *client)
+{
+	struct fyai_ctx *ctx = remote_client_ctx(client);
+	char text[REMOTE_SPLIT_ERR_MAX];
+	ssize_t got;
+
+	if (client->worker_err < 0 || !ctx->cfg->debug)
+		return;
+	while ((got = pread(client->worker_err, text, sizeof(text),
+			    client->worker_err_off)) > 0) {
+		client->worker_err_off += got;
+		(void)fyai_sink_write(ctx->out->sink, FYAI_SINK_DIAG, text,
+				      (size_t)got);
+	}
+}
+
+/*
  * Wait for the worker that ended with the channel, and report what it wrote
  * to its standard error: a notice when it ended well, else an error.
  */
@@ -812,7 +833,8 @@ static void remote_split_reap(struct remote_client *client)
 	}
 	client->ssh = -1;
 	if (client->worker_err >= 0) {
-		got = pread(client->worker_err, text, REMOTE_SPLIT_ERR_MAX, 0);
+		got = pread(client->worker_err, text, REMOTE_SPLIT_ERR_MAX,
+			    client->worker_err_off);
 		close(client->worker_err);
 	}
 	client->worker_err = -1;
@@ -881,6 +903,7 @@ static int remote_view_run(struct remote_client *client, bool watch)
 		rc = fyai_remote_ui_step(client->view);
 		if (rc)
 			break;
+		remote_split_forward(client);
 		rc = fyai_event_loop_step(fyai_ctx_loop(ctx), -1);
 		if (rc < 0)
 			break;

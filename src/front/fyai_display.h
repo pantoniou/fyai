@@ -57,6 +57,10 @@ fy_generic fyai_list_reflog_data(struct fyai_ctx *ctx,
 void fyai_interactive_recap(struct fyai_ctx *ctx);
 /* Apply the edit of the configuration that the user finished, if any: the step of the loop of a session, of a worker too. */
 int fyai_interactive_config_edit_step(struct fyai_ctx *ctx);
+/*
+ * Commit any completed catalogue update between turns, including in a worker.
+ */
+void fyai_interactive_catalog_update_step(struct fyai_ctx *ctx);
 void fyai_echo_user_turn(struct fyai_ctx *ctx, const char *line);
 /*
  * Store the command @line and its @output (may be NULL) as a turn of the

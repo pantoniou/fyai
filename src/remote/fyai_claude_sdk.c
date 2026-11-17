@@ -36,6 +36,7 @@
 #include "fyai_branch.h"
 #include "fyai_query.h"
 #include "fyai_claude_sdk.h"
+#include "fyai_catalog.h"
 #include "fyai_cmd.h"
 #include "fyai_uilog.h"
 #include "fyai_cmd_int.h"
@@ -3972,6 +3973,13 @@ static int sdk_cmd_serve(struct sdk_server *srv)
 		if (ctx->screen->config_edit &&
 		    fyai_interactive_config_edit_step(ctx))
 			srv->session_failed = true;
+		if (ctx->screen->catalog_update &&
+		    fyai_catalog_update_done(ctx->screen->catalog_update)) {
+			/* Its result is an entry of the log of the client. */
+			fyai_ui_pane_begin(ctx);
+			fyai_interactive_catalog_update_step(ctx);
+			fyai_ui_pane_end(ctx, "catalog", false, true);
+		}
 		/* An async command holds the inputs behind it. */
 		if (ctx->screen->cmd_call) {
 			if (fyai_cmd_session_step(ctx)) {
