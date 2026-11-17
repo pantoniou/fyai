@@ -864,6 +864,17 @@ void fyai_workpane_unregister(struct fyai_workpane_manager *wm,
 	workpane_drop(wm, t);
 }
 
+void fyai_workpane_slot_return(struct fyai_workpane_manager *wm,
+			      struct fytim_surface *sf)
+{
+	struct fyai_workpane_tile *t = workpane_tile(wm, sf);
+
+	if (t && t->slot && t->slot == wm->next_slot) {
+		wm->next_slot--;
+		t->slot = 0;
+	}
+}
+
 void fyai_workpane_unregister_band(struct fyai_workpane_manager *wm,
 				   struct fytim_workband *band)
 {

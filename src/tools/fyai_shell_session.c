@@ -1893,6 +1893,8 @@ int fyai_tools_bang_size(struct fyai_ctx *ctx, const char *command,
 		*rowsp = fyai_ui_surface_granted_rows(ctx, sess->surface);
 		*colsp = fyai_ui_surface_granted_cols(ctx, sess->surface);
 	}
+	/* The tile that shows the program is the first one: not this probe. */
+	fyai_workpane_slot_return(ctx->screen->workpane, sess->surface);
 	fyai_tools_mirror_drop(sess);
 	return 0;
 }

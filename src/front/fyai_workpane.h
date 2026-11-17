@@ -207,6 +207,12 @@ void fyai_workpane_band_set_ops(struct fyai_workpane_manager *wm,
 /* Retire a tile. Focus and zoom that named it are cleared in the same pass. */
 void fyai_workpane_unregister(struct fyai_workpane_manager *wm,
 			      struct fytim_surface *sf);
+/*
+ * Give back the slot of the newest tile when it never showed anything: a
+ * probe that measured a grant must not take the number of the tile after it.
+ */
+void fyai_workpane_slot_return(struct fyai_workpane_manager *wm,
+			       struct fytim_surface *sf);
 void fyai_workpane_unregister_band(struct fyai_workpane_manager *wm,
 				   struct fytim_workband *band);
 
