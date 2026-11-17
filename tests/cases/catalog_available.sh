@@ -23,9 +23,11 @@ PYEOF
 		fail "'$*' --output json: $(cat "$TEST_DIR/stdout")"
 }
 
-# Only a provider with a credential offers a model.
-unset OPENAI_API_KEY OPENROUTER_API_KEY DEEPSEEK_API_KEY ANTHROPIC_API_KEY \
-      GOOGLE_API_KEY FIREWORKS_API_KEY META_API_KEY OPENCODE_API_KEY || true
+# Only a provider with a credential offers a model. The case holds no key of
+# the caller: the catalogue names more providers over time.
+for key in $(env | sed -n 's/^\([A-Za-z0-9_]*_API_KEY\)=.*/\1/p'); do
+	unset "$key"
+done
 check_json "isinstance(d, list) and d and all(m['key_provider'] == '' for m in d)" \
 	catalog list models
 check_json "d == []" catalog list models --available
