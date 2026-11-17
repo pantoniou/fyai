@@ -1452,7 +1452,6 @@ int fyai_remote_ui_step(struct fyai_remote_ui *view)
 {
 	struct fyai_ctx *ctx = fyai_remote_ui_ctx(view);
 	fy_generic frame;
-	sig_atomic_t interrupt_seq;
 	bool delivered;
 	char *line;
 	const char *head;
@@ -1489,15 +1488,24 @@ int fyai_remote_ui_step(struct fyai_remote_ui *view)
 	}
 	if (ctx->loop->interrupt_pending) {
 		fyai_event_interrupt_ack(ctx->loop);
-		interrupt_seq = ctx->loop->interrupt_seq;
-		delivered = fyai_ui_interrupt(ctx);
+		/* Each signal is handled once. A key that asks for an
+		 * interrupt sets the flag with no signal: it ends no idle
+		 * session. */
+		delivered = false;
+		if (ctx->loop->interrupt_seq != ctx->loop->interrupt_seen) {
+			ctx->loop->interrupt_seen = ctx->loop->interrupt_seq;
+			delivered = fyai_ui_interrupt(ctx);
+		}
 		/* A command of the view that waits ends as cancelled. */
 		if (!delivered && ctx->screen->cmd_call) {
 			fyai_cmd_session_interrupt(ctx);
 			delivered = true;
 		}
 		ctx->loop->interrupt_pending =
-			ctx->loop->interrupt_seq != interrupt_seq;
+			ctx->loop->interrupt_seq != ctx->loop->interrupt_seen;
+		/* A watcher has no turn to cancel: ^C leaves, as it says. */
+		if (view->watch && !delivered)
+			fyai_ui_quit_request(ctx);
 		/* A turn of the worker is the worker's to cancel. The
 		 * interrupt returns the queued lines to the prompt, and the
 		 * worker drops the lines that it holds. */
