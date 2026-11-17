@@ -37,6 +37,7 @@ struct fyai_uidraw {
 	 * whether its render stopped at a checkpoint. */
 	long long live_source;
 	size_t live_shown;
+	size_t frag_next;		/* the next fragment to look at */
 	char live_tag[16];
 	bool live_paused;
 	/* The newest entry of the log shown. A mirror does not show the
@@ -84,6 +85,41 @@ static enum fyai_sink_doc_kind uidraw_doc_kind(const char *tag)
 }
 
 /*
+ * A tool result that the worker recorded without presenting it was shown by a
+ * band while the call ran. A local session prints the result when the band
+ * is gone, so this display does the same with the fragments that came.
+ */
+static void uidraw_results(struct fyai_ctx *ctx, struct fyai_uidraw *d,
+			   fy_generic live, size_t len, const char *text)
+{
+	fy_generic frags = fy_get(live, "fragments", fy_seq_empty), frag, range;
+	size_t n = fy_len(frags), start, end, rs, re;
+	bool covered;
+	int rc;
+
+	for (; d->frag_next < n; d->frag_next++) {
+		frag = fy_get(frags, d->frag_next);
+		start = fy_get(frag, "start", (size_t)0);
+		end = fy_get(frag, "end", (size_t)0);
+		if (end > len)
+			return;
+		if (!fy_equal(fy_get(frag, "kind", ""), "tool_result"))
+			continue;
+		covered = false;
+		fy_foreach(range, fy_get(live, "recorded", fy_seq_empty)) {
+			rs = fy_number(fy_get_at(range, 0), (size_t)0);
+			re = fy_number(fy_get_at(range, 1), (size_t)0);
+			covered = covered || (rs <= start && end <= re);
+		}
+		if (!covered)
+			continue;
+		rc = fyai_display_recorded_result(ctx, text + start, end - start,
+				fy_get(frag, "lang", ""), fy_get(frag, "tool", ""));
+		uidraw_warn_check(ctx, !rc, "a tool result");
+	}
+}
+
+/*
  * Give the sink the bytes of the live document up to @length, the length
  * that the store names, less the recorded ranges: a band presented them.
  */
@@ -99,8 +135,12 @@ static void uidraw_live_feed(struct fyai_ctx *ctx, struct fyai_uidraw *d,
 	end = fy_get(live, "length", (size_t)0);
 	if (end < len)
 		len = end;
-	if (len <= d->live_shown)
+	/* A fragment can come after its text. */
+	if (len <= d->live_shown) {
+		if (fyai_uimodel_mirrored(ctx))
+			uidraw_results(ctx, d, live, len, text);
 		return;
+	}
 	if (fyai_uimodel_mirrored(ctx) && strcmp(d->live_tag, "assistant") &&
 	    fyai_buf_append_data(&d->card, text + d->live_shown,
 					len - d->live_shown))
@@ -123,6 +163,8 @@ static void uidraw_live_feed(struct fyai_ctx *ctx, struct fyai_uidraw *d,
 	}
 	d->live_shown = len;
 	uidraw_warn_check(ctx, !rc, "the live document");
+	if (fyai_uimodel_mirrored(ctx))
+		uidraw_results(ctx, d, live, len, text);
 }
 
 /* The live document ended as @state says: finalized, aborted or discarded. */
@@ -158,6 +200,7 @@ static void uidraw_live_end(struct fyai_ctx *ctx, struct fyai_uidraw *d,
 	d->card.len = 0;
 	d->live_source = 0;
 	d->live_shown = 0;
+	d->frag_next = 0;
 	d->live_paused = false;
 }
 
@@ -178,6 +221,7 @@ static void uidraw_transcript(struct fyai_ctx *ctx, struct fyai_uidraw *d,
 	if (!d->live_source) {
 		d->live_source = source;
 		d->live_shown = 0;
+		d->frag_next = 0;
 		d->live_paused = false;
 		snprintf(d->live_tag, sizeof(d->live_tag), "%s",
 			 fy_get(live, "tag", "assistant"));

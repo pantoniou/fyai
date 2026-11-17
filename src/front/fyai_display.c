@@ -3400,6 +3400,47 @@ static int fyai_display_tool_body(struct fyai_ctx *ctx, const char *md,
 }
 
 /*
+ * Present the stored result of a tool call that a band showed while it ran:
+ * a local session prints it when the band is gone. @md is the recorded
+ * fenced block. The tool decides how much of it is shown.
+ */
+int fyai_display_recorded_result(struct fyai_ctx *ctx, const char *md,
+				 size_t len, const char *lang,
+				 const char *tool)
+{
+	int preview = fyai_tool_preview_lines(ctx->cfg, tool);
+	const char *nl, *text;
+	size_t tlen;
+
+	if (!preview)
+		return 0;
+	/* The record is a fenced block: the text is between the fences. */
+	if (len < 3 || memcmp(md, "```", 3)) {
+		text = md;
+		tlen = len;
+	} else {
+		nl = memchr(md, '\n', len);
+		if (!nl)
+			return 0;
+		text = nl + 1;
+		tlen = len - (size_t)(text - md);
+	}
+	while (tlen && (text[tlen - 1] == '\n' || text[tlen - 1] == '\r'))
+		tlen--;
+	if (tlen >= 3 && !memcmp(text + tlen - 3, "```", 3))
+		tlen -= 3;
+	if (lang && !strcmp(lang, FYAI_RESULT_MARKDOWN)) {
+		fyai_render_tool_markdown(ctx->out->sink, ctx->cfg, text, tlen);
+		return 0;
+	}
+	fyai_print_tool_separator(ctx->out->sink, ctx->cfg);
+	fyai_print_fenced(ctx->out->sink, ctx->cfg, text, tlen,
+			  lang && *lang ? lang : NULL, fy_invalid,
+			  preview < 0 ? 0 : (size_t)preview);
+	return 0;
+}
+
+/*
  * One walk over the fragments of a stored document. A render pass and a
  * measuring pass drive it, so measurement matches the render.
  */
