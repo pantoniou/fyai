@@ -20,8 +20,13 @@ steps:
     timeout: 1.5
   - wait: "created branch δοκιμή/日本語"
     timeout: session
+  # The keys go back to the prompt: it takes what is typed next. The browser
+  # stays on the screen, so the case does not wait for it to leave.
   - write: "\x1d"
-  - wait-gone: Branches
+  - write: "probe"
+  - wait-input: probe
+  - write: "\x15"
+  - wait-gone: probe
 PTY
 
 run_fyai branch show δοκιμή/日本語
