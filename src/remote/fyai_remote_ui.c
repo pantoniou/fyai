@@ -57,6 +57,7 @@ struct remote_ui_term {
 	bool agent;			/* the terminal of a sub-agent */
 	bool exited;
 	bool dismissed;			/* closed here; the worker drops it */
+	bool inline_block;		/* drawn in the transcript, no tile */
 	char *title;			/* the title that the worker gave */
 	unsigned int frame;		/* the step of the running mark */
 	struct fyai_terminal_view *view;
@@ -175,6 +176,8 @@ static void remote_ui_term_free(struct fyai_ctx *ctx, struct remote_ui_term *t)
 {
 	if (t->mirror)
 		fyai_tools_mirror_drop(fyai_shell_session_find(ctx, t->name));
+	if (t->inline_block && !t->exited)
+		fyai_ui_inline_drop(ctx, (uintptr_t)t);
 	if (t->surface) {
 		fyai_workpane_unregister(ctx->screen->workpane, t->surface);
 		fyai_ui_surface_close(ctx, t->surface);
@@ -182,6 +185,19 @@ static void remote_ui_term_free(struct fyai_ctx *ctx, struct remote_ui_term *t)
 	fyai_terminal_view_destroy(t->view);
 	free(t->title);
 	free(t);
+}
+
+/* Draw the screen of an agent in its block of the transcript. */
+static void remote_ui_term_paint(struct fyai_remote_ui *view,
+				 struct remote_ui_term *t, bool done, bool ok)
+{
+	struct fyai_ctx *ctx = fyai_remote_ui_ctx(view);
+
+	if (fyai_tools_inline_view(ctx, (uintptr_t)t,
+				   t->title ? t->title : "**agent**",
+				   t->view, t->rows, t->frame, done, ok))
+		fyai_warning(ctx, "cannot draw the agent %s in the transcript",
+			     t->name);
 }
 
 /* Replay the bytes of the terminal @t that its view has not had. */
@@ -204,6 +220,8 @@ static int remote_ui_term_feed(struct fyai_remote_ui *view,
 	(void)fyai_terminal_view_feed(t->view, text + t->shown,
 				      len - t->shown);
 	t->shown = len;
+	if (t->inline_block)
+		remote_ui_term_paint(view, t, false, false);
 	if (t->surface)
 		(void)fyai_ui_surface_publish(t->surface, t->view);
 	fyai_ui_wake(ctx);
@@ -228,12 +246,21 @@ static void remote_ui_term_run(struct fyai_remote_ui *view,
 {
 	struct fyai_ctx *ctx = fyai_remote_ui_ctx(view);
 	unsigned int ms = 0;
+	char *mark;
 
-	(void)fyai_chrome_update(ctx, t->surface, &(struct fyai_chrome_spec){
-		.title = title,
-		.mark = FYAI_UI_MARK_RUNNING,
-		.frame = t->frame,
-	}, &ms);
+	if (t->inline_block) {
+		remote_ui_term_paint(view, t, false, false);
+		if (view->animation)
+			return;
+		mark = fyai_ui_indicator(ctx, FYAI_UI_MARK_RUNNING, 0, &ms);
+		free(mark);
+	} else {
+		(void)fyai_chrome_update(ctx, t->surface, &(struct fyai_chrome_spec){
+			.title = title,
+			.mark = FYAI_UI_MARK_RUNNING,
+			.frame = t->frame,
+		}, &ms);
+	}
 	if (ms && !view->animation)
 		(void)fyai_event_add_timer(fyai_ctx_loop(ctx), ms, ms,
 					   remote_ui_animate, view,
@@ -247,8 +274,8 @@ static enum fyai_event_action remote_ui_animate(const struct fyai_event *ev)
 	bool running = false;
 
 	for (t = view->terms; t; t = t->next) {
-		if (!t->agent || t->exited || t->dismissed || !t->surface ||
-		    !t->title)
+		if (!t->agent || t->exited || t->dismissed ||
+		    (!t->surface && !t->inline_block) || !t->title)
 			continue;
 		running = true;
 		t->frame++;
@@ -273,6 +300,13 @@ static int remote_ui_term_open(struct fyai_remote_ui *view,
 	t->view = fyai_terminal_view_create(ctx, t->rows, t->cols, 0);
 	fyai_error_check(ctx, t->view, err, "cannot replay the terminal %s",
 			 t->name);
+	t->inline_block = t->agent && fyai_ui_tools_inline(ctx);
+	if (t->inline_block) {
+		title = remote_ui_term_title(t, item) ? : "**agent**";
+		t->title = strdup(title);
+		remote_ui_term_run(view, t, t->title);
+		return remote_ui_term_feed(view, t);
+	}
 	t->surface = fyai_ui_surface_open(ctx, t->rows, t->cols);
 	fyai_error_check(ctx, t->surface, err, "cannot show the terminal %s",
 			 t->name);
@@ -547,6 +581,14 @@ static int remote_ui_terms(struct fyai_remote_ui *view, fy_generic root)
 		/* A program that ended leaves its screen to read. */
 		if (!t->exited && fy_get(item, "exited", false)) {
 			t->exited = true;
+			if (t->inline_block) {
+				if (remote_ui_term_feed(view, t))
+					return -1;
+				remote_ui_term_paint(view, t, true,
+						     fy_get(item, "ok", false));
+				t->dismissed = true;
+				continue;
+			}
 			(void)fyai_chrome_update(ctx, t->surface,
 				&(struct fyai_chrome_spec){
 					.title = t->title ? t->title :

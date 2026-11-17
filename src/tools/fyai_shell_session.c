@@ -925,6 +925,31 @@ out:
 	free(screen.data);
 }
 
+/* Draw the screen of @view in the block @key of the transcript, or with
+ * @done present it there with the outcome @ok. Zero when drawn. */
+int fyai_tools_inline_view(struct fyai_ctx *ctx, uintptr_t key,
+			   const char *title, struct fyai_terminal_view *view,
+			   int rows, size_t frame, bool done, bool ok)
+{
+	struct fyai_buf screen = {0};
+	const char *indent = markdown_tool_output_indent(ctx->cfg);
+	int first, last, rc;
+
+	(void)fyai_terminal_view_take_damage(view, &first, &last);
+	(void)fyai_inline_sep(ctx);
+	rc = fyai_terminal_view_rows_sgr(view, indent, false, &screen);
+	fyai_error_check(ctx, !rc, out,
+			 "cannot draw the screen of a terminal");
+	if (done)
+		screen.len = fyai_inline_screen_trim(ctx, screen.data,
+						     screen.len);
+	rc = fyai_ui_inline_terminal(ctx, key, title, NULL, screen.data,
+				     screen.len, rows, frame, done, ok);
+out:
+	free(screen.data);
+	return rc;
+}
+
 /* A terminal drawn in the transcript follows the width of the transcript. */
 void fyai_shell_session_inline_follow(struct fyai_shell_session *sess)
 {
