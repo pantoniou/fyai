@@ -311,6 +311,7 @@ static int remote_ui_term_open(struct fyai_remote_ui *view,
 	t->surface = fyai_ui_surface_open(ctx, t->rows, t->cols);
 	fyai_error_check(ctx, t->surface, err, "cannot show the terminal %s",
 			 t->name);
+	fyai_chrome_body(ctx, t->surface);
 	rc = fyai_workpane_register(ctx->screen->workpane, t->surface,
 				    FYAI_WORKPANE_TILE_SHELL, t,
 				    &remote_ui_term_ops, t->rows, 0);
