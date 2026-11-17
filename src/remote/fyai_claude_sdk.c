@@ -30,6 +30,7 @@
 
 #include "fyai.h"
 #include "fyai_display.h"
+#include "fyai_ui.h"
 #include "fyai_host.h"
 #include "fyai_auth_util.h"
 #include "fyai_branch.h"
@@ -3484,7 +3485,11 @@ done:
 	sdk_send(srv, frame);
 	srv->last_error = !ok;
 	free(cause);
-	fyai_diag_drain(fyai_cfg_diag(cfg));
+	/* The client of a worker shows what the turn raised in its panel. */
+	if (srv->remote_worker)
+		fyai_ui_diag_drain(ctx, "error");
+	else
+		fyai_diag_drain(fyai_cfg_diag(cfg));
 	fyai_cleanup_transient_builder(ctx);
 }
 
