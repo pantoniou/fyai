@@ -204,6 +204,8 @@ pty_run() {
 		for word in "$@"; do
 			case "$word" in
 			--remote | remote | --remote=*) done_split=1 ;;
+			# The player of a recording is no session.
+			cast) done_split=1 ;;
 			esac
 		done
 		for word in "$@"; do
