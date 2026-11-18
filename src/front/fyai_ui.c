@@ -513,8 +513,8 @@ static int ui_activity_refresh(struct fyai_ui *ui)
 		return 0;
 	if (clock_gettime(CLOCK_MONOTONIC, &ts))
 		return -1;
-	activity = ui_indicator(ui, FYMD_INDICATOR_PENDING, 0,
-				&interval_ms);
+	activity = fyai_ui_indicator(fyai_ui_ctx(ui), FYAI_UI_MARK_RUNNING, 0,
+				     &interval_ms);
 	if (!activity)
 		return -1;
 	free(activity);
@@ -538,8 +538,8 @@ static int ui_activity_refresh(struct fyai_ui *ui)
 	 * header, so only its leading activity cell changes. General turn
 	 * activity uses a fixed-width slot in the existing status line.
 	 */
-	activity = ui_indicator(ui, FYMD_INDICATOR_PENDING,
-				(size_t)phase, NULL);
+	activity = fyai_ui_indicator(fyai_ui_ctx(ui), FYAI_UI_MARK_RUNNING,
+				     (size_t)phase, NULL);
 	if (!activity)
 		return -1;
 	if (ui->tool_mode != UI_TOOL_IDLE &&
