@@ -345,10 +345,17 @@ session, until the default step removes it, calls the same function directly.
      text, and a worker with a UI model follows a resize at once; the five
      `ui_inline_tool_focus*` cases pass. `ui_shell_session_display` waits for
      the display configuration of the client (the margin).
-   - Open in the sub-agent family: `ui_agent_attach*`,
-     `ui_agent_message_live`, `ui_agent_background`, `ui_btw_*`,
-     `ui_cancel_background` and `ui_agent_recursive_cancel` (the agents end
-     before the `K` of the case in split mode).
+   - A worker takes an event that arrives between turns (the report of a
+     background agent) and runs a turn on it. A command that may run beside a
+     turn (`/btw`) runs at once in the worker. The tile of a side question
+     stays in the client, zoomed, until Escape closes it.
+     `ui_agent_background`, `ui_agent_message_live`, `ui_btw_*` and
+     `ui_cancel_background` pass.
+   - Open in the sub-agent family: `ui_agent_attach`, `ui_agent_attach_input`
+     and `ui_agent_recursive_cancel` (the agents end before the `K` of the
+     case in split mode). Not examined: `ui_event_mid_turn`,
+     `wait_plain_escape`, `ui_shell_band_head`, `ui_shell_render`,
+     `ui_responses_shell_parallel`.
    - Merge and rebase from the browser (CLI commands only), and `list_long`: the
      output of a `view` command of the worker goes to a pane of the client and
      not to its scrollback.
