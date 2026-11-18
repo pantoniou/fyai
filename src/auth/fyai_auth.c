@@ -793,13 +793,14 @@ fyai_auth_login_credential_timer(const struct fyai_event *ev)
 }
 
 static int auth_validate_tokens(struct fyai_cred *cred,
-		struct fyai_credentials *c, fy_generic jwks, const char *nonce)
+		struct fy_generic_builder *scratch, struct fyai_credentials *c,
+		fy_generic jwks, const char *nonce)
 {
 	struct fy_generic_builder *gb;
 	fy_generic claims;
 
 	gb = auth_builder(cred);
-	claims = fyai_auth_verify_id_token(auth_gb(cred), c->id_token, jwks,
+	claims = fyai_auth_verify_id_token(scratch, c->id_token, jwks,
 					 c->client_id, nonce, c->subject, time(NULL));
 	if (fy_is_invalid(claims)) {
 		fyai_diag_type(cred->diag, FYAIET_ERROR, "OpenAI ID token validation failed");
@@ -845,7 +846,8 @@ static void fyai_auth_login_http_complete(struct fyai_curl_transfer *transfer,
 		return;
 	}
 	jwks = parse_json_string(auth_gb(request->cred), request->response.data);
-	rc = auth_validate_tokens(request->cred, &request->credentials, jwks, request->pkce.nonce);
+	rc = auth_validate_tokens(request->cred, auth_gb(request->cred),
+				  &request->credentials, jwks, request->pkce.nonce);
 	if (rc)
 		goto failed;
 	rc = fyai_auth_login_save(request);
@@ -1199,6 +1201,7 @@ struct fyai_auth_refresh_request {
 	 */
 	bool detached;
 	bool owner_gone;
+	struct fy_generic_builder *gb;
 	fy_generic jwks;
 	struct fyai_credentials credentials;
 };
@@ -1308,9 +1311,8 @@ static void fyai_auth_refresh_complete(
 			 "refresh failed (HTTP %ld); run `fyai auth login`",
 			 status);
 	if (!request->refreshing) {
-		/* The keys outlive this callback: keep the builder until done. */
-		fyai_transient_setup(cred->transient);
-		request->jwks = parse_json_string(auth_gb(cred), request->response.data);
+		request->jwks = parse_json_string(request->gb,
+						  request->response.data);
 		fyai_diag_check(cred->diag, fy_is_sequence(fy_get(request->jwks, "keys", fy_invalid)),
 			done, "invalid OpenAI signing keys");
 		free(request->response.data);
@@ -1327,9 +1329,10 @@ static void fyai_auth_refresh_complete(
 	}
 	request->credentials = cred->auth;
 	rc = fyai_auth_parse_tokens(cred, &request->credentials,
-		parse_json_string(auth_gb(cred), request->response.data), true);
+		parse_json_string(request->gb, request->response.data), true);
 	fyai_diag_check(cred->diag, !rc, done, "invalid refreshed subscription tokens");
-	rc = auth_validate_tokens(cred, &request->credentials, request->jwks, NULL);
+	rc = auth_validate_tokens(cred, request->gb, &request->credentials,
+				  request->jwks, NULL);
 	fyai_diag_check(cred->diag, !rc, done, "refreshed identity could not be verified");
 	rc = auth_save(cred, &request->credentials);
 	fyai_diag_check(cred->diag, !rc, done, "failed to save refreshed tokens");
@@ -1338,8 +1341,6 @@ static void fyai_auth_refresh_complete(
 	if (!request->detached)
 		fyai_auth_refresh_transition(request, FYAIARS_COMPLETED);
 done:
-	if (cred->transient->gb)
-		cred->transient->autorelease = true;
 	if (!fyai_auth_refresh_state_final(request->state))
 		fyai_auth_refresh_transition(request, FYAIARS_FAILED);
 	auth_unlock(cred, request->lockfd);
@@ -1360,6 +1361,9 @@ done:
 static int
 fyai_auth_refresh_start_locked(struct fyai_auth_refresh_request *request)
 {
+	struct fy_generic_builder_cfg gb_cfg = {
+		.flags = FYGBCF_CREATE_ALLOCATOR | FYGBCF_SCOPE_LEADER,
+	};
 	struct fyai_cred *cred;
 
 	int rc;
@@ -1391,6 +1395,10 @@ fyai_auth_refresh_start_locked(struct fyai_auth_refresh_request *request)
 	fyai_diag_check(cred->diag, cred->auth.refresh_token &&
 			 *cred->auth.refresh_token, err_out,
 			 "authentication state has no refresh token");
+	/* Signing keys must survive idle cleanup and the token request. */
+	request->gb = fy_generic_builder_create(&gb_cfg);
+	fyai_diag_check(cred->diag, request->gb, err_out,
+			 "could not allocate token refresh storage");
 	request->curl = curl_easy_init();
 	/* Reserve SIGALRM for the watchdog. */
 	curl_easy_setopt(request->curl, CURLOPT_NOSIGNAL, 1L);
@@ -1575,6 +1583,8 @@ void fyai_auth_refresh_destroy(struct fyai_auth_refresh_request *request)
 	auth_unlock(request->cred, request->lockfd);
 	curl_easy_cleanup(request->curl);
 	curl_slist_free_all(request->headers);
+	if (request->gb)
+		fy_generic_builder_destroy(request->gb);
 	free(request->response.data);
 	free(request->body);
 	free(request);
