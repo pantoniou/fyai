@@ -1238,6 +1238,7 @@ static int remote_split_run(struct fyai_cmd_call *call)
 	struct fyai_cfg *cfg = ctx->cfg;
 	struct remote_client client = { .ctx = ctx, .gb = call->gb, .fd = -1,
 		.ssh = -1, .worker_err = -1 };
+	char cwd[PATH_MAX], *last = NULL;
 	int rc = -1;
 
 	fyai_error_check(ctx, cfg->interactive, out,
@@ -1245,10 +1246,22 @@ static int remote_split_run(struct fyai_cmd_call *call)
 	if (fy_is_valid(cfg->remote_resume)) {
 		/* The session is the one of the worker; with none, the client
 		 * shows the picker over what the worker knows. */
-		fyai_error_check(ctx, !fy_get(cfg->remote_resume, "last", false),
-				 out, "--split does not take --last yet");
 		client.resume_branch = fy_get(cfg->remote_resume, "session",
 					      (const char *)NULL);
+		/* --last names the session that a local resume takes. */
+		if (!client.resume_branch &&
+		    fy_get(cfg->remote_resume, "last", false)) {
+			fyai_error_check(ctx, getcwd(cwd, sizeof(cwd)), out,
+					 "resume: cannot read the current directory");
+			last = fyai_peek_branch_pick(NULL, cfg->root_spec, cwd,
+				fy_get(cfg->remote_resume, "all", false), NULL);
+			fyai_error_check(ctx, last, out,
+				fy_get(cfg->remote_resume, "all", false) ?
+				"resume: no resumable session; run fyai to start one" :
+				"resume: no resumable session started in this "
+				"directory; use --all, or run fyai to start one");
+			client.resume_branch = last;
+		}
 		client.picker = !client.resume_branch;
 		client.picker_all = fy_get(cfg->remote_resume, "all", false);
 	}
@@ -1257,6 +1270,7 @@ static int remote_split_run(struct fyai_cmd_call *call)
 	rc = remote_view_run(&client, false);
 out:
 	remote_client_close(&client);
+	free(last);
 	return rc ? -1 : 0;
 }
 
