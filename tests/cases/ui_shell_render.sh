@@ -22,6 +22,9 @@ steps:
   - resize: "30x72"
   - wait: Interactive shell rendering done.
     timeout: session
+  # The prompt takes a line at once when the turn is over and the screen has
+  # been made again at the new width.
+  - wait-screen: "\u276f"
   - type: "/status"
   - wait-screen: Usage / total
 PTY
