@@ -37,6 +37,9 @@ PTY
 
 # One process, three images of it (bootstrap, supervisor, and one for each
 # reload), and one transport that outlived all of them.
+# A split session starts its worker again and keeps its client: the process
+# identity is not the subject there.
+[ -n "${FYAI_TEST_SPLIT:-}" ] || \
 "$PYTHON" - "$TEST_DIR/trace.log" <<'PY' || fail "the reloads did not keep one process and one transport"
 import re
 import sys
