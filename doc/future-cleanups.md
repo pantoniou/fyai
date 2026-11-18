@@ -309,9 +309,25 @@ session, until the default step removes it, calls the same function directly.
      `ui_resume_*`): rows with tokens and the import data, the files of the
      other tools read by the worker (`foreign`), and a `--split` that takes a
      `resume`. The worker must also start on the session that was chosen.
-   - A long history: `ui_recap_fills_screen` and `ui_work_cap` end with the
-     worker's `claude-sdk: cannot send a frame` when the session opens on many
-     turns (the size of the sync, not checked).
+   - A long history: `ui_recap_fills_screen` and `ui_work_cap` fail on timing,
+     not on a frame: the driver matches the replayed history and ends the
+     client before its request reaches the mock.
+   - Done: the isolated-session cases (`session_apply_on_exit`,
+     `session_isolated_pty`, `session_push_pull`). The named-branch peek of the
+     worker reads the arena of the view (`view_arena`). The notice that the
+     worker wrote to its standard error is shown when it ends well. A session
+     that starts again in a view is a new worker on the channel: it sends
+     `restarted`, and the client initializes it again. The worker ends its
+     loop when a command asks to quit and no UI shows it (`screen->quit`).
+   - Done: a reload of a split worker. `fyai_cmd_reload` ran `fyai -i`; the
+     restart now runs the worker command (`reload_worker`), and the worker
+     puts its channel back on standard I/O before the exec. A sync that
+     reaches a restarted worker before its initialize is dropped.
+   - `ui_reload`, `transport_reload`, `session_profile_view` (last scenario):
+     the client keeps its UI over a restart, so the recap (`↳ reply`) of a
+     new UI does not show: the client recaps with its own display
+     configuration. This needs the display configuration step. A line typed
+     after a restart into a new view is held and not taken (not found yet).
    - Merge and rebase from the browser (CLI commands only), and `list_long`: the
      output of a `view` command of the worker goes to a pane of the client and
      not to its scrollback.
