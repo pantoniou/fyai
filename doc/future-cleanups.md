@@ -388,21 +388,15 @@ session, until the default step removes it, calls the same function directly.
    - The tile of a client takes the margin of the display (`fyai_chrome_body()`).
      `ui_shell_session_display` passes: its margin step did not wait for the
      tile, which the client draws after the text. It waits for it now.
-   - Open: `ui_shell_band_head`, `ui_shell_render` and
-     `ui_responses_shell_parallel` (they were not caused by the display
-     configuration). A local session prints the result of a banded shell call
-     itself, in `fyai_finish_tool_call()` (`fyai_render_tool_result_exchange()`),
-     as rows with the preview of the call (head, `⋯ N more lines`, tail). The
-     worker has no live document, so it does not print it, and its sink
-     does not reach the client: the stored fragment of the result is a
-     recorded range, which the client skips because a band is thought to
-     have shown it. The band is destroyed, not committed, so the committed
-     block of the client holds the title and the command and no output.
-     The fix is to let the client present a recorded tool result of a
-     marked tool with the preview of its own display. It needs the result
-     text in the fragment, because `fyai_fragment_walk()` takes it from the
-     stored results, which the client has not. Making the worker believe that
-     it renders live does not help: its print goes nowhere.
+   - A local session prints the result of a banded shell call itself, when
+     the band is gone. The worker records it without presenting it, so the
+     client now presents each recorded `tool_result` fragment with the preview
+     of its tool (`uidraw_results()`). `ui_shell_band_head` and
+     `ui_responses_shell_parallel` pass. `ui_shell_render` still fails: it
+     resizes the terminal during the call, and the client has no output
+     document to reflow the printed rows from (nor the ones that came with
+     the live text), so the resize clears them. `ui_resize_tool_prose` is the
+     same gap.
    - Merge and rebase from the browser (CLI commands only), and `list_long`: the
      output of a `view` command of the worker goes to a pane of the client and
      not to its scrollback.
