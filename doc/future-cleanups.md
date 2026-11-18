@@ -353,8 +353,22 @@ session, until the default step removes it, calls the same function directly.
      `ui_cancel_background` pass.
    - Open in the sub-agent family: `ui_agent_attach`, `ui_agent_attach_input`
      and `ui_agent_recursive_cancel` (the agents end before the `K` of the
-     case in split mode). Not examined: `ui_event_mid_turn`,
-     `wait_plain_escape`.
+     case in split mode). `ui_event_mid_turn` and `wait_plain_escape` pass:
+     a worker takes the events of its turn at a tool boundary, and an
+     interrupt wakes its waits.
+   - A worker that started again (`/reload`) sends a new epoch. The client
+     says what the conversation holds again (the recap), as a restarted process
+     does. The wire turn has no assistant message, so the worker sends the
+     first line of the reply as `reply`. `ui_reload` and `transport_reload`
+     pass; they skip the check of the process identity in split mode, where
+     the client stays and the worker starts again.
+   - Open: the last scenario of `session_profile_view`. A worker that is not in
+     a view runs `/session profile` for a profile that asks for one. The
+     command says that the session restarts and nothing follows: the restart
+     into a view is the job of the process that runs the supervisor
+     (`fyai_view_session_bootstrap()`), and the worker is not that process.
+     The same holds for a restart that needs the view when it is the client
+     that is outside.
    - The tile of a client takes the margin of the display (`fyai_chrome_body()`).
      `ui_shell_session_display` passes: its margin step did not wait for the
      tile, which the client draws after the text. It waits for it now.
