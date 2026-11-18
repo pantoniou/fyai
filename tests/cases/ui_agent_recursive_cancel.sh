@@ -5,7 +5,8 @@ set -eu
 . "$(dirname "$0")/../harness.sh"
 
 fyai_test_setup
-mock_start agent_recursive_progress.json
+# The grandchild answers when the case lets it, after the cancel.
+mock_start agent_recursive_held.json
 
 pty_run "$TEST_DIR/pty.out" \
 	"$FYAI_BIN" -k test-key --theme dark \
@@ -21,8 +22,10 @@ steps:
     timeout: 8
   - wait: Branches
     timeout: session
+  - wait-screen: "agent:grandchild"
   - write: "jjK"
   - wait-screen: Recursive delegation complete.
+  - touch: "${TEST_DIR}/release-nested"
   - write: "\x1d"
 PTY
 
