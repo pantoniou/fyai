@@ -141,6 +141,7 @@ steps:
   - type: drive the shell
   - wait: done.
     timeout: session
+  - wait-screen: "[] PIPE-B"
 PTY
 
 "$PYTHON" - "$TEST_DIR/margin.out" <<'EOF' || fail "the margin is not configurable"
