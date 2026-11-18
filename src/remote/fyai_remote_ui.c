@@ -1578,6 +1578,17 @@ static int remote_ui_release(struct fyai_remote_ui *view)
 	return 0;
 }
 
+/* The line at position @n of the queue when it is a command, else NULL. */
+static char *remote_ui_take_command(struct fyai_ctx *ctx, size_t n)
+{
+	const char *line = fyai_ui_peek_line_nth(ctx, n);
+
+	if (!line || (line[0] != '/' && line[0] != '!') ||
+	    !strncmp(line, "//", 2))
+		return NULL;
+	return fyai_ui_take_line_nth(ctx, n);
+}
+
 int fyai_remote_ui_step(struct fyai_remote_ui *view)
 {
 	struct fyai_ctx *ctx = fyai_remote_ui_ctx(view);
@@ -1661,8 +1672,14 @@ int fyai_remote_ui_step(struct fyai_remote_ui *view)
 			return -1;
 		view->queued++;
 	}
-	while (view->initialized && !view->queued &&
-	       (line = fyai_ui_take_line(ctx))) {
+	/*
+	 * The lines in front of a command are messages that the worker has
+	 * and has not taken: the command goes on, as a command of a local
+	 * session runs beside the turn, and the worker puts it in order.
+	 */
+	while (view->initialized &&
+	       (line = view->queued ? remote_ui_take_command(ctx, view->queued) :
+				      fyai_ui_take_line(ctx))) {
 		/* A new line asks for new candidates. */
 		fyai_cmd_complete_reset(ctx);
 		if (line[0] == '/' && fyai_cmd_session_ends(line + 1)) {

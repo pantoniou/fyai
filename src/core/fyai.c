@@ -3642,6 +3642,7 @@ static enum fyai_line_result fyai_interactive_read_line(struct fyai_ctx *ctx,
 	enum fyai_line_result busy;
 	const char *head;
 	char *line;
+	size_t n;
 	int rc;
 
 	/*
@@ -3649,10 +3650,14 @@ static enum fyai_line_result fyai_interactive_read_line(struct fyai_ctx *ctx,
 	 * turn. Anything else stays in the queue until the turn ends.
 	 */
 	if (*runp) {
-		head = fyai_ui_peek_line(ctx);
-		if (!head || !fyai_interactive_line_runs_beside(ctx, head))
+		/* A message that waits for the turn does not hold a command
+		 * behind it: the command that can run beside the turn runs. */
+		for (n = 0; (head = fyai_ui_peek_line_nth(ctx, n)); n++)
+			if (fyai_interactive_line_runs_beside(ctx, head))
+				break;
+		if (!head)
 			return FYAILR_NONE;
-		line = fyai_ui_take_line(ctx);
+		line = fyai_ui_take_line_nth(ctx, n);
 		if (!line)
 			return FYAILR_NONE;
 		busy = fyai_interactive_read_busy(ctx, histfile, line);

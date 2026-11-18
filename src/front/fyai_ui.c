@@ -4558,6 +4558,29 @@ char *fyai_ui_take_line(struct fyai_ctx *ctx)
 	return text;
 }
 
+char *fyai_ui_take_line_nth(struct fyai_ctx *ctx, size_t n)
+{
+	struct fyai_ui *ui = ctx ? ctx->screen->ui : NULL;
+	struct ui_line **link, *line;
+	char *text;
+
+	if (!ui || ui->quit)
+		return NULL;
+	for (link = &ui->head; *link && n; link = &(*link)->next)
+		n--;
+	line = *link;
+	if (!line)
+		return NULL;
+	*link = line->next;
+	if (!line->next)
+		ui->tail = link;
+	ui_pending_refresh(ui);
+	ui->ready = ui->head != NULL;
+	text = line->text;
+	free(line);
+	return text;
+}
+
 /* The head of the input queue. The line stays queued. */
 const char *fyai_ui_peek_line(struct fyai_ctx *ctx)
 {
