@@ -341,8 +341,11 @@ session, until the default step removes it, calls the same function directly.
    - With `display/tool_display=inline` the client draws the screen of an
      agent in its block of the transcript from the terminal text
      (`fyai_tools_inline_view()`). `ui_inline_tool_agent*` pass.
-   - Open in the sub-agent family: `ui_inline_tool_focus*` (the client does
-     not give the keys to the block), `ui_agent_attach*`,
+   - A terminal session shows in the client from its start, with an empty
+     text, and a worker with a UI model follows a resize at once; the five
+     `ui_inline_tool_focus*` cases pass. `ui_shell_session_display` waits for
+     the display configuration of the client (the margin).
+   - Open in the sub-agent family: `ui_agent_attach*`,
      `ui_agent_message_live`, `ui_agent_background`, `ui_btw_*`,
      `ui_cancel_background` and `ui_agent_recursive_cancel` (the agents end
      before the `K` of the case in split mode).
