@@ -525,6 +525,9 @@ own.
   facts; the chrome owns the text and the glyphs.
 - A new kind of tile gets its chrome by a line in the policy, not by a draw
   path. `tests/fyai_chrome_test.c` states the table.
+- The display advances the activity mark for each live shell or agent. A
+  remote worker sends work state, not animation frames. The client draws
+  the mark even when Markdown is disabled.
 
 ## The work pane
 
