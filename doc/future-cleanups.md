@@ -338,9 +338,11 @@ session, until the default step removes it, calls the same function directly.
      default model. The `K` action of the browser sends `/kill`.
      `ui_agent` and `ui_agent_progress` pass; `ui_agents_parallel` passes but
      reads the blink of the mark, which is a time.
-   - Open in the sub-agent family: `display/tool_display=inline` (the
-     worker draws the inline screen of an agent into no UI; the client must
-     draw it from the terminal text), `ui_agent_attach*`,
+   - With `display/tool_display=inline` the client draws the screen of an
+     agent in its block of the transcript from the terminal text
+     (`fyai_tools_inline_view()`). `ui_inline_tool_agent*` pass.
+   - Open in the sub-agent family: `ui_inline_tool_focus*` (the client does
+     not give the keys to the block), `ui_agent_attach*`,
      `ui_agent_message_live`, `ui_agent_background`, `ui_btw_*`,
      `ui_cancel_background` and `ui_agent_recursive_cancel` (the agents end
      before the `K` of the case in split mode).
