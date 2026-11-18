@@ -23,6 +23,7 @@ FYAI_TEST_ENTRY(query, bytes, query_bytes)
 FYAI_TEST_ENTRY(query, empty, query_empty)
 FYAI_TEST_ENTRY(query, tree, query_tree)
 FYAI_TEST_ENTRY(query, tree_rev, query_tree_rev)
+FYAI_TEST_ENTRY(query, turns, query_turns)
 
 static struct fy_generic_builder *builder_new(void)
 {
@@ -415,6 +416,72 @@ int query_tree_rev(void)
 	src.root = fy_mapping(gb, "HEAD", "other", "branches", table);
 	again = fyai_query_answer(gb, &src, fy_mapping(gb, "what", "branch_tree"));
 	FYAI_TCHECK(fy_get(again, "rev", 0LL) != rev);
+	fy_generic_builder_destroy(gb);
+	return 0;
+}
+
+/* A chain of @n turns, each a user line and its display record. */
+static fy_generic turn_chain(struct fy_generic_builder *gb, int n)
+{
+	fy_generic head = fy_null, messages, outputs;
+	char text[16];
+	int i;
+
+	for (i = 1; i <= n; i++) {
+		snprintf(text, sizeof(text), "line %d", i);
+		messages = fy_sequence(gb, fy_mapping(gb, "role", "user",
+						      "content", text));
+		outputs = fy_sequence(gb, fy_mapping(gb, "tag", "user",
+						     "markdown", text));
+		head = fy_mapping(gb, "messages", messages,
+				  "display_outputs", outputs, "previous", head);
+	}
+	return head;
+}
+
+int query_turns(void)
+{
+	struct fy_generic_builder *gb = builder_new();
+	struct fyai_query_source src = { 0 };
+	struct fyai_branch b;
+	fy_generic table, answer, turns;
+	long long rev;
+
+	FYAI_TCHECK(gb);
+	fyai_branch_decode(fy_invalid, &b);
+	b.created = fy_value(gb, 1LL);
+	b.updated = fy_value(gb, 1LL);
+	b.op = fy_value(gb, FYAI_BRANCH_OP_TURN);
+	b.head = turn_chain(gb, 5);
+	table = fyai_branches_set(gb, fy_invalid, "work", fyai_branch_build(gb, &b));
+	src.branches = table;
+	answer = fyai_query_answer(gb, &src, fy_mapping(gb, "what", "branch_turns",
+		"params", fy_mapping(gb, "branch", "work", "depth", 3LL)));
+	turns = fy_get(answer, "turns", fy_invalid);
+	/* The newest three, oldest first, and a mark that older ones exist. */
+	FYAI_TCHECK(fy_get(answer, "found", false) && fy_len(turns) == 3);
+	FYAI_TCHECK(fy_get(answer, "more", false));
+	FYAI_TCHECK(!strcmp(fy_get(fy_get_at(fy_get(fy_get_at(turns, 0),
+			"messages", fy_invalid), 0), "content", ""), "line 3"));
+	FYAI_TCHECK(!strcmp(fy_get(fy_get_at(fy_get(fy_get_at(turns, 2),
+			"messages", fy_invalid), 0), "content", ""), "line 5"));
+	rev = fy_get(answer, "rev", 0LL);
+	FYAI_TCHECK(rev != 0);
+	/* All of them when the depth allows, and no mark of older ones. */
+	answer = fyai_query_answer(gb, &src, fy_mapping(gb, "what", "branch_turns",
+		"params", fy_mapping(gb, "branch", "work", "depth", 50LL)));
+	FYAI_TCHECK(fy_len(fy_get(answer, "turns", fy_invalid)) == 5);
+	FYAI_TCHECK(!fy_get(answer, "more", true));
+	/* The same entry: nothing is sent again. */
+	answer = fyai_query_answer(gb, &src, fy_mapping(gb, "what", "branch_turns",
+		"params", fy_mapping(gb, "branch", "work"), "if_rev", rev));
+	FYAI_TCHECK(fy_get(answer, "unchanged", false));
+	/* A branch that is not there, and a request that names none. */
+	answer = fyai_query_answer(gb, &src, fy_mapping(gb, "what", "branch_turns",
+		"params", fy_mapping(gb, "branch", "nothing")));
+	FYAI_TCHECK(!fy_get(answer, "found", true));
+	answer = fyai_query_answer(gb, &src, fy_mapping(gb, "what", "branch_turns"));
+	FYAI_TCHECK(!strcmp(error_code(answer), FYAI_QUERY_BAD_REQUEST));
 	fy_generic_builder_destroy(gb);
 	return 0;
 }
