@@ -288,7 +288,9 @@ static char *ui_indicator(struct fyai_ui *ui,
 			  enum fymd_indicator_state state, size_t frame,
 			  unsigned int *interval_msp)
 {
-	return markdown_indicator_margin(fyai_ui_ctx(ui) ? fyai_ui_ctx(ui)->cfg : NULL,
+	struct fyai_ctx *ctx = fyai_ui_ctx(ui);
+
+	return markdown_indicator_margin(ctx ? ctx->cfg : NULL,
 					 ui->chrome_renderer, state, frame,
 					 interval_msp);
 }
@@ -301,9 +303,36 @@ char *fyai_ui_indicator(struct fyai_ctx *ctx, enum fyai_ui_mark mark,
 		[FYAI_UI_MARK_OK] = FYMD_INDICATOR_SUCCESS,
 		[FYAI_UI_MARK_FAILED] = FYMD_INDICATOR_FAILURE,
 	};
+	struct fyai_ui *ui = ctx ? ctx->screen->ui : NULL;
+	char margin[FYAI_GLYPH_MAX] = "";
+	const char *glyph;
 
-	return ctx && ctx->screen->ui ? ui_indicator(ctx->screen->ui, states[mark], frame,
-					     interval_msp) : NULL;
+	if (!ui)
+		return NULL;
+	if (ui->chrome_renderer)
+		return ui_indicator(ui, states[mark], frame, interval_msp);
+
+	/* Plain tile chrome does not need a Markdown renderer. */
+	if (interval_msp)
+		*interval_msp = mark == FYAI_UI_MARK_RUNNING ? 500 : 0;
+	switch (mark) {
+	case FYAI_UI_MARK_RUNNING:
+		glyph = frame & 1 ? markdown_glyph(ctx->cfg, "tool.pending.1", " ") :
+				    markdown_glyph(ctx->cfg, "tool.pending", "●");
+		break;
+	case FYAI_UI_MARK_OK:
+		glyph = markdown_glyph(ctx->cfg, "tool.ok", "●");
+		break;
+	case FYAI_UI_MARK_FAILED:
+		glyph = markdown_glyph(ctx->cfg, "tool.fail", "×");
+		break;
+	default:
+		glyph = " ";
+		break;
+	}
+	markdown_gutter_mark("", glyph, "", markdown_gutter_cols(ctx->cfg),
+			     margin, sizeof(margin));
+	return strdup(margin);
 }
 
 int fyai_ui_append_shell_command(struct fyai_cfg *cfg,
@@ -5322,17 +5351,14 @@ int fyai_ui_inline_terminal(struct fyai_ctx *ctx, uintptr_t key,
 			    const char *screen, size_t len, int rows,
 			    size_t frame, bool done, bool ok)
 {
-	struct fyai_ui *ui;
 	char *margin;
 	int rc;
 
 	if (!fyai_ui_tools_inline(ctx) || !key)
 		return -1;
-	ui = ctx->screen->ui;
-	margin = ui_indicator(ui, !done ? FYMD_INDICATOR_PENDING :
-			      ok ? FYMD_INDICATOR_SUCCESS :
-			      FYMD_INDICATOR_FAILURE,
-			      done ? 0 : frame, NULL);
+	margin = fyai_ui_indicator(ctx, !done ? FYAI_UI_MARK_RUNNING :
+				   ok ? FYAI_UI_MARK_OK : FYAI_UI_MARK_FAILED,
+				   done ? 0 : frame, NULL);
 	fyai_error_check(ctx, margin, err_out,
 			 "cannot draw the mark of a terminal session");
 	rc = command ?
