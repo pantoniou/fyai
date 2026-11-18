@@ -350,6 +350,7 @@ struct fyai_cfg {
 	const char *diagram_fit;
 	int table_border;		/* 0 theme (default) | 1 grid | 2 none */
 	int max_tool_iterations;
+	bool durable;			/* store the turn in flight after each round */
 	int max_tokens;			/* output cap (required by Messages) */
 	int top_logprobs;
 	int tool_preview_lines;
@@ -525,6 +526,12 @@ struct fyai_cfg {
 	const char *fresh_session_from;
 	/* Owned branch name for a restart after the session closes. */
 	char *reload_branch;
+	/* Owned name of a live session that the client of its server replaces
+	 * this process for, after the session closes. */
+	char *attach_branch;
+	/* After the session closes: a new session ("") or the branch to resume,
+	 * which this process runs in its place, or NULL. */
+	char *next_session;
 	bool reload_worker;	/* the restart runs the worker of a split client */
 	char *reload_config;
 	char *reload_session;
@@ -558,6 +565,8 @@ struct fyai_cfg {
 	bool remote;
 	/* --split: the interactive session runs at a worker that is a child. */
 	bool split;
+	/* --no-split: it runs in this process, as it does with no terminal. */
+	bool no_split;
 	const char *remote_socket;	/* the socket of --remote TARGET, or NULL */
 	/* The global options and the words to run there, without the above. */
 	fy_generic remote_args;

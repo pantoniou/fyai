@@ -45,6 +45,14 @@ bool fyai_agent_background_running(struct fyai_ctx *ctx, const char *name);
 const char *fyai_agent_background_original_name(struct fyai_ctx *ctx,
 						 const char *name);
 
+/*
+ * The running background sub-agents as records for the branch store: kind,
+ * name and the call. The rows belong to @gb.
+ */
+fy_generic fyai_agents_pending(struct fyai_ctx *ctx, struct fy_generic_builder *gb);
+/* Start the sub-agent of a stored record again; it revives its branch. */
+int fyai_agent_restore(struct fyai_ctx *ctx, fy_generic record);
+
 /* Cancel and release the background sub-agents of this invocation. */
 void fyai_agent_background_close(struct fyai_ctx *ctx);
 

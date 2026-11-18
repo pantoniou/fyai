@@ -215,6 +215,19 @@ properties:
     description: >-
       Limit tool-call iterations per turn. On reaching the limit, the
       turn keeps the steps that completed and reports the limit as its cause.
+  durable:
+    x-fyai-model: read
+    type: boolean
+    default: false
+    description: >-
+      Store the turn in flight after each round (each model reply and each
+      tool result), so that a worker that is lost keeps what it did and a
+      client that joins sees it. The branch also records the named waits,
+      monitors, commands and sub-agents in the background of the run, and the
+      events that wait for the model. A session that starts on the branch after
+      a loss opens them again. A session in a view also stores the state of its
+      view with each round, and the new session starts on the view as it was at
+      the last one. `/continue` runs a session that stopped there.
   max_tokens:
     x-fyai-model: review
     type: integer

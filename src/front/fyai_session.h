@@ -109,6 +109,10 @@ fy_generic fyai_session_status_data(struct fyai_ctx *ctx,
  * selects the branch for this invocation only, which publishes nothing. The
  * caller reports the switch.
  */
+/* True when ending the session would lose work (a turn, tools, an agent, a question). */
+bool fyai_session_working(struct fyai_ctx *ctx);
+/* Leave the session running at a server; @next: "" a new session, else a branch to resume. */
+int fyai_session_leave(struct fyai_ctx *ctx, const char *next);
 int fyai_session_branch_switch(struct fyai_ctx *ctx, const char *name,
 			       bool create, bool keep_head);
 

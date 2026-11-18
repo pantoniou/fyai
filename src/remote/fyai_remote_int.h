@@ -32,6 +32,8 @@ int fyai_remote_spawn(struct fyai_ctx *ctx, char *const args[],
 		      const char *const keep[], int *fdp, pid_t *pidp);
 int fyai_remote_send(struct jsonrpc_conn *conn, fy_generic frame);
 int fyai_remote_mkdirs(struct fyai_cfg *cfg, size_t top, const char *path);
+/* The record of the live sessions of the server at @socket; the caller frees it. */
+char *fyai_remote_record_path(const char *socket);
 char *fyai_remote_socket_path(struct fyai_ctx *ctx, const char *override,
 			      bool user, bool create);
 

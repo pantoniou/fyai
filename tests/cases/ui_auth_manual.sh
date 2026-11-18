@@ -3,6 +3,8 @@
 set -eu
 . "$(dirname "$0")/../harness.sh"
 fyai_test_setup
+# The login prompt belongs to the process that has the terminal.
+export FYAI_NO_SPLIT=1
 
 "$PYTHON" - "$FYAI_BIN" "$TEST_DIR" "$TESTS_DIR" <<'PY'
 import fcntl, os, pathlib, re, select, signal, struct, subprocess, sys, termios, time

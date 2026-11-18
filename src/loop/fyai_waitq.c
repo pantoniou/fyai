@@ -12,6 +12,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "fyai.h"
 #include "fyai_diag.h"
 #include "fyai_waitq.h"
 
@@ -280,6 +281,24 @@ static void fyai_events_drop_owner(struct fyai_waitq *q,
 				 "agent" : "session", name);
 		fyai_pending_event_free(ev);
 	}
+}
+
+fy_generic fyai_events_pending(struct fyai_waitq *q, struct fy_generic_builder *gb)
+{
+	const struct fyai_pending_event *ev;
+	fy_generic rows = fy_sequence(gb);
+	int n = 0;
+
+	for (ev = q ? q->events : NULL; ev && n < FYAI_EVENTS_PENDING_MAX;
+	     ev = ev->next) {
+		/* Input from an agent and the events of a live owner belong to it. */
+		if (ev->seen || ev->from || ev->owner_kind != FYAI_EVENT_OWNER_NONE)
+			continue;
+		rows = fy_append(gb, rows, fy_mapping(gb, "kind", "event",
+						      "text", fy_value(gb, ev->text)));
+		n++;
+	}
+	return rows;
 }
 
 void fyai_events_release(struct fyai_waitq *q)

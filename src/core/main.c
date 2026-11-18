@@ -33,6 +33,7 @@
 
 #include "fyai.h"
 #include "fyai_claude_sdk.h"
+#include "fyai_remote.h"
 #include "fyai_config.h"
 #include "fyai_storage.h"
 #include "commands.h"
@@ -50,7 +51,7 @@ int main(int argc, char **argv)
 {
 	struct fyai_app app;
 	struct fyai_cfg *cfg = &app.cfg;
-	char **sdk_argv;
+	char **sdk_argv, *attach, *next;
 	int rc, ret = EXIT_FAILURE;
 
 	fyai_prof_init();
@@ -120,9 +121,32 @@ int main(int argc, char **argv)
 		fyai_diag_drain(&app.diag);
 	}
 
+	attach = cfg->attach_branch;
+	next = cfg->next_session;
+	cfg->attach_branch = cfg->next_session = NULL;
+	if (rc) {
+		free(attach);
+		free(next);
+		attach = next = NULL;
+	}
 	fyai_app_cleanup(&app);
 	curl_global_cleanup();
 	fyai_prof_report();
+	/* The session that the user chose is live in a server: its client
+	 * takes this terminal. It returns only when it cannot start. */
+	if (attach) {
+		(void)fyai_remote_attach_exec(argv[0], attach);
+		perror("fyai: cannot start the client of the live session");
+		free(attach);
+		ret = EXIT_FAILURE;
+	}
+	/* The session that left the terminal running is followed by the next. */
+	if (next) {
+		(void)fyai_remote_next_exec(argv[0], next);
+		perror("fyai: cannot start the next session");
+		free(next);
+		ret = EXIT_FAILURE;
+	}
 	free(sdk_argv);
 	return ret;
 }

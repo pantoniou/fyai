@@ -69,6 +69,19 @@ void fyai_waiters_abandon(struct fyai_ctx *ctx);
  */
 fy_generic fyai_waits_rows(struct fyai_waitq *q, struct fy_generic_builder *gb);
 
+/*
+ * The pending waits as records for the branch store: kind, name, reason and
+ * `due`, the wall-clock time in milliseconds. The rows belong to @gb.
+ */
+fy_generic fyai_waits_pending(struct fyai_waitq *q, struct fy_generic_builder *gb);
+/*
+ * Open the named wait of a record again: it fires at @due, or at once when
+ * that time has passed. Returns the text of the result of the start, which
+ * the caller frees, or NULL when the wait could not be made.
+ */
+char *fyai_wait_restore(struct fyai_waitq *q, const char *name,
+			const char *reason, long long due);
+
 /* Drop every wait. They live for one invocation, as a session does. */
 void fyai_waits_release(struct fyai_waitq *q);
 

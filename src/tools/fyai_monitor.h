@@ -34,6 +34,21 @@ bool fyai_monitor_cancel(struct fyai_ctx *ctx, const char *name);
 fy_generic fyai_monitors_rows(struct fyai_ctx *ctx,
 			      struct fy_generic_builder *gb);
 
+/*
+ * The running monitors and background commands as records for the branch
+ * store: kind, name, command, its options, the limit, and `until`, the
+ * wall-clock end of the limit in milliseconds. The rows belong to @gb.
+ */
+fy_generic fyai_monitors_pending(struct fyai_ctx *ctx,
+				 struct fy_generic_builder *gb);
+
+/*
+ * Start the command of a stored record again, with the time that remains, and
+ * queue an event that says so. A monitor whose limit has passed ends with the
+ * event of its limit. Returns 0, or -1 with the cause reported.
+ */
+int fyai_monitor_restore(struct fyai_ctx *ctx, fy_generic record);
+
 /* Cancel and release every monitor of this invocation. */
 void fyai_monitor_close(struct fyai_ctx *ctx);
 

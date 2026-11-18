@@ -336,6 +336,23 @@ static int view_overlay(const char *target, bool metacopy)
 		     view_overlay_options(metacopy));
 }
 
+/*
+ * The same view for a capture while a session runs in it. The work directory
+ * of the live mount is not shared: a second mount that prepares it again takes
+ * the directory that the first one copies up through, and a later write to a
+ * file of the baseline fails.
+ */
+static int view_overlay_beside(const char *target, bool metacopy)
+{
+	if (mkdir("work.capture", 0700) && errno != EEXIST)
+		return -1;
+	return mount("overlay", target, "overlay", MS_NOSUID | MS_NODEV,
+		     metacopy ? "lowerdir=baseline::data,upperdir=upper,"
+				"workdir=work.capture,userxattr,index=off" :
+				"lowerdir=baseline,upperdir=upper,workdir=work.capture,"
+				"userxattr,index=off,redirect_dir=nofollow,metacopy=off");
+}
+
 static int view_metacopy_probe(void)
 {
 	static const char bytes[] = "fyai CAS probe";
@@ -1577,7 +1594,7 @@ static fy_generic linux_snapshot(struct fy_generic_builder *gb, const struct fya
 		rc = chdir(view->runtime);
 		if (rc)
 			goto child_error;
-		rc = view_overlay("merged", view->metacopy);
+		rc = view_overlay_beside("merged", view->metacopy);
 		if (rc)
 			goto child_error;
 		opts.upper_fd = open("upper", O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);

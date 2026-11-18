@@ -133,6 +133,9 @@ struct fyai_remote_ui {
 	size_t av_offset;
 	bool av_attached;
 	bool picker, picker_all;	/* show resume picker on open */
+	bool released;		/* the worker went to a server */
+	char *left;		/* its branch, for the message at the exit */
+	bool left_parked;	/* the server holds it with no turn */
 	char *error;			/* the cause of the last failed turn */
 	/* The queries that the renderer asked: sent in order, a few at a time,
 	 * and answered by the number of their request. */
@@ -1369,7 +1372,7 @@ static int remote_ui_frame(struct fyai_remote_ui *view, fy_generic frame)
 	struct fyai_ctx *ctx = fyai_remote_ui_ctx(view);
 	struct remote_ui_term *t;
 	fy_generic type = fy_get(frame, "type", fy_invalid);
-	const char *subtype = fy_get(frame, "subtype", "");
+	const char *subtype = fy_get(frame, "subtype", ""), *next;
 	int rc;
 
 	if (fy_equal(type, "control_response"))
@@ -1384,6 +1387,25 @@ static int remote_ui_frame(struct fyai_remote_ui *view, fy_generic frame)
 	}
 	if (!fy_equal(type, "fyai"))
 		return 0;
+	if (!strcmp(subtype, "backgrounded")) {
+		/* The worker went to a server: this client ends, and the
+		 * worker is no longer its child's to wait for. */
+		view->released = true;
+		next = fy_get(frame, "next", (const char *)NULL);
+		if (next) {
+			free(ctx->cfg->next_session);
+			ctx->cfg->next_session = strdup(next);
+			fyai_error_check(ctx, ctx->cfg->next_session, err,
+					 "cannot keep the next session");
+		}
+		free(view->left);
+		view->left = strdup(fy_get(frame, "branch", ""));
+		view->left_parked = fy_get(frame, "parked", false);
+		fyai_error_check(ctx, view->left, err,
+				 "cannot keep the name of the session that left");
+		fyai_ui_quit_request(ctx);
+		return 0;
+	}
 	if (!strcmp(subtype, "restarted")) {
 		/* A new worker took the channel: it waits for the initialize.
 		 * It has none of the lines that the old one held. */
@@ -1481,6 +1503,20 @@ err:
 void fyai_remote_ui_watch(struct fyai_remote_ui *view, bool watch)
 {
 	view->watch = watch;
+}
+
+bool fyai_remote_ui_released(const struct fyai_remote_ui *view)
+{
+	return view->released;
+}
+
+char *fyai_remote_ui_take_left(struct fyai_remote_ui *view, bool *parkedp)
+{
+	char *left = view->left;
+
+	*parkedp = view->left_parked;
+	view->left = NULL;
+	return left;
 }
 
 void fyai_remote_ui_resume(struct fyai_remote_ui *view, bool all)
@@ -1770,5 +1806,6 @@ void fyai_remote_ui_close(struct fyai_remote_ui *view)
 	fy_generic_builder_destroy(view->inbox_gb);
 	fy_generic_builder_destroy(view->held_gb);
 	free(view->error);
+	free(view->left);
 	free(view);
 }

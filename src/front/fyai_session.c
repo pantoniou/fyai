@@ -76,6 +76,7 @@
 #include "fyai_turn.h"
 #include "fyai_view.h"
 #include "utils.h"
+#include "fyai_remote.h"
 
 /*
  * The catalogue entry for the active model, tolerating the wire-id rewrite
@@ -1824,6 +1825,42 @@ void fyai_session_banner_update(struct fyai_ctx *ctx)
 
 /* ---- slash dispatch ------------------------------------------------------ */
 
+/* True when ending the session would lose work: a turn, a tool session, an
+ * attached agent or an open question. */
+bool fyai_session_working(struct fyai_ctx *ctx)
+{
+	if (fyai_ui_busy(ctx) || fyai_tools_active(ctx) || fyai_agents_attached(ctx))
+		return true;
+	if (ctx->turn->working && ctx->turn->working(ctx, ctx->turn->background_data))
+		return true;
+	return !fy_empty(fy_get(fyai_uimodel_get(ctx, FYAI_UI_QUESTIONS), "open",
+				fy_seq_empty));
+}
+
+/*
+ * Leave the session running at a server and start @next in this terminal: a
+ * new session for "", else the branch to resume. Only a worker of a split
+ * session can; the others end their work first.
+ */
+int fyai_session_leave(struct fyai_ctx *ctx, const char *next)
+{
+	int rc;
+
+	fyai_error_check(ctx, ctx->turn->background, err,
+			 "this session runs in the terminal process: end its work "
+			 "first, or run it split to leave it running");
+	fyai_error_check(ctx, !ctx->cfg->transient && !ctx->cfg->root_pinned, err,
+			 "a server cannot read a transient or pinned session");
+	fyai_error_check(ctx, !ctx->bstate->session_unstored, err,
+			 "the session has no stored exchange yet");
+	ctx->turn->background_next = next;
+	rc = ctx->turn->background(ctx, ctx->turn->background_data);
+	ctx->turn->background_next = NULL;
+	return rc;
+err:
+	return -1;
+}
+
 /*
  * Switch branch inside a live session. The conversation and the configuration
  * both belong to the branch, so this re-points the head *and* re-applies the
@@ -1840,9 +1877,22 @@ int fyai_session_branch_switch(struct fyai_ctx *ctx, const char *name,
 	bool found;
 	int rc;
 
-	if (fyai_ui_busy(ctx) || fyai_tools_active(ctx) || fyai_agents_attached(ctx)) {
+	if (fyai_session_working(ctx)) {
+		/* /resume leaves the work running at a server; the others wait. */
+		if (keep_head && !create)
+			return fyai_session_leave(ctx, name);
 		fyai_error(ctx, "branch changes require idle model and tool work");
 		return -1;
+	}
+	/* A session that a server runs is joined by its client, which replaces
+	 * this process once the display closes. */
+	if (keep_head && !create && fyai_ui_active(ctx) &&
+	    !fyai_uimodel_mirrored(ctx) && fyai_remote_session_live(ctx, name)) {
+		ctx->cfg->attach_branch = strdup(name);
+		fyai_error_check(ctx, ctx->cfg->attach_branch, err_out,
+				 "branch: cannot keep the name '%s'", name);
+		fyai_ui_quit_request(ctx);
+		return 0;
 	}
 	old_len = strlen(fyai_ctx_branch(ctx));
 	old = alloca(old_len + 1);

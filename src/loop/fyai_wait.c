@@ -297,6 +297,46 @@ fy_generic fyai_waits_rows(struct fyai_waitq *q, struct fy_generic_builder *gb)
 	return rows;
 }
 
+/* The wall clock in milliseconds: a due time that outlives the process. */
+static int64_t fyai_wait_wall_ms(void)
+{
+	struct timespec ts;
+
+	clock_gettime(CLOCK_REALTIME, &ts);
+	return (int64_t)ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
+}
+
+fy_generic fyai_waits_pending(struct fyai_waitq *q, struct fy_generic_builder *gb)
+{
+	const struct fyai_wait *w;
+	fy_generic rows, row;
+	int64_t due;
+
+	rows = fy_sequence(gb);
+	fyai_waits_reap(q);
+	for (w = q->waits; w; w = w->next) {
+		due = fyai_wait_wall_ms() + (w->due_ms - fyai_event_now_ms());
+		row = fy_mapping(gb, "kind", "wait", "name", w->name,
+				 "due", (long long)due);
+		if (w->reason && *w->reason)
+			row = fy_assoc(gb, row, "reason", fy_value(gb, w->reason));
+		rows = fy_append(gb, rows, row);
+	}
+	return rows;
+}
+
+static char *fyai_wait_start(struct fyai_waitq *q, const char *name,
+			     const char *reason, double seconds);
+
+char *fyai_wait_restore(struct fyai_waitq *q, const char *name,
+			const char *reason, long long due)
+{
+	long long left = due - fyai_wait_wall_ms();
+
+	/* A wait that is past due fires as soon as the loop runs. */
+	return fyai_wait_start(q, name, reason, left > 0 ? left / 1000.0 : 0.001);
+}
+
 void fyai_waits_release(struct fyai_waitq *q)
 {
 	struct fyai_wait *w, *next;

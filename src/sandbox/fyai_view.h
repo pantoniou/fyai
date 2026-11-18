@@ -138,6 +138,14 @@ bool fyai_view_isolation_available(struct fyai_ctx *ctx);
 const char *fyai_view_session_name(const struct fyai_ctx *ctx);
 
 /*
+ * Ask the supervisor of the session for a capture of the view, and return it in
+ * @state for the entry that the checkpoint publishes: the files of a round are
+ * stored with its conversation. Return 0, 1 when the session runs in no view
+ * (@state stays invalid), or -1 with the cause reported.
+ */
+int fyai_view_session_checkpoint(struct fyai_ctx *ctx, fy_generic *state);
+
+/*
  * Whether the main session can run in a view here (view/isolate_session): not in
  * a view, with the arena in the project, the scratch directory outside it, and
  * user namespaces that a probe could make. Nothing changes.

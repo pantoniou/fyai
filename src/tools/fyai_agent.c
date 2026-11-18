@@ -15,6 +15,7 @@
 #include "fyai_turn.h"
 #include "fyai_output.h"
 #include "fyai_event.h"
+#include "fyai_pending.h"
 #include "fyai_jsonrpc.h"
 #include "fyai_provider.h"
 #include "fyai_catalog.h"
@@ -795,6 +796,10 @@ static int agent_run_turn(struct fyai_ctx *ctx, struct agent_run *r)
 	if (cfg->agent_pty && !fyai_ui_open(ctx))
 		fyai_ui_prompt_enabled(ctx, false);
 
+	/* The sub-agents that a lost run of this one had in the background. */
+	if (r->revive && fyai_pending_restore(ctx))
+		fyai_warning(ctx, "durable: the pending work was not restored");
+
 	r->turn = fyai_run_turn(ctx, ctx->turn->last_message);
 	while (fy_is_valid(r->turn) && !ctx->loop->terminate_pending &&
 	       fyai_event_queued(ctx->waitq)) {
@@ -913,6 +918,7 @@ struct fyai_agent_bg_run {
 	struct fyai_ctx *ctx;
 	struct fyai_tool_job_group *group;	/* NULL once it has finished */
 	const char *name;
+	char *call;		/* the call as JSON, to start it again */
 	char handle[FYAI_BRANCH_COMPONENT_MAX + 1];
 	struct fyai_scope_pin pin;	/* it holds the scope of its exchange */
 };
@@ -932,6 +938,7 @@ static void agent_bg_free(struct fyai_agent_bg_run *run)
 {
 	fyai_tool_job_group_destroy(run->group);
 	fyai_scope_unpin(fyai_agent_bg_run_ctx(run)->scope, &run->pin);
+	free(run->call);
 	free(run);
 }
 
@@ -999,6 +1006,9 @@ fy_generic fyai_agent_background(struct fyai_ctx *ctx, fy_generic args,
 	fyai_error_check(ctx, run, err,
 			 "agent: could not allocate the background run");
 	run->ctx = ctx;
+	run->call = strdup(json);
+	fyai_error_check(ctx, run->call, err,
+			 "agent: could not keep the background call");
 	run->name = fyai_ctx_keep_str(ctx, name);
 	fyai_branch_sanitize(name, "agent", run->handle, sizeof(run->handle));
 	fyai_error_check(ctx, run->name, err,
@@ -1060,6 +1070,60 @@ const char *fyai_agent_background_original_name(struct fyai_ctx *ctx,
 		if (!strcmp(run->name, name) || !strcmp(run->handle, name))
 			return run->name;
 	return NULL;
+}
+
+fy_generic fyai_agents_pending(struct fyai_ctx *ctx, struct fy_generic_builder *gb)
+{
+	const struct fyai_agent_bg_run *run;
+	fy_generic rows = fy_sequence(gb), row;
+
+	for (run = ctx->jobs->agent_bg; run; run = run->next) {
+		if (!run->group || !run->call)
+			continue;
+		row = fy_mapping(gb, "kind", "agent", "name", run->name,
+				 "call", fy_value(gb, run->call));
+		rows = fy_append(gb, rows, row);
+	}
+	return rows;
+}
+
+int fyai_agent_restore(struct fyai_ctx *ctx, fy_generic record)
+{
+	struct fy_generic_builder *gb = ctx->transient->gb;
+	fy_generic_sized_string text;
+	fy_generic call, task, name, result;
+	bool ok = false;
+
+	call = fy_get(record, "call", fy_invalid);
+	name = fy_get(record, "name", fy_invalid);
+	fyai_error_check(ctx, fy_is_string(call) && fy_is_string(name), err,
+			 "agent: a stored record has no name or call");
+	text.data = fy_castp(&call, "");
+	text.size = strlen(text.data);
+	call = fy_parse(gb, text, FYAI_YAML_PARSE_FLAGS | FYOPPF_INPUT_TYPE_STRING,
+			NULL);
+	task = fy_get(call, "task", fy_invalid);
+	fyai_error_check(ctx, fy_is_mapping(call) && fy_is_string(task), err,
+			 "agent: the stored call of '%s' has no task",
+			 fy_castp(&name, ""));
+	/* Its conversation was stored on its branch; the task goes on from there. */
+	call = fy_assoc(gb, call, "task",
+			fy_stringf(gb, "The session was lost and you start again. "
+				   "Go on from the last step of your conversation, "
+				   "if it has one. A message that was sent to you or "
+				   "by you before can be lost: send it again if it "
+				   "matters.\n\n%s", fy_castp(&task, "")));
+	result = fyai_agent_background(ctx, call, &ok);
+	fyai_error_check(ctx, ok, err, "agent: could not restart '%s': %s",
+			 fy_castp(&name, ""),
+			 fy_is_string(result) ? fy_castp(&result, "") : "failed");
+	(void)fyai_event_injectf(ctx->waitq, "[agent '%s' restarted: the session "
+		"was lost and it goes on from its last stored step; a message "
+		"sent to it or by it before can be lost]",
+		fy_castp(&name, ""));
+	return 0;
+err:
+	return -1;
 }
 
 void fyai_agent_background_close(struct fyai_ctx *ctx)

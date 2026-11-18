@@ -348,6 +348,7 @@ bool fyai_branch_decode(fy_generic entry, struct fyai_branch *b)
 	b->config = fy_invalid;
 	b->catalog = fy_invalid;
 	b->todos = fy_invalid;
+	b->pending = fy_invalid;
 	b->skills = fy_invalid;
 	b->created = fy_invalid;
 	b->cwd = fy_invalid;
@@ -381,6 +382,7 @@ bool fyai_branch_decode_store(fy_generic store, struct fyai_branch *b)
 	b->config = fyai_branch_member(store, "config");
 	b->catalog = fyai_branch_member(store, "catalog");
 	b->todos = fyai_branch_member(store, "todos");
+	b->pending = fyai_branch_member(store, "pending");
 	b->skills = fyai_branch_member(store, "skills");
 	b->created = fyai_branch_member(store, "created");
 	b->cwd = fyai_branch_member(store, "cwd");
@@ -443,6 +445,7 @@ fy_generic fyai_branch_store_build(struct fy_generic_builder *gb,
 	store = store_member_set(gb, store, "config", b->config);
 	store = store_member_set(gb, store, "catalog", b->catalog);
 	store = store_member_set(gb, store, "todos", b->todos);
+	store = store_member_set(gb, store, "pending", b->pending);
 	store = store_member_set(gb, store, "skills", b->skills);
 	store = store_member_set(gb, store, "created", b->created);
 	store = store_member_set(gb, store, "cwd", b->cwd);
@@ -581,6 +584,12 @@ static fy_generic store_merge3(struct fy_generic_builder *gb, fy_generic base,
 	 * base without a key-by-key merge. Two rewrites conflict, and the
 	 * value of this run is kept.
 	 */
+	/*
+	 * The pending work belongs to the process that owns it: the value of
+	 * this run stands, and it is no conflict.
+	 */
+	if (!strcmp(path, "pending"))
+		return ours;
 	if (!strcmp(path, "todos")) {
 		*conflictsp = fy_append(gb, *conflictsp, fy_value(gb, path));
 		if (fy_is_invalid(*conflictsp))

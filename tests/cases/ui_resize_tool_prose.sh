@@ -7,6 +7,8 @@ set -eu
 . "$(dirname "$0")/../harness.sh"
 
 fyai_test_setup
+# Known: a split client draws a sub-agent row above the prose before it.
+export FYAI_NO_SPLIT=1
 mock_start ui_resize_tool_prose.json
 
 pty_run "$TEST_DIR/pty.out" \

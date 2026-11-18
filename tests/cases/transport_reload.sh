@@ -12,6 +12,8 @@ Linux) ;;
 esac
 
 fyai_test_setup
+# The case checks that a reload keeps the process: it runs in process.
+export FYAI_NO_SPLIT=1
 mock_start transport_reload.json
 
 FYAI_TRANSPORT_ISOLATION=level-b \

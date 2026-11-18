@@ -8,6 +8,9 @@ set -eu
 . "$(dirname "$0")/../harness.sh"
 
 fyai_test_setup
+# The owner of the session is the process that is killed: in process. A split
+# session goes on at a server when its client is killed, with its shell.
+export FYAI_NO_SPLIT=1
 
 # The shell records its process and writes HOLD in two parts, so only its
 # output holds the word and not the command in the head.

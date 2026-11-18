@@ -5,6 +5,8 @@ set -eu
 . "$(dirname "$0")/../harness.sh"
 
 fyai_test_setup
+# The case checks that a reload keeps the process: it runs in process.
+export FYAI_NO_SPLIT=1
 export OPENAI_API_KEY=test-key
 mock_start chat_basic_twice.json
 

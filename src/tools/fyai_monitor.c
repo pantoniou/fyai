@@ -18,6 +18,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 #include "fyai.h"
 #include "fyai_event.h"
@@ -49,6 +50,13 @@ struct fyai_monitor_run {
 	size_t partial_len;
 	unsigned int events;	/* above the maximum: later output is dropped */
 	bool quiet;		/* a command in the background: only its end is reported */
+	/* What a resume needs to start the command again. */
+	char *command;
+	char *workdir;
+	char *description;
+	char *shell;
+	char *login;
+	long long until;	/* wall-clock end of the time limit, in ms; 0: none */
 };
 
 /* The context that this object stands on. */
@@ -83,6 +91,11 @@ static void monitor_free(struct fyai_monitor_run *run)
 	fyai_tool_job_group_destroy(run->group);
 	fyai_scope_unpin(fyai_monitor_run_ctx(run)->scope, &run->pin);
 	free(run->partial);
+	free(run->command);
+	free(run->workdir);
+	free(run->description);
+	free(run->shell);
+	free(run->login);
 	free(run);
 }
 
@@ -262,6 +275,33 @@ static fy_generic monitor_auto_name(struct fyai_ctx *ctx,
 	return fy_invalid;
 }
 
+static long long monitor_wall_ms(void)
+{
+	struct timespec ts;
+
+	clock_gettime(CLOCK_REALTIME, &ts);
+	return (long long)ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
+}
+
+static char *monitor_dup_arg(fy_generic args, const char *key)
+{
+	fy_generic v = fy_get(args, key, fy_invalid);
+
+	return fy_is_string(v) ? strdup(fy_castp(&v, "")) : NULL;
+}
+
+/* Keep what a resume needs. A copy that fails only costs that record. */
+static void monitor_record_keep(struct fyai_monitor_run *run, fy_generic args,
+				bool quiet)
+{
+	run->command = monitor_dup_arg(args, "command");
+	run->workdir = monitor_dup_arg(args, "workdir");
+	run->description = monitor_dup_arg(args, "description");
+	run->shell = monitor_dup_arg(args, "shell");
+	run->login = monitor_dup_arg(args, "login");
+	run->until = quiet ? 0 : monitor_wall_ms() + run->limit_ms;
+}
+
 /* Start @args as a monitor, or as a command in the background when @quiet. */
 static fy_generic monitor_start(struct fyai_ctx *ctx, fy_generic args,
 				bool quiet, bool *okp)
@@ -330,6 +370,7 @@ static fy_generic monitor_start(struct fyai_ctx *ctx, fy_generic args,
 	run->name = fyai_ctx_keep_str(ctx, name);
 	fyai_error_check(ctx, run->name, err,
 			 "monitor: could not keep the name");
+	monitor_record_keep(run, args, quiet);
 	run->group = fyai_tool_job_group_create_notify(ctx, monitor_complete,
 						       run);
 	fyai_error_check(ctx, run->group, err,
@@ -435,6 +476,93 @@ fy_generic fyai_monitors_rows(struct fyai_ctx *ctx,
 		rows = fy_append(gb, rows, fy_mapping(gb, "name", run->name,
 				"events", (long long)run->events));
 	return rows;
+}
+
+fy_generic fyai_monitors_pending(struct fyai_ctx *ctx,
+				 struct fy_generic_builder *gb)
+{
+	const struct fyai_monitor_run *run;
+	fy_generic rows = fy_sequence(gb), row;
+
+	for (run = ctx->jobs->monitors; run; run = run->next) {
+		if (!run->command)
+			continue;
+		row = fy_mapping(gb, "kind", run->quiet ? "shell" : "monitor",
+				 "name", run->name,
+				 "command", fy_value(gb, run->command),
+				 "limit", run->limit_ms);
+		if (run->workdir)
+			row = fy_assoc(gb, row, "workdir", fy_value(gb, run->workdir));
+		if (run->description)
+			row = fy_assoc(gb, row, "description",
+				       fy_value(gb, run->description));
+		if (run->shell)
+			row = fy_assoc(gb, row, "shell", fy_value(gb, run->shell));
+		if (run->login)
+			row = fy_assoc(gb, row, "login", fy_value(gb, run->login));
+		if (run->until)
+			row = fy_assoc(gb, row, "until", run->until);
+		rows = fy_append(gb, rows, row);
+	}
+	return rows;
+}
+
+int fyai_monitor_restore(struct fyai_ctx *ctx, fy_generic record)
+{
+	struct fy_generic_builder *gb = ctx->transient->gb;
+	struct fyai_monitor_run *run;
+	fy_generic args, v, name;
+	const char *kind, *nm;
+	fy_generic gkind;
+	long long until, left, limit;
+	bool quiet, ok = false;
+
+	gkind = fy_get(record, "kind", fy_invalid);
+	kind = fy_castp(&gkind, "");
+	quiet = !strcmp(kind, "shell");
+	name = fy_get(record, "name", fy_invalid);
+	fyai_error_check(ctx, fy_is_string(name) && fy_is_string(fy_get(record,
+			 "command", fy_invalid)), err,
+			 "monitor: a stored record has no name or command");
+	nm = fy_castp(&name, "");
+	until = fy_get(record, "until", 0LL);
+	limit = fy_get(record, "limit", FYAI_MONITOR_DEFAULT_MS);
+	left = until - monitor_wall_ms();
+	if (!quiet && left <= 0) {
+		(void)fyai_event_injectf(ctx->waitq, "[monitor '%s' ended: its "
+			"time limit of %lld seconds passed; start it again to go "
+			"on]", nm, limit / 1000);
+		return 0;
+	}
+	args = fy_mapping(gb, "name", name, "command", fy_get(record, "command"),
+			  "timeout", left);
+	v = fy_get(record, "workdir", fy_invalid);
+	if (fy_is_string(v))
+		args = fy_assoc(gb, args, "workdir", v);
+	v = fy_get(record, "description", fy_invalid);
+	if (fy_is_string(v))
+		args = fy_assoc(gb, args, "description", v);
+	v = fy_get(record, "shell", fy_invalid);
+	if (fy_is_string(v))
+		args = fy_assoc(gb, args, "shell", v);
+	v = fy_get(record, "login", fy_invalid);
+	if (fy_is_valid(v))
+		args = fy_assoc(gb, args, "login", v);
+	v = monitor_start(ctx, args, quiet, &ok);
+	fyai_error_check(ctx, ok, err, "monitor: could not restart '%s': %s", nm,
+			 fy_is_string(v) ? fy_castp(&v, "") : "failed");
+	/* The limit that the model was told stands, not what remains of it. */
+	run = monitor_find(ctx, nm);
+	if (run && !quiet) {
+		run->limit_ms = limit;
+		run->until = until;
+	}
+	(void)fyai_event_injectf(ctx->waitq, "[%s '%s' restarted: the session was "
+		"lost and the command ran again; its earlier output can print "
+		"again]", kind, nm);
+	return 0;
+err:
+	return -1;
 }
 
 void fyai_monitor_close(struct fyai_ctx *ctx)

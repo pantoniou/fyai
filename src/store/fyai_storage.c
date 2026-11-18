@@ -39,6 +39,7 @@
 #include "fyai_catalog.h"
 #include "fyai_config.h"
 #include "fyai_storage.h"
+#include "fyai_pending.h"
 #include "fyai_turn.h"
 #include "fyai_tool_spec.h"
 
@@ -195,6 +196,7 @@ bool fyai_branch_entry_contained(struct fy_allocator *a, fy_generic entry,
 		    !root_ref_contained(a, b.config) ||
 		    !root_ref_contained(a, b.catalog) ||
 		    !root_ref_contained(a, b.todos) ||
+		    !root_ref_contained(a, b.pending) ||
 		    !root_ref_contained(a, b.skills) ||
 		    !root_ref_contained(a, b.head) ||
 		    !root_ref_contained(a, b.cwd) ||
@@ -1074,7 +1076,7 @@ static fy_generic fyai_branches_commit(struct fyai_ctx *ctx)
 	fy_generic entry, now;
 	struct fyai_branch prev, nb;
 	const char *name, *op;
-	bool same;
+	bool same, amend;
 
 	name = fyai_ctx_branch(ctx);
 	now = fy_value(ctx->arena->gb, (long long)fyai_branch_timestamp());
@@ -1082,6 +1084,12 @@ static fy_generic fyai_branches_commit(struct fyai_ctx *ctx)
 
 	/* Infer an unlabeled publish from whether the head changed. */
 	op = ctx->bstate->op;
+	amend = op && !strcmp(op, FYAI_BRANCH_OP_AMEND) &&
+		fy_is_mapping(prev.entry) && fy_is_string(prev.op);
+	if (amend)
+		op = fy_castp(&prev.op, FYAI_BRANCH_OP_TURN);
+	else if (op && !strcmp(op, FYAI_BRANCH_OP_AMEND))
+		op = FYAI_BRANCH_OP_CONFIG;
 	if (!op) {
 		/*
 		 * Structural sharing makes raw generic identity sufficient,
@@ -1118,10 +1126,27 @@ static fy_generic fyai_branches_commit(struct fyai_ctx *ctx)
 	nb.todos = fy_get(nb.store, "todos", fy_invalid);
 	if (!fy_is_sequence(nb.todos))
 		nb.todos = fy_invalid;
+	/* A staged table replaces the stored one; null removes it. */
+	if (fy_is_valid(ctx->bstate->pending))
+		nb.pending = fy_is_sequence(ctx->bstate->pending) ?
+			     ctx->bstate->pending : fy_invalid;
 	nb.op = fy_value(ctx->arena->gb, op);
 	nb.from = ctx->bstate->op_from ?
 		fy_value(ctx->arena->gb, ctx->bstate->op_from) : fy_invalid;
+	/*
+	 * A checkpoint entry (the turn in flight) is replaced by the entry
+	 * that follows it, so it never counts in "<branch>@{N}".
+	 */
 	nb.prev = ctx->bstate->prev;
+	if (fy_is_string(prev.op) &&
+	    !strcmp(fy_castp(&prev.op, ""), FYAI_BRANCH_OP_CHECKPOINT))
+		nb.prev = prev.prev;
+	/* An amend takes the place of its predecessor in the ref log. */
+	if (amend) {
+		nb.prev = prev.prev;
+		nb.from = prev.from;
+		nb.updated = prev.updated;
+	}
 	/* An entry with no capture of its own keeps the state of its predecessor. */
 	if (fy_is_mapping(ctx->bstate->project_state))
 		nb.project = ctx->bstate->project_state;
@@ -1607,6 +1632,7 @@ int fyai_publish_state(struct fyai_ctx *ctx)
 	op = ctx->bstate->op;
 	from = ctx->bstate->op_from;
 	fyai_prof_stamp(&t_publish);
+	fyai_pending_stage(ctx);
 	storage_project_state(ctx);
 
 	for (tries = 0; tries < FYAI_STATE_PUBLISH_TRIES; tries++) {
@@ -1619,6 +1645,7 @@ int fyai_publish_state(struct fyai_ctx *ctx)
 			fyai_prof_since("publish_total", &t_publish);
 			ctx->bstate->store = fy_invalid;
 			ctx->bstate->project_state = fy_invalid;
+			ctx->bstate->pending = fy_invalid;
 			return 0;
 		}
 		if (rc < 0)
@@ -1628,6 +1655,7 @@ int fyai_publish_state(struct fyai_ctx *ctx)
 		if (publish_reconcile(ctx)) {
 			ctx->bstate->store = fy_invalid;
 			ctx->bstate->project_state = fy_invalid;
+			ctx->bstate->pending = fy_invalid;
 			return -1;
 		}
 		fyai_prof_since("publish_reconcile", &t_reconcile);
@@ -1635,6 +1663,7 @@ int fyai_publish_state(struct fyai_ctx *ctx)
 	fyai_prof_count("publish_cas_lost", tries);
 	ctx->bstate->store = fy_invalid;
 	ctx->bstate->project_state = fy_invalid;
+	ctx->bstate->pending = fy_invalid;
 	/* Report the branch and the exhausted retry count. */
 	if (rc > 0)
 		fyai_error(ctx, "branch '%s' lost the state race %d times; "

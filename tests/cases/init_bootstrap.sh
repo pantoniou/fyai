@@ -11,6 +11,8 @@ set -eu
 . "$(dirname "$0")/../harness.sh"
 
 fyai_test_setup_bare
+# The bootstrap prompt belongs to the process that has the terminal.
+export FYAI_NO_SPLIT=1
 
 # Do not inherit an arena from a scratch-directory ancestor.
 BOOTSTRAP_CONFIG="$TEST_DIR/bootstrap.yaml"

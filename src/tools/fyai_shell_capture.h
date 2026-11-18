@@ -129,7 +129,7 @@ bool fyai_process_reads_stdin(pid_t pid);
 /* Processes looked at in one such walk, of a program and what it started. */
 #define FYAI_PROC_WALK_MAX 32
 
-#define FYAI_CHILD_PASS_MAX 4
+#define FYAI_CHILD_PASS_MAX 5
 
 /* Configuration applied to a forked child before exec. */
 struct fyai_child_spec {

@@ -95,6 +95,23 @@ struct fyai_turnstate {
 	 * stopped, and the two do not describe the same event.
 	 */
 	bool end_requested;
+	/*
+	 * A front end that can move the session to a server, with its turn in
+	 * flight, runs /background through this: 0 when the session moves, -1
+	 * with a diagnostic. NULL in a session that cannot.
+	 */
+	int (*background)(struct fyai_ctx *ctx, void *data);
+	void *background_data;
+	/*
+	 * What the session starts when it leaves: NULL for nothing, "" for a new
+	 * session, else the branch to resume. Set by the caller of @background.
+	 */
+	const char *background_next;
+	/* True while the front end has a turn in flight; NULL when the display
+	 * of this process says so. */
+	bool (*working)(struct fyai_ctx *ctx, void *data);
+	/* /continue asks the interactive loop to run the head as it is. */
+	bool continue_requested;
 	/* The tool gate of the turns of this context, and its open round. */
 	const struct fyai_tool_gate_ops *gate;
 	void *gate_data;

@@ -28,6 +28,7 @@
 #include "fyai_cmd.h"
 #include "fyai_agent.h"
 #include "fyai_monitor.h"
+#include "fyai_pending.h"
 #include "fyai_tool_registry.h"
 #include "fyai_catalog.h"
 #include "fyai_config.h"
@@ -68,6 +69,7 @@
 #include "fyai_tool_spec.h"
 #include "fyai_turn.h"
 #include "fyai_branch.h"
+#include "fyai_remote.h"
 #include "fyai_skill.h"
 #include "fyai_settings.h"
 #include "fyai_app.h"
@@ -1596,6 +1598,38 @@ err:
 	return -1;
 }
 
+/*
+ * With `durable`, store the turn as it stands before each model request: every
+ * call of it has its result, so a worker that is lost leaves a conversation
+ * that /continue runs. The turn goes on from its own copy; the head of the
+ * branch is the copy in the arena, which the end of the turn replaces. A
+ * failure is reported and the turn goes on.
+ */
+static void fyai_turn_run_checkpoint(struct fyai_turn_run *run)
+{
+	struct fyai_ctx *ctx = fyai_turn_run_ctx(run);
+	fy_generic head, state;
+	int rc;
+
+	if (!ctx->cfg->durable || !fy_is_valid(run->turn))
+		return;
+	head = fy_gb_internalize(ctx->arena->gb, run->turn);
+	fyai_error_check(ctx, fy_is_valid(head), err,
+			 "durable: cannot keep the turn in flight");
+	ctx->turn->last_message = head;
+	/* In a view the files of the round are stored with it, or the round is not whole. */
+	rc = fyai_view_session_checkpoint(ctx, &state);
+	fyai_error_check(ctx, rc >= 0, err, "durable: cannot keep the view in flight");
+	if (!rc)
+		ctx->bstate->project_state = state;
+	fyai_branch_op_set(ctx, FYAI_BRANCH_OP_CHECKPOINT, NULL);
+	fyai_error_check(ctx, !fyai_publish_state(ctx), err,
+			 "durable: cannot store the turn in flight");
+	return;
+err:
+	fyai_ui_diag_drain(ctx, "durable");
+}
+
 static int fyai_turn_run_submit_model(struct fyai_turn_run *run)
 {
 	struct fyai_ctx *ctx;
@@ -1610,6 +1644,7 @@ static int fyai_turn_run_submit_model(struct fyai_turn_run *run)
 	/* Every call of the turn so far has its result. */
 	if (fy_is_valid(run->turn))
 		run->settled = run->turn;
+	fyai_turn_run_checkpoint(run);
 	/* Test hook for the failure of a turn after a round of tools. */
 	test_abort = getenv("FYAI_TEST_TURN_ABORT");
 	if (test_abort && run->iteration == atoi(test_abort)) {
@@ -2590,8 +2625,10 @@ void fyai_cleanup(struct fyai_ctx *ctx)
 	fyai_tool_gate_relays_drop(ctx);
 	fyai_agent_background_close(ctx);
 	fyai_monitor_close(ctx);
-	fyai_tool_diff_cleanup(ctx);
+	/* What the model did not take goes with a run that ends. */
 	fyai_events_release(ctx->waitq);
+	fyai_pending_clear(ctx);
+	fyai_tool_diff_cleanup(ctx);
 	fyai_terminal_winch_close(ctx);
 	fyai_event_interrupt_close(ctx->loop);
 	fyai_output_cleanup(ctx);
@@ -3381,22 +3418,27 @@ fyai_interactive_start_line(struct fyai_ctx *ctx, const char *histfile,
 {
 	struct fyai_turn_run *run;
 	fy_generic turn;
+	bool resume;
 	int rc;
 
 	rc = fyai_interactive_handle_slash(ctx, histfile, line, true);
-	if (rc >= 0)
+	resume = rc == 0 && ctx->turn->continue_requested;
+	ctx->turn->continue_requested = false;
+	if (rc >= 0 && !resume)
 		return rc;
 	if (!fyai_credential_available(ctx)) {
 		fyai_error(ctx, "no API key or ChatGPT login is available");
 		fyai_ui_diag_drain(ctx, "error");
 		return 0;
 	}
-	if (fyai_interactive_prepare_user_line(ctx, histfile, line))
+	if (!resume && fyai_interactive_prepare_user_line(ctx, histfile, line))
 		return 0;
 	rc = fyai_setup_transient_builder(ctx);
 	fyai_error_check(ctx, !rc, err,
 			 "could not create transient turn storage");
-	turn = fyai_interactive_append_user_turn(ctx, line);
+	/* /continue runs the head as it is: the model answers what it holds. */
+	turn = resume ? ctx->turn->last_message :
+		fyai_interactive_append_user_turn(ctx, line);
 	fyai_error_check(ctx, fy_is_valid(turn), err_cleanup,
 			 "could not append the user turn");
 	run = fyai_turn_run_submit(ctx, turn);
@@ -3729,6 +3771,9 @@ static int fyai_prompt_interactive_async(struct fyai_ctx *ctx)
 		ctx->mcp->tools = fy_invalid;
 	}
 	state = FYAIAS_RUNNING;
+	/* Work that a lost process left on the branch goes on here. */
+	(void)fyai_pending_restore(ctx);
+	fyai_ui_diag_drain(ctx, "durable");
 
 	/* No operation below this loop can start a nested event pump. */
 	for (;;) {

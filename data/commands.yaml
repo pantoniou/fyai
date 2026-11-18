@@ -110,6 +110,9 @@ global:
       transient:
         type: boolean
         description: keep the edits and the state of this run in memory only
+      no-split:
+        type: boolean
+        description: run an interactive session in this process, not at a worker that is a child of it; `/background` needs the worker
       api-key:
         type: string
         description: API key (else the PROVIDER_API_KEY variable)
@@ -3052,11 +3055,14 @@ commands:
       not move, and the working directory does not change. SESSION names
       it; with none, the picker selects. `--last` resumes the session
       updated last. The sessions that started in this directory are
-      offered; `--all` offers every one.
+      offered; `--all` offers every one. A session that a server runs is
+      joined. The session that this command leaves goes on at a server when it
+      does work, and ends when it is idle.
     surfaces: [cli, session]
     handler: resume
     early: resume
     prepare: resume
+    while_busy: run
     flags: [model, interactive]
     arguments:
       type: object
@@ -3075,6 +3081,34 @@ commands:
           x-fyai-positional: 0
           x-fyai-meta: SESSION
           x-fyai-complete: session
+
+  - command: background
+    aliases: [detach]
+    title: leave the terminal and let a server keep the session
+    description: |
+      Give the session to a server of this project and leave the terminal, at
+      any time: a turn and its tools go on as they are. In a session that a
+      server holds already, it only closes this client. With no turn running,
+      the server parks the session until `fyai serve stop`. The server stops
+      when no turn runs, no client is attached and no session is parked.
+      `fyai resume` lists the session and joins it. A session that runs in the
+      terminal process (`FYAI_NO_SPLIT`) cannot do this.
+    surfaces: [session]
+    handler: background
+    while_busy: run
+    arguments:
+      type: object
+      additionalProperties: false
+
+  - command: continue
+    title: continue the conversation without a message
+    description: |
+      Run the model on the conversation as it stands, with no new message.
+      It continues a turn that stopped after a round of tools, such as one
+      that `/background` or the tool limit ended.
+    surfaces: [session]
+    handler: continue
+    flags: [model]
 
   - command: zoom
     scope: view
@@ -3872,21 +3906,77 @@ commands:
       `yolo` takes it all off. A session that runs in a view moves work between
       its view and the project: `push` writes its changes into the project, and
       `pull` replaces the view with the project as it is now.
-    surfaces: [session]
+    surfaces: [cli, session]
     default: status
+    fallback: {cli: list, session: status}
     see_also: [view, reload]
     commands:
+      - command: list
+        aliases: [ps]
+        title: list the live sessions of the project
+        description: |
+          List the sessions that a server of this project runs: the branch,
+          what it does (`idle`, `running` or `waiting` for an answer), whether a
+          client is attached, and the process of its worker. A session that no
+          server runs is not live; `resume` lists the stored ones.
+        surfaces: [cli, session]
+        handler: session_list
+        flags: [no-storage]
+        while_busy: run
+        render:
+          table:
+            title: Live sessions
+            empty: no live sessions
+            keys: [branch, state, attached, pid]
+        arguments:
+          type: object
+          additionalProperties: false
+      - command: kill
+        title: end a live session
+        description: |
+          End the live session BRANCH at its server: its worker gets SIGTERM, and
+          its clients see the session end. The branch keeps the turns that were
+          stored; a turn in flight is lost. With `--force` the worker gets
+          SIGKILL at once.
+        surfaces: [cli, session]
+        handler: session_kill
+        flags: [no-storage]
+        while_busy: run
+        render:
+          message:
+            - "ended {branch}"
+            - "ended {branch}, which ran a turn{?busy}"
+        arguments:
+          type: object
+          required: [branch]
+          additionalProperties: false
+          properties:
+            branch:
+              type: string
+              minLength: 1
+              description: the branch of the live session
+              x-fyai-positional: 0
+              x-fyai-meta: BRANCH
+              x-fyai-complete: session
+            force:
+              type: boolean
+              description: send SIGKILL, with no grace
       - command: new
+        surfaces: [session]
         title: start a new session with an empty conversation
         description: |
           Start a new `session/` branch with the configuration of the current
           branch and no conversation, and continue on it. The branch that the
           session leaves is not changed: `resume` returns to it. `clear` empties
-          the current branch instead. The background work of the session ends.
+          the current branch instead. A session that does work (a turn, a tool
+          session, an agent, a question) goes on at a server, and `session list`
+          shows it; an idle one ends.
         handler: session_new
+        while_busy: run
         render:
           message: "new session {branch}"
       - command: push
+        surfaces: [session]
         title: apply the changes of the session to the project
         description: |
           Write the changes of a session that runs in a view into the project, as
@@ -3917,6 +4007,7 @@ commands:
           document: yaml
 
       - command: pull
+        surfaces: [session]
         title: take the project as it is now into the session
         description: |
           Replace the view of the session with a fresh capture of the project, and
@@ -3938,6 +4029,7 @@ commands:
           message: "the session starts again on a fresh view of the project"
 
       - command: status
+        surfaces: [session]
         title: show the isolation of this session
         description: |
           Show the credential transport, the sandbox, the views of sub-agents and
@@ -3954,6 +4046,7 @@ commands:
             - "{note}"
 
       - command: profile
+        surfaces: [session]
         title: select the sandbox profile of the tools, or list the profiles
         description: |
           Select the sandbox profile that confines the tools, `sandbox_profile`,
@@ -3991,6 +4084,7 @@ commands:
             - "{note}"
 
       - command: lockdown
+        surfaces: [session]
         title: take the strongest isolation that this host can enforce
         description: |
           Set the isolation keys together: `agent/transport_isolation: auto`, so
@@ -4014,6 +4108,7 @@ commands:
             - "{note}"
 
       - command: dev
+        surfaces: [session]
         title: confine the tools to project work
         description: |
           Take off the credential transport and the view of the session, as
@@ -4034,6 +4129,7 @@ commands:
             - "{note}"
 
       - command: yolo
+        surfaces: [session]
         title: take off the isolation of the session
         description: |
           Turn off the credential transport and the sandbox:
@@ -4155,6 +4251,10 @@ commands:
               x-fyai-long: projects
               x-fyai-meta: DIR
               x-fyai-complete: dir
+            once:
+              type: boolean
+              description: stop when the sessions that ran have no turn and no client, as `/background` starts a server
+              x-fyai-long: once
             daemon:
               type: boolean
               description: run in the background; the log goes to the file that --log names

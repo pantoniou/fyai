@@ -70,6 +70,7 @@ struct fyai_branch {
 	fy_generic catalog;	/* this branch's provider and model catalogue */
 	fy_generic todos;	/* this branch's todo list, a sequence */
 	fy_generic skills;	/* this branch's skills, a mapping by name */
+	fy_generic pending;	/* background work of a live owner, a sequence */
 	fy_generic created;	/* first publication of the branch */
 	fy_generic cwd;		/* directory the branch started in */
 	fy_generic description;	/* free-text purpose of the branch */
@@ -119,6 +120,9 @@ const char *fyai_branch_cwd(const struct fyai_branch *b);
 #define FYAI_BRANCH_OP_SKILL	"skill"
 #define FYAI_BRANCH_OP_COMMAND	"command"
 #define FYAI_BRANCH_OP_SETTINGS	"settings"
+#define FYAI_BRANCH_OP_CHECKPOINT	"checkpoint"
+/* Not stored: the entry replaces its predecessor and keeps its operation. */
+#define FYAI_BRANCH_OP_AMEND	"amend"
 
 /* Set the operation and previous name for the next publish. */
 void fyai_branch_op_set(struct fyai_ctx *ctx, const char *op, const char *from);
