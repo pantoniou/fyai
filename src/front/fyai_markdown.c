@@ -1922,21 +1922,14 @@ int fyai_fenced_stream_set_indicator(struct fyai_fenced_stream *fs,
 				     enum fymd_indicator_state state,
 				     size_t frame)
 {
-	const char *glyph, *on, *off;
+	unsigned int interval_ms = 0;
 	char *margin;
-	size_t len;
-	unsigned int interval_ms;
-	int rc;
 
-	rc = fymd_renderer_get_indicator(fs->r, state, frame, &glyph, &on,
-					 &off, &interval_ms);
-	if (rc)
-		return -1;
-	len = strlen(on) + strlen(glyph) + strlen(off) + 2;
-	margin = malloc(len);
+	/* The margin is as wide as the gutter, as every other title row. */
+	margin = markdown_indicator_margin(fyai_fenced_stream_ctx(fs)->cfg,
+					   fs->r, state, frame, &interval_ms);
 	if (!margin)
 		return -1;
-	snprintf(margin, len, "%s%s%s ", on, glyph, off);
 	free(fs->first_margin);
 	fs->first_margin = margin;
 	fs->indicator_state = state;
