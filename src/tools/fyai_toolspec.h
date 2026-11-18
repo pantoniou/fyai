@@ -28,6 +28,7 @@ struct fyai_toolspec {
 	unsigned int generation;
 	bool agent_child;
 	bool agent_restricted;
+	bool spec_consumed;	/* a client drew the UI model when the spec was made */
 	/* The skills and the tool allow list that spec describes. */
 	uint64_t spec_skills;
 	uint64_t spec_allow;

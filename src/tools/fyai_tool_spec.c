@@ -15,6 +15,7 @@
 #include <string.h>
 
 #include "fyai.h"
+#include "fyai_uimodel.h"
 #include "fyai_agent.h"
 #include "fyai_cmd.h"
 #include "fyai_config.h"
@@ -104,6 +105,7 @@ static bool fyai_tool_spec_needs_update(struct fyai_ctx *ctx)
 	       ctx->toolspec->spec_skills != ctx->bstate->skills.v ||
 	       ctx->toolspec->spec_allow != ctx->toolspec->allow.v ||
 	       ctx->toolspec->agent_child != fyai_agent_delegated(ctx) ||
+	       ctx->toolspec->spec_consumed != fyai_uimodel_consumed(ctx) ||
 	       ctx->toolspec->agent_restricted !=
 		(ctx->cfg->agent_child && !ctx->astate->execution);
 }
@@ -130,10 +132,12 @@ fy_generic make_tools_filtered(struct fyai_ctx *ctx)
 		/* A skill run offers only the tools of its skill. */
 		if (!fyai_skill_tool_allowed(ctx, fy_castp(&name, "")))
 			continue;
-		/* No person answers a question of a protocol client. */
+		/* No person answers a question of a protocol client. A client
+		 * that draws the UI model has the input area of the user, and
+		 * does. */
 		if ((ctx->cfg->acp_worker ||
 		     fyai_cmd_state_is(&ctx->cfg->cmd.reg, "claude-sdk")) &&
-		    fy_equal(name, "ask_user"))
+		    !fyai_uimodel_consumed(ctx) && fy_equal(name, "ask_user"))
 			continue;
 		if (def && def->describe) {
 			tool = def->describe(ctx, gb, tool);
@@ -178,6 +182,7 @@ fy_generic make_tools_filtered(struct fyai_ctx *ctx)
 	ctx->toolspec->spec_skills = ctx->bstate->skills.v;
 	ctx->toolspec->spec_allow = ctx->toolspec->allow.v;
 	ctx->toolspec->agent_child = delegated;
+	ctx->toolspec->spec_consumed = fyai_uimodel_consumed(ctx);
 	ctx->toolspec->agent_restricted =
 		ctx->cfg->agent_child && !ctx->astate->execution;
 	return out;

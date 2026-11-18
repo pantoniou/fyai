@@ -2469,6 +2469,13 @@ static void sdk_model_start(struct sdk_server *srv, fy_generic id)
 		fyai_warning(ctx, "claude-sdk: cannot stream the UI model");
 		return;
 	}
+	/* A client that draws the model answers a question of the model: the
+	 * tools of a request were made before it came, so make them again. */
+	if (!srv->model_stream && fyai_setup_transient_builder(ctx) == 0) {
+		ctx->toolspec->spec = fy_invalid;
+		(void)fyai_request_state_apply(ctx);
+	}
+	fyai_cleanup_transient_builder(ctx);
 	srv->model_stream = true;
 	/* The server of a session sends the snapshot to the client that asked
 	 * for it alone: it ends at the second marker. */
