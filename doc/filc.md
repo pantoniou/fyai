@@ -11,6 +11,10 @@ the durable arenas at their configured base as natively (see
 source into a private prefix and then fyai with static libraries. The steps
 are listed for a build by hand.
 
+When `$FILC` or `~/filc` has a Fil-C toolchain, CMake defines the targets
+`filc` and `filc-debug`, which run the script. `filc-debug` builds with
+`RelWithDebInfo`. The executable is `out/NAME/fyai` of the build directory.
+
 Everything that fyai links must be built with Fil-C. Host libraries cannot be
 used:
 

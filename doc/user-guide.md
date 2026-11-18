@@ -42,6 +42,10 @@ cmake -S . -B build-static -DFYAI_MOSTLY_STATIC=ON
 cmake --build build-static
 ```
 
+The targets `static-native` and `static-native-debug` of any build directory
+run `scripts/build-static-native.sh`. The second keeps the debug information
+(`RelWithDebInfo`). The executable is `out/NAME/fyai` of the build directory.
+
 A self-contained musl binary can be built with:
 
 ```sh
