@@ -2064,8 +2064,10 @@ mount. It is made before the publish, and not again after a lost CAS.
   the predecessor is not recorded again, so entries that have one state share
   one manifest.
 - Only a run whose arena is in the `.fyai` directory of the project records a
-  state, so a run never captures a directory by chance. A run in a view, a
-  tool child and a transient or pinned run do not record one. A capture that
+  state, so a run never captures a directory by chance. A tool child and a
+  transient or pinned run do not record one. A run in a view does not capture:
+  with `durable`, a session in a view records the state of its view, as the
+  next section says. A capture that
   fails is a warning, and the entry keeps the earlier state.
 - A reference stands for the state of its entry. `HEAD~N` stands for the oldest
   entry that holds that turn, which is the state at the end of the turn.
@@ -2082,6 +2084,34 @@ mount. It is made before the publish, and not again after a lost CAS.
   head only, and says so.
 - The list of the ref log (`list reflog`) shows the start of the root for each
   entry. Section 11.7 collects the manifests and blobs that entries name.
+
+#### Session in a view with `durable`
+
+A session in a view cannot reach the project storage, so it does not capture.
+Before each model request of a durable turn it asks its supervisor, which stays
+outside the view, for a checkpoint of the view (`checkpoint` on the channel that
+`push` and `pull` use). The supervisor captures the view as `push` does, and the
+answer is the reference of the capture, the storage and the runtime of the view.
+The session stores that reference in the `project` member of the entry that
+publishes the checkpoint, so the files and the conversation of one round are one
+state, and `view diff` and `reset` read it as any other reference.
+
+A start on the branch after a loss finds a view that did not end cleanly.
+Without `durable` it refuses, as before. With it, the supervisor reads the entry
+at the head. When the entry names this view, the supervisor opens the view and
+captures what it holds, and the changes from that state to the recorded one are
+applied inside the view before the session starts, with the objects of the
+project storage as a descriptor that the view has for that step only. The
+session then runs on the files of its last checkpoint: what the lost round wrote
+is gone, and what the rounds before it wrote is there. When the entry names no
+view of this runtime, the view never had a checkpoint: it is dropped, and the
+session starts on the project. The view is applied to the project when the
+session ends, as always.
+
+Limits: the capture is of the view as it is, so a process that a tool left in
+the background and that still writes can make a state that no round of the
+conversation saw. A path that the capture does not keep (an ignored path) is
+not put back.
 
 ### 11.7 Collection of the project storage
 

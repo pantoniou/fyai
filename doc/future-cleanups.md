@@ -475,8 +475,13 @@ this order: implementation, tests, documentation.
 2. Parity. Run the PTY suite with the option on, by an environment variable of
    the harness, and fix each divergence in the worker or in the client. The
    oracle cases must pass. Do not add a second path in the worker for a split
-   session. `FYAI_TEST_SPLIT=1 ctest -R case_` puts `--split` in each `pty_run`
-   of a command that is not a client of a server. Of 480 cases, 78 fail in
+   session. An interactive session on a terminal is split by default now;
+   `--no-split` and `$FYAI_NO_SPLIT` run it in process, and
+   `FYAI_TEST_NO_SPLIT` does so in `pty_run`. Five cases run in process:
+   `ui_resize_tool_prose` still fails in split mode (below), and `ui_reload`,
+   `transport_reload`, `init_bootstrap` and `ui_auth_manual` test the process
+   that has the terminal. The counts that follow were taken before the
+   default: of 480 cases, 78 failed in
    split mode and 1 fails (`catalog_available`) without it. The first run had
    183: the client replayed `--set` against an arena that it has not, which
    `config: leave the --set ops to the worker of --remote` fixed. What stays,

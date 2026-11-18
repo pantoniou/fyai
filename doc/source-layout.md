@@ -126,6 +126,9 @@ This document gives the owner of each source file and of each shared component. 
 - `src/tools/fyai_tools.c`: the dispatch of tool calls, the tool implementations
   and the glue. `src/tools/fyai_tools_int.h` is the interface that the tool files
   share; keep a function there only when another tool file calls it.
+- `src/tools/fyai_pending.c`: the background work of a run in the store of the
+  branch (`durable`): the table of waits, monitors, commands and sub-agents, and its
+  takeover after a loss.
 - `src/tools/fyai_tool_job.c`: the lifecycle of a tool job and of a job group:
   spawn, submit, gate, collect and the exchange scope.
 - `src/tools/fyai_tool_child.c`: the tool child process: its fork and exec, its

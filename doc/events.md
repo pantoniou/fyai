@@ -78,6 +78,10 @@ In this order:
 
 ## Durable events
 
+With `durable`, named waits, monitors and commands in the background survive
+a lost process: see "Pending work" in `doc/fyai-background-sessions-sdd.md`.
+The rest of this section is about events that arrive when no run exists.
+
 An event that must survive the process cannot use the queue above. No daemon
 runs between invocations, so nothing can receive such an event. These
 questions need an answer before any design.
