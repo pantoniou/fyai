@@ -661,6 +661,7 @@ struct fyai_cfg {
 	 * --set, and lives in @gb.
 	 */
 	fy_generic config_session;
+	fy_generic config_cli;		/* the --set and -m layers alone */
 
 	/*
 	 * Collected diagnostics: a dependency, owned by struct fyai_app, which

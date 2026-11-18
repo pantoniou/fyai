@@ -1590,6 +1590,34 @@ static fy_generic config_parse_value(struct fy_generic_builder *gb,
 			FYAI_YAML_PARSE_FLAGS | FYOPPF_INPUT_TYPE_STRING, NULL);
 }
 
+/*
+ * A branch configuration edit takes precedence over CLI overrides.
+ * Pass NULL to clear all overrides.
+ */
+static void config_cli_forget(struct fyai_cfg *cfg, const char *key)
+{
+	fy_generic cli;
+
+	if (!fy_is_valid(cfg->config_cli))
+		return;
+	if (!key) {
+		cfg->config_cli = fy_invalid;
+		return;
+	}
+	cli = fy_delete_at_pathstr(cfg->gb, cfg->config_cli, key);
+	if (fy_is_valid(cli))
+		cfg->config_cli = cli;
+	/* A model edit replaces the derived grammar and endpoint too. */
+	if (!strcmp(key, "model")) {
+		cli = fy_delete_at_pathstr(cfg->gb, cfg->config_cli, "api");
+		if (fy_is_valid(cli))
+			cfg->config_cli = cli;
+		cli = fy_delete_at_pathstr(cfg->gb, cfg->config_cli, "api_url");
+		if (fy_is_valid(cli))
+			cfg->config_cli = cli;
+	}
+}
+
 int fyai_config_set(struct fyai_ctx *ctx, const char *key, const char *value)
 {
 	struct fy_generic_builder *gb = ctx->arena->gb;
@@ -1630,6 +1658,7 @@ int fyai_config_set(struct fyai_ctx *ctx, const char *key, const char *value)
 		ctx->cfg->config_doc = config_doc_mirror_key(gb,
 				ctx->cfg->config_doc, root, "api_url");
 	}
+	config_cli_forget(ctx->cfg, key);
 	return fyai_publish_root(ctx, root, fy_invalid, fy_invalid);
 }
 
@@ -2269,6 +2298,7 @@ int fyai_config_delete(struct fyai_ctx *ctx, const char *key)
 						     root, key);
 	ctx->cfg->config_doc = config_doc_mirror_key(gb, ctx->cfg->config_doc,
 						     root, "model_info");
+	config_cli_forget(ctx->cfg, key);
 	return fyai_publish_root(ctx, root, fy_invalid, fy_invalid);
 }
 
@@ -2286,6 +2316,7 @@ int fyai_config_import(struct fyai_ctx *ctx, const char *path)
 	report = fyai_config_validate_report(ctx->cfg, doc, path);
 	if (config_report_commit(ctx->cfg, report, &doc))
 		return -1;
+	config_cli_forget(ctx->cfg, NULL);
 	if (fyai_publish_root(ctx, doc, fy_invalid, fy_invalid))
 		return -1;
 	fyai_result(ctx, "config: imported %s\n", path);
@@ -2304,6 +2335,7 @@ int fyai_config_reset(struct fyai_ctx *ctx)
 	report = fyai_config_validate_report(ctx->cfg, doc, "config");
 	if (config_report_commit(ctx->cfg, report, &doc))
 		return -1;
+	config_cli_forget(ctx->cfg, NULL);
 	if (fyai_publish_root(ctx, doc, fy_invalid, fy_invalid))
 		return -1;
 	/* The settings of this session go too: the defaults are the whole
@@ -2360,6 +2392,7 @@ int fyai_config_undo(struct fyai_ctx *ctx, long long n, long long *foundp)
 	report = fyai_config_validate_report(ctx->cfg, config, "config");
 	if (config_report_commit(ctx->cfg, report, &config))
 		return -1;
+	config_cli_forget(ctx->cfg, NULL);
 	return fyai_publish_root(ctx, config, fy_invalid, fy_invalid);
 }
 
@@ -2464,6 +2497,7 @@ static void fyai_config_edit_service(void *userdata)
 		rc = -1;
 		goto out;
 	}
+	config_cli_forget(ctx->cfg, NULL);
 	rc = fyai_publish_root(ctx, doc, fy_invalid, fy_invalid);
 	if (rc) {
 		fyai_error(ctx, "edits kept at %s", request->path);
@@ -2790,6 +2824,21 @@ static int config_rederive_doc(struct fyai_ctx *ctx, fy_generic doc,
 	return fyai_config_grammar_gate(cfg);
 }
 
+/*
+ * Overlay CLI overrides on the branch configuration. If the branch has no
+ * stored configuration, use the invocation document.
+ */
+static fy_generic config_base(struct fyai_ctx *ctx)
+{
+	struct fyai_cfg *cfg = ctx->cfg;
+
+	if (!fy_is_valid(ctx->bstate->config))
+		return cfg->config_doc;
+	return fy_is_valid(cfg->config_cli) ?
+	       config_merge(cfg->gb, ctx->bstate->config, cfg->config_cli) :
+	       ctx->bstate->config;
+}
+
 int fyai_config_rederive(struct fyai_ctx *ctx)
 {
 	struct fyai_cfg *cfg = ctx->cfg;
@@ -2799,9 +2848,7 @@ int fyai_config_rederive(struct fyai_ctx *ctx)
 		return -1;
 	/* Arena changes replace the document after an in-session mutation;
 	 * the session layer stays on top. */
-	doc = fy_is_valid(ctx->bstate->config) ?
-		ctx->bstate->config : cfg->config_doc;
-	doc = config_merge(cfg->gb, doc, cfg->config_session);
+	doc = config_merge(cfg->gb, config_base(ctx), cfg->config_session);
 	return config_rederive_doc(ctx, doc, true);
 }
 
@@ -3054,8 +3101,8 @@ static int config_session_layer_check(struct fyai_ctx *ctx, fy_generic layer,
 	struct fyai_cfg *cfg = ctx->cfg;
 	fy_generic base, doc, report;
 
-	base = fy_is_valid(ctx->bstate->config) ? ctx->bstate->config :
-	       cfg->config_doc;
+	/* The command-line layers stand over the branch configuration. */
+	base = config_base(ctx);
 	doc = config_merge(cfg->gb, base, layer);
 	report = fyai_config_validate_report(cfg, doc, origin);
 	if (!fyai_schema_valid(report)) {
@@ -3802,21 +3849,13 @@ static bool config_has_command_ops(struct fyai_cfg *cfg)
 	return false;
 }
 
-/*
- * Fold every pending --set into @cfg as the highest-precedence layer, so this
- * invocation sees the edited values. Builds one transient document by replaying
- * every queued set/delete in order, then overlays it via fyai_config_apply.
- */
-static int apply_config_set_ops(struct fyai_cfg *cfg)
+/* Replay every queued set and delete over @*docp. */
+static int config_ops_replay(struct fyai_cfg *cfg, fy_generic *docp)
 {
 	struct fyai_config_op *co;
-	fy_generic doc, v;
+	fy_generic doc = *docp, v;
 	size_t i;
 
-	if (!cfg->config_op_count)
-		return 0;
-	doc = fy_is_valid(cfg->config_doc) ?
-	      cfg->config_doc : fy_map_empty;
 	for (i = 0; i < cfg->config_op_count; i++) {
 		co = &cfg->config_ops[i];
 		switch (co->op) {
@@ -3846,6 +3885,28 @@ static int apply_config_set_ops(struct fyai_cfg *cfg)
 			break;
 		}
 	}
+	*docp = doc;
+	return 0;
+}
+
+/*
+ * Fold every pending --set into @cfg as the highest-precedence layer, so this
+ * invocation sees the edited values. Builds one transient document by replaying
+ * every queued set/delete in order, then overlays it via fyai_config_apply.
+ * The sets alone are kept as cfg->config_cli: a derive of the configuration
+ * puts them over the configuration that a branch holds.
+ */
+static int apply_config_set_ops(struct fyai_cfg *cfg)
+{
+	fy_generic doc, cli = fy_map_empty;
+
+	if (!cfg->config_op_count)
+		return 0;
+	doc = fy_is_valid(cfg->config_doc) ?
+	      cfg->config_doc : fy_map_empty;
+	if (config_ops_replay(cfg, &doc) || config_ops_replay(cfg, &cli))
+		return -1;
+	cfg->config_cli = cli;
 	/* CLI --set/-m overrides never touch the arena, but `config effective`
 	 * (and anything else reading cfg->config_doc this run) should still
 	 * see the model_info: block for whatever model they landed on. */
@@ -4136,6 +4197,7 @@ static int config_setup_init(struct config_setup *s)
 
 	fyai_config_set_defaults(cfg);
 	cfg->config_session = fy_invalid;
+	cfg->config_cli = fy_invalid;
 	cfg->remote_args = fy_invalid;
 	cfg->remote_resume = fy_invalid;
 	if (getenv(FYAI_RELOAD_FD_ENV)) {
