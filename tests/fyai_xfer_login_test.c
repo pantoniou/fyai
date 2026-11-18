@@ -11,6 +11,7 @@
 #include "fyai_buf.h"
 #include "fyai_cred.h"
 #include "fyai_secret.h"
+#include "fyai_transient.h"
 #include "fyai_xfer.h"
 
 FYAI_TEST_ENTRY(xfer_login, sends_the_token, xfer_login_sends_the_token)
@@ -20,6 +21,7 @@ FYAI_TEST_ENTRY(xfer_login, unrenewable_401_keeps_its_body, xfer_login_unrenewab
 FYAI_TEST_ENTRY(xfer_login, failed_refresh_ends_request, xfer_login_failed_refresh)
 FYAI_TEST_ENTRY(xfer_login, due_token_waits, xfer_login_due_waits)
 FYAI_TEST_ENTRY(xfer_login, due_token_is_renewed, xfer_login_due_renews)
+FYAI_TEST_ENTRY(xfer_login, refresh_keeps_turn_storage, xfer_login_refresh_keeps_turn)
 FYAI_TEST_ENTRY(xfer_login, renews_after_401, xfer_login_renews_after_401)
 FYAI_TEST_ENTRY(xfer_login, cancel_while_parked, xfer_login_cancel_parked)
 FYAI_TEST_ENTRY(xfer_login, cancel_while_sent, xfer_login_cancel_sent)
@@ -274,8 +276,9 @@ int xfer_login_due_waits(void)
 int xfer_login_due_renews(void)
 {
 	struct mock_answer script[3] = {
-		{ 200, NULL, false }, { 200, NULL, false }, { 200, "answer", false } };
+		{ 200, NULL, false }, { 200, NULL, false }, { 200, "answer", true } };
 	struct fyai_event_loop *el;
+	struct fyai_transient *transient;
 	struct issuer is;
 	struct mock m;
 	struct result r = { 0 };
@@ -283,6 +286,7 @@ int xfer_login_due_renews(void)
 	char dir[] = "/tmp/fyai-xfer-XXXXXX", *token;
 
 	store_setup(dir);
+	transient = mock_app.ctx.transient;
 	el = fyai_ctx_loop(&mock_app.ctx);
 	issuer_open(&is);
 	token = issuer_token_body(&is, "renewed-access", "renewed-refresh");
@@ -293,6 +297,10 @@ int xfer_login_due_renews(void)
 	x = fyai_xfer_submit(&mock_app.ctx, body_write, &r, xfer_done, &r);
 	FYAI_TCHECK(x);
 	FYAI_TCHECK(!r.done);
+	/* The provider holds the reply after the refresh wakes its request. */
+	STEP_UNTIL(el, m.nheld == 1);
+	FYAI_TCHECK(!transient->autorelease);
+	mock_release(&m);
 	STEP_UNTIL(el, r.done);
 	FYAI_TCHECK(r.count == 1 && r.code == CURLE_OK && r.status == 200);
 	FYAI_TCHECK(body_is(&r, "answer"));
@@ -304,6 +312,34 @@ int xfer_login_due_renews(void)
 	mock_stop(&m);
 	store_remove(dir);
 	printf("ok - a due token is renewed before the request goes\n");
+	return 0;
+}
+
+/* A failed refresh must not release storage owned by the parked turn. */
+int xfer_login_refresh_keeps_turn(void)
+{
+	struct fyai_auth_refresh_request *request;
+	struct fyai_transient *transient;
+	struct fy_generic_builder *turn_gb;
+	struct fyai_event_loop *el;
+	fy_generic turn;
+	char dir[] = "/tmp/fyai-xfer-XXXXXX";
+
+	store_setup(dir);
+	/* Exercise the curl completion path without a network connection. */
+	cfg.auth_refresh_base = "unsupported://issuer";
+	transient = mock_app.ctx.transient;
+	turn_gb = transient->gb;
+	turn = fy_mapping(turn_gb, "messages", fy_seq_empty);
+	el = fyai_ctx_loop(&mock_app.ctx);
+	request = fyai_auth_refresh_submit(mock_app.ctx.cred, false, NULL, NULL);
+	FYAI_TCHECK(request && !fyai_auth_refresh_done(request));
+	STEP_UNTIL(el, fyai_auth_refresh_done(request));
+	FYAI_TCHECK(fyai_auth_refresh_collect(request) < 0);
+	fyai_auth_refresh_destroy(request);
+	FYAI_TCHECK(transient->gb == turn_gb && !transient->autorelease);
+	FYAI_TCHECK(fy_is_sequence(fy_get(turn, "messages", fy_invalid)));
+	store_remove(dir);
 	return 0;
 }
 
