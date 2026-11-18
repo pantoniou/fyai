@@ -362,6 +362,13 @@ session, until the default step removes it, calls the same function directly.
      first line of the reply as `reply`. `ui_reload` and `transport_reload`
      pass; they skip the check of the process identity in split mode, where
      the client stays and the worker starts again.
+   - A line typed during a turn stays in the queue of the client, which
+     shows it as pending. The client sends it with `queued: true`. The worker
+     joins it to the turn at a tool boundary (`turn->line_peek`/`line_take`) or
+     runs it after the turn, and publishes the count of the lines it took
+     (`queued` of the session store); the client drops that many from its
+     queue. `ui_pending_panel` and `ui_pending_user_tool_loop` pass.
+     `slash_midturn` fails in split mode, with or without this.
    - Open: the last scenario of `session_profile_view`. A worker that is not in
      a view runs `/session profile` for a profile that asks for one. The
      command says that the session restarts and nothing follows: the restart
