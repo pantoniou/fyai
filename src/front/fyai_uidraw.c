@@ -30,6 +30,10 @@ struct uidraw_band {
 	size_t shown;
 	char *title, *command, *language;
 	char *viewed;			/* the tool view last rendered */
+	char *rows;			/* the rows last painted, no stream */
+	size_t frame;			/* the activity mark of those rows */
+	unsigned int interval_ms;	/* 0 until the mark is known */
+	int64_t next_ms;		/* when the mark advances */
 };
 
 struct fyai_uidraw {
@@ -358,6 +362,7 @@ static void uidraw_band_free(struct uidraw_band *b)
 	free(b->command);
 	free(b->language);
 	free(b->viewed);
+	free(b->rows);
 	free(b);
 }
 
@@ -521,7 +526,7 @@ static int uidraw_bands_draw(struct fyai_ctx *ctx, struct fyai_uidraw *d,
 {
 	struct uidraw_band **bp, *b;
 	fy_generic bands, item;
-	const char *title, *command, *format;
+	const char *title, *command, *format, *text;
 	bool found;
 	int rc;
 
@@ -593,9 +598,16 @@ static int uidraw_bands_draw(struct fyai_ctx *ctx, struct fyai_uidraw *d,
 			continue;
 		}
 		/* No title is NULL, as a producer gives it. */
-		fyai_sink_band_paint(b->band, b->title, b->command,
-			fy_get(item, "text", ""),
-			strlen(fy_get(item, "text", "")), NULL);
+		text = fy_get(item, "text", "");
+		fyai_sink_band_paint(b->band, b->title, b->command, text,
+				     strlen(text), NULL);
+		/* The mark of a band with no stream moves with the clock. */
+		if (!b->rows || strcmp(b->rows, text)) {
+			free(b->rows);
+			b->rows = strdup(text);
+			fyai_error_check(ctx, b->rows, err,
+					 "cannot keep a band");
+		}
 	}
 	return 0;
 err:
@@ -628,6 +640,44 @@ int fyai_uidraw_band_cols(struct fyai_ctx *ctx,
 		if (b->id == id)
 			return fyai_sink_band_cols(b->band);
 	return 0;
+}
+
+void fyai_uidraw_animate(struct fyai_ctx *ctx, int64_t now)
+{
+	struct fyai_uidraw *d = ctx ? ctx->uistores->uidraw : NULL;
+	struct uidraw_band *b;
+	char *margin;
+	bool saved;
+
+	if (!d || !d->bands)
+		return;
+	saved = uidraw_sink_begin(ctx);
+	for (b = d->bands; b; b = b->next) {
+		if (b->stream.active) {
+			(void)fyai_fenced_stream_animate(&b->stream, now);
+			continue;
+		}
+		if (b->shared || !b->rows)
+			continue;
+		if (!b->next_ms) {
+			margin = fyai_ui_indicator(ctx, FYAI_UI_MARK_RUNNING, 0,
+						   &b->interval_ms);
+			free(margin);
+			b->next_ms = now + b->interval_ms;
+			continue;
+		}
+		if (!b->interval_ms || now < b->next_ms)
+			continue;
+		margin = fyai_ui_indicator(ctx, FYAI_UI_MARK_RUNNING,
+					   ++b->frame, NULL);
+		if (!margin)
+			continue;
+		fyai_sink_band_paint(b->band, b->title, b->command, b->rows,
+				     strlen(b->rows), margin);
+		free(margin);
+		b->next_ms = now + b->interval_ms;
+	}
+	uidraw_sink_end(ctx, saved);
 }
 
 void fyai_uidraw_bands_release(struct fyai_ctx *ctx)

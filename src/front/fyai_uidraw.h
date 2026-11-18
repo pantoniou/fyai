@@ -4,6 +4,7 @@
 
 #include <stdbool.h>
 #include <stddef.h>
+#include <stdint.h>
 
 #include "fyai_uimodel.h"
 
@@ -45,6 +46,11 @@ bool fyai_uidraw_bands(struct fyai_ctx *ctx);
 struct fyai_sink_band;
 int fyai_uidraw_band_cols(struct fyai_ctx *ctx,
 			  const struct fyai_sink_band *shadow);
+/*
+ * Advance the activity mark of each band that streams. The streams of the
+ * renderer belong to it, so the producer cannot advance them.
+ */
+void fyai_uidraw_animate(struct fyai_ctx *ctx, int64_t now);
 /* Drop the bands of the display: the sink that holds them goes. */
 void fyai_uidraw_bands_release(struct fyai_ctx *ctx);
 

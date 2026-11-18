@@ -46,6 +46,7 @@
 #include "fyai_browser.h"
 #include "fyai_agents.h"
 #include "fyai_chrome.h"
+#include "fyai_uidraw.h"
 #include "fyai_tools.h"
 #include <sys/ioctl.h>
 #include "fyai_terminal_view.h"
@@ -513,6 +514,7 @@ static int ui_activity_refresh(struct fyai_ui *ui)
 		return 0;
 	if (clock_gettime(CLOCK_MONOTONIC, &ts))
 		return -1;
+	fyai_uidraw_animate(fyai_ui_ctx(ui), fyai_event_now_ms());
 	activity = fyai_ui_indicator(fyai_ui_ctx(ui), FYAI_UI_MARK_RUNNING, 0,
 				     &interval_ms);
 	if (!activity)
