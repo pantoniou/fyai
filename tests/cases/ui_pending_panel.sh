@@ -28,6 +28,11 @@ steps:
   - wait-screen: "pending (1)"
     timeout: 5
   - touch: "${TEST_DIR}/release-1"
+  # The second screen recaps the answer that the first one stored, so the
+  # answer on the screen does not say that the turn went on: the mock does.
+  - wait-file: "${TEST_DIR}/served"
+    equals: "2"
+    timeout: session
   - wait: I saw the follow-up during the tool loop.
     timeout: session
 PTY
@@ -75,6 +80,9 @@ steps:
     timeout: 5
   - snapshot: "${TEST_DIR}/long.snap"
   - touch: "${TEST_DIR}/release-1"
+  - wait-file: "${TEST_DIR}/served"
+    equals: "2"
+    timeout: session
   - wait: I saw the follow-up during the tool loop.
     timeout: session
 PTY
