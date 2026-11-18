@@ -351,9 +351,15 @@ session, until the default step removes it, calls the same function directly.
      stays in the client, zoomed, until Escape closes it.
      `ui_agent_background`, `ui_agent_message_live`, `ui_btw_*` and
      `ui_cancel_background` pass.
-   - Open in the sub-agent family: `ui_agent_attach`, `ui_agent_attach_input`
-     and `ui_agent_recursive_cancel` (the agents end before the `K` of the
-     case in split mode). `ui_event_mid_turn` and `wait_plain_escape` pass:
+   - Attach to a sub-agent: `/branch attach` runs in the worker, which keeps
+     the view of the agent as a document in the member `agent_view` of the
+     work store and draws no tile. The client draws the document in a tile,
+     scrolls it, and sends `/branch detach` on Escape. A line typed while the
+     view is attached goes to the agent: the worker takes it in `sdk_user()`
+     before it can start a turn. `ui_agent_attach` and `ui_agent_attach_input`
+     pass. `ui_agent_recursive_cancel` passes: `/kill` runs while a turn
+     waits, and the case holds the grandchild with `wait_for` and waits for
+     its row, as the tree comes by a query. `ui_event_mid_turn` and `wait_plain_escape` pass:
      a worker takes the events of its turn at a tool boundary, and an
      interrupt wakes its waits.
    - A worker that started again (`/reload`) sends a new epoch. The client
