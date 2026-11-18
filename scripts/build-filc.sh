@@ -4,12 +4,14 @@
 # Build fyai with Fil-C: zlib and OpenSSL from source into a private prefix,
 # then fyai with static libraries. See doc/filc.md.
 #
-# Usage: scripts/build-filc.sh [-b BUILD_DIR] [-p PREFIX] [-j JOBS] [-o OUTPUT]
+# Usage: scripts/build-filc.sh [-b BUILD_DIR] [-p PREFIX] [-j JOBS] [-t TYPE]
+#                              [-o OUTPUT]
 #
 # FILC is the Fil-C distribution (default $HOME/filc). The tarballs of zlib and
 # OpenSSL are read from DOWNLOADS (default PREFIX/src) and fetched when absent.
 # LIBFYAML_SRC and LIBFYTS_SRC name local source trees to use instead of the
-# pinned ones. OUTPUT is the directory that receives the fyai executable.
+# pinned ones. TYPE is the CMake build type (default Release; RelWithDebInfo
+# keeps the debug information). OUTPUT is the directory that receives the fyai executable.
 set -eu
 
 here=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
@@ -18,6 +20,7 @@ build=$PWD/build-filc
 prefix=
 jobs=${BUILD_JOBS:-4}
 out=
+type=${BUILD_TYPE:-Release}
 
 zlib_ver=1.3.2
 zlib_sha=bb329a0a2cd0274d05519d61c667c062e06990d72e125ee2dfa8de64f0119d16
@@ -29,8 +32,9 @@ while [ $# -gt 0 ]; do
 	-b) build=$2; shift 2 ;;
 	-p) prefix=$2; shift 2 ;;
 	-j) jobs=$2; shift 2 ;;
+	-t) type=$2; shift 2 ;;
 	-o) out=$2; shift 2 ;;
-	*) echo "usage: $0 [-b BUILD_DIR] [-p PREFIX] [-j JOBS] [-o OUTPUT]" >&2; exit 2 ;;
+	*) echo "usage: $0 [-b BUILD_DIR] [-p PREFIX] [-j JOBS] [-t TYPE] [-o OUTPUT]" >&2; exit 2 ;;
 	esac
 done
 [ -n "$prefix" ] || prefix=$build/prefix
@@ -78,7 +82,7 @@ fetch_args=
 # shellcheck disable=SC2086
 PKG_CONFIG_LIBDIR=$prefix/lib/pkgconfig \
 cmake -S "$here" -B "$build" -G Ninja \
-	-DCMAKE_C_COMPILER="$cc" -DCMAKE_BUILD_TYPE=Release \
+	-DCMAKE_C_COMPILER="$cc" -DCMAKE_BUILD_TYPE="$type" \
 	-DBUILD_SHARED_LIBS=OFF -DBUILD_TESTING=OFF \
 	"-DCMAKE_IGNORE_PREFIX_PATH=/usr/local;/usr" \
 	-DCMAKE_PREFIX_PATH="$prefix" -DOPENSSL_ROOT_DIR="$prefix" \

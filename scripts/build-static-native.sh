@@ -8,11 +8,13 @@
 #
 # Usage:
 #   scripts/build-static-native.sh [-b BUILD_DIR] [--libfyaml-ref REF]
-#                                  [-j JOBS] [-o OUTPUT]
+#                                  [-j JOBS] [-t TYPE] [-o OUTPUT]
 #   scripts/build-static-native.sh [OUTPUT]
 #
 # OUTPUT defaults to ./fyai in the repo root and BUILD_DIR to
-# ./build-static-native in the current directory. Env defaults: LIBFYAML_REF, BUILD_JOBS.
+# ./build-static-native in the current directory. TYPE is the CMake build type
+# (default Release; RelWithDebInfo keeps the debug information).
+# Env defaults: LIBFYAML_REF, BUILD_JOBS, BUILD_TYPE.
 #
 # The libfy* packages that are installed on the machine are hidden from CMake,
 # so the result does not depend on them. Nothing is installed outside
@@ -25,11 +27,12 @@ build=
 libfyaml_ref=${LIBFYAML_REF:-d312d213f50fb3fff46bd745488e605138b9d4d1}
 libfyaml_repo=${LIBFYAML_REPO:-https://github.com/pantoniou/libfyaml}
 jobs=${BUILD_JOBS:-2}
+type=${BUILD_TYPE:-Release}
 out=
 
 usage()
 {
-	echo "usage: $0 [-b BUILD_DIR] [--libfyaml-ref REF] [-j JOBS] [-o OUTPUT]" >&2
+	echo "usage: $0 [-b BUILD_DIR] [--libfyaml-ref REF] [-j JOBS] [-t TYPE] [-o OUTPUT]" >&2
 	echo "       $0 [OUTPUT]" >&2
 }
 
@@ -48,6 +51,11 @@ while [ $# -gt 0 ]; do
 	-j|--jobs)
 		[ $# -gt 1 ] || { usage; exit 2; }
 		jobs=$2
+		shift 2
+		;;
+	-t|--build-type)
+		[ $# -gt 1 ] || { usage; exit 2; }
+		type=$2
 		shift 2
 		;;
 	-o|--output)
@@ -83,7 +91,7 @@ if [ ! -f "$prefix/lib/libfyaml.a" ]; then
 	git clone "$libfyaml_repo" "$build/libfyaml"
 	git -C "$build/libfyaml" checkout "$libfyaml_ref"
 	cmake -S "$build/libfyaml" -B "$build/libfyaml/build" \
-		-DCMAKE_BUILD_TYPE=Release \
+		-DCMAKE_BUILD_TYPE="$type" \
 		-DBUILD_SHARED_LIBS=OFF \
 		-DBUILD_TESTING=OFF \
 		-DCMAKE_INSTALL_PREFIX="$prefix"
@@ -104,7 +112,7 @@ PKG_CONFIG_PATH="$prefix/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
 export PKG_CONFIG_PATH
 
 cmake -S "$here" -B "$build/fyai" \
-	-DCMAKE_BUILD_TYPE=Release \
+	-DCMAKE_BUILD_TYPE="$type" \
 	-DFYAI_MOSTLY_STATIC=ON \
 	-DBUILD_TESTING=OFF \
 	-DCMAKE_PREFIX_PATH="$prefix" \

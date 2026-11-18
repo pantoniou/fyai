@@ -1131,6 +1131,9 @@ install(FILES
 # tags and cscope support
 include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/tags.cmake)
 
+# Static and Fil-C builds through the scripts, with and without debug info
+include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/scripts.cmake)
+
 # The web page and the desktop app: targets only, unless FYAI_WEB is ON
 include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/web.cmake)
 
