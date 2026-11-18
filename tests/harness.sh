@@ -131,6 +131,9 @@ fyai_test_cleanup() {
 	[ -z "${TEST_SCRATCH:-}" ] || rm -rf "$TEST_SCRATCH"
 	if [ -n "$TEST_DIR" ]; then
 		fyai_sanitizer_report
+		# The work directory of an overlay of a view has no permissions.
+		find "$TEST_DIR" -type d -path '*/.fyai/views' \
+			-exec chmod -R u+rwx {} + 2>/dev/null || true
 		rm -rf "$TEST_DIR"
 		TEST_DIR=""
 	fi

@@ -1,0 +1,31 @@
+{
+  "steps": [
+    {
+      "response": {
+        "id": "chatcmpl-once-1",
+        "object": "chat.completion",
+        "created": 1735689600,
+        "model": "br-chat",
+        "choices": [
+          {
+            "index": 0,
+            "message": {
+              "role": "assistant",
+              "content": "Finished in the background."
+            },
+            "finish_reason": "stop"
+          }
+        ],
+        "usage": {
+          "prompt_tokens": 10,
+          "completion_tokens": 4,
+          "total_tokens": 14
+        }
+      },
+      "match": {
+        "body_contains": "Work without a client."
+      },
+      "wait_for": "release-once"
+    }
+  ]
+}
