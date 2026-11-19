@@ -13,11 +13,16 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
+#include <libfyaml.h>
+#include <libfyaml/libfyaml-generic.h>
+
 #include "fyai_fleet.h"
+#include "fyai_fleet_watch.h"
 
 #include "fyai_test_registry.h"
 
 FYAI_TEST_ENTRY(fleet, walk, fleet_walk)
+FYAI_TEST_ENTRY(fleet, panel_blinks, fleet_panel_blinks)
 
 static int failures;
 
@@ -161,5 +166,41 @@ int fleet_walk(void)
 		       base, NULL));
 
 	fleet_remove(base);
+	return failures ? 1 : 0;
+}
+
+/* The mark of a running member alternates with the phase; the others stay. */
+int fleet_panel_blinks(void)
+{
+	struct fy_generic_builder_cfg gbc = { .flags = FYGBCF_SCOPE_LEADER };
+	struct fy_generic_builder *gb = fy_generic_builder_create(&gbc);
+	fy_generic rows, idle;
+	char *a, *b, *c;
+	bool blinks = false;
+
+	failures = 0;
+	CHECK(gb);
+	rows = fy_sequence(gb, fy_mapping(gb, "name", "a:x", "state", "running"));
+	idle = fy_mapping(gb, "name", "b:y", "state", "idle");
+	rows = fy_append(gb, rows, idle);
+
+	a = fyai_fleet_panel_source(rows, 0, &blinks);
+	CHECK(a && blinks);
+	b = fyai_fleet_panel_source(rows, 1, NULL);
+	c = fyai_fleet_panel_source(rows, 2, NULL);
+	CHECK(b && c && strcmp(a, b) && !strcmp(a, c));
+	CHECK(a && strstr(a, "\u25cf a") && strstr(a, "\u00b7 b"));
+	CHECK(b && strstr(b, "\u25cb a") && strstr(b, "\u00b7 b"));
+	free(a);
+	free(b);
+	free(c);
+
+	/* No member runs: the text does not change, nothing blinks. */
+	rows = fy_sequence(gb, idle);
+	a = fyai_fleet_panel_source(rows, 0, &blinks);
+	CHECK(a && !blinks);
+	free(a);
+	CHECK(!fyai_fleet_panel_source(fy_seq_empty, 0, &blinks) && !blinks);
+	fy_generic_builder_destroy(gb);
 	return failures ? 1 : 0;
 }
