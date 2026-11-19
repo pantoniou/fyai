@@ -5,7 +5,7 @@ set -eu
 . "$(dirname "$0")/../harness.sh"
 
 fyai_test_setup
-mock_start shell_band_head.json
+mock_start shell_band_resize.json
 
 pty_run "$TEST_DIR/pty.out" \
     "$FYAI_BIN" -k test-key --theme dark \
@@ -20,6 +20,8 @@ steps:
   - wait: "⎿"
     timeout: 8
   - resize: "30x60"
+  # The command waits for this file, so that its end comes after the resize.
+  - touch: "${TEST_DIR}/resized"
   - wait: FYAI_TEST_END_SHELL_BAND_HEAD_6f2c91a8
     timeout: session
 PTY
