@@ -530,8 +530,21 @@ struct fyai_cfg {
 	/* Owned name of a live session that the client of its server replaces
 	 * this process for, after the session closes. */
 	char *attach_branch;
-	/* After the session closes: a new session ("") or the branch to resume,
-	 * which this process runs in its place, or NULL. */
+	/*
+	 * With attach_branch, for a session of the fleet (`fleet attach`): the
+	 * directory of its project, owned, or NULL for this one; whether the
+	 * client only watches it; and the session that `/root` returns to,
+	 * owned, or NULL.
+	 */
+	char *attach_dir;
+	bool attach_watch;
+	char *attach_return;
+	/*
+	 * After the session closes: a new session (""), the branch to resume,
+	 * `jump:NAME RETURN` to go into the session NAME of the fleet, or
+	 * `root:` to go back to the session that $FYAI_FLEET_RETURN names; this
+	 * process runs it in its place, or NULL.
+	 */
 	char *next_session;
 	bool reload_worker;	/* the restart runs the worker of a split client */
 	char *reload_config;

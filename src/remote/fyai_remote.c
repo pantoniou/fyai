@@ -1061,6 +1061,9 @@ err:
 	return -1;
 }
 
+static char *remote_session_endpoint(struct fyai_ctx *ctx);
+static int remote_session_project(struct remote_client *client);
+
 int fyai_cmd_remote_connect(struct fyai_cmd_call *call, fy_generic *result)
 {
 	struct fyai_ctx *ctx = fyai_cmd_call_ctx(call);
@@ -1080,14 +1083,23 @@ int fyai_cmd_remote_connect(struct fyai_cmd_call *call, fy_generic *result)
 	fyai_error_check(ctx, !watch || ((branch || last) &&
 			 !fyai_cmd_arg_str(call, "protocol")), out,
 			 "--watch needs -b or --last and the full-screen client");
-	path = fyai_remote_socket_path(ctx, fyai_cmd_arg_str(call, "socket"), false,
-				  false);
+	/*
+	 * The server of this project, or of the nearest project above that
+	 * runs, which gives the client to the server of this one; with none,
+	 * the socket of this project, which the failure names.
+	 */
+	path = fyai_cmd_arg_str(call, "socket") ? NULL : remote_session_endpoint(ctx);
+	if (!path)
+		path = fyai_remote_socket_path(ctx, fyai_cmd_arg_str(call, "socket"),
+					       false, false);
 	if (!path)
 		goto out;
 	rc = remote_client_open(&client, path, fy_get(call->args, "token_fd", -1));
 	/* SDK frames make an SDK session; the full-screen client is fyai. */
 	if (!rc && !fyai_cmd_arg_str(call, "protocol"))
 		rc = remote_hello(&client);
+	if (!rc && !fyai_cmd_arg_str(call, "protocol") && !fyai_cmd_arg_str(call, "socket"))
+		rc = remote_session_project(&client);
 	if (rc)
 		goto out;
 	if (branch || last) {
@@ -2050,17 +2062,43 @@ out:
  */
 int fyai_remote_next_exec(const char *argv0, const char *branch)
 {
-	char *self = realpath(argv0, NULL);
-	char *args[4];
+	char *self = realpath(argv0, NULL), *copy = NULL, *space;
+	const char *ret;
+	char *args[7];
 	int n = 0;
 
 	args[n++] = self ? self : (char *)argv0;
-	if (branch && *branch) {
+	if (branch && !strncmp(branch, "jump:", 5)) {
+		/* `jump:NAME RETURN`: the session of the fleet, and the way back. */
+		copy = strdup(branch + 5);
+		if (!copy)
+			goto out;
+		args[n++] = "fleet";
+		args[n++] = "attach";
+		args[n++] = copy;
+		space = strchr(copy, ' ');
+		if (space) {
+			*space = '\0';
+			args[n++] = "--return";
+			args[n++] = space + 1;
+		}
+	} else if (branch && !strcmp(branch, "root:")) {
+		ret = getenv(FYAI_FLEET_RETURN_ENV);
+		if (!ret || !*ret) {
+			errno = ENOENT;
+			goto out;
+		}
+		args[n++] = "fleet";
+		args[n++] = "attach";
+		args[n++] = (char *)ret;
+	} else if (branch && *branch) {
 		args[n++] = "resume";
 		args[n++] = (char *)branch;
 	}
 	args[n] = NULL;
 	execvp(args[0], args);
+out:
+	free(copy);
 	free(self);
 	return -1;
 }
@@ -2069,18 +2107,27 @@ int fyai_remote_next_exec(const char *argv0, const char *branch)
  * Replace this process with the client of the live session @branch:
  * `fyai -b BRANCH remote connect`. It returns only on failure.
  */
-int fyai_remote_attach_exec(const char *argv0, const char *branch)
+int fyai_remote_attach_exec(const char *argv0, const char *dir,
+			    const char *branch, bool watch, const char *ret)
 {
 	char *self = realpath(argv0, NULL);
-	char *args[6];
+	char *args[7];
+	int n = 0;
 
-	args[0] = self ? self : (char *)argv0;
-	args[1] = "-b";
-	args[2] = (char *)branch;
-	args[3] = "remote";
-	args[4] = "connect";
-	args[5] = NULL;
+	args[n++] = self ? self : (char *)argv0;
+	args[n++] = "-b";
+	args[n++] = (char *)branch;
+	args[n++] = "remote";
+	args[n++] = "connect";
+	if (watch)
+		args[n++] = "--watch";
+	args[n] = NULL;
+	if ((dir && chdir(dir)) ||
+	    (ret ? setenv(FYAI_FLEET_RETURN_ENV, ret, 1) :
+	     unsetenv(FYAI_FLEET_RETURN_ENV)))
+		goto out;
 	execvp(args[0], args);
+out:
 	free(self);
 	return -1;
 }

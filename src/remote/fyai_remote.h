@@ -113,10 +113,23 @@ int fyai_remote_supervisor_open(struct fyai_ctx *ctx, const char *dir,
  */
 int fyai_remote_start(struct fyai_ctx *ctx, const char *dir, const char *branch,
 		      const char *task, fy_generic args);
-/* Replace this process with a new session, or with `resume BRANCH`. */
+/*
+ * Replace this process with a new session, `resume BRANCH`, or for `jump:` and
+ * `root:` the `fleet attach` of the session of the fleet (doc/fyai-fleet-sdd.md,
+ * section 11).
+ */
 int fyai_remote_next_exec(const char *argv0, const char *branch);
-/* Replace this process with the client of the live session @branch. */
-int fyai_remote_attach_exec(const char *argv0, const char *branch);
+
+/* The environment variable of the session that `/root` returns to. */
+#define FYAI_FLEET_RETURN_ENV	"FYAI_FLEET_RETURN"
+
+/*
+ * Replace this process with the client of the live session @branch, in @dir
+ * when it is given, as a watcher with @watch. @ret, or NULL, is the session
+ * that `/root` returns to: the client keeps it in $FYAI_FLEET_RETURN.
+ */
+int fyai_remote_attach_exec(const char *argv0, const char *dir,
+			    const char *branch, bool watch, const char *ret);
 
 /*
  * Present a frame of the sink of a remote command (src/front/fyai_sink_frames.c)
