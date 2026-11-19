@@ -270,6 +270,13 @@ follows the conversation with no tools and is not stored; only the title is.
 TEXT` keeps TEXT and sends no request. The keys `title/prompt`,
 `title/summary_prompt` and `title/max_chars` shape the request.
 
+With `title/auto` set, a session titles itself: after its first exchange, a
+`session/` branch that has no description starts a detached `fyai title` of
+the branch, which prints nothing and stores the title. A branch that has a
+title, set with `/title TEXT` or `branch describe`, is never titled again.
+With credential isolation the title process gets its own channel to the supervisor, as a worker of a server does. The run asks once; if the request fails, the cause is in the trace, and
+`/title` does it by hand.
+
 ### Start over or compact
 
 ```sh
