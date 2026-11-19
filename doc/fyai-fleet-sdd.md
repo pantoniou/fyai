@@ -173,10 +173,14 @@ A session is in one of these states when no server lists it:
 An idle session with no server and no pending work shows as `stored`: nothing
 on the branch names its process.
 
+Not done, and not planned: a search of the processes of the user (`/proc`) for
+the sessions that run with no server and no pending work. It would only change
+the label `stored` to `running`: such a session has no socket, so the root
+could not control it. The mapping of a process to a branch is fragile, and
+the search is Linux only.
+
 Deferred from this step:
 
-- A search of the processes of the user (`/proc`) for the sessions that run
-  with no server and no pending work.
 - A `projects` member in the store of the root, which keeps what a scan found
   so that a list need not scan, and the event `[project 'PATH' added]`. Each
   command scans: one `stat()` for each directory to the depth of the scan.
