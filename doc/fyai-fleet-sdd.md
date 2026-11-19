@@ -458,7 +458,11 @@ turn.
   through the root.
 - A session with no client takes the terminal as its driver: keys, lines,
   questions and interrupts, as in a session of its own. A session that
-  another client drives is watched (`--watch`): this client sends nothing.
+  another client drives is watched (`--watch`): this client sends no command,
+  and each line that it types goes to the session as a message
+  (`fyai_session_send`, from `a watcher`), which the model reads as
+  `[message 'a watcher']`. The session answers in its own frames, which the
+  driver and the watcher both see.
 - `/root` leaves the session as it was before the jump: a session that a
   server holds keeps it, and this client ends with the next session `root:`.
   The client runs `fleet attach` of `$FYAI_FLEET_RETURN`, the root session,
@@ -471,9 +475,8 @@ with the state and the title) in `/jump`, `fleet attach`, `fleet read` and
 one short child.
 
 Deferred: a picker window of the fleet (`/sessions`; the question panel holds
-four options, the browser is bound to the sessions of one project); the lines that a watcher of a
-driven session types going to it as messages; the name of the session and
-the way back on the status line; and the events `jumped` and `returned` of
+four options, the browser is bound to the sessions of one project); the name
+of the session and the way back on the status line; and the events `jumped` and `returned` of
 the root session.
 
 ### 11.1 The fleet panel
