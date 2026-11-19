@@ -920,7 +920,9 @@
       which its model reads as an event from this session. `interrupt` stops its turn,
       `answer` answers its open question (an option number from 1, or a text), and `stop`
       ends it. `task` marks a task `done`, `dropped` or `open` again by its `id`. A person may
-      drive a session in a terminal: what you send there, that person sees.
+      drive a session in a terminal: what you send there, that person sees. The person may
+      have to approve a call first; a rejection, with what the person said, is the answer.
+      A start above the limit of members is refused until one ends.
     parameters:
       type: object
       properties:
