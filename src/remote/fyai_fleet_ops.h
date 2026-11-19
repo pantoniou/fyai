@@ -49,6 +49,19 @@ int fyai_fleet_rows_read(struct fyai_ctx *ctx, struct fy_generic_builder *gb,
 /* The default of fleet/max_live: the most members of a root at one time. */
 #define FYAI_FLEET_MAX_LIVE	8
 
+/*
+ * Adopt the live session @name (PROJECT:BRANCH, or BRANCH of this project)
+ * that a person started: it gets the lineage of this root session, and this
+ * session keeps a task for it with @text, published now with @publish, else
+ * staged for the next publish. This session supervises it from then on.
+ * *@idp, when not NULL, gets the id of the task. Returns 0, or -1 with the
+ * cause reported: this is no root session, there is no live session, or no
+ * room (fleet/max_live).
+ */
+int fyai_fleet_adopt(struct fyai_ctx *ctx, struct fy_generic_builder *gb,
+		     const char *name, const char *text, bool publish,
+		     long long *idp);
+
 /* Whether this root session may start one more member now (fleet/max_live). */
 bool fyai_fleet_has_room(struct fyai_ctx *ctx);
 

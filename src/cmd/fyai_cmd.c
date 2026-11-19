@@ -132,6 +132,7 @@ static const struct {
 	{ "session_send",	fyai_cmd_session_send },
 	{ "session_interrupt",	fyai_cmd_session_halt },
 	{ "session_answer",	fyai_cmd_session_answer },
+	{ "session_adopt",	fyai_cmd_session_adopt },
 	{ "background",		fyai_cmd_background },
 	{ "continue",		fyai_cmd_continue },
 	{ "zoom",		fyai_cmd_zoom },

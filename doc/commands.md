@@ -7278,7 +7278,7 @@ Commit the current branch and restart fyai on it. Live shells and sub-agents mus
 
 set the isolation of this session and move work between it and the project
 
-**Usage:** `/session {answer|dev|interrupt|kill|list|lockdown|new|profile|pull|push|send|status|yolo} ...`
+**Usage:** `/session {adopt|answer|dev|interrupt|kill|list|lockdown|new|profile|pull|push|send|status|yolo} ...`
 
 The isolation of the session. With no subcommand, show the state.
 `lockdown` takes the strongest isolation that this host can enforce, and
@@ -7291,6 +7291,7 @@ its view and the project: `push` writes its changes into the project, and
 
 | Command | Description |
 | --- | --- |
+| `adopt` | make a live session a member of this root session |
 | `answer` | answer the question of a live session |
 | `dev` | confine the tools to project work |
 | `interrupt` | interrupt the turn of a live session |
@@ -7421,6 +7422,32 @@ questions is answered in the session.
 | --- | --- |
 | `NAME` | the live session, as BRANCH or PROJECT:BRANCH |
 | `ANSWER` | the number of an option, or the text of the answer |
+
+### Options
+
+| Option | Description |
+| --- | --- |
+| `-h`, `--help` | show this help |
+
+## /session adopt
+
+make a live session a member of this root session
+
+**Usage:** `/session adopt NAME [TEXT...]`
+
+Make the live session NAME (PROJECT:BRANCH, or BRANCH of this project)
+that a person started a member of this root session: it gets this
+session as its parent, and this session keeps a task for it with TEXT
+and hears of it as of any member. NAME must run at a server. Only a
+root session adopts, and not above `fleet/max_live` members.
+
+
+### Arguments
+
+| Argument | Description |
+| --- | --- |
+| `NAME` | the live session, as PROJECT:BRANCH or BRANCH |
+| `TEXT` | what the session does, for the task |
 
 ### Options
 

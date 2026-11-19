@@ -2699,6 +2699,34 @@ static const char *sdk_supervise_message(struct sdk_server *srv, fy_generic req)
 }
 
 /*
+ * A root session adopts this session (doc/fyai-fleet-sdd.md, section 9): it
+ * gets the lineage {parent, task}. A turn in flight stores it with its next
+ * publish; an idle session publishes it now.
+ */
+static const char *sdk_supervise_lineage(struct sdk_server *srv, fy_generic req)
+{
+	struct fyai_ctx *ctx = sdk_server_ctx(srv);
+	const char *parent = fy_get(req, "parent", "");
+	long long task = fy_get(req, "task", 0LL);
+	fy_generic lineage;
+	char *cwd;
+
+	if (fy_str_empty(parent) || task <= 0)
+		return "the lineage needs a parent and a task";
+	cwd = getcwd(NULL, 0);
+	lineage = cwd ? fyai_fleet_lineage(ctx->arena->gb, cwd, parent, task) :
+			fy_invalid;
+	free(cwd);
+	if (fy_is_invalid(lineage))
+		return "cannot make the lineage";
+	ctx->bstate->fleet = lineage;
+	if (srv->busy || ctx->bstate->session_unstored)
+		return NULL;
+	fyai_branch_op_set(ctx, FYAI_BRANCH_OP_CONFIG, NULL);
+	return fyai_publish_state(ctx) ? "cannot store the lineage" : NULL;
+}
+
+/*
  * The answer of a supervisor to the first open question: the number of an
  * option, from 1, or any other text. A set of several questions is answered
  * in the session.
@@ -2968,6 +2996,10 @@ static void sdk_control(struct sdk_server *srv, fy_generic frame)
 	}
 	if (!strcmp(subtype, "fyai_message")) {
 		sdk_respond(srv, id, fy_invalid, sdk_supervise_message(srv, req));
+		return;
+	}
+	if (!strcmp(subtype, "fyai_fleet_lineage")) {
+		sdk_respond(srv, id, fy_invalid, sdk_supervise_lineage(srv, req));
 		return;
 	}
 	if (!strcmp(subtype, "fyai_supervise_answer")) {

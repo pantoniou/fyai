@@ -270,6 +270,22 @@ int fyai_cmd_session_answer(struct fyai_cmd_call *call, fy_generic *result)
 		"answer", fyai_cmd_arg_str(call, "answer")), result);
 }
 
+/* Make a live session that a person started a member of this root session. */
+int fyai_cmd_session_adopt(struct fyai_cmd_call *call, fy_generic *result)
+{
+	struct fyai_ctx *ctx = fyai_cmd_call_ctx(call);
+	const char *name = fyai_cmd_arg_str(call, "name"), *text;
+	long long id = 0;
+
+	text = fyai_cmd_arg_str(call, "text");
+	if (fyai_fleet_adopt(ctx, call->gb, name, text, true, &id))
+		return -1;
+	*result = fy_mapping(call->gb, "name", fyai_fleet_name_full(ctx, call->gb,
+								     name),
+			     "task", id);
+	return 0;
+}
+
 /*
  * Go into a session of the fleet (doc/fyai-fleet-sdd.md, section 11): this
  * session goes to a server as /background leaves it, and the client of this

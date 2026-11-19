@@ -721,6 +721,58 @@ out:
 	return rc ? -1 : 0;
 }
 
+int fyai_fleet_adopt(struct fyai_ctx *ctx, struct fy_generic_builder *gb,
+		     const char *name, const char *text, bool publish,
+		     long long *idp)
+{
+	fy_generic tasks;
+	const char *full, *colon, *project, *home_name;
+	char *cwd = NULL, *root = NULL, *home = NULL;
+	long long id;
+	int rc = -1;
+
+	fyai_error_check(ctx, fyai_fleet_is_root(ctx) && fleet_arena_open(ctx) &&
+			 !ctx->cfg->transient, out,
+			 "fleet: only a root session adopts a session");
+	fyai_error_check(ctx, fyai_fleet_has_room(ctx), out,
+			 "fleet: the most members that fleet/max_live allows run; "
+			 "wait for one to end");
+	full = fyai_fleet_name_full(ctx, gb, name);
+	if (!full)
+		goto out;
+	colon = strchr(full, ':');
+	project = fy_gb_intern_string(gb, fy_sprintfa("%.*s", (int)(colon - full), full));
+	cwd = getcwd(NULL, 0);
+	root = cwd ? fyai_fleet_root_of(cwd) : NULL;
+	home = cwd ? fyai_fleet_project_of(cwd) : NULL;
+	fyai_error_check(ctx, root && home, out, "fleet: no project holds this session");
+	home_name = fy_gb_intern_string(gb, fy_sprintfa("%s:%s", strcmp(home, root) ?
+			home + strlen(root) + 1 : ".", fyai_ctx_branch(ctx)));
+	tasks = fleet_tasks_of(ctx);
+	id = fleet_task_next(tasks);
+	/* The session takes the lineage first: a branch with no live session fails. */
+	if (fyai_fleet_supervise(ctx, full, "fyai_session_lineage",
+				 fy_mapping(gb, "parent", home_name, "task", id)))
+		goto out;
+	tasks = fy_assoc(ctx->arena->gb, tasks, fy_stringf(ctx->arena->gb, "%lld", id),
+		fy_mapping(ctx->arena->gb, "project", project, "branch", colon + 1,
+			   "text", text && *text ? text : "Adopted session",
+			   "created", (long long)fyai_branch_timestamp(),
+			   "state", "open"));
+	fyai_error_check(ctx, fy_is_mapping(tasks), out, "fleet: cannot keep the task");
+	rc = fleet_tasks_publish(ctx, tasks, publish);
+	if (!rc && fyai_fleet_watch_add(ctx, full))
+		fyai_warning(ctx, "fleet: '%s' is adopted, but this session does not "
+			     "hear of it", full);
+	if (!rc && idp)
+		*idp = id;
+out:
+	free(home);
+	free(root);
+	free(cwd);
+	return rc ? -1 : 0;
+}
+
 int fyai_fleet_dequeue(struct fyai_ctx *ctx)
 {
 	struct fy_generic_builder *gb = ctx->arena->gb, *tgb = fyai_ctx_transient_gb(ctx);

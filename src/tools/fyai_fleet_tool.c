@@ -92,7 +92,7 @@ static bool fleet_tool_asks(struct fyai_ctx *ctx, fy_generic action)
 		return false;
 	if (fy_equal(approve, "always"))
 		return fy_any_equal(action, "start", "send", "interrupt", "answer",
-				    "stop");
+				    "stop", "adopt");
 	return fy_equal(action, "start");
 }
 
@@ -152,6 +152,10 @@ static const char *fleet_tool_what(struct fy_generic_builder *gb, fy_generic act
 	if (fy_equal(action, "answer"))
 		return fy_gb_intern_string(gb, fy_sprintfa("answers the question of "
 			"%s: %s", name, fy_get(args, "answer", "")));
+	if (fy_equal(action, "adopt"))
+		return fy_gb_intern_string(gb, fy_sprintfa("makes the session %s a "
+			"member of this one, with the task: %s", name,
+			fy_get(args, "text", "")));
 	return fy_gb_intern_string(gb, fy_sprintfa("%s %s", fy_equal(action, "stop") ?
 		"ends" : "interrupts the turn of", name));
 }
@@ -171,6 +175,7 @@ static fy_generic fleet_tool_run_generic(struct fyai_ctx *ctx, fy_generic args,
 	fy_generic action = fy_get(args, "action", fy_invalid), rows, out;
 	const char *name = fleet_tool_arg(args, "name"), *text, *state;
 	char *reply = NULL;
+	long long id = 0;
 	bool busy = false;
 	int rc;
 
@@ -178,7 +183,7 @@ static fy_generic fleet_tool_run_generic(struct fyai_ctx *ctx, fy_generic args,
 	if (fyai_agent_delegated(ctx))
 		return fy_value(gb, "fleet: only the session of the user has the "
 				"fleet tool");
-	if (fy_any_equal(action, "send", "interrupt", "answer", "stop", "read") && !name)
+	if (fy_any_equal(action, "send", "interrupt", "answer", "stop", "read", "adopt") && !name)
 		return fy_value(gb, "fleet: name the session, as PROJECT:BRANCH");
 	/* fleet/approve: the person decides before the call runs. */
 	if (fleet_tool_asks(ctx, action)) {
@@ -239,6 +244,10 @@ static fy_generic fleet_tool_run_generic(struct fyai_ctx *ctx, fy_generic args,
 	} else if (fy_equal(action, "stop")) {
 		rc = fyai_fleet_close(ctx, name, fy_get(args, "force", false), &busy);
 		out = fy_mapping(gb, "stopped", name, "was_running", busy);
+	} else if (fy_equal(action, "adopt")) {
+		rc = fyai_fleet_adopt(ctx, gb, name, fleet_tool_arg(args, "text"), false,
+				      &id);
+		out = fy_mapping(gb, "adopted", name, "task", id);
 	} else if (fy_equal(action, "task")) {
 		state = fleet_tool_arg(args, "state");
 		if (fy_get(args, "id", 0LL) <= 0 || !state)
@@ -303,7 +312,7 @@ static void fleet_tool_head(struct fyai_ctx *ctx, FILE *mf,
 	(void)preview_lines;
 	(void)blocks;
 	fprintf(mf, "**fleet** %s", fy_any_equal(action, "search", "list", "read",
-		"tasks", "start", "send", "interrupt", "answer", "stop", "task") ?
+		"tasks", "start", "send", "interrupt", "answer", "stop", "adopt", "task") ?
 		fy_castp(&action, "") : "?");
 	what = fy_equal(action, "search") ? fy_get(args, "query", "") :
 	       fy_equal(action, "start") ? fy_get(args, "project", "") :
