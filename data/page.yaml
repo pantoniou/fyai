@@ -114,6 +114,10 @@ pages:
       drop: 0
       body:
         - page: todos
+    - if: fleet.shown
+      drop: 0
+      body:
+        - page: fleet
     - if: pane.above
       page: pane
 
@@ -169,6 +173,10 @@ pages:
       drop: 0
       body:
         - page: todos
+    - if: fleet.below
+      drop: 0
+      body:
+        - page: fleet
   # The input area, in one mode at a time.
   input:
     - switch: input.mode
@@ -445,6 +453,16 @@ pages:
             items:
               - text: "Todos"
     - markup: todo.source
+
+  # The members that a root session supervises, under the todo list.
+  fleet:
+    - blank: true
+    - row:
+        - role:
+            name: chrome
+            items:
+              - text: "Fleet"
+    - markup: fleet.source
 
   # The compact log: its heading, then the newest results.
   log_panel:

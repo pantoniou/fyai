@@ -42,6 +42,7 @@
 #include "fyai_ask.h"
 #include "fyai_page.h"
 #include "fyai_todo.h"
+#include "fyai_fleet_watch.h"
 #include "fyai_transcript_view.h"
 #include "fyai_browser.h"
 #include "fyai_agents.h"
@@ -238,6 +239,10 @@ struct fyai_ui {
 	int todo_rows;
 	int todo_cols;
 	bool todo_shown;
+	/* The members of a root session under it, the same way. */
+	char *fleet_source;
+	int fleet_rows;
+	int fleet_cols;
 	/*
 	 * The lines typed while a turn runs, as UI Markdown on top of the
 	 * input area of the page, or NULL; the rows they take at @pending_cols.
@@ -2828,11 +2833,21 @@ static int ui_page_frame_fit(struct fyai_ui *ui, struct ui_page_frame *f)
 			fyai_uimodel_get(ctx, FYAI_UI_PANELS), "todo",
 			fy_seq_empty));
 		ui->todo_shown = ui->todo_source != NULL;
+		free(ui->fleet_source);
+		ui->fleet_rows = 0;
+		ui->fleet_cols = 0;
+		ui->fleet_source = fyai_fleet_panel_source(fy_get(
+			fyai_uimodel_get(ctx, FYAI_UI_PANELS), "fleet",
+			fy_seq_empty));
 		ui->frame_pending = true;
 	}
 	if (ui->todo_source && ui->todo_cols != cols) {
 		ui->todo_rows = ui_markup_rows(ui->todo_source, cols);
 		ui->todo_cols = cols;
+	}
+	if (ui->fleet_source && ui->fleet_cols != cols) {
+		ui->fleet_rows = ui_markup_rows(ui->fleet_source, cols);
+		ui->fleet_cols = cols;
 	}
 	if (ui->pending_source && ui->pending_cols != cols) {
 		ui->pending_rows = ui_markup_rows(ui->pending_source, cols);
@@ -2845,6 +2860,10 @@ static int ui_page_frame_fit(struct fyai_ui *ui, struct ui_page_frame *f)
 	st->todo_shown = ui->todo_shown &&
 			!fyai_agent_delegated(ctx) &&
 			!(st->fullscreen && st->popup_title);
+	st->fleet_source = ui->fleet_source;
+	st->fleet_rows = ui->fleet_rows;
+	st->fleet_shown = ui->fleet_source && !fyai_agent_delegated(ctx) &&
+			  !(st->fullscreen && st->popup_title);
 	st->glyph_expand = markdown_glyph(ctx->cfg, "tile.maximize", NULL);
 	st->glyph_collapse = markdown_glyph(ctx->cfg, "tile.minimize", NULL);
 	st->glyph_close = markdown_glyph(ctx->cfg, "tile.close", NULL);
@@ -3772,6 +3791,7 @@ void fyai_ui_close(struct fyai_ctx *ctx)
 	ui_popup_close(ui);
 	ui_note_clear(ui);
 	free(ui->todo_source);
+	free(ui->fleet_source);
 	free(ui->pending_source);
 	free(ui->pending_fit);
 	free(ui->pane_grid.data);
