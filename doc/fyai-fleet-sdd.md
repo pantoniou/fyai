@@ -391,6 +391,7 @@ model gets events:
 [session 'fyai:fleet/x' waiting]     body: a question waits for an answer
 [session 'fyai:fleet/x' ended]
 [session 'fyai:fleet/x' restarted: its process was lost; ...]
+[session 'fyai:fleet/x' restarted: its process crashed; ...]
 ```
 
 `running` is no event. The events of a member are its own; the root model
@@ -409,12 +410,20 @@ gets no UI stream, and reads more with the `read` action.
   flight) is started again at the server of its project on its branch, with
   no message; its own `pending` table restores its work, and the root model
   gets `restarted`.
+- A member of an open task whose worker crashes while the root supervises it
+  is started again, the same way, and the model gets `restarted: its process
+  crashed`. The server marks the `ended` frame `crashed` when the worker went
+  by SIGSEGV, SIGABRT, SIGBUS, SIGFPE or SIGILL, or by an exit status that is
+  neither 0 nor the end that the worker reports itself. A kill, an end that
+  was asked for, and a session that a person drives and closes are not
+  crashes. A root starts a member again at most twice (`FLEET_RESTARTS_MAX`);
+  after that the model has the `ended` event and decides.
 - A start supervises the member at once. A failure to supervise is a
   warning: the member runs, and the root does not hear of it.
 
-Deferred: a member whose session is `stored` (it ended, or its worker went
-with no pending work) is not started again, and a root with no server runs
-no member of its own.
+Deferred: a member whose session is `stored` (it ended on request, or its
+worker went with no pending work) is not started again unless the model
+starts it, and a root with no server runs no member of its own.
 
 ### 10.2 What the root is not
 
