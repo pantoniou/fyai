@@ -50,7 +50,7 @@ Use these rules:
 
 - Keep the tool order: `read_file`, `write_file`, `apply_patch`, `exec_command`,
   `shell_input`, `shell_output`, `shell_close`, `cancel`, `ask_user`, `agent`, `list`,
-  `settings`, `time`, `wait`, `skill`.
+  `settings`, `fleet`, `time`, `wait`, `skill`.
 - Write each description as a literal block scalar (`|-`) on one line. The
   provider receives the parsed text without a change.
 - Give each parameter object `type: object`, `properties`, `required`, and

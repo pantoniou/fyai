@@ -345,26 +345,36 @@ the lineage and publishes.
 
 The root session is an ordinary session of the root project: a person runs
 `fyai` in `~/work`, or joins the live one with `fyai resume`, and parks it
-with `/background`. Its model gets these tools (`data/tools.yaml`, defined in
-`src/tools/fyai_fleet.c`):
+with `/background`. Its model gets one tool, `fleet` (`data/tools.yaml`,
+`src/tools/fyai_fleet_tool.c`), made as `settings` is: an `action` selects
+what it does, and `search` is where the model starts.
 
-| Tool | Does |
-| --- | --- |
-| `session_start` | `fleet start`: makes a task and a member. |
-| `session_send` | Sends a message to a member. |
-| `session_status` | The sessions under the root, with state, task and last answer. |
-| `session_read` | The last N exchanges of a member branch, from its arena. |
-| `session_stop` | Interrupt or end a member; drop or close its task. |
-| `task_update` | Marks a task done or dropped. |
+| Action | Does | As the command |
+| --- | --- | --- |
+| `search` | The sessions and tasks that hold each word of `query`, in any case: in the project, the branch, the description, the text of a task, or the words of the last 20 turns of a session. Each row names the session, where the first word is, and the text around it. | `fleet search` |
+| `list` | Each session with its state, task and parent. | `fleet list` |
+| `read` | The words of the last `turns` turns of a session, oldest first. | `fleet read` |
+| `tasks` | The tasks of the root sessions. | `fleet tasks` |
+| `start` | Starts a member with a task; the root keeps the task. | `fleet start` |
+| `send`, `interrupt`, `answer`, `stop` | The requests of the supervisor (section 7); a message is from `.:BRANCH` of the root session. | `session send` and the others |
+| `task` | Marks a task `open`, `done` or `dropped`. | `/fleet task` |
 
-Only a session of a root project gets these tools. A member has its
+The commands and the tool share one implementation
+(`src/remote/fyai_fleet_ops.c`). In a session, which has its arena open, the
+readers run the matching command in a child with no arena and take its rows
+as JSON. A `start` and a `task` of the tool stage the tasks for the next
+publish, which a turn makes; the commands publish at once.
+
+Only a session of a root project gets the tool: the `describe` of its entry
+offers it when the project of the session is the root and a scan finds a
+project below it, once for a run. A delegated agent cannot call it. A member has its
 sub-agents and no fleet tools: a member that needs more work done says so in
 its answer, and the root session decides. A person runs the commands of
 section 8 from any directory of the tree.
 
-The tools send data to other sessions and start programs, so their
-configuration keys are `review` or `read` (`x-fyai-model`), and
-`fleet/approve` decides which calls ask the person.
+The tool sends data to other sessions and starts programs. Step 7 adds
+`fleet/approve`, which decides which calls ask the person; until then a call
+runs as the model asks it.
 
 The root session attaches to each member of an open task as a supervisor with
 `state: true`. A change arrives as an event:

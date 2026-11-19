@@ -211,6 +211,11 @@ This document gives the owner of each source file and of each shared component. 
   (`doc/future-cleanups.md`, The data of the client): a page of rows, a cursor,
   and the `rev` of the data.
 - `src/store/fyai_merge.c`: branch merge and rebase.
+- `src/remote/fyai_fleet_ops.c`: the operations of a fleet that the `fleet`
+  commands and the `fleet` tool share: the rows of the list, the scan, the
+  tasks, the search and the read, which a process with an open arena runs in
+  a child, and the start and the supervisor requests.
+- `src/tools/fyai_fleet_tool.c`: the `fleet` tool of a root session.
 - `src/store/fyai_fleet.c`: the tree of projects: the nearest project at or
   above a directory, the parent of a project and the root, by a walk up to a
   ceiling, and the scan of the projects below a root

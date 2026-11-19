@@ -2169,6 +2169,12 @@ The model gets a message as the event `[message 'user']` (`--from` names
 another sender). A session that `fleet start` starts runs with no client, and
 its server keeps it: `resume` in its project joins it.
 
+`fleet search WORDS` finds the sessions and tasks that hold each word, in any
+case, also in the last turns of a conversation; `fleet read NAME` gives the
+last turns of a session. In a session of a root that has projects below it,
+the model has the tool `fleet`, which does the same and starts, messages and
+ends sessions.
+
 `fleet start` typed in a session records that session as the parent of the new
 one. In a session of the root it also keeps a task for it, which `fleet
 tasks` lists and `/fleet task ID done` (or `dropped`) closes; `fleet list`
