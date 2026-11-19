@@ -798,6 +798,8 @@ struct fyai_ctx {
 	struct fyai_waitq *waitq;
 	/* The questions component, owned by struct fyai_app. */
 	struct fyai_askq *askq;
+	/* The supervision of the members of a root session, owned by struct fyai_app. */
+	struct fyai_fleet_watch *fleet;
 	/* ACP worker notifications share the active turn's event loop. */
 	struct jsonrpc_conn *acp_rpc;
 	const char *acp_agent_message_id;

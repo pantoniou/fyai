@@ -73,6 +73,7 @@
 #include "fyai_skill.h"
 #include "fyai_settings.h"
 #include "fyai_app.h"
+#include "fyai_fleet_watch.h"
 
 static enum fyai_event_action fyai_signal_cb(const struct fyai_event *ev)
 {
@@ -2625,6 +2626,8 @@ void fyai_cleanup(struct fyai_ctx *ctx)
 	fyai_tool_gate_relays_drop(ctx);
 	fyai_agent_background_close(ctx);
 	fyai_monitor_close(ctx);
+	/* The members go on; this run stops hearing of them. */
+	fyai_fleet_watch_cleanup(ctx->fleet);
 	/* What the model did not take goes with a run that ends. */
 	fyai_events_release(ctx->waitq);
 	fyai_pending_clear(ctx);
@@ -2868,6 +2871,7 @@ int fyai_setup(struct fyai_ctx *ctx, struct fyai_app *app)
 	ctx->waitq = &app->waitq;
 	fyai_waitq_bind(ctx);
 	ctx->askq = &app->askq;
+	ctx->fleet = &app->fleet;
 	ctx->bstate = &app->bstate;
 	ctx->turn = &app->turn;
 	ctx->jobs = &app->jobs;

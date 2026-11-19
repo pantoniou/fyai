@@ -45,6 +45,7 @@
 #include "fyai_config.h"
 #include "fyai_event.h"
 #include "fyai_fleet.h"
+#include "fyai_fleet_watch.h"
 #include "fyai_jsonrpc.h"
 #include "fyai_media.h"
 #include "fyai_output.h"
@@ -4642,6 +4643,9 @@ static int sdk_cmd_serve(struct sdk_server *srv)
 	}
 	/* The server of the project lists a session that its client drives. */
 	sdk_register(srv);
+	/* A root session hears of the members of its open tasks again. */
+	if (srv->remote_worker)
+		fyai_fleet_watch_restore(ctx);
 	/* Work that a lost process left on the branch goes on here. */
 	if (srv->remote_worker && fyai_pending_restore(ctx))
 		fyai_warning(ctx, "durable: the pending work was not restored");
@@ -4680,6 +4684,7 @@ static int sdk_cmd_serve(struct sdk_server *srv)
 		}
 		sdk_retired_free(srv);
 		sdk_reg_free(srv);
+		fyai_fleet_watch_reap(ctx);
 		/* A server started: register between turns, not in its event. */
 		if (srv->reg_retry) {
 			srv->reg_retry = false;

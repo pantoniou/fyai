@@ -29,6 +29,7 @@
 #include "fyai_waitq.h"
 #include "fyai_transport_state.h"
 #include "fyai_link.h"
+#include "fyai_fleet_watch.h"
 
 /*
  * The root of the program: it owns each component that more than one part of
@@ -49,6 +50,7 @@ struct fyai_app {
 	struct fyai_mcp mcp;		/* depends on loop, cred, transient */
 	struct fyai_waitq waitq;	/* depends on loop and diag */
 	struct fyai_askq askq;		/* depends on diag */
+	struct fyai_fleet_watch fleet;	/* depends on loop and waitq */
 	struct fyai_scope scope;	/* depends on loop and diag */
 	struct fyai_tty tty;		/* depends on loop and diag */
 	struct fyai_skills skills;	/* depends on arena and transient */
@@ -103,6 +105,11 @@ static inline struct fyai_ctx *fyai_mcp_state_ctx(struct fyai_mcp *mcp)
 static inline struct fyai_ctx *fyai_cred_ctx(struct fyai_cred *cred)
 {
 	return &container_of(cred, struct fyai_app, cred)->ctx;
+}
+
+static inline struct fyai_ctx *fyai_fleet_watch_ctx(struct fyai_fleet_watch *fw)
+{
+	return &container_of(fw, struct fyai_app, fleet)->ctx;
 }
 
 #endif

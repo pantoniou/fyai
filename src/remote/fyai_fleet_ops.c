@@ -21,6 +21,7 @@
 #include "fyai_buf.h"
 #include "fyai_fleet.h"
 #include "fyai_fleet_ops.h"
+#include "fyai_fleet_watch.h"
 #include "fyai_host.h"
 #include "fyai_pending.h"
 #include "fyai_remote.h"
@@ -694,6 +695,10 @@ int fyai_fleet_start(struct fyai_ctx *ctx, struct fy_generic_builder *gb,
 	rc = fyai_remote_start(ctx, dir, branch, task, args);
 	if (!rc && id && fleet_tasks_publish(ctx, tasks, publish))
 		rc = -1;
+	/* The root session hears of the member as it changes. */
+	if (!rc && id && fyai_fleet_watch_add(ctx, fy_sprintfa("%s:%s", project, branch)))
+		fyai_warning(ctx, "fleet: '%s:%s' runs, but this session does not "
+			     "hear of it", project, branch);
 	if (!rc) {
 		*resultp = fy_mapping(gb, "project", project, "branch", branch,
 				      "name", fy_stringf(gb, "%s:%s", project, branch));
@@ -727,6 +732,70 @@ int fyai_fleet_task_mark(struct fyai_ctx *ctx, const char *id, const char *state
 			 fy_assoc(gb, task, "state", fy_value(gb, state)));
 	fyai_error_check(ctx, fy_is_mapping(tasks), err, "fleet: cannot keep the task");
 	return fleet_tasks_publish(ctx, tasks, publish);
+err:
+	return -1;
+}
+
+/* A scan stops at the second project: the root has one below it. */
+static int fleet_root_found(const char *dir, void *data)
+{
+	int *count = data;
+
+	(void)dir;
+	return ++*count > 1;
+}
+
+bool fyai_fleet_is_root(struct fyai_ctx *ctx)
+{
+	struct fyai_cfg *cfg = ctx->cfg;
+	fy_generic scan = fy_get(fy_get(cfg->config_doc, "fleet", fy_invalid), "scan",
+				 fy_invalid);
+	char *cwd, *project = NULL, *root = NULL;
+	int count = 0;
+
+	if (cfg->fleet_tool)
+		return cfg->fleet_tool > 0;
+	cfg->fleet_tool = -1;
+	cwd = getcwd(NULL, 0);
+	if (cwd) {
+		project = fyai_fleet_project_of(cwd);
+		root = fyai_fleet_root_of(cwd);
+	}
+	if (project && root && !strcmp(project, root) &&
+	    fyai_fleet_scan(root, (int)fy_get(scan, "depth",
+					      (long long)DEFAULT_FLEET_SCAN_DEPTH),
+			    fy_get(scan, "exclude", fy_seq_empty),
+			    fleet_root_found, &count) > 0)
+		cfg->fleet_tool = 1;
+	free(root);
+	free(project);
+	free(cwd);
+	return cfg->fleet_tool > 0;
+}
+
+fy_generic fyai_fleet_tasks_open(struct fyai_ctx *ctx)
+{
+	struct fy_generic_builder *gb = fyai_ctx_transient_gb(ctx);
+	fy_generic key, task, out = fy_map_empty;
+
+	fy_foreach_key_value(key, task, fleet_tasks_of(ctx))
+		if (fy_equal(fy_get(task, "state", fy_invalid), "open"))
+			out = fy_assoc(gb, out, key, task);
+	return out;
+}
+
+int fyai_fleet_revive(struct fyai_ctx *ctx, const char *name)
+{
+	const char *branch;
+	char *dir = NULL;
+	int rc;
+
+	if (fleet_name(ctx, name, &dir, &branch))
+		return -1;
+	fyai_error_check(ctx, dir, err, "fleet: '%s' is not PROJECT:BRANCH", name);
+	rc = fyai_remote_start(ctx, dir, branch, NULL, fy_invalid);
+	free(dir);
+	return rc;
 err:
 	return -1;
 }

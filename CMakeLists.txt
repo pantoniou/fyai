@@ -577,6 +577,7 @@ set(FYAI_SOURCES
     src/front/fyai_uidraw.c
     src/remote/fyai_remote.c
     src/remote/fyai_fleet_ops.c
+    src/remote/fyai_fleet_watch.c
     src/remote/fyai_remote_server.c
     src/remote/fyai_remote_ui.c
     src/net/fyai_net.c
