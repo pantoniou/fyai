@@ -3151,6 +3151,7 @@ commands:
           description: the session, as PROJECT:BRANCH or BRANCH
           x-fyai-positional: 0
           x-fyai-meta: NAME
+          x-fyai-complete: fleet-session
 
   - command: root
     title: go back to the session that the jump came from
@@ -4023,7 +4024,7 @@ commands:
               description: the live session, as BRANCH or PROJECT:BRANCH
               x-fyai-positional: 0
               x-fyai-meta: NAME
-              x-fyai-complete: session
+              x-fyai-complete: fleet-session
             force:
               type: boolean
               description: send SIGKILL, with no grace
@@ -4052,7 +4053,7 @@ commands:
               description: the live session, as BRANCH or PROJECT:BRANCH
               x-fyai-positional: 0
               x-fyai-meta: NAME
-              x-fyai-complete: session
+              x-fyai-complete: fleet-session
             text:
               type: string
               minLength: 1
@@ -4088,7 +4089,7 @@ commands:
               description: the live session, as BRANCH or PROJECT:BRANCH
               x-fyai-positional: 0
               x-fyai-meta: NAME
-              x-fyai-complete: session
+              x-fyai-complete: fleet-session
       - command: answer
         title: answer the question of a live session
         description: |
@@ -4112,7 +4113,7 @@ commands:
               description: the live session, as BRANCH or PROJECT:BRANCH
               x-fyai-positional: 0
               x-fyai-meta: NAME
-              x-fyai-complete: session
+              x-fyai-complete: fleet-session
             answer:
               type: string
               minLength: 1
@@ -4411,6 +4412,7 @@ commands:
               description: the session, as PROJECT:BRANCH or BRANCH
               x-fyai-positional: 0
               x-fyai-meta: NAME
+              x-fyai-complete: fleet-session
             return:
               type: string
               minLength: 1
@@ -4479,7 +4481,7 @@ commands:
               description: the session, as BRANCH or PROJECT:BRANCH
               x-fyai-positional: 0
               x-fyai-meta: NAME
-              x-fyai-complete: branch
+              x-fyai-complete: fleet-session
             turns:
               type: integer
               minimum: 1

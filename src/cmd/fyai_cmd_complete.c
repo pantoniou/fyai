@@ -21,6 +21,7 @@
 
 #include "fyai.h"
 #include "fyai_cmd.h"
+#include "fyai_fleet_ops.h"
 #include "fyai_sandbox_profile.h"
 #include "fyai_skill.h"
 #include "fyai_cmd_int.h"
@@ -128,6 +129,30 @@ static void kind_agent_branch(struct complete_req *r)
 static void kind_session(struct complete_req *r)
 {
 	kind_branch_filtered(r, false, "session/");
+}
+
+/*
+ * A session of the fleet, as PROJECT:BRANCH, with its state and title. The
+ * list is one short child of the fleet; a failure completes nothing.
+ */
+static void kind_fleet_session(struct complete_req *r)
+{
+	fy_generic rows, row, title;
+	const char *state;
+
+	if (!complete_req_ctx(r) ||
+	    fyai_fleet_rows_list(complete_req_ctx(r), r->gb, &rows))
+		return;
+	fy_foreach(row, rows) {
+		title = fy_get(row, "title", fy_invalid);
+		state = fy_get(row, "state", "");
+		cand(r, fy_gb_intern_string(r->gb, fy_sprintfa("%s:%s",
+				fy_get(row, "project", "."),
+				fy_get(row, "branch", ""))),
+		     fy_is_string(title) ? fy_gb_intern_string(r->gb,
+				fy_sprintfa("%s \u00b7 %s", state,
+					    fy_castp(&title, ""))) : state);
+	}
 }
 
 /* A branch, then the reference forms of a branch that the word names. */
@@ -655,6 +680,7 @@ static const struct {
 	{ "view",		kind_view,		true },
 	{ "agent-branch",	kind_agent_branch,	true },
 	{ "session",		kind_session,		true },
+	{ "fleet-session",	kind_fleet_session,	true },
 	{ "ref",		kind_ref,		true },
 	{ "model",		kind_model,		true },
 	{ "provider",		kind_provider,		true },
