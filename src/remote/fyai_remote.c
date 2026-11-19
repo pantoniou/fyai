@@ -28,6 +28,7 @@
 #include "fyai_cmd_int.h"
 #include "fyai_config.h"
 #include "fyai_event.h"
+#include "fyai_fleet.h"
 #include "fyai_host.h"
 #include "fyai_jsonrpc.h"
 #include "fyai_remote.h"
@@ -1291,9 +1292,37 @@ err:
 }
 
 /*
- * The endpoint of --remote TARGET: a socket; else, for ".", the server of the project
- * when one serves it and --project does not name another; else the server of
- * projects.
+ * The socket of the nearest project above the project of the current
+ * directory that a server serves, or NULL. That server is the front of the
+ * projects below it (doc/fyai-fleet-sdd.md, section 5.2). The caller frees.
+ */
+static char *remote_parent_socket(void)
+{
+	char *root, *parent, *path = NULL;
+	struct stat st;
+
+	root = fyai_discover_project_root();
+	while (root) {
+		parent = fyai_fleet_parent(root);
+		free(root);
+		root = parent;
+		if (!root || asprintf(&path, "%s/.fyai/unix/remote.sock", root) < 0) {
+			path = NULL;
+			break;
+		}
+		if (!stat(path, &st) && S_ISSOCK(st.st_mode))
+			break;
+		free(path);
+		path = NULL;
+	}
+	free(root);
+	return path;
+}
+
+/*
+ * The endpoint of --remote TARGET: a socket; else, for ".", the server of the
+ * project when one serves it and --project does not name another, or the
+ * server of the nearest project above that runs; else the server of projects.
  */
 static char *remote_run_endpoint(struct fyai_ctx *ctx)
 {
@@ -1308,6 +1337,9 @@ static char *remote_run_endpoint(struct fyai_ctx *ctx)
 		if (!path || (!stat(path, &st) && S_ISSOCK(st.st_mode)))
 			return path;
 		free(path);
+		path = remote_parent_socket();
+		if (path)
+			return path;
 	}
 	return fyai_remote_socket_path(ctx, NULL, true, false);
 }
