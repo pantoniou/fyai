@@ -25,6 +25,8 @@ steps:
   - touch: "${TEST_DIR}/release-alpha"
   # Alpha is retired while beta still runs.
   - wait-screen: "REPORT-ALPHA"
+  # The pane rule goes with the second tile: alpha is retired, beta is not.
+  - wait-gone: "\u2503"
   - frame: 3
   - touch: "${TEST_DIR}/release-beta"
   - wait: Both sub-agents reported.
@@ -125,13 +127,19 @@ from tile_assert import frames
 
 data = open(sys.argv[1], "rb").read()
 retired = False
+
+def live(disp, name):
+    """A tile that runs: its title has the model, a committed card has not."""
+    return any(name in line and "mock-model" in line for line in disp)
+
+reported = False
 for disp in frames(data, 30, 100):
     shown = "\n".join(disp)
-    # Alpha's report has been committed while beta is still live. The work
-    # pane must now contain beta alone, not alpha's completed surface too.
-    if "REPORT-ALPHA" not in shown or "[beta]" not in shown:
-        continue
-    if sum(line.count("● agent") for line in disp) <= 1:
+    reported = reported or "REPORT-ALPHA" in shown
+    # Once alpha has reported and while beta is live, the work pane must hold
+    # beta alone, not alpha's completed surface beside it. The report itself
+    # can have scrolled out of the page by then.
+    if reported and live(disp, "[beta]") and not live(disp, "[alpha]"):
         retired = True
 if not retired:
     raise SystemExit("no frame retired alpha while beta was still displayed")
