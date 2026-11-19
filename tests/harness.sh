@@ -244,6 +244,8 @@ fyai_test_setup_bare() {
 	export HOME="$TEST_DIR/home"
 	export XDG_STATE_HOME="$TEST_DIR/home/.local/state"
 	export XDG_CONFIG_HOME="$TEST_DIR/home/.config"
+	# The walk up the tree of projects stays in the test directory.
+	export FYAI_CEILING_DIRECTORIES="$(dirname "$TEST_DIR")"
 	# System keyrings are shared across private HOME and XDG directories.
 	export FYAI_AUTH_STORAGE=file
 	mkdir -p "$HOME"
