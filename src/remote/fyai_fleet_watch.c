@@ -10,11 +10,14 @@
 
 #include "fyai.h"
 #include "fyai_app.h"
+#include "fyai_buf.h"
 #include "fyai_fleet.h"
 #include "fyai_fleet_ops.h"
 #include "fyai_fleet_watch.h"
 #include "fyai_jsonrpc.h"
+#include "fyai_markdown.h"
 #include "fyai_remote.h"
+#include "fyai_uimodel.h"
 #include "fyai_wait.h"
 #include "fyai_waitq.h"
 
@@ -27,8 +30,13 @@ struct fyai_fleet_watcher {
 	struct jsonrpc_conn *conn;
 	int in, out;
 	char *name;			/* PROJECT:BRANCH */
+	const char *state;		/* the last state that the server said */
+	char *last;			/* the first line of the last answer, or NULL */
 	bool ended;			/* free it outside its frame */
 };
+
+/* The most characters of an answer that the fleet panel shows. */
+#define FLEET_PANEL_LAST	60
 
 void fyai_fleet_watch_init(struct fyai_fleet_watch *fw, struct fyai_loop *loop,
 			   struct fyai_waitq *waitq)
@@ -36,6 +44,83 @@ void fyai_fleet_watch_init(struct fyai_fleet_watch *fw, struct fyai_loop *loop,
 	memset(fw, 0, sizeof(*fw));
 	fw->loop = loop;
 	fw->waitq = waitq;
+}
+
+/*
+ * Show the members on the fleet panel of the page: the member `fleet` of the
+ * panels store, one row {name, state, last} for each.
+ */
+static void fleet_watch_panel(struct fyai_ctx *ctx)
+{
+	struct fy_generic_builder *gb = fyai_uimodel_begin(ctx);
+	struct fyai_fleet_watcher *w;
+	fy_generic rows, row;
+
+	if (!gb)
+		return;
+	rows = fy_seq_empty;
+	for (w = ctx->fleet->watchers; w; w = w->next) {
+		row = fy_mapping(gb, "name", w->name, "state", w->state);
+		if (w->last)
+			row = fy_assoc(gb, row, "last", fy_value(gb, w->last));
+		rows = fy_append(gb, rows, row);
+	}
+	/* The write gives 1 when the store changed. */
+	if (!fy_is_valid(rows) ||
+	    fyai_uimodel_set_member(ctx, FYAI_UI_PANELS, "fleet", rows) < 0)
+		fyai_warning(ctx, "fleet: cannot keep the members for the display");
+	fyai_uimodel_end(ctx);
+}
+
+/* Keep the first line of @text, cut at FLEET_PANEL_LAST characters. */
+static void fleet_watch_last(struct fyai_fleet_watcher *w, const char *text)
+{
+	size_t len = strcspn(text, "\n"), i, chars;
+
+	for (i = chars = 0; i < len; i++)
+		if (((unsigned char)text[i] & 0xc0) != 0x80 &&
+		    ++chars > FLEET_PANEL_LAST)
+			break;
+	free(w->last);
+	w->last = *text ? strndup(text, i) : NULL;
+}
+
+char *fyai_fleet_panel_source(fy_generic rows)
+{
+	struct fyai_buf out = { 0 };
+	const char *name, *last;
+	fy_generic row, g;
+	char *esc_name, *esc_last;
+	int rc = 0;
+
+	if (!fy_is_sequence(rows) || fy_empty(rows))
+		return NULL;
+	fy_foreach(row, rows) {
+		g = fy_get(row, "name", fy_invalid);
+		name = fy_castp(&g, "");
+		g = fy_get(row, "last", fy_invalid);
+		last = fy_castp(&g, "");
+		esc_name = markdown_ui_escape(name);
+		esc_last = *last ? markdown_ui_escape(last) : NULL;
+		if (!esc_name || (*last && !esc_last))
+			rc = -1;
+		if (!rc)
+			rc = fyai_buf_append(&out, out.data ? "\n- " : "- ") ||
+			     fyai_buf_append(&out, esc_name) ||
+			     fyai_buf_append(&out, " \u00b7 ") ||
+			     fyai_buf_append(&out, fy_get(row, "state", "?")) ||
+			     (esc_last && (fyai_buf_append(&out, " \u2014 ") ||
+					   fyai_buf_append(&out, esc_last)));
+		free(esc_name);
+		free(esc_last);
+		if (rc)
+			break;
+	}
+	if (rc || fyai_buf_append(&out, "\n")) {
+		free(out.data);
+		return NULL;
+	}
+	return out.data;
 }
 
 /* A change of the state of a member, as an event for the model. */
@@ -52,6 +137,13 @@ static void fleet_watch_frame(struct jsonrpc_conn *conn, fy_generic frame,
 	if (!fy_equal(fy_get(frame, "type", fy_invalid), "fyai") ||
 	    !fy_equal(fy_get(frame, "subtype", fy_invalid), "session_state"))
 		return;
+	/* The panel shows each state, running too. */
+	w->state = fy_equal(state, "running") ? "running" :
+		   fy_equal(state, "waiting") ? "waiting" :
+		   fy_equal(state, "ended") ? "ended" : "idle";
+	if (fy_is_string(last))
+		fleet_watch_last(w, fy_castp(&last, ""));
+	fleet_watch_panel(ctx);
 	/* An idle state with no answer is not news: the answer comes with it. */
 	if (fy_equal(state, "idle") && fy_is_string(last))
 		rc = fyai_event_injectf(w->owner->waitq, "[session '%s' idle]\n%s",
@@ -82,6 +174,7 @@ static void fleet_watch_closed(void *data)
 
 static void fleet_watcher_free(struct fyai_fleet_watcher *w)
 {
+	free(w->last);
 	jsonrpc_conn_destroy(w->conn);
 	if (w->in >= 0)
 		close(w->in);
@@ -133,9 +226,11 @@ int fyai_fleet_watch_add(struct fyai_ctx *ctx, const char *name)
 	rc = jsonrpc_conn_frames(w->conn, fleet_watch_frame, w);
 	fyai_error_check(ctx, !rc, out, "fleet: cannot read the connection to '%s'",
 			 name);
+	w->state = state;
 	w->next = fw->watchers;
 	fw->watchers = w;
 	w = NULL;
+	fleet_watch_panel(ctx);
 	/* A member that waits on a question now says so now. */
 	if (!strcmp(state, "waiting") &&
 	    !fyai_event_injectf(fw->waitq, "[session '%s' waiting]\nA question of "
@@ -207,6 +302,7 @@ void fyai_fleet_watch_restore(struct fyai_ctx *ctx)
 void fyai_fleet_watch_reap(struct fyai_ctx *ctx)
 {
 	struct fyai_fleet_watcher **link = &ctx->fleet->watchers, *w;
+	bool changed = false;
 
 	while ((w = *link)) {
 		if (!w->ended) {
@@ -215,7 +311,10 @@ void fyai_fleet_watch_reap(struct fyai_ctx *ctx)
 		}
 		*link = w->next;
 		fleet_watcher_free(w);
+		changed = true;
 	}
+	if (changed)
+		fleet_watch_panel(ctx);
 }
 
 void fyai_fleet_watch_cleanup(struct fyai_fleet_watch *fw)
@@ -240,6 +339,7 @@ void fyai_fleet_watch_abandon(struct fyai_fleet_watch *fw)
 			close(w->in);
 		if (w->out >= 0)
 			close(w->out);
+		free(w->last);
 		free(w->name);
 		free(w);
 	}
