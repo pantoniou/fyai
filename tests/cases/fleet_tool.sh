@@ -26,6 +26,9 @@ mock_watch
 wait_requests 1
 assert_request 0 'not any(t["function"]["name"] == "fleet" for t in r["body"].get("tools", []))'
 
+# Nobody answers a question in a run of a prompt: the root asks for none.
+"$FYAI_BIN" config set fleet/approve never >/dev/null 2>&1 ||
+	fail "cannot set fleet/approve"
 "$FYAI_BIN" serve --daemon >"$TEST_DIR/serve.out" 2>&1 ||
 	fail "the root server did not start: $(cat "$TEST_DIR/serve.out")"
 fyai_test_on_exit '"$FYAI_BIN" serve stop >/dev/null 2>&1 || true'
