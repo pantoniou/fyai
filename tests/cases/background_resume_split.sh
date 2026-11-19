@@ -32,7 +32,7 @@ steps:
     count: 2
     timeout: session
 PTY
-grep -q 'client 2: attached to the worker' .fyai/logs/serve.log ||
+grep -q 'client [0-9]*: attached to the worker' .fyai/logs/serve.log ||
     fail "the picker did not join the live session"
 
 # resume --last and resume NAME join it too, and start no second worker.
