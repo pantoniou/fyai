@@ -3,6 +3,7 @@
 #define FYAI_FLEET_WATCH_H
 
 #include <stdbool.h>
+#include <stddef.h>
 
 #include <libfyaml.h>
 #include <libfyaml/libfyaml-generic.h>
@@ -52,6 +53,9 @@ int fyai_fleet_watch_add(struct fyai_ctx *ctx, const char *name);
  * nothing. Failures are traced; the session goes on.
  */
 void fyai_fleet_watch_restore(struct fyai_ctx *ctx);
+
+/* The number of members that this session supervises now. */
+size_t fyai_fleet_watch_live(struct fyai_ctx *ctx);
 
 /* Free the connections that ended; call it outside their frames. */
 void fyai_fleet_watch_reap(struct fyai_ctx *ctx);

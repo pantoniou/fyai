@@ -46,6 +46,12 @@ int fyai_fleet_rows_search(struct fyai_ctx *ctx, struct fy_generic_builder *gb,
 int fyai_fleet_rows_read(struct fyai_ctx *ctx, struct fy_generic_builder *gb,
 			 const char *name, long long turns, fy_generic *rowsp);
 
+/* The default of fleet/max_live: the most members of a root at one time. */
+#define FYAI_FLEET_MAX_LIVE	8
+
+/* 0 when this root session may start one more member, else -1 with the cause. */
+int fyai_fleet_room(struct fyai_ctx *ctx);
+
 /*
  * Start a session in @project (relative to the root) on @branch, or on
  * `fleet/` and the first words of @task, with @task as its first message. In

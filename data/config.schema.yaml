@@ -552,6 +552,23 @@ properties:
             description: >-
               The names of the directories that the scan does not go into, as
               shell patterns.
+      approve:
+        type: string
+        enum: [never, start, always]
+        default: start
+        description: >-
+          Which calls of the `fleet` tool of a root session ask the person
+          first: `start` asks before a new session starts, `always` asks
+          before each call that changes a session (start, send, interrupt,
+          answer, stop), and `never` asks for none. A call that must ask when
+          nobody can answer is refused.
+      max_live:
+        type: integer
+        minimum: 0
+        default: 8
+        description: >-
+          The most members that a root session supervises at one time; a
+          start above it is refused until one ends. 0 sets no limit.
   agent:
     x-fyai-model: read
     type: object

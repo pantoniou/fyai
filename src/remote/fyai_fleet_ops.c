@@ -678,6 +678,8 @@ int fyai_fleet_start(struct fyai_ctx *ctx, struct fy_generic_builder *gb,
 			fy_stringf(gb, "%s:%s", home && strcmp(home, root) ?
 				   home + strlen(root) + 1 : ".", fyai_ctx_branch(ctx)));
 		if (home && !strcmp(home, root)) {
+			if (fyai_fleet_room(ctx))
+				goto out;
 			tasks = fleet_tasks_of(ctx);
 			id = fleet_task_next(tasks);
 			args = fy_append(gb, fy_append(gb, args, fy_string("--fleet-task")),
@@ -732,6 +734,20 @@ int fyai_fleet_task_mark(struct fyai_ctx *ctx, const char *id, const char *state
 			 fy_assoc(gb, task, "state", fy_value(gb, state)));
 	fyai_error_check(ctx, fy_is_mapping(tasks), err, "fleet: cannot keep the task");
 	return fleet_tasks_publish(ctx, tasks, publish);
+err:
+	return -1;
+}
+
+int fyai_fleet_room(struct fyai_ctx *ctx)
+{
+	long long max = fy_get(fy_get(ctx->cfg->config_doc, "fleet", fy_invalid),
+			       "max_live", (long long)FYAI_FLEET_MAX_LIVE);
+
+	fyai_error_check(ctx, max <= 0 || (long long)fyai_fleet_watch_live(ctx) < max,
+			 err, "fleet: %zu members run, the most that fleet/max_live "
+			 "allows; wait for one to end, or stop one",
+			 fyai_fleet_watch_live(ctx));
+	return 0;
 err:
 	return -1;
 }

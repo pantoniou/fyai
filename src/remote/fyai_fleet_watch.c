@@ -299,6 +299,17 @@ void fyai_fleet_watch_restore(struct fyai_ctx *ctx)
 	}
 }
 
+size_t fyai_fleet_watch_live(struct fyai_ctx *ctx)
+{
+	struct fyai_fleet_watcher *w;
+	size_t n = 0;
+
+	for (w = ctx->fleet->watchers; w; w = w->next)
+		if (!w->ended)
+			n++;
+	return n;
+}
+
 void fyai_fleet_watch_reap(struct fyai_ctx *ctx)
 {
 	struct fyai_fleet_watcher **link = &ctx->fleet->watchers, *w;
