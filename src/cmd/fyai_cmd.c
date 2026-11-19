@@ -118,6 +118,8 @@ static const struct {
 	{ "resume",		fyai_cmd_resume },
 	{ "session_list",	fyai_cmd_session_list },
 	{ "session_kill",	fyai_cmd_session_kill },
+	{ "fleet_list",		fyai_cmd_fleet_list },
+	{ "fleet_scan",		fyai_cmd_fleet_scan },
 	{ "background",		fyai_cmd_background },
 	{ "continue",		fyai_cmd_continue },
 	{ "zoom",		fyai_cmd_zoom },

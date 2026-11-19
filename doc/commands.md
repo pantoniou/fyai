@@ -3510,6 +3510,69 @@ SIGKILL at once.
 | `--output FORMAT` | write the result as markdown, json, or yaml; see `help output` |
 | `-h`, `--help` | show this help |
 
+## fyai fleet
+
+the projects and sessions under the root project
+
+**Usage:** `fyai fleet {list|scan} ...`
+
+The fleet of the root project: the topmost project above this one, and
+every project below it. A project is a directory whose `.fyai` holds an
+arena; a scan finds them, so no project is registered by hand
+(`fleet/scan` in the configuration). A session is stored in its project
+whether a process runs it or not. The stored configuration of the root
+sets the scan: `fyai config set fleet/scan/depth 2` there.
+
+
+### Commands
+
+| Command | Description |
+| --- | --- |
+| `list` | list every session under the root |
+| `scan` | list the projects under the root |
+
+With no command, `list` runs.
+
+## fyai fleet list
+
+list every session under the root
+
+**Usage:** `fyai fleet list`
+
+List the sessions of every project under the root: the project
+(relative to the root), the branch, what it does, whether a client
+drives it, and the process of its worker. A session that a server
+lists is `idle`, `running` or `waiting`. A session that no server
+lists is `stored`; one whose stored work names a process that still
+runs is `running` with no server, and one whose process was lost is
+`lost`: a start restores its work.
+
+
+### Options
+
+| Option | Description |
+| --- | --- |
+| `--output FORMAT` | write the result as markdown, json, or yaml; see `help output` |
+| `-h`, `--help` | show this help |
+
+## fyai fleet scan
+
+list the projects under the root
+
+**Usage:** `fyai fleet scan`
+
+Scan the root for projects and list each one: its directory relative
+to the root (`.` is the root), its stored sessions, and the sessions
+that a server lists.
+
+
+### Options
+
+| Option | Description |
+| --- | --- |
+| `--output FORMAT` | write the result as markdown, json, or yaml; see `help output` |
+| `-h`, `--help` | show this help |
+
 ## fyai agent
 
 run one sub-agent on a task
@@ -7163,6 +7226,67 @@ fyai again with the key. The changes of a session in a view are not
 applied: `view apply session` writes them to the project. `/session
 lockdown` goes the other way, and restarts the session to start the
 transport.
+
+
+### Options
+
+| Option | Description |
+| --- | --- |
+| `-h`, `--help` | show this help |
+
+## /fleet
+
+the projects and sessions under the root project
+
+**Usage:** `/fleet {list|scan} ...`
+
+The fleet of the root project: the topmost project above this one, and
+every project below it. A project is a directory whose `.fyai` holds an
+arena; a scan finds them, so no project is registered by hand
+(`fleet/scan` in the configuration). A session is stored in its project
+whether a process runs it or not. The stored configuration of the root
+sets the scan: `fyai config set fleet/scan/depth 2` there.
+
+
+### Commands
+
+| Command | Description |
+| --- | --- |
+| `list` | list every session under the root |
+| `scan` | list the projects under the root |
+
+With no command, `list` runs.
+
+## /fleet list
+
+list every session under the root
+
+**Usage:** `/fleet list`
+
+List the sessions of every project under the root: the project
+(relative to the root), the branch, what it does, whether a client
+drives it, and the process of its worker. A session that a server
+lists is `idle`, `running` or `waiting`. A session that no server
+lists is `stored`; one whose stored work names a process that still
+runs is `running` with no server, and one whose process was lost is
+`lost`: a start restores its work.
+
+
+### Options
+
+| Option | Description |
+| --- | --- |
+| `-h`, `--help` | show this help |
+
+## /fleet scan
+
+list the projects under the root
+
+**Usage:** `/fleet scan`
+
+Scan the root for projects and list each one: its directory relative
+to the root (`.` is the root), its stored sessions, and the sessions
+that a server lists.
 
 
 ### Options

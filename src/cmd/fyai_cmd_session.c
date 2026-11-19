@@ -15,8 +15,16 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <errno.h>
+#include <fcntl.h>
+#include <limits.h>
+#include <poll.h>
+#include <signal.h>
 #include <string.h>
+#include <sys/wait.h>
+#include <unistd.h>
 
+#include "fyai_fleet.h"
 #include "fyai_pending.h"
 #include "fyai_remote.h"
 #include "fyai_turn.h"
@@ -26,6 +34,8 @@
 #include "fyai_cmd.h"
 #include "fyai_cmd_int.h"
 #include "fyai_agents.h"
+#include "fyai_arena.h"
+#include "fyai_buf.h"
 #include "fyai_branch.h"
 #include "fyai_browser.h"
 #include "fyai_sink.h"
@@ -179,6 +189,271 @@ int fyai_cmd_session_list(struct fyai_cmd_call *call, fy_generic *result)
 			"pid", fy_get(session, "pid", 0LL)));
 	*result = rows;
 	return 0;
+}
+
+/* ---- the fleet (doc/fyai-fleet-sdd.md, section 6) ---------------------- */
+
+/* The directories that a scan does not go into when the configuration names none. */
+static const char *const fleet_exclude_default[] = {
+	"node_modules", "build*", ".cache",
+};
+
+struct fleet_walk {
+	struct fyai_cmd_call *call;
+	const char *root;
+	/* {project, sessions, live} of each project: its stored rows and the
+	 * rows of the record of its server. */
+	fy_generic projects;
+};
+
+static int fleet_found(const char *dir, void *data)
+{
+	struct fleet_walk *w = data;
+	struct fy_generic_builder *gb = w->call->gb;
+	const char *rel = strcmp(dir, w->root) ? dir + strlen(w->root) + 1 : ".";
+	fy_generic rows, live;
+
+	/* A project that cannot be read is listed with no stored session. */
+	if (fyai_peek_sessions(fy_sprintfa("%s/.fyai/arena", dir), gb, &rows))
+		rows = fy_seq_empty;
+	live = fyai_remote_project_sessions(dir, gb);
+	w->projects = fy_append(gb, w->projects, fy_mapping(gb,
+		"project", fy_value(gb, rel), "sessions", rows, "live", live));
+	return fy_is_valid(w->projects) ? 0 : -1;
+}
+
+/*
+ * Scan the root of the fleet of the current directory into @w, as `fleet/scan`
+ * of the stored configuration of the root says. The root is read with a peek:
+ * a process with an arena open reads no other, so the commands run with none.
+ */
+static int fleet_collect(struct fyai_cmd_call *call, struct fleet_walk *w)
+{
+	struct fyai_ctx *ctx = fyai_cmd_call_ctx(call);
+	fy_generic config = fy_invalid, scan, exclude;
+	char *cwd, *root = NULL;
+	size_t i;
+	int rc = -1;
+
+	w->call = call;
+	w->projects = fy_seq_empty;
+	cwd = getcwd(NULL, 0);
+	fyai_error_check(ctx, cwd, out, "fleet: cannot read the current directory");
+	root = fyai_fleet_root_of(cwd);
+	fyai_error_check(ctx, root, out, "fleet: no project holds '%s'", cwd);
+	/* A root whose configuration cannot be read scans as the defaults say. */
+	if (fyai_peek_arena_config(fy_sprintfa("%s/.fyai/arena", root), NULL, NULL,
+				   call->gb, &config, NULL, NULL, NULL))
+		config = fy_invalid;
+	scan = fy_get(fy_get(config, "fleet", fy_invalid), "scan", fy_invalid);
+	exclude = fy_get(scan, "exclude", fy_invalid);
+	if (!fy_is_sequence(exclude)) {
+		exclude = fy_seq_empty;
+		for (i = 0; i < ARRAY_SIZE(fleet_exclude_default); i++)
+			exclude = fy_append(call->gb, exclude,
+					    fy_value(call->gb, fleet_exclude_default[i]));
+	}
+	w->root = root;
+	rc = fyai_fleet_scan(root, (int)fy_get(scan, "depth",
+					       (long long)DEFAULT_FLEET_SCAN_DEPTH),
+			     exclude, fleet_found, w);
+	fyai_error_check(ctx, rc >= 0, out, "fleet: cannot scan the root '%s'", root);
+	fyai_error_check(ctx, !rc, out, "fleet: cannot keep the projects of the root");
+out:
+	free(root);
+	free(cwd);
+	w->root = NULL;
+	return rc ? -1 : 0;
+}
+
+/* The row of @rows whose branch is @branch, or fy_invalid. */
+static fy_generic fleet_live_row(fy_generic live, fy_generic branch)
+{
+	fy_generic row;
+
+	fy_foreach(row, live)
+		if (fy_equal(fy_get(row, "branch", fy_invalid), branch))
+			return row;
+	return fy_invalid;
+}
+
+/*
+ * A process whose arena is open reads no other (an arena maps at a fixed
+ * address): a session runs `fleet SUB --output json` in a child with no arena,
+ * and takes its rows. The child is short; the read waits for it.
+ */
+static int fleet_child(struct fyai_cmd_call *call, const char *sub,
+		       fy_generic *result)
+{
+	struct fyai_ctx *ctx = fyai_cmd_call_ctx(call);
+	struct fyai_buf out = { 0 }, err = { 0 };
+	int fds[2][2] = { { -1, -1 }, { -1, -1 } }, null = -1, status = 0, i, rc = -1;
+	struct pollfd pfd[2];
+	char self[PATH_MAX], chunk[4096];
+	const char *argv[6];
+	ssize_t n;
+	pid_t pid = -1;
+
+	n = fyai_host_executable(self, sizeof(self));
+	fyai_error_check(ctx, n > 0 && (size_t)n < sizeof(self), out,
+			 "fleet: cannot find this program");
+	self[n] = '\0';
+	argv[0] = self;
+	argv[1] = "fleet";
+	argv[2] = sub;
+	argv[3] = "--output";
+	argv[4] = "json";
+	argv[5] = NULL;
+	null = open("/dev/null", O_RDONLY | O_CLOEXEC);
+	rc = null < 0 || pipe2(fds[0], O_CLOEXEC) || pipe2(fds[1], O_CLOEXEC);
+	fyai_error_check(ctx, !rc, out, "fleet: cannot make the pipes of the scan: %s",
+			 strerror(errno));
+	rc = -1;
+	pid = fork();
+	fyai_error_check(ctx, pid >= 0, out, "fleet: cannot fork the scan: %s",
+			 strerror(errno));
+	if (!pid) {
+		if (dup2(null, STDIN_FILENO) < 0 || dup2(fds[0][1], STDOUT_FILENO) < 0 ||
+		    dup2(fds[1][1], STDERR_FILENO) < 0)
+			_exit(126);
+		fyai_close_fds_from(STDERR_FILENO + 1);
+		fyai_loop_restore_signal_mask(ctx->loop);
+		signal(SIGPIPE, SIG_DFL);
+		execv(self, (char *const *)argv);
+		_exit(127);
+	}
+	for (i = 0; i < 2; i++) {
+		close(fds[i][1]);
+		fds[i][1] = -1;
+		pfd[i].fd = fds[i][0];
+		pfd[i].events = POLLIN;
+	}
+	while (pfd[0].fd >= 0 || pfd[1].fd >= 0) {
+		if (poll(pfd, 2, -1) < 0) {
+			if (errno == EINTR)
+				continue;
+			break;
+		}
+		for (i = 0; i < 2; i++) {
+			if (pfd[i].fd < 0 || !pfd[i].revents)
+				continue;
+			n = read(pfd[i].fd, chunk, sizeof(chunk));
+			if (n < 0 && errno == EINTR)
+				continue;
+			if (n <= 0 || fyai_buf_append_data(i ? &err : &out, chunk,
+							   (size_t)n)) {
+				pfd[i].fd = -1;
+				continue;
+			}
+		}
+	}
+	while (waitpid(pid, &status, 0) < 0 && errno == EINTR)
+		;
+	pid = -1;
+	if (fyai_buf_append_data(&out, "", 1) || fyai_buf_append_data(&err, "", 1))
+		goto out;
+	fyai_error_check(ctx, WIFEXITED(status) && !WEXITSTATUS(status), out,
+			 "%s", err.len > 1 ? (char *)err.data : "fleet: the scan failed");
+	*result = parse_json_string(call->gb, out.data);
+	fyai_error_check(ctx, fy_is_sequence(*result), out,
+			 "fleet: the scan gave no rows");
+	rc = 0;
+out:
+	if (pid > 0)
+		while (waitpid(pid, NULL, 0) < 0 && errno == EINTR)
+			;
+	for (i = 0; i < 2; i++) {
+		if (fds[i][0] >= 0)
+			close(fds[i][0]);
+		if (fds[i][1] >= 0)
+			close(fds[i][1]);
+	}
+	if (null >= 0)
+		close(null);
+	fyai_buf_free(&out);
+	fyai_buf_free(&err);
+	return rc;
+}
+
+/* The arena of this process is open: the peeks run in a child. */
+static bool fleet_arena_open(struct fyai_cmd_call *call)
+{
+	return fyai_cmd_call_ctx(call)->arena->durable_allocator != NULL;
+}
+
+int fyai_cmd_fleet_list(struct fyai_cmd_call *call, fy_generic *result)
+{
+	struct fy_generic_builder *gb = call->gb;
+	struct fleet_walk w;
+	fy_generic project, name, row, live, owner, out = fy_seq_empty;
+	const char *state;
+
+	if (fleet_arena_open(call))
+		return fleet_child(call, "list", result);
+	if (fleet_collect(call, &w))
+		return -1;
+	fy_foreach(project, w.projects) {
+		name = fy_get(project, "project", fy_invalid);
+		/* A session that a server lists: its state is the server's. A
+		 * session that no server lists is stored, runs with no server, or
+		 * was lost with work that a start restores. */
+		fy_foreach(row, fy_get(project, "sessions", fy_seq_empty)) {
+			live = fleet_live_row(fy_get(project, "live", fy_seq_empty),
+					      fy_get(row, "branch", fy_invalid));
+			owner = fy_get(row, "owner", fy_invalid);
+			if (fy_is_valid(live)) {
+				out = fy_append(gb, out, fy_mapping(gb, "project", name,
+					"branch", fy_get(row, "branch", ""),
+					"state", fyai_remote_live_state(live),
+					"attached", fy_get(live, "attached", false),
+					"pid", fy_get(live, "pid", 0LL)));
+				continue;
+			}
+			state = !fy_is_valid(owner) ? "stored" :
+				fyai_pending_owner_alive(owner) ? "running" : "lost";
+			row = fy_mapping(gb, "project", name,
+					 "branch", fy_get(row, "branch", ""),
+					 "state", state, "attached", false);
+			if (!strcmp(state, "running"))
+				row = fy_assoc(gb, row, "pid", fy_get(owner, "pid", 0LL));
+			out = fy_append(gb, out, row);
+		}
+		/* A live session with no stored exchange yet. */
+		fy_foreach(live, fy_get(project, "live", fy_seq_empty)) {
+			if (fy_is_valid(fleet_live_row(fy_get(project, "sessions",
+							      fy_seq_empty),
+						       fy_get(live, "branch", fy_invalid))))
+				continue;
+			out = fy_append(gb, out, fy_mapping(gb, "project", name,
+				"branch", fy_get(live, "branch", ""),
+				"state", fyai_remote_live_state(live),
+				"attached", fy_get(live, "attached", false),
+				"pid", fy_get(live, "pid", 0LL)));
+		}
+	}
+	*result = out;
+	return fy_is_valid(out) ? 0 : -1;
+}
+
+int fyai_cmd_fleet_scan(struct fyai_cmd_call *call, fy_generic *result)
+{
+	struct fy_generic_builder *gb = call->gb;
+	struct fleet_walk w;
+	fy_generic project, out = fy_seq_empty;
+
+	if (fleet_arena_open(call))
+		return fleet_child(call, "scan", result);
+	if (fleet_collect(call, &w))
+		return -1;
+	fy_foreach(project, w.projects)
+		out = fy_append(gb, out, fy_mapping(gb,
+			"project", fy_get(project, "project", fy_invalid),
+			"sessions", (long long)fy_len(fy_get(project, "sessions",
+							   fy_seq_empty)),
+			"live", (long long)fy_len(fy_get(project, "live",
+						       fy_seq_empty))));
+	*result = out;
+	return fy_is_valid(out) ? 0 : -1;
 }
 
 /* End one live session at the server. */
