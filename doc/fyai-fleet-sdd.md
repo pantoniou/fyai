@@ -463,6 +463,10 @@ turn.
   (`fyai_session_send`, from `a watcher`), which the model reads as
   `[message 'a watcher']`. The session answers in its own frames, which the
   driver and the watcher both see.
+- The top row of the client says where it came from: the template key
+  `{fleet}` is `jumped from SESSION · /root returns · ` while
+  `$FYAI_FLEET_RETURN` is set in the client, and empty otherwise. The default
+  `prompt_top` has it first, so that a long path cannot cut it off.
 - `/root` leaves the session as it was before the jump: a session that a
   server holds keeps it, and this client ends with the next session `root:`.
   The client runs `fleet attach` of `$FYAI_FLEET_RETURN`, the root session,
@@ -475,9 +479,8 @@ with the state and the title) in `/jump`, `fleet attach`, `fleet read` and
 one short child.
 
 Deferred: a picker window of the fleet (`/sessions`; the question panel holds
-four options, the browser is bound to the sessions of one project); the name
-of the session and the way back on the status line; and the events `jumped` and `returned` of
-the root session.
+four options, the browser is bound to the sessions of one project); and the
+events `jumped` and `returned` of the root session.
 
 ### 11.1 The fleet panel
 
