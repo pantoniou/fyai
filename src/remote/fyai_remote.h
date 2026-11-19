@@ -94,10 +94,22 @@ int fyai_remote_supervise(struct fyai_ctx *ctx, const char *dir,
 			  const char *branch, const char *subtype,
 			  fy_generic fields);
 /*
+ * Attach to the live session on @branch of the project of @dir as a
+ * supervisor that stays: the connection *@fdp gets a fyai session_state frame
+ * for each change of its state (doc/fyai-fleet-sdd.md, section 7); *@imagep
+ * says whether it speaks images, and *@statep is the state now (a static
+ * string). 0, or -1 with the cause reported.
+ */
+int fyai_remote_supervisor_open(struct fyai_ctx *ctx, const char *dir,
+				const char *branch, int *fdp, bool *imagep,
+				const char **statep);
+/*
  * Start a session on @branch of the project of @dir at the server that runs
  * its sessions, with @task as its first message and the global options @args
  * (a sequence of strings, or fy_invalid). The server keeps the session after
- * its turn. 0, or -1 with the cause reported.
+ * its turn. With no @task the worker starts on the branch and sends nothing,
+ * which restores the work that a lost process left. 0, or -1 with the cause
+ * reported.
  */
 int fyai_remote_start(struct fyai_ctx *ctx, const char *dir, const char *branch,
 		      const char *task, fy_generic args);

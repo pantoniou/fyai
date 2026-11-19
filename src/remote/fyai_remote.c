@@ -1948,6 +1948,38 @@ out:
 	return rc ? -1 : 0;
 }
 
+int fyai_remote_supervisor_open(struct fyai_ctx *ctx, const char *dir,
+				const char *branch, int *fdp, bool *imagep,
+				const char **statep)
+{
+	struct fy_generic_builder *gb = fy_generic_builder_create(NULL);
+	struct remote_client client = { .ctx = ctx, .gb = gb, .fd = -1, .ssh = -1 };
+	int rc = -1;
+
+	fyai_error_check(ctx, gb, out, "cannot allocate a request builder");
+	rc = remote_session_open_at(&client, dir, "supervise");
+	if (!rc)
+		rc = remote_request(&client, "supervise", fy_mapping(gb,
+			"subtype", "fyai_session_attach", "branch", branch,
+			"supervise", true));
+	if (rc)
+		goto out;
+	*statep = fy_get(client.answer, "state", "idle");
+	*statep = !strcmp(*statep, "running") ? "running" :
+		  !strcmp(*statep, "waiting") ? "waiting" : "idle";
+	*imagep = jsonrpc_conn_image(client.peer);
+	/* The connection outlives the client: the caller reads it from now. */
+	jsonrpc_conn_destroy(client.peer);
+	client.peer = NULL;
+	*fdp = client.fd;
+	client.fd = -1;
+out:
+	remote_client_close(&client);
+	if (gb)
+		fy_generic_builder_destroy(gb);
+	return rc ? -1 : 0;
+}
+
 int fyai_remote_start(struct fyai_ctx *ctx, const char *dir, const char *branch,
 		      const char *task, fy_generic args)
 {
@@ -1963,7 +1995,7 @@ int fyai_remote_start(struct fyai_ctx *ctx, const char *dir, const char *branch,
 			"subtype", "fyai_session_attach", "branch", branch,
 			"keep", true, "args", fy_is_sequence(args) ?
 					      fy_gb_internalize(gb, args) : fy_seq_empty));
-	if (rc)
+	if (rc || !task)
 		goto out;
 	/* The task is the first message: the session runs it with no client,
 	 * and the server keeps it after. */

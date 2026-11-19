@@ -96,6 +96,11 @@ struct fyai_remote_peer {
 	struct fyai_remote_peer *wnext;	/* the next watcher of the session */
 	/* A supervisor that sent a request: it watches only for its answers. */
 	bool quiet;
+	/* A supervisor that stays: it gets the changes of the state of the
+	 * session as fyai session_state frames (doc/fyai-fleet-sdd.md, 7). */
+	bool states;
+	/* It goes once its output went out: the last frame reaches it. */
+	bool drain;
 };
 
 struct fyai_remote_session {
@@ -124,6 +129,10 @@ struct fyai_remote_session {
 	/* A worker that connected to the server: no child of it. Its channel
 	 * closing ends the session. */
 	bool adopted;
+	/* The worker said that a turn runs, and the state that the supervisors
+	 * were told last. */
+	bool busy;
+	const char *state_sent;
 	/* A registered worker: its own client drives it, and the server lists it
 	 * and serves its watchers. The worker says when it is busy. */
 	bool driven;
@@ -298,6 +307,57 @@ err:
 }
 
 /*
+ * Tell the supervisors that stay the state of @session: `running`, `waiting`,
+ * `idle` (with @last, the text of the answer of a turn that ended) or
+ * `ended`. A state is sent when it changes, an answer each time.
+ */
+static void remote_states(struct fyai_remote_session *session, const char *state,
+			  fy_generic last)
+{
+	struct fy_generic_builder *gb = fyai_ctx_transient_gb(fyai_cmd_call_ctx(session->server->call));
+	struct fyai_remote_peer *watcher;
+	fy_generic frame;
+
+	if (fy_is_invalid(last) && session->state_sent &&
+	    !strcmp(session->state_sent, state))
+		return;
+	session->state_sent = state;
+	frame = fy_mapping(gb, "type", "fyai", "subtype", "session_state",
+			   "branch", session->branch ? session->branch : "",
+			   "state", state);
+	if (fy_is_valid(last))
+		frame = fy_assoc(gb, frame, "last", last);
+	for (watcher = session->watchers; watcher; watcher = watcher->wnext)
+		if (watcher->states)
+			remote_peer_send(watcher, frame);
+}
+
+/* The state of @session as its worker said it last. */
+static const char *remote_state_of(const struct fyai_remote_session *session)
+{
+	return session->waiting ? "waiting" : session->busy ? "running" : "idle";
+}
+
+/*
+ * The session ended: a supervisor that stays gets `ended` and goes once the
+ * frame is out; any other client fails.
+ */
+static void remote_session_ended(struct fyai_remote_session *session)
+{
+	struct fyai_remote_peer *watcher;
+
+	remote_states(session, "ended", fy_invalid);
+	if (session->peer)
+		session->peer->failed = true;
+	for (watcher = session->watchers; watcher; watcher = watcher->wnext) {
+		if (watcher->states)
+			watcher->drain = true;
+		else
+			watcher->failed = true;
+	}
+}
+
+/*
  * The state of a registered worker, from its fyai_worker frame: whether it is
  * busy, and whether its client left it to the server (`driven: false`, with
  * `keep` when no turn is in flight).
@@ -341,13 +401,22 @@ static void remote_worker_frame(struct jsonrpc_conn *conn, fy_generic frame,
 		session->due--;
 		session->server->dirty = true;
 	}
+	if (fy_equal(fy_get(frame, "type", ""), "result")) {
+		session->busy = false;
+		remote_states(session, session->waiting ? "waiting" : "idle",
+			      fy_get(frame, "result", fy_value(gb, "")));
+	}
 	/* The registry learns the branch of the worker; no client sees it. */
 	if (fy_equal(fy_get(frame, "type", ""), "fyai_worker")) {
 		if (session->waiting != fy_get(frame, "waiting", false)) {
 			session->waiting = !session->waiting;
 			session->server->dirty = true;
 		}
+		session->busy = fy_get(frame, "busy", session->busy);
 		remote_worker_driven(session, frame);
+		/* An idle state comes with the answer, in its result frame. */
+		if (strcmp(remote_state_of(session), "idle"))
+			remote_states(session, remote_state_of(session), fy_invalid);
 		branch = fy_get(frame, "branch", (const char *)NULL);
 		if (!branch || !fyai_branch_name_ref_valid(branch) ||
 		    (session->branch && !strcmp(session->branch, branch)))
@@ -418,7 +487,6 @@ static void remote_worker_frame(struct jsonrpc_conn *conn, fy_generic frame,
 static enum fyai_event_action remote_worker_exit(const struct fyai_event *ev)
 {
 	struct fyai_remote_session *session = ev->userdata;
-	struct fyai_remote_peer *watcher;
 	char how[64];
 
 	session->child = NULL;
@@ -427,10 +495,7 @@ static enum fyai_event_action remote_worker_exit(const struct fyai_event *ev)
 	remote_log(session->server, "worker %ld (branch '%s') %s", (long)ev->pid,
 		   session->branch ? session->branch : "none",
 		   remote_status_text(ev->status, how, sizeof(how)));
-	if (session->peer)
-		session->peer->failed = true;
-	for (watcher = session->watchers; watcher; watcher = watcher->wnext)
-		watcher->failed = true;
+	remote_session_ended(session);
 	return FYAIEA_CONTINUE;
 }
 
@@ -1063,7 +1128,8 @@ static void remote_authenticate(struct fyai_remote_peer *peer, fy_generic frame)
  * global options @words.
  */
 static void remote_attach(struct fyai_remote_peer *peer, fy_generic id,
-			  const char *branch, fy_generic words, bool watch)
+			  const char *branch, fy_generic words, bool watch,
+			  bool supervise)
 {
 	struct fyai_remote_server *server = peer->server;
 	struct fy_generic_builder *gb = fyai_ctx_transient_gb(fyai_cmd_call_ctx(server->call));
@@ -1087,9 +1153,14 @@ static void remote_attach(struct fyai_remote_peer *peer, fy_generic id,
 		peer->session = session;
 		peer->wnext = session->watchers;
 		session->watchers = peer;
-		remote_log(server, "client %lu: watches the worker %ld on"
-			   "branch '%s'", peer->id, (long)session->pid, branch);
-		remote_reply(peer, id, NULL, fy_mapping(gb, "branch", branch));
+		/* A supervisor that stays gets the state, not the frames, and the
+		 * state that the session has now. */
+		peer->quiet = peer->states = supervise;
+		remote_log(server, "client %lu: %s the worker %ld on branch '%s'",
+			   peer->id, supervise ? "supervises" : "watches",
+			   (long)session->pid, branch);
+		remote_reply(peer, id, NULL, fy_mapping(gb, "branch", branch,
+				"state", remote_state_of(session)));
 		return;
 	}
 	if (session && ((session->peer && session->peer != peer) ||
@@ -1902,7 +1973,7 @@ static void remote_admit_frame(struct jsonrpc_conn *conn, fy_generic frame,
 	struct fyai_remote_server *server = peer->server;
 	fy_generic request, id, words;
 	const char *subtype, *text, *why = NULL;
-	bool watch;
+	bool watch, supervise;
 	char *resumed;
 
 	(void)conn;
@@ -1966,6 +2037,7 @@ static void remote_admit_frame(struct jsonrpc_conn *conn, fy_generic frame,
 		peer->failed = true;
 		return;
 	}
+	supervise = fy_get(request, "supervise", false);
 	watch = fy_get(request, "watch", false);
 	/* An SDK session attaches to a branch; the rest is the fyai protocol. */
 	if ((!strcmp(subtype, "fyai_run") ||
@@ -2013,7 +2085,8 @@ static void remote_admit_frame(struct jsonrpc_conn *conn, fy_generic frame,
 			remote_reply(peer, id, "a watcher names the branch to watch",
 				     fy_invalid);
 		} else if (text) {
-			remote_attach(peer, id, text, words, watch);
+			remote_attach(peer, id, text, words, watch || supervise,
+				      supervise);
 			if (peer->session && !watch && fy_get(request, "keep", false)) {
 				peer->session->keep = true;
 				remote_log(server, "client %lu: the session of '%s' is "
@@ -2390,6 +2463,14 @@ static void remote_reap(struct fyai_remote_server *server)
 
 	while ((peer = *link)) {
 		remote_run_settle(peer);
+		/* The last frames go out before the peer goes. */
+		if (peer->drain && !peer->failed && !jsonrpc_conn_closed(peer->conn) &&
+		    jsonrpc_conn_has_output(peer->conn)) {
+			link = &peer->next;
+			continue;
+		}
+		if (peer->drain)
+			peer->failed = true;
 		if (!peer->failed && !jsonrpc_conn_closed(peer->conn)) {
 			link = &peer->next;
 			continue;
@@ -2434,11 +2515,7 @@ static void remote_reap(struct fyai_remote_server *server)
 		    jsonrpc_conn_closed(session->worker)) {
 			session->exited = true;
 			server->dirty = true;
-			if (session->peer)
-				session->peer->failed = true;
-			for (watcher = session->watchers; watcher;
-			     watcher = watcher->wnext)
-				watcher->failed = true;
+			remote_session_ended(session);
 			remote_log(server, "worker %ld (branch '%s') closed its "
 				   "channel", (long)session->pid,
 				   session->branch ? session->branch : "none");
