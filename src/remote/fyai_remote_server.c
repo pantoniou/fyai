@@ -94,6 +94,8 @@ struct fyai_remote_peer {
 	bool native;			/* a fyai session: the client said hello */
 	bool lines_only;		/* its transport carries lines: no image mode */
 	struct fyai_remote_peer *wnext;	/* the next watcher of the session */
+	/* A supervisor that sent a request: it watches only for its answers. */
+	bool quiet;
 };
 
 struct fyai_remote_session {
@@ -397,14 +399,18 @@ static void remote_worker_frame(struct jsonrpc_conn *conn, fy_generic frame,
 	}
 	/* The same frame goes to the driver and to each watcher: encode it
 	 * once. */
-	if (!session->watchers) {
+	for (watcher = session->watchers; watcher; watcher = watcher->wnext)
+		if (!watcher->quiet)
+			break;
+	if (!watcher) {
 		remote_peer_send(session->peer, frame);
 		return;
 	}
 	wire.frame = frame;
 	remote_peer_send_wire(session->peer, &wire);
 	for (watcher = session->watchers; watcher; watcher = watcher->wnext)
-		remote_peer_send_wire(watcher, &wire);
+		if (!watcher->quiet)
+			remote_peer_send_wire(watcher, &wire);
 	if (wire.image)
 		jsonrpc_image_free(wire.image);
 }
@@ -1785,6 +1791,59 @@ static void remote_adopt(struct fyai_remote_peer *peer, fy_generic id,
 }
 
 /*
+ * A request of a supervisor (doc/fyai-fleet-sdd.md, section 7) to the live
+ * session on a branch, also one that a client drives: fyai_session_send {text,
+ * from}, fyai_session_interrupt, fyai_session_answer {answer}. It goes to the
+ * worker under the prefix of a watcher, so the answer comes back to @peer,
+ * which then watches the session quietly: it gets its answers and no frame.
+ */
+static void remote_supervise(struct fyai_remote_peer *peer, fy_generic id,
+			     const char *subtype, fy_generic request)
+{
+	struct fyai_remote_server *server = peer->server;
+	struct fy_generic_builder *gb = fyai_ctx_transient_gb(fyai_cmd_call_ctx(server->call));
+	struct fyai_remote_session *session;
+	const char *branch = fy_get(request, "branch", (const char *)NULL);
+	fy_generic order;
+
+	for (session = server->sessions; branch && session; session = session->next)
+		if (!session->exited && session->branch &&
+		    !strcmp(session->branch, branch))
+			break;
+	if (!session || !session->worker) {
+		remote_reply(peer, id, "no live session on the branch", fy_invalid);
+		return;
+	}
+	if (peer->session) {
+		remote_reply(peer, id, "the client has a session", fy_invalid);
+		return;
+	}
+	if (!strcmp(subtype, "fyai_session_send"))
+		order = fy_mapping(gb, "subtype", "fyai_message",
+				   "text", fy_get(request, "text", ""),
+				   "from", fy_get(request, "from", ""));
+	else if (!strcmp(subtype, "fyai_session_answer"))
+		order = fy_mapping(gb, "subtype", "fyai_supervise_answer",
+				   "answer", fy_get(request, "answer", ""));
+	else
+		order = fy_mapping(gb, "subtype", "interrupt");
+	peer->role = REMOTE_PEER_WATCHER;
+	peer->quiet = true;
+	peer->session = session;
+	peer->wnext = session->watchers;
+	session->watchers = peer;
+	remote_log(server, "client %lu: %s to the worker %ld on branch '%s'",
+		   peer->id, subtype + strlen("fyai_session_"), (long)session->pid,
+		   branch);
+	if (fyai_remote_send(session->worker, fy_mapping(gb,
+			"type", "control_request",
+			"request_id", fy_stringf(gb, REMOTE_WATCH_PREFIX "%lu:%s",
+						 peer->id, fy_castp(&id, "")),
+			"request", order)))
+		peer->failed = true;
+}
+
+/*
  * fyai_session_close: end the live session on a branch. Its worker gets
  * SIGTERM (SIGKILL with @force), its clients fail, and the registry drops it.
  * What the branch stored stays; a turn in flight is lost.
@@ -1919,6 +1978,13 @@ static void remote_admit_frame(struct jsonrpc_conn *conn, fy_generic frame,
 	if (!strcmp(subtype, "fyai_session_close")) {
 		if (!remote_needs_hello(peer, id, subtype))
 			remote_session_close(peer, id, request);
+		return;
+	}
+	if (!strcmp(subtype, "fyai_session_send") ||
+	    !strcmp(subtype, "fyai_session_interrupt") ||
+	    !strcmp(subtype, "fyai_session_answer")) {
+		if (!remote_needs_hello(peer, id, subtype))
+			remote_supervise(peer, id, subtype, request);
 		return;
 	}
 	if (!strcmp(subtype, "fyai_session_adopt")) {

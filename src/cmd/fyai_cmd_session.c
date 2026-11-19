@@ -463,7 +463,7 @@ int fyai_cmd_session_kill(struct fyai_cmd_call *call, fy_generic *result)
 	const char *branch = fyai_cmd_arg_str(call, "branch");
 	bool busy = false;
 
-	if (fyai_remote_session_close(ctx, branch, fyai_cmd_arg_bool(call, "force"),
+	if (fyai_remote_session_close(ctx, NULL, branch, fyai_cmd_arg_bool(call, "force"),
 				      &busy))
 		return -1;
 	*result = fy_mapping(call->gb, "branch", branch, "busy", busy);

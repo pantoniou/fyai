@@ -77,9 +77,29 @@ int fyai_remote_register(struct fyai_ctx *ctx, const char *branch, bool busy,
 /* The prefix of the ID of a request of a watcher, as the server gives it. */
 #define FYAI_REMOTE_WATCH_PREFIX	"fyai-watch-"
 
-/* End the live session on @branch; *@busyp: it ran a turn. */
-int fyai_remote_session_close(struct fyai_ctx *ctx, const char *branch,
-			      bool force, bool *busyp);
+/*
+ * End the live session on @branch of the project of @dir (NULL: of this
+ * directory); *@busyp: it ran a turn.
+ */
+int fyai_remote_session_close(struct fyai_ctx *ctx, const char *dir,
+			      const char *branch, bool force, bool *busyp);
+/*
+ * Send the supervisor request @subtype (fyai_session_send, _interrupt or
+ * _answer) with the members @fields to the live session on @branch of the
+ * project of @dir (NULL: of this directory), through the server that runs
+ * its sessions (doc/fyai-fleet-sdd.md, section 7). 0, or -1 with the cause
+ * reported: the server or the worker says why it refuses.
+ */
+int fyai_remote_supervise(struct fyai_ctx *ctx, const char *dir,
+			  const char *branch, const char *subtype,
+			  fy_generic fields);
+/*
+ * Start a session on @branch of the project of @dir at the server that runs
+ * its sessions, with @task as its first message. The server keeps the session
+ * after its turn. 0, or -1 with the cause reported.
+ */
+int fyai_remote_start(struct fyai_ctx *ctx, const char *dir, const char *branch,
+		      const char *task);
 /* Replace this process with a new session, or with `resume BRANCH`. */
 int fyai_remote_next_exec(const char *argv0, const char *branch);
 /* Replace this process with the client of the live session @branch. */

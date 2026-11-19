@@ -2679,6 +2679,61 @@ static const char *sdk_model_answer(struct sdk_server *srv, fy_generic req)
 }
 
 /*
+ * A message of a supervisor (doc/fyai-fleet-sdd.md, section 7): the event
+ * `[message 'FROM']` with the text as its body. An idle session takes it as a
+ * turn between turns; a running one gives it to the model at its next round.
+ */
+static const char *sdk_supervise_message(struct sdk_server *srv, fy_generic req)
+{
+	const char *text = fy_get(req, "text", ""), *from = fy_get(req, "from", "");
+
+	if (fy_str_empty(text))
+		return "the message is empty";
+	if (fyai_event_injectf(sdk_server_ctx(srv)->waitq, "[message '%s']\n%s",
+			       fy_str_empty(from) ? "supervisor" : from, text))
+		return "cannot queue the message";
+	/* A wait of the model sees the message at once. */
+	fyai_waiters_kick(sdk_server_ctx(srv));
+	return NULL;
+}
+
+/*
+ * The answer of a supervisor to the first open question: the number of an
+ * option, from 1, or any other text. A set of several questions is answered
+ * in the session.
+ */
+static const char *sdk_supervise_answer(struct sdk_server *srv, fy_generic req)
+{
+	struct fyai_ask_reply reply;
+	fy_generic open, item, question, options, qid;
+	const char *answer = fy_get(req, "answer", ""), *p;
+	long long n = 0;
+
+	open = fy_get(fyai_uimodel_get(sdk_server_ctx(srv), FYAI_UI_QUESTIONS),
+		      "open", fy_seq_empty);
+	if (fy_empty(open))
+		return "no question waits for an answer";
+	item = fy_get_at(open, 0);
+	if (fy_len(fy_get(item, "questions", fy_seq_empty)) != 1)
+		return "the question is a set of several; answer it in the session";
+	if (fy_str_empty(answer))
+		return "the answer is empty";
+	question = fy_get_at(fy_get(item, "questions", fy_seq_empty), 0);
+	options = fy_get(question, "options", fy_seq_empty);
+	memset(&reply, 0, sizeof(reply));
+	for (p = answer; *p >= '0' && *p <= '9' && n <= FYAI_ASK_OPTIONS_MAX; p++)
+		n = n * 10 + (*p - '0');
+	if (!*p && n >= 1 && n <= (long long)fy_len(options) &&
+	    n <= FYAI_ASK_OPTIONS_MAX)
+		reply.selected = 1u << (n - 1);
+	else
+		reply.other = (char *)answer;	/* borrowed for the settlement */
+	qid = fy_get(item, "qid", fy_invalid);
+	fyai_ask_settle(sdk_server_ctx(srv), fy_castp(&qid, ""), &reply, 1);
+	return NULL;
+}
+
+/*
  * An interrupt returns the lines that the client holds in its queue to its
  * prompt, as it does in a local session: the worker drops the same lines, so
  * none of them runs as well.
@@ -2908,6 +2963,14 @@ static void sdk_control(struct sdk_server *srv, fy_generic frame)
 		if (!strcmp(subtype, "fyai_answer") && srv->model_stream) {
 		why = sdk_model_answer(srv, req);
 		sdk_respond(srv, id, fy_invalid, why);
+		return;
+	}
+	if (!strcmp(subtype, "fyai_message")) {
+		sdk_respond(srv, id, fy_invalid, sdk_supervise_message(srv, req));
+		return;
+	}
+	if (!strcmp(subtype, "fyai_supervise_answer")) {
+		sdk_respond(srv, id, fy_invalid, sdk_supervise_answer(srv, req));
 		return;
 	}
 		if (!strcmp(subtype, "interrupt")) {

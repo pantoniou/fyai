@@ -20,6 +20,8 @@ static const char *const remote_features[] = {
 	/* fyai_session_adopt with driven: a worker that its own client drives
 	 * registers, and reports busy in its fyai_worker frame. */
 	"register",
+	/* fyai_session_send, fyai_session_interrupt, fyai_session_answer. */
+	"supervise",
 };
 
 int fyai_remote_cloexec(int fd);
