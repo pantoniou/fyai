@@ -2203,6 +2203,10 @@ name in `/jump`, `fleet attach`, `fleet read` and the `session send`,
 `interrupt` and `answer` commands: each candidate is `PROJECT:BRANCH` with the
 state and the title of the session.
 
+`/session adopt NAME TEXT`, in a root session, makes a live session that you
+started yourself a member of it: the session gets the root session as its
+parent and a task with TEXT, and the root hears of it as of any member.
+
 The tool asks you before the model starts a session (`fleet/approve`:
 `start`, the default; `always` asks before every call that changes a session;
 `never` asks for none), and a root session supervises at most

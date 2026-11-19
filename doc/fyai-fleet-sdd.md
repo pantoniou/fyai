@@ -341,9 +341,14 @@ and `fleet list` shows the task and the parent of each member. Both store
 members are decoded and built as the other members of a store, and a CAS
 merge merges them as an open mapping.
 
-Deferred: `session adopt PROJECT:BRANCH`, which gives a session that a person
-started a lineage and a task. It needs a request to its worker, which stages
-the lineage and publishes.
+`session adopt PROJECT:BRANCH [TEXT]` (and the action `adopt` of the tool)
+gives a live session that a person started a lineage and a task. The root
+session sends the request `fyai_session_lineage {parent, task}` to the worker
+through its server, as a supervisor request; the worker stages the lineage and
+publishes it (an idle session at once, a running one with its next publish).
+The root then keeps the task, supervises the member and hears of it as of any
+member. The session must run at a server, and there must be room
+(`fleet/max_live`); a session that already has a parent gets the new one.
 
 ## 10. The root session and its model
 
