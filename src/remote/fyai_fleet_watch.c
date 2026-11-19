@@ -85,30 +85,50 @@ static void fleet_watch_last(struct fyai_fleet_watcher *w, const char *text)
 	w->last = *text ? strndup(text, i) : NULL;
 }
 
-char *fyai_fleet_panel_source(fy_generic rows)
+/* The mark of a state: a running member blinks with the phase. */
+static const char *fleet_panel_mark(const char *state, int phase)
+{
+	if (!strcmp(state, "running"))
+		return (phase & 1) ? "\u25cb" : "\u25cf";
+	if (!strcmp(state, "waiting"))
+		return "\u25c6";
+	if (!strcmp(state, "idle"))
+		return "\u00b7";
+	return "\u2013";
+}
+
+char *fyai_fleet_panel_source(fy_generic rows, int phase, bool *blinks)
 {
 	struct fyai_buf out = { 0 };
-	const char *name, *last;
-	fy_generic row, g;
+	const char *name, *last, *state;
+	fy_generic row, gn, gl, gs;
 	char *esc_name, *esc_last;
 	int rc = 0;
 
+	if (blinks)
+		*blinks = false;
 	if (!fy_is_sequence(rows) || fy_empty(rows))
 		return NULL;
 	fy_foreach(row, rows) {
-		g = fy_get(row, "name", fy_invalid);
-		name = fy_castp(&g, "");
-		g = fy_get(row, "last", fy_invalid);
-		last = fy_castp(&g, "");
+		gs = fy_get(row, "state", fy_invalid);
+		state = fy_castp(&gs, "?");
+		if (blinks && !strcmp(state, "running"))
+			*blinks = true;
+		gn = fy_get(row, "name", fy_invalid);
+		name = fy_castp(&gn, "");
+		gl = fy_get(row, "last", fy_invalid);
+		last = fy_castp(&gl, "");
 		esc_name = markdown_ui_escape(name);
 		esc_last = *last ? markdown_ui_escape(last) : NULL;
 		if (!esc_name || (*last && !esc_last))
 			rc = -1;
 		if (!rc)
 			rc = fyai_buf_append(&out, out.data ? "\n- " : "- ") ||
+			     fyai_buf_append(&out, fleet_panel_mark(state, phase)) ||
+			     fyai_buf_append(&out, " ") ||
 			     fyai_buf_append(&out, esc_name) ||
 			     fyai_buf_append(&out, " \u00b7 ") ||
-			     fyai_buf_append(&out, fy_get(row, "state", "?")) ||
+			     fyai_buf_append(&out, state) ||
 			     (esc_last && (fyai_buf_append(&out, " \u2014 ") ||
 					   fyai_buf_append(&out, esc_last)));
 		free(esc_name);

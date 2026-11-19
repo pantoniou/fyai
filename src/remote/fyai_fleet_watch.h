@@ -66,9 +66,11 @@ void fyai_fleet_watch_cleanup(struct fyai_fleet_watch *fw);
 /*
  * The UI Markdown of the fleet panel of the page from the rows of the member
  * `fleet` of the panels store, {name, state, last}, or NULL when there is no
- * row. The caller frees it.
+ * row. A row has a mark of its state; the mark of a running member blinks
+ * with @phase. @blinks, when not NULL, tells whether a member runs, that is
+ * whether the next phase changes the text. The caller frees it.
  */
-char *fyai_fleet_panel_source(fy_generic rows);
+char *fyai_fleet_panel_source(fy_generic rows, int phase, bool *blinks);
 
 /* A forked child forgets the connections of its parent. */
 void fyai_fleet_watch_abandon(struct fyai_fleet_watch *fw);
