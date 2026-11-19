@@ -60,6 +60,20 @@ bool fyai_remote_session_live(struct fyai_ctx *ctx, const char *branch);
  */
 int fyai_remote_adopt(struct fyai_ctx *ctx, const char *branch, bool busy,
 		      bool keep, int *fdp, bool *imagep);
+/*
+ * Register the session on @branch, which this process runs and its own client
+ * drives, with the server of its project, or of the nearest project above
+ * that a server serves (doc/fyai-fleet-sdd.md, section 6.2). The server lists
+ * the session, and its watchers read it through *@fdp; *@imagep says whether
+ * the connection speaks images. Return 1 when no server runs, 0 when the
+ * session is registered, or -1 with a diagnostic.
+ */
+int fyai_remote_register(struct fyai_ctx *ctx, const char *branch, bool busy,
+			 int *fdp, bool *imagep);
+
+/* The prefix of the ID of a request of a watcher, as the server gives it. */
+#define FYAI_REMOTE_WATCH_PREFIX	"fyai-watch-"
+
 /* End the live session on @branch; *@busyp: it ran a turn. */
 int fyai_remote_session_close(struct fyai_ctx *ctx, const char *branch,
 			      bool force, bool *busyp);

@@ -127,6 +127,13 @@ struct sdk_hook {
 struct sdk_server;
 struct sdk_pending;
 
+/* The connections that a frame of a registered worker goes to. */
+enum sdk_route {
+	SDK_ROUTE_BOTH,		/* the client and the watchers at the server */
+	SDK_ROUTE_CLIENT,	/* the client alone: an answer to it */
+	SDK_ROUTE_WATCH,	/* the server alone: an answer to a watcher */
+};
+
 typedef void (*sdk_done_fn)(struct sdk_server *srv, struct sdk_pending *p,
 			    fy_generic response, const char *error);
 
@@ -210,6 +217,14 @@ struct sdk_server {
 					 */
 	char *reported_branch;		/* the branch the serving process knows */
 	int adopt_fd;			/* the connection to the server, or -1 */
+	/* The registration of a worker that its own client drives: the
+	 * connection to the server that lists it and serves its watchers
+	 * (doc/fyai-fleet-sdd.md, section 6.2), or NULL. */
+	struct jsonrpc_conn *reg;
+	int reg_in, reg_out;
+	bool reg_lost;			/* the server went: free it outside its frame */
+	bool promote;			/* /background: the registration is the channel */
+	enum sdk_route snapshot_route;	/* where the frames of a snapshot go */
 	/* The channel of the client that left: freed outside its own frame. */
 	struct jsonrpc_conn *retired;
 	int retired_in, retired_out;
@@ -220,6 +235,7 @@ struct sdk_server {
 	char *next;			/* what the client starts after it: "" new, or a branch */
 	bool has_next;
 	bool reported_waiting;		/* and whether a question waits for the user */
+	bool reported_busy;		/* and whether a turn is in flight */
 	/* The client reads the UI model: its stores and texts go as frames. */
 	bool model_wanted, model_stream;
 	unsigned long long epoch;	/* the incarnation of the model stream */
@@ -823,9 +839,12 @@ int fyai_cmd_claude_sdk_prepare(struct fyai_cfg *cfg, fy_generic args)
  * follows a change of it, so a client that reattaches by the new name finds
  * this worker. The serving process gives the frame to no client.
  */
+static void sdk_reg_send(struct sdk_server *srv, fy_generic frame);
+
 static void sdk_report_branch(struct sdk_server *srv)
 {
 	const char *branch = fyai_ctx_branch(sdk_server_ctx(srv));
+	fy_generic frame;
 	bool waiting;
 	char *copy;
 	int rc;
@@ -836,17 +855,19 @@ static void sdk_report_branch(struct sdk_server *srv)
 						    FYAI_UI_QUESTIONS), "open",
 				   fy_seq_empty));
 	if (srv->reported_branch && !strcmp(srv->reported_branch, branch) &&
-	    srv->reported_waiting == waiting)
+	    srv->reported_waiting == waiting && srv->reported_busy == srv->busy)
 		return;
 	copy = strdup(branch);
 	fyai_error_check(sdk_server_ctx(srv), copy, err,
 			 "claude-sdk: cannot keep the worker branch");
-	rc = jsonrpc_conn_send_frame(srv->conn,
-		fy_mapping("type", "fyai_worker", "branch", branch,
-			   "waiting", waiting));
+	frame = fy_mapping("type", "fyai_worker", "branch", branch,
+			   "waiting", waiting, "busy", srv->busy);
+	rc = jsonrpc_conn_send_frame(srv->conn, frame);
+	sdk_reg_send(srv, frame);
 	free(srv->reported_branch);
 	srv->reported_branch = copy;
 	srv->reported_waiting = waiting;
+	srv->reported_busy = srv->busy;
 	fyai_error_check(sdk_server_ctx(srv), !rc, err,
 			 "claude-sdk: cannot report the worker branch");
 	return;
@@ -854,17 +875,68 @@ err:
 	srv->failed = true;
 }
 
+/*
+ * Where @frame of a registered worker goes. An answer and a snapshot go to the
+ * connection that asked: a request of a watcher has the prefix that the
+ * server gave it. The frames between the markers of a snapshot follow it.
+ */
+static enum sdk_route sdk_frame_route(struct sdk_server *srv, fy_generic frame)
+{
+	fy_generic type = fy_get(frame, "type", fy_invalid), id;
+	enum sdk_route route;
+	const char *text;
+	bool snapshot;
+
+	snapshot = fy_equal(type, "fyai") &&
+		   fy_equal(fy_get(frame, "subtype", fy_invalid), "snapshot");
+	if (snapshot)
+		id = fy_get(frame, "request_id", fy_invalid);
+	else if (fy_equal(type, "control_response"))
+		id = fy_get(fy_get(frame, "response", fy_invalid), "request_id",
+			    fy_invalid);
+	else
+		return srv->snapshot_route;
+	text = fy_castp(&id, "");
+	route = strncmp(text, FYAI_REMOTE_WATCH_PREFIX,
+			strlen(FYAI_REMOTE_WATCH_PREFIX)) ?
+		SDK_ROUTE_CLIENT : SDK_ROUTE_WATCH;
+	if (snapshot)
+		srv->snapshot_route = fy_equal(fy_get(frame, "phase", fy_invalid),
+					       "begin") ? route : SDK_ROUTE_BOTH;
+	return route;
+}
+
+/* Send @frame to the server that lists this worker; a failure ends the
+ * registration, not the session. */
+static void sdk_reg_send(struct sdk_server *srv, fy_generic frame)
+{
+	if (!srv->reg || srv->reg_lost || jsonrpc_conn_closed(srv->reg))
+		return;
+	if (fy_is_invalid(frame) || jsonrpc_conn_send_frame(srv->reg, frame)) {
+		fyai_warning(sdk_server_ctx(srv),
+			     "fleet: the server no longer lists the session");
+		srv->reg_lost = true;
+	}
+}
+
 static void sdk_send(struct sdk_server *srv, fy_generic frame)
 {
+	enum sdk_route route;
+
 	if (srv->failed)
 		return;
 	sdk_report_branch(srv);
 	if (srv->failed)
 		return;
-	if (fy_is_invalid(frame) || jsonrpc_conn_send_frame(srv->conn, frame)) {
+	route = srv->reg ? sdk_frame_route(srv, frame) : SDK_ROUTE_CLIENT;
+	if (route != SDK_ROUTE_WATCH &&
+	    (fy_is_invalid(frame) || jsonrpc_conn_send_frame(srv->conn, frame))) {
 		fyai_error(sdk_server_ctx(srv), "claude-sdk: cannot send a frame");
 		srv->failed = true;
+		return;
 	}
+	if (route != SDK_ROUTE_CLIENT)
+		sdk_reg_send(srv, frame);
 }
 
 static void sdk_respond(struct sdk_server *srv, fy_generic request_id,
@@ -2102,6 +2174,7 @@ static void sdk_record_take(struct sdk_server *srv, const char *id,
 
 static void sdk_model_command_run(struct sdk_server *srv, struct sdk_input *in);
 static void sdk_adopt_finish(struct sdk_server *srv);
+static void sdk_reg_promote(struct sdk_server *srv);
 static void sdk_adopt_swap(struct sdk_server *srv);
 static void sdk_turn(struct sdk_server *srv, const struct sdk_input *in);
 
@@ -3997,11 +4070,17 @@ static void sdk_channel_closed(void *data)
 	 * on. One that is idle ends with its client.
 	 */
 	if (srv->remote_worker && !srv->at_server && srv->adopt_fd < 0 &&
-	    !srv->quit_asked && fyai_session_working(ctx) &&
-	    !fyai_remote_adopt(ctx, fyai_ctx_branch(ctx), srv->busy, !srv->busy,
-			       &srv->adopt_fd, &srv->adopt_image)) {
-		sdk_adopt_swap(srv);
-		return;
+	    !srv->quit_asked && fyai_session_working(ctx)) {
+		if (srv->reg && !srv->reg_lost && !jsonrpc_conn_closed(srv->reg)) {
+			sdk_reg_promote(srv);
+			if (srv->at_server)
+				return;
+		} else if (!fyai_remote_adopt(ctx, fyai_ctx_branch(ctx), srv->busy,
+					      !srv->busy, &srv->adopt_fd,
+					      &srv->adopt_image)) {
+			sdk_adopt_swap(srv);
+			return;
+		}
 	}
 	srv->channel_lost = true;
 	ctx->loop->interrupt_pending = true;
@@ -4030,7 +4109,8 @@ static int sdk_background_request(struct fyai_ctx *ctx, void *data)
 	struct sdk_server *srv = data;
 	int rc;
 
-	fyai_error_check(ctx, srv->adopt_fd < 0 && !srv->release_client, err,
+	fyai_error_check(ctx, srv->adopt_fd < 0 && !srv->release_client &&
+			 !srv->promote, err,
 			 "background: the session is moving already");
 	free(srv->next);
 	srv->next = ctx->turn->background_next ?
@@ -4041,6 +4121,11 @@ static int sdk_background_request(struct fyai_ctx *ctx, void *data)
 	/* The session is at a server: /background ends this client only. */
 	if (srv->at_server) {
 		srv->release_client = true;
+		return 0;
+	}
+	/* A registered session moves to the server that lists it. */
+	if (srv->reg && !srv->reg_lost && !jsonrpc_conn_closed(srv->reg)) {
+		srv->promote = true;
 		return 0;
 	}
 	rc = fyai_remote_adopt(ctx, fyai_ctx_branch(ctx), srv->busy, !srv->busy,
@@ -4083,7 +4168,7 @@ static void sdk_adopt_finish(struct sdk_server *srv)
 	struct fyai_event_loop *el = fyai_ctx_loop(ctx);
 	fy_generic frame;
 
-	if (srv->adopt_fd < 0 && !srv->release_client)
+	if (srv->adopt_fd < 0 && !srv->release_client && !srv->promote)
 		return;
 	frame = fy_mapping(fyai_ctx_transient_gb(ctx), "type", "fyai",
 			   "subtype", "backgrounded",
@@ -4103,6 +4188,11 @@ static void sdk_adopt_finish(struct sdk_server *srv)
 		srv->release_client = false;
 		return;
 	}
+	if (srv->promote) {
+		srv->promote = false;
+		sdk_reg_promote(srv);
+		return;
+	}
 	sdk_adopt_swap(srv);
 }
 
@@ -4110,29 +4200,52 @@ static void sdk_adopt_finish(struct sdk_server *srv)
  * Make the connection to the server the channel of the session. The channel
  * of the client closes; its end is no loss of the session.
  */
-static void sdk_adopt_swap(struct sdk_server *srv)
+/*
+ * A connection on the socket @fd to the server, which it takes, reading frames
+ * as the channel does. *@inp and *@outp are its descriptors, which the caller
+ * closes after the connection. NULL with a diagnostic.
+ */
+static struct jsonrpc_conn *sdk_server_conn(struct sdk_server *srv, int fd,
+					    bool image, void (*closed)(void *),
+					    int *inp, int *outp)
 {
 	struct fyai_ctx *ctx = sdk_server_ctx(srv);
-	struct jsonrpc_conn *conn, *old;
-	int in = -1, out = -1, rc;
+	struct jsonrpc_conn *conn = NULL;
+	int in, out, rc;
 
-	in = fcntl(srv->adopt_fd, F_DUPFD_CLOEXEC, 10);
-	out = fcntl(srv->adopt_fd, F_DUPFD_CLOEXEC, 10);
-	close(srv->adopt_fd);
-	srv->adopt_fd = -1;
+	in = fcntl(fd, F_DUPFD_CLOEXEC, 10);
+	out = fcntl(fd, F_DUPFD_CLOEXEC, 10);
+	close(fd);
 	fyai_error_check(ctx, in >= 0 && out >= 0, err,
 			 "claude-sdk: cannot keep the channel to the server: %s",
 			 strerror(errno));
 	conn = jsonrpc_conn_stdio(ctx, out, in, 0, "claude-sdk", NULL);
 	fyai_error_check(ctx, conn, err,
 			 "claude-sdk: cannot open the channel to the server");
-	if (srv->adopt_image)
+	if (image)
 		(void)jsonrpc_conn_set_image(conn);
-	jsonrpc_conn_on_close(conn, sdk_channel_closed, srv);
+	jsonrpc_conn_on_close(conn, closed, srv);
 	rc = jsonrpc_conn_frames(conn, sdk_frame, srv);
-	fyai_error_check(ctx, !rc, err_conn,
+	fyai_error_check(ctx, !rc, err,
 			 "claude-sdk: cannot read the channel to the server");
-	old = srv->conn;
+	*inp = in;
+	*outp = out;
+	return conn;
+err:
+	jsonrpc_conn_destroy(conn);
+	if (in >= 0)
+		close(in);
+	if (out >= 0)
+		close(out);
+	return NULL;
+}
+
+/* Make @conn, on @in and @out, the channel; the channel of the client retires. */
+static void sdk_channel_swap(struct sdk_server *srv, struct jsonrpc_conn *conn,
+			     int in, int out)
+{
+	struct jsonrpc_conn *old = srv->conn;
+
 	jsonrpc_conn_on_close(old, NULL, NULL);
 	(void)jsonrpc_conn_frames(old, sdk_retired_frame, srv);
 	srv->conn = conn;
@@ -4142,20 +4255,114 @@ static void sdk_adopt_swap(struct sdk_server *srv)
 	srv->chan_in = in;
 	srv->chan_out = out;
 	srv->at_server = true;
+}
+
+static void sdk_adopt_swap(struct sdk_server *srv)
+{
+	struct jsonrpc_conn *conn;
+	int in = -1, out = -1;
+
+	conn = sdk_server_conn(srv, srv->adopt_fd, srv->adopt_image,
+			       sdk_channel_closed, &in, &out);
+	srv->adopt_fd = -1;
+	if (!conn) {
+		srv->failed = true;
+		return;
+	}
+	sdk_channel_swap(srv, conn, in, out);
 	/* The server learns the state of the worker again: a worker that waits
 	 * for an answer sends nothing else. */
 	free(srv->reported_branch);
 	srv->reported_branch = NULL;
 	sdk_report_branch(srv);
-	return;
-err_conn:
-	jsonrpc_conn_destroy(conn);
-err:
-	if (in >= 0)
-		close(in);
-	if (out >= 0)
-		close(out);
-	srv->failed = true;
+}
+
+/* The server that lists this worker went; the session goes on. */
+static void sdk_reg_closed(void *data)
+{
+	struct sdk_server *srv = data;
+
+	srv->reg_lost = true;
+}
+
+/* Free a registration that ended, when no frame of it is running. */
+static void sdk_reg_free(struct sdk_server *srv)
+{
+	if (!srv->reg || (!srv->reg_lost && !jsonrpc_conn_closed(srv->reg)))
+		return;
+	jsonrpc_conn_destroy(srv->reg);
+	srv->reg = NULL;
+	close(srv->reg_in);
+	close(srv->reg_out);
+	srv->reg_lost = false;
+	srv->snapshot_route = SDK_ROUTE_BOTH;
+}
+
+/*
+ * Register with the server of the project, or of a project above, when one
+ * runs: it lists the session and serves its watchers. Without a server, or
+ * with one that refuses, the session runs as it does.
+ */
+static void sdk_register(struct sdk_server *srv)
+{
+	struct fyai_ctx *ctx = sdk_server_ctx(srv);
+	struct jsonrpc_conn *conn;
+	bool image = false;
+	int fd = -1, in, out, rc;
+	char *why;
+
+	if (!srv->remote_worker || srv->at_server)
+		return;
+	rc = fyai_remote_register(ctx, fyai_ctx_branch(ctx), srv->busy, &fd, &image);
+	if (!rc) {
+		conn = sdk_server_conn(srv, fd, image, sdk_reg_closed, &in, &out);
+		rc = conn ? 0 : -1;
+	}
+	if (rc > 0)
+		return;
+	/* A server that refuses (another worker runs the branch, as the
+	 * picker of `resume` does on a parked one) leaves the session as it
+	 * is: the trace says why. */
+	if (rc < 0) {
+		why = fyai_diag_string(fyai_ctx_diag(ctx));
+		fyai_diag_reset(fyai_ctx_diag(ctx));
+		fyai_diag_tracef("fleet", "not registered: %s",
+				 why && *why ? why : "the registration failed");
+		free(why);
+		return;
+	}
+	srv->reg = conn;
+	srv->reg_in = in;
+	srv->reg_out = out;
+	/* The server learns the branch and the state of the worker. */
+	free(srv->reported_branch);
+	srv->reported_branch = NULL;
+	sdk_report_branch(srv);
+}
+
+/*
+ * The client leaves a registered session to the server that lists it: the
+ * server keeps it as /background does, and the registration is the channel.
+ */
+static void sdk_reg_promote(struct sdk_server *srv)
+{
+	struct fyai_ctx *ctx = sdk_server_ctx(srv);
+	struct jsonrpc_conn *conn = srv->reg;
+	int rc;
+
+	rc = jsonrpc_conn_send_frame(conn, fy_mapping(fyai_ctx_transient_gb(ctx),
+		"type", "fyai_worker", "branch", fyai_ctx_branch(ctx),
+		"waiting", srv->reported_waiting, "busy", srv->busy,
+		"driven", false, "keep", (_Bool)!srv->busy));
+	if (rc) {
+		fyai_warning(ctx, "fleet: the server did not take the session");
+		srv->reg_lost = true;
+		return;
+	}
+	srv->reg = NULL;
+	sdk_channel_swap(srv, conn, srv->reg_in, srv->reg_out);
+	jsonrpc_conn_on_close(conn, sdk_channel_closed, srv);
+	srv->snapshot_route = SDK_ROUTE_BOTH;
 }
 
 /* Open the channel of the session and the observers of the turns. */
@@ -4298,6 +4505,8 @@ static int sdk_cmd_serve(struct sdk_server *srv)
 		unsetenv("FYAI_SESSION_RESTART");
 		sdk_send(srv, fy_mapping("type", "fyai", "subtype", "restarted"));
 	}
+	/* The server of the project lists a session that its client drives. */
+	sdk_register(srv);
 	/* Work that a lost process left on the branch goes on here. */
 	if (srv->remote_worker && fyai_pending_restore(ctx))
 		fyai_warning(ctx, "durable: the pending work was not restored");
@@ -4333,6 +4542,7 @@ static int sdk_cmd_serve(struct sdk_server *srv)
 			continue;
 		}
 		sdk_retired_free(srv);
+		sdk_reg_free(srv);
 		if (srv->head) {
 			in = srv->head;
 			srv->head = in->next;
@@ -4463,6 +4673,10 @@ static void sdk_cmd_cleanup(struct fyai_ctx *ctx, struct sdk_server *srv)
 	sdk_rules_free(&srv->deny);
 	free(srv->init_id);
 	free(srv->result_text);
+	if (srv->reg) {
+		srv->reg_lost = true;
+		sdk_reg_free(srv);
+	}
 	jsonrpc_conn_destroy(srv->conn);
 }
 

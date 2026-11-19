@@ -17,6 +17,9 @@
 /* The features of the fyai protocol that this program has. */
 static const char *const remote_features[] = {
 	"project", "run", "frames", "session", "resume", "server", "model",
+	/* fyai_session_adopt with driven: a worker that its own client drives
+	 * registers, and reports busy in its fyai_worker frame. */
+	"register",
 };
 
 int fyai_remote_cloexec(int fd);
