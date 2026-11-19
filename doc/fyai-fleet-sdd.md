@@ -1,7 +1,7 @@
 # Software Design Document: Fleets of sessions
 
 - **Project:** pantoniou/fyai
-- **Status:** Steps 1 to 3 of section 14 are implemented, with the parts that sections 6 to 8 defer
+- **Status:** Steps 1 to 4 of section 14 are implemented, with the parts that sections 6 to 9 defer
 - **Date:** 2026-11-19
 - **Repository path:** `doc/fyai-fleet-sdd.md`
 - **Baseline:** `devel` at `b4355093` (durable by default, every terminal
@@ -298,30 +298,48 @@ start`, and a `session watch` verb.
 
 ## 9. Lineage and tasks
 
-The store of a member branch holds `fleet`:
+The store of a member branch holds `fleet`, its lineage:
 
 ```yaml
 fleet:
   root: /home/user/work          # the root directory
   parent: {project: ".", branch: main}
-  task: 7                        # the task in the store of the root
+  task: 7                        # the task in the store of the parent
 ```
 
-A session that a person started has no `fleet` member. `session adopt
-PROJECT:BRANCH` writes one when the root session takes it over.
+`fleet start` in a session passes the lineage to the worker that it starts,
+as the hidden global options `--fleet-parent PROJECT:BRANCH` and
+`--fleet-task ID`. The first publish of the new session records it, which
+with `durable` is before its first model request; a later publish keeps it.
+A start from the command line, and a session that a person started, have no
+`fleet` member.
 
-The store of the root session branch holds `tasks`, an open mapping by id:
+The store of a root session branch holds `tasks`, an open mapping by id (a
+string of digits, from 1):
 
 ```yaml
 tasks:
-  7: {project: fyai, branch: fleet/x, text: "Fix the build",
-      created: 1763550000000, state: open}
+  "7": {project: fyai, branch: fleet/x, text: "Fix the build",
+        created: 1763550000000000, state: open}
 ```
 
-`state` is `open`, `done` or `dropped`, and only the root session changes it.
-Whether a member runs, waits or ended is not stored: it is read from the
-servers and from the member branch. A task is a record, not prose in the
-conversation, so a compaction of the root conversation loses no task.
+`created` is the time of the branch log (microseconds). A session whose
+project is the root makes a task when it runs `fleet start`, and publishes it
+once the server took the new session (a session with no stored exchange keeps
+it for its first publish). `state` is `open`, `done` or `dropped`; only the
+root session that keeps a task changes it (`/fleet task ID done`). Whether a
+member runs, waits or ended is not stored: it is read from the servers and
+from the member branch. A task is a record, not prose in the conversation,
+so a compaction of the root conversation loses no task.
+
+`fleet tasks` lists the tasks of every branch of the root (the root sessions),
+and `fleet list` shows the task and the parent of each member. Both store
+members are decoded and built as the other members of a store, and a CAS
+merge merges them as an open mapping.
+
+Deferred: `session adopt PROJECT:BRANCH`, which gives a session that a person
+started a lineage and a task. It needs a request to its worker, which stages
+the lineage and publishes.
 
 ## 10. The root session and its model
 
@@ -461,7 +479,9 @@ Each step is one series, with its tests.
    `fleet start`, names `PROJECT:BRANCH`. Tests: a message to an idle
    session and to a busy one; an answer to a question that a driver sees; an
    interrupt of a running turn.
-4. **Lineage and tasks.** `fleet` and `tasks` in the stores; `session adopt`.
+4. **Lineage and tasks.** `fleet` and `tasks` in the stores, `fleet tasks`,
+   `fleet task`. Test: a root session starts a member, which records its
+   parent and task; the root marks the task done.
 5. **The tools and events.** The tools, `state` attachments, the `session`
    rows of `pending`, the restart of a lost member. Tests with the mock: the
    root starts a member, gets `idle` with the answer, the root is killed and

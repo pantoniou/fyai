@@ -2169,6 +2169,11 @@ The model gets a message as the event `[message 'user']` (`--from` names
 another sender). A session that `fleet start` starts runs with no client, and
 its server keeps it: `resume` in its project joins it.
 
+`fleet start` typed in a session records that session as the parent of the new
+one. In a session of the root it also keeps a task for it, which `fleet
+tasks` lists and `/fleet task ID done` (or `dropped`) closes; `fleet list`
+shows the task and the parent of each session.
+
 `fyai serve --projects DIR` serves each project under DIR on
 `~/.fyai/unix/serve.sock`. A client names its project with `--project`,
 relative to DIR, or by its own directory. The server starts one project server
