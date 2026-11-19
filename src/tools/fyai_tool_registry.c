@@ -19,6 +19,7 @@ static const struct fyai_tool_table tables[] = {
 	{ fyai_mcp_defs, &fyai_mcp_defs_count },
 	{ fyai_structured_defs, &fyai_structured_defs_count },
 	{ fyai_settings_defs, &fyai_settings_defs_count },
+	{ fyai_fleet_defs, &fyai_fleet_defs_count },
 };
 
 const struct fyai_tool_def *fyai_tool_at(size_t index)
