@@ -38,6 +38,7 @@
 #include "fyai_merge.h"
 #include "fyai_catalog.h"
 #include "fyai_config.h"
+#include "fyai_fleet.h"
 #include "fyai_storage.h"
 #include "fyai_pending.h"
 #include "fyai_turn.h"
@@ -203,6 +204,8 @@ bool fyai_branch_entry_contained(struct fy_allocator *a, fy_generic entry,
 		    !root_ref_contained(a, b.description) ||
 		    !root_ref_contained(a, b.agent) ||
 		    !root_ref_contained(a, b.import) ||
+		    !root_ref_contained(a, b.fleet) ||
+		    !root_ref_contained(a, b.tasks) ||
 		    !root_ref_contained(a, b.op) ||
 		    !root_ref_contained(a, b.from) ||
 		    !root_ref_contained(a, b.project) ||
@@ -1085,6 +1088,22 @@ static bool storage_session_defer(struct fyai_ctx *ctx)
 	return true;
 }
 
+/* The lineage of a session that a fleet started, as --fleet-parent says. */
+static fy_generic storage_fleet_lineage(struct fyai_ctx *ctx, const char *parent,
+					long long task)
+{
+	char *cwd = getcwd(NULL, 0);
+	fy_generic lineage;
+
+	lineage = cwd ? fyai_fleet_lineage(ctx->arena->gb, cwd, parent, task) :
+			fy_invalid;
+	free(cwd);
+	if (fy_is_invalid(lineage))
+		fyai_warning(ctx, "fleet: cannot record the lineage '%s'", parent);
+	return lineage;
+}
+
+
 /* Build and splice the active branch entry. */
 static fy_generic fyai_branches_commit(struct fyai_ctx *ctx)
 {
@@ -1141,6 +1160,15 @@ static fy_generic fyai_branches_commit(struct fyai_ctx *ctx)
 	nb.todos = fy_get(nb.store, "todos", fy_invalid);
 	if (!fy_is_sequence(nb.todos))
 		nb.todos = fy_invalid;
+	/* A staged lineage or table of tasks replaces the stored one. The
+	 * first publish of a session that a fleet started records its lineage. */
+	if (fy_is_valid(ctx->bstate->fleet))
+		nb.fleet = ctx->bstate->fleet;
+	else if (fy_is_invalid(nb.fleet) && ctx->cfg->fleet_parent)
+		nb.fleet = storage_fleet_lineage(ctx, ctx->cfg->fleet_parent,
+						 ctx->cfg->fleet_task);
+	if (fy_is_valid(ctx->bstate->tasks))
+		nb.tasks = ctx->bstate->tasks;
 	/* A staged table replaces the stored one; null removes it. */
 	if (fy_is_valid(ctx->bstate->pending))
 		nb.pending = fy_is_sequence(ctx->bstate->pending) ?
@@ -1401,6 +1429,11 @@ int fyai_peek_sessions(const char *arena_dir, struct fy_generic_builder *gb,
 		if (!fy_is_valid(row))
 			goto out;
 		fyai_branch_lookup(r.branches, fy_get(row, "branch", ""), &b);
+		/* The lineage of a session of a fleet, and the tasks of a root. */
+		if (fy_is_mapping(b.fleet))
+			row = fy_assoc(gb, row, "fleet", fy_gb_internalize(gb, b.fleet));
+		if (fy_is_mapping(b.tasks))
+			row = fy_assoc(gb, row, "tasks", fy_gb_internalize(gb, b.tasks));
 		if (fy_is_sequence(b.pending) && !fy_empty(b.pending)) {
 			first = fy_get_at(b.pending, 0);
 			row = fy_assoc(gb, row, "owner", fy_mapping(gb,
@@ -1705,6 +1738,8 @@ int fyai_publish_state(struct fyai_ctx *ctx)
 			ctx->bstate->store = fy_invalid;
 			ctx->bstate->project_state = fy_invalid;
 			ctx->bstate->pending = fy_invalid;
+			ctx->bstate->fleet = fy_invalid;
+			ctx->bstate->tasks = fy_invalid;
 			return 0;
 		}
 		if (rc < 0)
@@ -1715,6 +1750,8 @@ int fyai_publish_state(struct fyai_ctx *ctx)
 			ctx->bstate->store = fy_invalid;
 			ctx->bstate->project_state = fy_invalid;
 			ctx->bstate->pending = fy_invalid;
+			ctx->bstate->fleet = fy_invalid;
+			ctx->bstate->tasks = fy_invalid;
 			return -1;
 		}
 		fyai_prof_since("publish_reconcile", &t_reconcile);
@@ -1723,6 +1760,8 @@ int fyai_publish_state(struct fyai_ctx *ctx)
 	ctx->bstate->store = fy_invalid;
 	ctx->bstate->project_state = fy_invalid;
 	ctx->bstate->pending = fy_invalid;
+	ctx->bstate->fleet = fy_invalid;
+	ctx->bstate->tasks = fy_invalid;
 	/* Report the branch and the exhausted retry count. */
 	if (rc > 0)
 		fyai_error(ctx, "branch '%s' lost the state race %d times; "

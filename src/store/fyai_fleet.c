@@ -247,3 +247,25 @@ int fyai_fleet_name_split(const char *cwd, const char *name, char **dirp,
 	}
 	return **branchp ? 0 : -1;
 }
+
+fy_generic fyai_fleet_lineage(struct fy_generic_builder *gb, const char *dir,
+			      const char *parent, long long task)
+{
+	const char *colon = strchr(parent, ':');
+	fy_generic lineage, from;
+	char *root;
+
+	if (!colon || colon == parent || !colon[1])
+		return fy_invalid;
+	root = fyai_fleet_root_of(dir);
+	if (!root)
+		return fy_invalid;
+	from = fy_mapping(gb, "project", fy_stringf(gb, "%.*s", (int)(colon - parent),
+							parent),
+			  "branch", fy_value(gb, colon + 1));
+	lineage = fy_mapping(gb, "root", fy_value(gb, root), "parent", from);
+	free(root);
+	if (task > 0)
+		lineage = fy_assoc(gb, lineage, "task", task);
+	return lineage;
+}

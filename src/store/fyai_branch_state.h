@@ -71,6 +71,13 @@ struct fyai_branch_state {
 	 */
 	fy_generic pending;
 	/*
+	 * The lineage of the branch in a fleet, and the tasks of a root
+	 * session, that the next entry records, or fy_invalid to keep the
+	 * stored ones. The publish consumes them.
+	 */
+	fy_generic fleet;
+	fy_generic tasks;
+	/*
 	 * The groups of tool calls of this session that changed the project and
 	 * showed it: a sequence of {before, after} project states, the newest
 	 * last. `undo` takes it back.

@@ -36,6 +36,15 @@ char *fyai_fleet_parent(const char *root);
 char *fyai_fleet_root_of(const char *dir);
 
 /*
+ * The lineage of a session of the fleet in @gb: {root, parent: {project,
+ * branch}, task}. @dir is the directory of the session, @parent the
+ * PROJECT:BRANCH of the session that started it, and @task its task, or 0 for
+ * none. fy_invalid on failure.
+ */
+fy_generic fyai_fleet_lineage(struct fy_generic_builder *gb, const char *dir,
+			      const char *parent, long long task);
+
+/*
  * Split the name of a session, `PROJECT:BRANCH` or `BRANCH`. PROJECT is a
  * directory relative to the root of @cwd (`.` is the root) whose .fyai holds
  * an arena; a name whose text before its first colon is no such project is a

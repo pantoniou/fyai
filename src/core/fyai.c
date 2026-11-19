@@ -2917,6 +2917,8 @@ int fyai_setup(struct fyai_ctx *ctx, struct fyai_app *app)
 	ctx->bstate->prev = fy_invalid;
 	ctx->bstate->desc = fy_invalid;
 	ctx->bstate->agent = fy_invalid;
+	ctx->bstate->fleet = fy_invalid;
+	ctx->bstate->tasks = fy_invalid;
 	ctx->astate->spawn = fy_invalid;
 	ctx->bstate->store = fy_invalid;
 	ctx->bstate->project_state = fy_invalid;

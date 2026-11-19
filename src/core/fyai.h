@@ -568,6 +568,13 @@ struct fyai_cfg {
 	bool split;
 	/* --bootstrap: the user agreed to create the project that does not exist. */
 	bool bootstrap_confirmed;
+	/*
+	 * --fleet-parent PROJECT:BRANCH and --fleet-task ID: the session that
+	 * started this one, and its task, which the first publish stores as
+	 * the lineage of the branch (doc/fyai-fleet-sdd.md, section 9).
+	 */
+	const char *fleet_parent;
+	long long fleet_task;
 	const char *remote_socket;	/* the socket of --remote TARGET, or NULL */
 	/* The global options and the words to run there, without the above. */
 	fy_generic remote_args;

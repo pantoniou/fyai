@@ -103,7 +103,8 @@ char *fyai_peek_branch_pick(const char *arena_dir_opt, const char *root_spec,
 /*
  * The sessions of the arena at @arena_dir, without a context: the rows of
  * fyai_branch_select_rows() with all branches, newest first, each with
- * `owner`, the {pid, start} of its pending table when it has one. The rows
+ * `owner`, the {pid, start} of its pending table, `fleet`, its lineage, and
+ * `tasks`, the tasks of a root session, when it has them. The rows
  * live in @gb. 0 with the rows in *@rowsp (empty when the arena has none), or
  * -1 when the arena cannot be read.
  */
