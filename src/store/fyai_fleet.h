@@ -36,6 +36,17 @@ char *fyai_fleet_parent(const char *root);
 char *fyai_fleet_root_of(const char *dir);
 
 /*
+ * Split the name of a session, `PROJECT:BRANCH` or `BRANCH`. PROJECT is a
+ * directory relative to the root of @cwd (`.` is the root) whose .fyai holds
+ * an arena; a name whose text before its first colon is no such project is a
+ * branch alone (`main/agent:x`). *@dirp is the real path of the project, which
+ * the caller frees, or NULL for the project of @cwd; *@branchp points into
+ * @name. Returns 0, or -1 when the name has no branch.
+ */
+int fyai_fleet_name_split(const char *cwd, const char *name, char **dirp,
+			  const char **branchp);
+
+/*
  * Call @found with the real path of each project at or below @root, @root
  * first when it is one, in the order of the names. A project below a project
  * is found too. The scan does not go into .fyai, .git, a symbolic link, a
