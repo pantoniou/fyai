@@ -863,7 +863,11 @@ static void remote_split_reap(struct remote_client *client)
 			fyai_notice(ctx, "%s", text);
 		return;
 	}
-	if (WIFEXITED(status)) {
+	if (WIFEXITED(status) && WEXITSTATUS(status) == FYAI_WORKER_EXIT_ENDED) {
+		ctx->cfg->exit_status = EXIT_FAILURE;
+		fyai_error(ctx, "the session was ended from outside it (session kill, "
+			   "or a signal to its worker)");
+	} else if (WIFEXITED(status)) {
 		if (WEXITSTATUS(status) == FYAI_WORKER_EXIT_SESSION)
 			ctx->cfg->exit_status = EXIT_FAILURE;
 		fyai_error(ctx, "the worker ended with status %d%s%s",

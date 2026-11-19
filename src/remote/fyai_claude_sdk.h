@@ -15,6 +15,12 @@
 #define FYAI_WORKER_EXIT_SESSION	3
 
 /*
+ * The exit status of a worker that a signal asked to end (`session kill`, or
+ * SIGTERM from elsewhere): its client says that the session was ended.
+ */
+#define FYAI_WORKER_EXIT_ENDED		4
+
+/*
  * True when a Claude Agent SDK runs this program as its CLI: the program is
  * named `claude`, or the arguments select a stream-json input.
  */
