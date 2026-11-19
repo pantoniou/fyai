@@ -184,6 +184,34 @@ int fyai_host_memfd(const char *name, bool cloexec)
 	return backend->memfd(name, cloexec);
 }
 
+int fyai_host_dir_watch_open(void)
+{
+	if (!backend->dir_watch_open) {
+		errno = ENOTSUP;
+		return -1;
+	}
+	return backend->dir_watch_open();
+}
+
+int fyai_host_dir_watch_add(int fd, const char *dir)
+{
+	if (!backend->dir_watch_add) {
+		errno = ENOTSUP;
+		return -1;
+	}
+	return backend->dir_watch_add(fd, dir);
+}
+
+void fyai_host_dir_watch_drain(int fd)
+{
+	char buf[4096];
+	ssize_t n;
+
+	do {
+		n = read(fd, buf, sizeof(buf));
+	} while (n > 0 || (n < 0 && errno == EINTR));
+}
+
 bool fyai_host_mount_root(const char *path)
 {
 	return backend->mount_root && backend->mount_root(path);

@@ -78,6 +78,17 @@ bool fyai_host_isolation_available(void);
  */
 int fyai_host_harden(const char **step);
 
+/*
+ * A watch of directories for the entries that are made or moved into them: a
+ * descriptor that is readable after such a change, non-blocking and
+ * close-on-exec. fyai_host_dir_watch_add() adds a directory, again with no
+ * effect; fyai_host_dir_watch_drain() reads the changes, which say nothing
+ * more. -1 with errno set, ENOTSUP where the system has no such watch.
+ */
+int fyai_host_dir_watch_open(void);
+int fyai_host_dir_watch_add(int fd, const char *dir);
+void fyai_host_dir_watch_drain(int fd);
+
 /* An anonymous file in memory, close-on-exec. Whether there is one, and make it. */
 bool fyai_host_memfd_available(void);
 int fyai_host_memfd(const char *name, bool cloexec);
