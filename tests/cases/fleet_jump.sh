@@ -32,6 +32,8 @@ steps:
   - type: /jump a:fleet/work
   - wait-screen: "Work done."
     timeout: session
+  - wait-screen: "jumped from .:main"
+    timeout: session
   - type: Member line
   - wait-screen: "Member reply."
     timeout: session
