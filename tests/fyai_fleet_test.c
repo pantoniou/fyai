@@ -195,6 +195,13 @@ int fleet_panel_blinks(void)
 	free(b);
 	free(c);
 
+	/* A title comes first, the name after it. */
+	rows = fy_sequence(gb, fy_mapping(gb, "name", "a:x", "state", "idle",
+					  "title", "Fix the build"));
+	a = fyai_fleet_panel_source(rows, 0, NULL);
+	CHECK(a && strstr(a, "Fix the build (a") && strstr(a, "idle"));
+	free(a);
+
 	/* No member runs: the text does not change, nothing blinks. */
 	rows = fy_sequence(gb, idle);
 	a = fyai_fleet_panel_source(rows, 0, &blinks);

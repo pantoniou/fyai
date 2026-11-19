@@ -36,6 +36,14 @@ steps:
 PTY
 assert_request 3 '"[session '"'"'a:fleet/do-the-work'"'"' idle]\nWork done." in r["body"]["messages"][-1]["content"]'
 
+# The title of a member is the description of its branch: the list says it,
+# and the panel of a root session that takes the task up shows it.
+(cd a && "$FYAI_BIN" branch describe fleet/do-the-work "Do the work" >/dev/null 2>&1) ||
+	fail "cannot title the member"
+run_fyai fleet list --output json
+assert_status 0
+assert_stdout_contains '"title": "Do the work"'
+
 # A new root session on the branch takes the open task up again.
 SYNC="$HOME/sync"
 mkdir -p "$SYNC"
@@ -43,6 +51,8 @@ mkfifo "$SYNC/ready"
 pty_run "$TEST_DIR/pty2.out" "$FYAI_BIN" -b main -i <<PTY &
 steps:
   - wait-screen: "The member finished."
+    timeout: session
+  - wait-screen: "Do the work (a:fleet/do-the-work)"
     timeout: session
   - touch: "$SYNC/ready"
     timeout: session
