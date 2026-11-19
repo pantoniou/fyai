@@ -244,6 +244,7 @@ static fy_generic fleet_list_row(struct fy_generic_builder *gb, fy_generic name,
 	fy_generic lineage = fy_get(row, "fleet", fy_invalid);
 	fy_generic task = fy_get(lineage, "task", fy_invalid);
 	fy_generic parent = fy_get(lineage, "parent", fy_invalid);
+	fy_generic title = fy_get(row, "description", fy_invalid);
 	const char *state;
 
 	if (fy_is_valid(live)) {
@@ -259,6 +260,8 @@ static fy_generic fleet_list_row(struct fy_generic_builder *gb, fy_generic name,
 		if (!strcmp(state, "running"))
 			out = fy_assoc(gb, out, "pid", fy_get(owner, "pid", 0LL));
 	}
+	if (fy_is_string(title) && !fy_empty(title))
+		out = fy_assoc(gb, out, "title", title);
 	if (fy_is_int(task))
 		out = fy_assoc(gb, out, "task", task);
 	if (fy_is_string(fy_get(parent, "branch", fy_invalid)))
