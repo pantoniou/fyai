@@ -2181,6 +2181,9 @@ at its server, as `/background` leaves it. A session that nothing runs starts,
 and one that another terminal drives is only watched. `fyai fleet attach
 NAME` joins a session of the fleet from the command line.
 
+The page of a root session shows its members in a `Fleet` panel under the
+todo list: the name, the state, and the start of the last answer of each.
+
 A root session hears of the members that it starts: the model gets
 `[session 'PROJECT:BRANCH' idle]` with the answer of the member, `waiting`
 when it asks a question, and `ended` when it goes. A root session that starts

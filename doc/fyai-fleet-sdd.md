@@ -1,7 +1,7 @@
 # Software Design Document: Fleets of sessions
 
 - **Project:** pantoniou/fyai
-- **Status:** Steps 1 to 6 of section 14 are implemented, with the parts that sections 6 to 11 defer
+- **Status:** Steps 1 to 6 of section 14 are implemented, and the panel of step 7, with the parts that sections 6 to 11 defer
 - **Date:** 2026-11-19
 - **Repository path:** `doc/fyai-fleet-sdd.md`
 - **Baseline:** `devel` at `b4355093` (durable by default, every terminal
@@ -457,6 +457,24 @@ driven session types going to it as messages; the name of the session and
 the way back on the status line; and the events `jumped` and `returned` of
 the root session.
 
+### 11.1 The fleet panel
+
+The page of a root session shows its members under the todo list, in a panel
+headed `Fleet`: one row for each member that it supervises, with its name, its
+state, and the first line of its last answer (at most 60 characters):
+
+```text
+Fleet
+- a:fleet/fix-the-build · idle — Build fixed.
+- libs/inner:fleet/docs · running
+```
+
+The component of section 10 writes the rows to the member `fleet` of the
+`panels` store of the UI model at each change of a member; the client of a
+split session mirrors the store as it does the todo list. The page gives the
+panel its rows after the todo list, and leaves it out when it does not fit,
+as it does the todo list (`data/page.yaml`, page `fleet`; the state `fleet`).
+
 ## 12. The shared tree
 
 Members of one project work in its tree. CAS publish protects the arena, not
@@ -514,7 +532,10 @@ Each step is one series, with its tests.
    in the client. Test: a jump into a parked member, a turn there, and back
    to the root session. Not tested yet: a jump into a member that another
    client drives, and into one that no process runs.
-7. **The fleet view.** Members as tiles of the work pane in the root session.
+7. **The fleet view.** First part done: the fleet panel of the page (section
+   11.1). Tests: the panel shows a member and its answer; the page tests fit
+   it and keep it under the todo list. Members as tiles of the work pane, with
+   their stream, are not done.
 8. **Policy.** `fleet/max_live`, `fleet/approve`.
 
 ## 15. Open questions

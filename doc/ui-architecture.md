@@ -24,7 +24,7 @@ number.
 | Store        | Holds                                                         |
 | ------------ | ------------------------------------------------------------- |
 | `session`    | the values of the header and the state of the turn            |
-| `panels`     | the rows of the todo list                                     |
+| `panels`     | the rows of the todo list, and the members of a root session  |
 | `questions`  | the open sets of questions to the user                        |
 | `log`        | the output of each command                                    |
 | `work`       | the live work (shells, sub-agents, terminals) and the bands   |

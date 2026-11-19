@@ -44,6 +44,7 @@ describe the display of the parent, such as a turn that runs there.
 | ----------- | ------------------------------------------------------------- | ---------------------------------------- |
 | `session`   | `header`: the values of the header and the status templates; `turn`: `{busy, started}`, the start in milliseconds of the real-time clock; `head`: `{updated, op}` of the branch entry that the context adopted, or null | `fyai_session_banner_update()`, `fyai_session_turn_set()`, `fyai_session_head_set()` |
 | `panels`    | `todo`: the rows of the todo list of the branch               | `fyai_ctx_branch_prev_set()`, at each adoption of a branch entry |
+| `panels`    | `fleet`: the members that a root session supervises, `{name, state, last}` | `src/remote/fyai_fleet_watch.c`, at each change of a member |
 | `questions` | `open`: the sets of questions, each `{qid, from, questions}`  | `fyai_ask_open()`, `fyai_ask_close()`, `fyai_ask_settle()` |
 | `log`       | `entries`: the output of each command, `{id, title, error, level, parts}` | `fyai_uilog_begin()`, `fyai_uilog_end()` |
 | `work`      | `items`: the live work, `{kind, name}`: a `user-shell` or `shell` that runs, an `agent` that runs; `bands`: the bands of the work pane | `fyai_tools_work_update()`, at each start and end of a session or a job; `src/front/fyai_uiwork.c` |
