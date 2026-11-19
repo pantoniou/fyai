@@ -800,6 +800,74 @@ err:
 	return -1;
 }
 
+const char *fyai_fleet_name_full(struct fyai_ctx *ctx, struct fy_generic_builder *gb,
+				 const char *name)
+{
+	const char *branch, *full = NULL;
+	char *dir = NULL, *cwd = NULL, *root = NULL, *project = NULL;
+
+	if (fleet_name(ctx, name, &dir, &branch))
+		return NULL;
+	cwd = getcwd(NULL, 0);
+	fyai_error_check(ctx, cwd, out, "cannot read the current directory");
+	root = fyai_fleet_root_of(cwd);
+	project = fyai_fleet_project_of(dir ? dir : cwd);
+	fyai_error_check(ctx, root && project, out, "fleet: no project holds '%s'",
+			 dir ? dir : cwd);
+	full = fy_gb_intern_string(gb, fy_sprintfa("%s:%s", strcmp(project, root) ?
+						   project + strlen(root) + 1 : ".",
+						   branch));
+out:
+	free(project);
+	free(root);
+	free(cwd);
+	free(dir);
+	return full;
+}
+
+int fyai_fleet_attach(struct fyai_ctx *ctx, const char *name, const char *ret,
+		      bool *watchp)
+{
+	struct fyai_cfg *cfg = ctx->cfg;
+	struct fy_generic_builder *gb = fyai_ctx_transient_gb(ctx);
+	fy_generic rows, row, state = fy_invalid;
+	const char *full, *branch;
+	bool attached = false;
+	char *dir = NULL;
+	int rc = -1;
+
+	full = fyai_fleet_name_full(ctx, gb, name);
+	if (!full || fleet_name(ctx, full, &dir, &branch))
+		return -1;
+	if (fyai_fleet_rows_list(ctx, gb, &rows))
+		goto out;
+	fy_foreach(row, rows)
+		if (!strcmp(fy_sprintfa("%s:%s", fy_get(row, "project", "."),
+					fy_get(row, "branch", "")), full)) {
+			state = fy_get(row, "state", fy_invalid);
+			attached = fy_get(row, "attached", false);
+		}
+	fyai_error_check(ctx, fy_is_valid(state), out, "fleet: no session '%s'", full);
+	/* A session that no process runs starts at the server of its project. */
+	if (fy_any_equal(state, "stored", "lost") && fyai_fleet_revive(ctx, full))
+		goto out;
+	*watchp = fy_any_equal(state, "idle", "running", "waiting") && attached;
+	free(cfg->attach_branch);
+	free(cfg->attach_dir);
+	free(cfg->attach_return);
+	cfg->attach_branch = strdup(branch);
+	cfg->attach_dir = dir ? strdup(dir) : NULL;
+	cfg->attach_return = ret ? strdup(ret) : NULL;
+	cfg->attach_watch = *watchp;
+	fyai_error_check(ctx, cfg->attach_branch && (!dir || cfg->attach_dir) &&
+			 (!ret || cfg->attach_return), out,
+			 "fleet: cannot keep the session to join");
+	rc = 0;
+out:
+	free(dir);
+	return rc;
+}
+
 int fyai_fleet_supervise(struct fyai_ctx *ctx, const char *name,
 			 const char *subtype, fy_generic fields)
 {

@@ -270,6 +270,51 @@ int fyai_cmd_session_answer(struct fyai_cmd_call *call, fy_generic *result)
 		"answer", fyai_cmd_arg_str(call, "answer")), result);
 }
 
+/*
+ * Go into a session of the fleet (doc/fyai-fleet-sdd.md, section 11): this
+ * session goes to a server as /background leaves it, and the client of this
+ * terminal joins NAME, with the way back to this session for `/root`.
+ */
+int fyai_cmd_fleet_jump(struct fyai_cmd_call *call, fy_generic *result)
+{
+	struct fyai_ctx *ctx = fyai_cmd_call_ctx(call);
+	const char *name, *self;
+
+	name = fyai_fleet_name_full(ctx, call->gb, fyai_cmd_arg_str(call, "name"));
+	self = name ? fyai_fleet_name_full(ctx, call->gb, fyai_ctx_branch(ctx)) : NULL;
+	if (!name || !self)
+		return -1;
+	fyai_error_check(ctx, strcmp(name, self), err,
+			 "jump: '%s' is this session", name);
+	if (fyai_session_leave(ctx, fy_gb_intern_string(call->gb,
+			fy_sprintfa("jump:%s %s", name, self))))
+		return -1;
+	*result = fy_mapping(call->gb, "name", name, "back", self);
+	return 0;
+err:
+	return -1;
+}
+
+/* Go back to the session that `/jump` came from. */
+int fyai_cmd_fleet_root(struct fyai_cmd_call *call, fy_generic *result)
+{
+	(void)result;
+	return fyai_session_leave(fyai_cmd_call_ctx(call), "root:");
+}
+
+/* Join a session of the fleet in this terminal, after this run. */
+int fyai_cmd_fleet_attach(struct fyai_cmd_call *call, fy_generic *result)
+{
+	const char *name = fyai_cmd_arg_str(call, "name");
+	bool watch = false;
+
+	if (fyai_fleet_attach(fyai_cmd_call_ctx(call), name,
+			      fyai_cmd_arg_str(call, "return"), &watch))
+		return -1;
+	*result = fy_mapping(call->gb, "name", name, "watch", watch);
+	return 0;
+}
+
 /* Start a session in a project of the fleet with a task. */
 int fyai_cmd_fleet_start(struct fyai_cmd_call *call, fy_generic *result)
 {

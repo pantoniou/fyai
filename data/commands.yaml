@@ -3097,6 +3097,44 @@ commands:
       type: object
       additionalProperties: false
 
+  - command: jump
+    title: go into a session of the fleet
+    description: |
+      Go into the session NAME of the fleet (PROJECT:BRANCH, or BRANCH of this
+      project) and control it in this terminal; `/root` comes back. This
+      session goes to a server as `/background` leaves it, and goes on there.
+      A session that no process runs starts; one that another client drives
+      is watched. `fleet list` names the sessions.
+    surfaces: [session]
+    handler: fleet_jump
+    while_busy: run
+    render:
+      message: "jumping into {name}: /root comes back to {back}"
+    arguments:
+      type: object
+      required: [name]
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+          minLength: 1
+          description: the session, as PROJECT:BRANCH or BRANCH
+          x-fyai-positional: 0
+          x-fyai-meta: NAME
+
+  - command: root
+    title: go back to the session that the jump came from
+    description: |
+      Leave this session as it was and go back to the session that `/jump`
+      came from (`$FYAI_FLEET_RETURN` of this client). In a session that no
+      jump reached, the client says so and ends; the session stays.
+    surfaces: [session]
+    handler: fleet_root
+    while_busy: run
+    arguments:
+      type: object
+      additionalProperties: false
+
   - command: continue
     title: continue the conversation without a message
     description: |
@@ -4317,6 +4355,38 @@ commands:
               description: the branch of the session
               x-fyai-long: branch
               x-fyai-meta: BRANCH
+      - command: attach
+        title: join a session of the fleet in this terminal
+        description: |
+          Join the session NAME of the fleet (PROJECT:BRANCH, or BRANCH of this
+          project) in this terminal, from the directory of its project. A
+          session that no process runs starts at the server of its project; a
+          session that another client drives is watched. With `--return`,
+          `/root` in the session goes back to that session. `/jump` runs it.
+        surfaces: [cli]
+        handler: fleet_attach
+        flags: [no-storage]
+        render:
+          message:
+            - "joining {name}"
+            - "watching {name}: another client drives it{?watch}"
+        arguments:
+          type: object
+          required: [name]
+          additionalProperties: false
+          properties:
+            name:
+              type: string
+              minLength: 1
+              description: the session, as PROJECT:BRANCH or BRANCH
+              x-fyai-positional: 0
+              x-fyai-meta: NAME
+            return:
+              type: string
+              minLength: 1
+              description: the session that /root goes back to
+              x-fyai-long: return
+              x-fyai-meta: NAME
       - command: search
         title: find sessions and tasks by their words
         description: |

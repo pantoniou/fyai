@@ -74,6 +74,23 @@ fy_generic fyai_fleet_tasks_open(struct fyai_ctx *ctx);
 /* Start the session @name (PROJECT:BRANCH) again on its branch, with no message. */
 int fyai_fleet_revive(struct fyai_ctx *ctx, const char *name);
 
+/*
+ * The name of the session @name (BRANCH of this project, or PROJECT:BRANCH)
+ * from the root: PROJECT:BRANCH, in @gb, or NULL with the cause reported.
+ */
+const char *fyai_fleet_name_full(struct fyai_ctx *ctx, struct fy_generic_builder *gb,
+				 const char *name);
+
+/*
+ * Make this process the client of the session @name when it ends: start the
+ * session when no process runs it, and join it from the directory of its
+ * project, as a watcher when another client drives it. @ret, or NULL, is the
+ * session that `/root` returns to (doc/fyai-fleet-sdd.md, section 11).
+ * *@watchp says whether it only watches.
+ */
+int fyai_fleet_attach(struct fyai_ctx *ctx, const char *name, const char *ret,
+		      bool *watchp);
+
 /* A request of a supervisor to the live session @name (BRANCH or PROJECT:BRANCH). */
 int fyai_fleet_supervise(struct fyai_ctx *ctx, const char *name,
 			 const char *subtype, fy_generic fields);
