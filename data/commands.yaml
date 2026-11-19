@@ -4317,6 +4317,76 @@ commands:
               description: the branch of the session
               x-fyai-long: branch
               x-fyai-meta: BRANCH
+      - command: search
+        title: find sessions and tasks by their words
+        description: |
+          Find the sessions and the tasks of the fleet that hold each word of
+          QUERY, in any case: in the project, the branch, the description, the
+          text of a task, or the words of the last 20 turns of a session. Each
+          row names the session (PROJECT:BRANCH), where the first word is, and
+          the text around it.
+        surfaces: [cli, session]
+        handler: fleet_search
+        flags: [no-storage]
+        while_busy: run
+        render:
+          table:
+            title: Found in the fleet
+            empty: nothing holds the words
+            keys: [name, kind, where, text]
+        arguments:
+          type: object
+          required: [query]
+          additionalProperties: false
+          properties:
+            query:
+              type: string
+              minLength: 1
+              description: the words to find
+              x-fyai-positional: 0
+              x-fyai-rest: true
+              x-fyai-meta: WORDS
+            limit:
+              type: integer
+              minimum: 1
+              maximum: 50
+              description: the most rows to give (default 20)
+              x-fyai-long: limit
+              x-fyai-meta: N
+      - command: read
+        title: read the last turns of a session of the fleet
+        description: |
+          Give the words of the user and assistant messages of the last turns of
+          the session NAME (BRANCH, or PROJECT:BRANCH of the fleet), oldest
+          first, whether a process runs it or not.
+        surfaces: [cli, session]
+        handler: fleet_read
+        flags: [no-storage]
+        while_busy: run
+        render:
+          table:
+            title: Last turns
+            empty: the session has no message
+            keys: [role, text]
+        arguments:
+          type: object
+          required: [branch]
+          additionalProperties: false
+          properties:
+            branch:
+              type: string
+              minLength: 1
+              description: the session, as BRANCH or PROJECT:BRANCH
+              x-fyai-positional: 0
+              x-fyai-meta: NAME
+              x-fyai-complete: branch
+            turns:
+              type: integer
+              minimum: 1
+              maximum: 200
+              description: the number of turns to give (default 4)
+              x-fyai-long: turns
+              x-fyai-meta: N
       - command: tasks
         title: list the tasks of the root sessions
         description: |
