@@ -2175,6 +2175,12 @@ last turns of a session. In a session of a root that has projects below it,
 the model has the tool `fleet`, which does the same and starts, messages and
 ends sessions.
 
+From any session, `/jump PROJECT:BRANCH` goes into a session of the fleet in
+the same terminal, and `/root` comes back. The session that you leave goes on
+at its server, as `/background` leaves it. A session that nothing runs starts,
+and one that another terminal drives is only watched. `fyai fleet attach
+NAME` joins a session of the fleet from the command line.
+
 A root session hears of the members that it starts: the model gets
 `[session 'PROJECT:BRANCH' idle]` with the answer of the member, `waiting`
 when it asks a question, and `ended` when it goes. A root session that starts

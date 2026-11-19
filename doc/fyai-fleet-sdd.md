@@ -1,7 +1,7 @@
 # Software Design Document: Fleets of sessions
 
 - **Project:** pantoniou/fyai
-- **Status:** Steps 1 to 5 of section 14 are implemented, with the parts that sections 6 to 10 defer
+- **Status:** Steps 1 to 6 of section 14 are implemented, with the parts that sections 6 to 11 defer
 - **Date:** 2026-11-19
 - **Repository path:** `doc/fyai-fleet-sdd.md`
 - **Baseline:** `devel` at `b4355093` (durable by default, every terminal
@@ -425,36 +425,37 @@ list --all`, `session watch`.
 
 ## 11. The switchboard
 
-A person in the root session jumps into any session under the root, controls
+A person in the root session jumps into any session of the fleet, controls
 it, and comes back. The root session goes on while the person is away: it is
-parked at the root server, and its events wait for the next turn.
+parked at its server, its supervisors stay, and its events wait for the next
+turn.
 
-- `/jump PROJECT:BRANCH`, or the picker of `fleet list` (`/sessions`,
-  the live rows of every project), chooses the session. The root session
-  goes to the root server as for `/background`. The client then runs
-  `remote connect` to the project server of the member in its place, as the
-  resume picker does for a live row now (`cfg->attach_branch`), with the
-  project and the session to return to.
-- A member with no driver gets the client as its driver: keys, lines,
-  questions, interrupts, as in a session of its own.
-- A member that a person drives in another terminal keeps that driver. The
-  client attaches as a watcher and a supervisor: a line that it types goes
-  as `fyai_session_send` from `user`, Escape as `fyai_session_interrupt`, and
-  it answers the questions that it sees. The display says so.
-- `/root`, and `/background` in a session that was jumped into, leave the
-  member as it was before the jump (parked or with its own driver) and run
-  `remote connect` back to the root session. `/exit` leaves the member as
-  `/background` does and ends the client.
-- A jump into a session that is not live (`stored` or `lost`) starts it at
-  its project server on its branch, as `resume` does, and a project with no
-  server gets one from the root server. A `lost` session restores its work
-  first.
-- The status line of a jumped-into session names it and the way back
-  (`fyai:fleet/x · /root`).
+- `/jump NAME` (PROJECT:BRANCH, or BRANCH of this project) leaves the session
+  as `/background` does (`fyai_session_leave()`), with the next session
+  `jump:NAME RETURN`, where RETURN is the full name of this session. The
+  client of the terminal runs `fyai fleet attach NAME --return RETURN` in its
+  place.
+- `fleet attach NAME` finds the session in `fleet list`. One that no process
+  runs (`stored` or `lost`) starts at the server of its project on its
+  branch, with no message, which restores the work of a lost one. The client
+  then runs `fyai -b BRANCH remote connect` in the directory of the project,
+  with `$FYAI_FLEET_RETURN` set to RETURN.
+- `remote connect` finds the server by the walk of section 5.1 and names its
+  directory, so a project whose server runs behind the root is reached
+  through the root.
+- A session with no client takes the terminal as its driver: keys, lines,
+  questions and interrupts, as in a session of its own. A session that
+  another client drives is watched (`--watch`): this client sends nothing.
+- `/root` leaves the session as it was before the jump: a session that a
+  server holds keeps it, and this client ends with the next session `root:`.
+  The client runs `fleet attach` of `$FYAI_FLEET_RETURN`, the root session,
+  which the server holds. In a session that no jump reached, the client says
+  so and ends; the session stays as it is.
 
-The root session gets the event `[session 'PROJECT:BRANCH' jumped: the user
-controls it]` and `... returned`, so its model knows that the person worked
-there.
+Deferred: a picker of the fleet (`/sessions`); the lines that a watcher of a
+driven session types going to it as messages; the name of the session and
+the way back on the status line; and the events `jumped` and `returned` of
+the root session.
 
 ## 12. The shared tree
 
@@ -509,10 +510,10 @@ Each step is one series, with its tests.
    the events, the open tasks taken up again, the restart of a lost member. Tests with the mock: the
    root starts a member, gets `idle` with the answer, the root is killed and
    comes back, a member is killed and comes back.
-6. **The switchboard.** `/jump`, `/sessions`, `/root`, the return target in
-   the client. Tests: a jump into a parked member and back; a jump into a
-   member that another client drives, a line that arrives there as a message;
-   a jump into a member that is not live.
+6. **The switchboard.** `/jump`, `/root`, `fleet attach`, the return target
+   in the client. Test: a jump into a parked member, a turn there, and back
+   to the root session. Not tested yet: a jump into a member that another
+   client drives, and into one that no process runs.
 7. **The fleet view.** Members as tiles of the work pane in the root session.
 8. **Policy.** `fleet/max_live`, `fleet/approve`.
 
