@@ -2738,6 +2738,9 @@ int fyai_cmd_remote_serve(struct fyai_cmd_call *call, fy_generic *result)
 			   projects ? server.base : server.root, server.path);
 		remote_ready(&server, ready_fd);
 		ready_fd = -1;
+		/* The record says that the server listens: a session that waits
+		 * for a server sees it appear (doc/fyai-fleet-sdd.md, 6.2). */
+		remote_record(&server);
 	}
 	rc = 0;
 	while (!ctx->loop->terminate_pending && !fyai_interrupt_check(ctx) &&

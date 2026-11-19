@@ -44,6 +44,7 @@
 #include "fyai_cmd_int.h"
 #include "fyai_config.h"
 #include "fyai_event.h"
+#include "fyai_fleet.h"
 #include "fyai_jsonrpc.h"
 #include "fyai_media.h"
 #include "fyai_output.h"
@@ -223,6 +224,11 @@ struct sdk_server {
 	struct jsonrpc_conn *reg;
 	int reg_in, reg_out;
 	bool reg_lost;			/* the server went: free it outside its frame */
+	/* With no server: a watch of the directories of the sockets of the
+	 * project and of the projects above, and a change that it saw. */
+	struct fyai_event_source *watch_src;
+	int watch_fd;
+	bool reg_retry;
 	bool promote;			/* /background: the registration is the channel */
 	enum sdk_route snapshot_route;	/* where the frames of a snapshot go */
 	/* The channel of the client that left: freed outside its own frame. */
@@ -4277,6 +4283,67 @@ static void sdk_adopt_swap(struct sdk_server *srv)
 	sdk_report_branch(srv);
 }
 
+/*
+ * Watch the directory of the socket of the project and of each project above
+ * (doc/fyai-fleet-sdd.md, section 5.1): a server that starts writes its record
+ * there once it listens. A project with no such directory yet is watched at
+ * its .fyai, where the server makes it.
+ */
+static void sdk_watch_paths(struct sdk_server *srv)
+{
+	char *root, *parent, *dir;
+
+	root = fyai_discover_project_root();
+	while (root) {
+		dir = fy_sprintfa("%s/.fyai/unix", root);
+		if (fyai_host_dir_watch_add(srv->watch_fd, dir))
+			(void)fyai_host_dir_watch_add(srv->watch_fd,
+						      fy_sprintfa("%s/.fyai", root));
+		parent = fyai_fleet_parent(root);
+		free(root);
+		root = parent;
+	}
+}
+
+static enum fyai_event_action sdk_watch_event(const struct fyai_event *ev)
+{
+	struct sdk_server *srv = ev->userdata;
+
+	fyai_host_dir_watch_drain(srv->watch_fd);
+	srv->reg_retry = true;
+	return FYAIEA_CONTINUE;
+}
+
+static void sdk_watch_stop(struct sdk_server *srv)
+{
+	fyai_event_source_remove(srv->watch_src);
+	srv->watch_src = NULL;
+	if (srv->watch_fd >= 0)
+		close(srv->watch_fd);
+	srv->watch_fd = -1;
+	srv->reg_retry = false;
+}
+
+/* Wait for a server to start, where the system can watch for one. */
+static void sdk_watch_start(struct sdk_server *srv)
+{
+	struct fyai_ctx *ctx = sdk_server_ctx(srv);
+	int rc;
+
+	if (srv->watch_fd >= 0 || srv->at_server)
+		return;
+	srv->watch_fd = fyai_host_dir_watch_open();
+	if (srv->watch_fd < 0)
+		return;
+	sdk_watch_paths(srv);
+	rc = fyai_event_add_fd(fyai_ctx_loop(ctx), srv->watch_fd, FYAIEV_READ,
+			       sdk_watch_event, srv, &srv->watch_src);
+	if (rc) {
+		fyai_diag_tracef("fleet", "cannot watch for a server");
+		sdk_watch_stop(srv);
+	}
+}
+
 /* The server that lists this worker went; the session goes on. */
 static void sdk_reg_closed(void *data)
 {
@@ -4296,6 +4363,8 @@ static void sdk_reg_free(struct sdk_server *srv)
 	close(srv->reg_out);
 	srv->reg_lost = false;
 	srv->snapshot_route = SDK_ROUTE_BOTH;
+	/* A server that starts again lists the session again. */
+	sdk_watch_start(srv);
 }
 
 /*
@@ -4318,8 +4387,10 @@ static void sdk_register(struct sdk_server *srv)
 		conn = sdk_server_conn(srv, fd, image, sdk_reg_closed, &in, &out);
 		rc = conn ? 0 : -1;
 	}
-	if (rc > 0)
+	if (rc > 0) {
+		sdk_watch_start(srv);
 		return;
+	}
 	/* A server that refuses (another worker runs the branch, as the
 	 * picker of `resume` does on a parked one) leaves the session as it
 	 * is: the trace says why. */
@@ -4331,6 +4402,7 @@ static void sdk_register(struct sdk_server *srv)
 		free(why);
 		return;
 	}
+	sdk_watch_stop(srv);
 	srv->reg = conn;
 	srv->reg_in = in;
 	srv->reg_out = out;
@@ -4543,6 +4615,12 @@ static int sdk_cmd_serve(struct sdk_server *srv)
 		}
 		sdk_retired_free(srv);
 		sdk_reg_free(srv);
+		/* A server started: register between turns, not in its event. */
+		if (srv->reg_retry) {
+			srv->reg_retry = false;
+			sdk_watch_paths(srv);
+			sdk_register(srv);
+		}
 		if (srv->head) {
 			in = srv->head;
 			srv->head = in->next;
@@ -4673,10 +4751,12 @@ static void sdk_cmd_cleanup(struct fyai_ctx *ctx, struct sdk_server *srv)
 	sdk_rules_free(&srv->deny);
 	free(srv->init_id);
 	free(srv->result_text);
+	srv->at_server = true;		/* no watch starts again */
 	if (srv->reg) {
 		srv->reg_lost = true;
 		sdk_reg_free(srv);
 	}
+	sdk_watch_stop(srv);
 	jsonrpc_conn_destroy(srv->conn);
 }
 
@@ -4689,6 +4769,7 @@ int fyai_cmd_claude_sdk(struct fyai_cmd_call *call, fy_generic *result)
 	(void)result;
 	memset(&srv, 0, sizeof(srv));
 	srv.adopt_fd = -1;
+	srv.watch_fd = -1;
 	rc = sdk_cmd_setup(call, &srv) || sdk_cmd_channel(&srv) ||
 	     sdk_cmd_tools(call, &srv) || sdk_cmd_serve(&srv);
 	sdk_cmd_cleanup(ctx, &srv);
