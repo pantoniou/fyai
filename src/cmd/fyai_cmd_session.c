@@ -205,8 +205,8 @@ int fyai_cmd_background(struct fyai_cmd_call *call, fy_generic *result)
 	struct fyai_ctx *ctx = fyai_cmd_call_ctx(call);
 
 	fyai_error_check(ctx, ctx->turn->background, err,
-			 "background: this session runs in the terminal process; "
-			 "a session on a terminal is split unless FYAI_NO_SPLIT is set");
+			 "background: this session does not run at a worker; a session "
+			 "on a terminal does");
 	fyai_error_check(ctx, !ctx->cfg->transient && !ctx->cfg->root_pinned, err,
 			 "background: a server cannot read a transient or pinned session");
 	fyai_error_check(ctx, !ctx->bstate->session_unstored, err,

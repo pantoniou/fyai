@@ -703,6 +703,8 @@ static int storage_bootstrap_ask(struct fyai_ctx *ctx)
 	struct fyai_cfg *cfg = ctx->cfg;
 	char answer[8];
 
+	if (cfg->bootstrap_confirmed)
+		return 0;
 	if (!cfg->interactive || !ctx->tty->stdout_tty ||
 	    !terminal_is_tty(STDIN_FILENO))
 		goto refused;
@@ -720,6 +722,19 @@ refused:
 	fyai_error(ctx, "no fyai project at %s; run `fyai init` to create one",
 		   cfg->arena_dir);
 	return -1;
+}
+
+int fyai_storage_bootstrap_confirm(struct fyai_ctx *ctx)
+{
+	struct fyai_cfg *cfg = ctx->cfg;
+	int rc;
+
+	if (cfg->root_pinned || !access(cfg->arena_dir, F_OK))
+		return 0;
+	rc = storage_bootstrap_ask(ctx);
+	if (!rc)
+		cfg->bootstrap_confirmed = true;
+	return rc;
 }
 
 /* Seed a fresh arena with the default config and publish its root. */

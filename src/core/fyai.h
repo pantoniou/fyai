@@ -565,8 +565,8 @@ struct fyai_cfg {
 	bool remote;
 	/* --split: the interactive session runs at a worker that is a child. */
 	bool split;
-	/* --no-split: it runs in this process, as it does with no terminal. */
-	bool no_split;
+	/* --bootstrap: the user agreed to create the project that does not exist. */
+	bool bootstrap_confirmed;
 	const char *remote_socket;	/* the socket of --remote TARGET, or NULL */
 	/* The global options and the words to run there, without the above. */
 	fy_generic remote_args;

@@ -406,6 +406,9 @@ static void config_apply_api_key(struct fyai_cfg *cfg, fy_generic root)
 {
 	fy_generic secret_ref, rtype, rname;
 
+	/* A key of the command line has precedence over any configuration. */
+	if (cfg->api_key_ref && !strcmp(cfg->api_key_ref, "mem:cli"))
+		return;
 	secret_ref = fy_get(root, "api_key");
 	if (fy_is_mapping(secret_ref)) {
 		if (fy_equal(fy_get(secret_ref, "type"), "auto")) {
@@ -3386,7 +3389,7 @@ enum {
 	OPT_REMOTE,
 	OPT_SINK_FRAMES,
 	OPT_SPLIT,
-	OPT_NO_SPLIT,
+	OPT_BOOTSTRAP,
 };
 
 static const struct option long_options[] = {
@@ -3405,7 +3408,7 @@ static const struct option long_options[] = {
 	{ "remote", required_argument, NULL, OPT_REMOTE },
 	{ "sink-frames", no_argument, NULL, OPT_SINK_FRAMES },
 	{ "split", no_argument, NULL, OPT_SPLIT },
-	{ "no-split", no_argument, NULL, OPT_NO_SPLIT },
+	{ "bootstrap", no_argument, NULL, OPT_BOOTSTRAP },
 	{ "sandbox", required_argument, NULL, OPT_SANDBOX },
 	{ "color", required_argument, NULL, OPT_COLOR },
 	{ "theme", required_argument, NULL, OPT_THEME },
@@ -4105,8 +4108,8 @@ static int config_parse_cli_options(struct fyai_cfg *cfg, int argc, char *argv[]
 		case OPT_TRANSIENT:
 			cfg->transient = true;
 			break;
-		case OPT_NO_SPLIT:
-			cfg->no_split = true;
+		case OPT_BOOTSTRAP:
+			cfg->bootstrap_confirmed = true;
 			break;
 		case OPT_PROJECT:
 		case OPT_REMOTE:
@@ -4240,23 +4243,26 @@ err_out:
 /*
  * An interactive session on a terminal runs at a worker that is a child of
  * this process (--split), so that it can leave the terminal and go on
- * (/background). --no-split, or $FYAI_NO_SPLIT, runs it in this process. Only a bare
- * invocation and the resume verb are such a session; a prompt, another verb
- * or a frame mode is not.
+ * (/background). The process that has the terminal is its client. An
+ * invocation is such a session when it opens the interactive display: a bare
+ * one, one that asks for it with -i, and the resume and switch verbs. A prompt
+ * with no -i, another verb, a frame mode and a run with no terminal are not,
+ * and have the plain sink.
  */
 static bool config_split_default(const struct config_setup *s)
 {
 	const struct fyai_cfg *cfg = s->cfg;
 	const char *word;
 
-	if (cfg->remote || cfg->no_split || cfg->sink_frames || s->cli.help ||
-	    getenv("FYAI_NO_SPLIT") || !isatty(STDIN_FILENO) ||
-	    !isatty(STDOUT_FILENO))
+	if (cfg->remote || cfg->sink_frames || s->cli.help ||
+	    !isatty(STDIN_FILENO) || !isatty(STDOUT_FILENO))
 		return false;
 	if (s->arg_index >= s->argc)
 		return true;
 	word = s->argv[s->arg_index];
-	return !strcmp(word, "resume") || !strcmp(word, "switch");
+	if (!strcmp(word, "resume") || !strcmp(word, "switch"))
+		return true;
+	return cfg->interactive && !fyai_cmd_is_verb(word);
 }
 
 /* Parse the global options, and the arguments of --remote and -h. */

@@ -110,9 +110,6 @@ global:
       transient:
         type: boolean
         description: keep the edits and the state of this run in memory only
-      no-split:
-        type: boolean
-        description: run an interactive session in this process, not at a worker that is a child of it; `/background` needs the worker
       api-key:
         type: string
         description: API key (else the PROVIDER_API_KEY variable)

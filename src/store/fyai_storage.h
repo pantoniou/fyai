@@ -8,6 +8,14 @@ char *fyai_default_arena_dir(void);
 char *fyai_history_path(void);
 void fyai_reserve_arena_ranges(void);
 int fyai_setup_storage(struct fyai_ctx *ctx);
+
+/*
+ * Ask the user, on the terminal of this process, whether to create the
+ * project that does not exist yet, before a worker that has no terminal runs.
+ * An answer of yes is passed on to the worker as --bootstrap. Return 0 when the
+ * project exists or the user agreed, else -1 with the cause reported.
+ */
+int fyai_storage_bootstrap_confirm(struct fyai_ctx *ctx);
 int fyai_publish_state(struct fyai_ctx *ctx);
 int fyai_close_storage(struct fyai_ctx *ctx);
 /* Re-read the branch table, which a sub-agent may have added to. */

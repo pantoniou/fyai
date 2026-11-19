@@ -718,7 +718,7 @@ static int remote_split_open(struct remote_client *client)
 	fyai_error_check(ctx, self || !strchr(cfg->argv[0], '/'), out,
 			 "cannot resolve the executable '%s': %s", cfg->argv[0],
 			 strerror(errno));
-	args = calloc(cfg->remote_globals + 9, sizeof(*args));
+	args = calloc(cfg->remote_globals + 10, sizeof(*args));
 	fyai_error_check(ctx, args, out, "cannot allocate the arguments of a worker");
 	args[n++] = self ? self : (char *)cfg->argv[0];
 	fy_foreach(word, cfg->remote_args) {
@@ -726,6 +726,8 @@ static int remote_split_open(struct remote_client *client)
 			break;
 		args[n++] = (char *)word;
 	}
+	if (cfg->bootstrap_confirmed)
+		args[n++] = "--bootstrap";
 	if (client->resume_branch) {
 		args[n++] = "-b";
 		args[n++] = (char *)client->resume_branch;
@@ -1354,6 +1356,9 @@ static int remote_split_run(struct fyai_cmd_call *call)
 			goto out;
 		}
 	}
+	/* The worker has no terminal to ask on. */
+	if (fyai_storage_bootstrap_confirm(ctx))
+		goto out;
 	if (remote_split_open(&client))
 		goto out;
 	rc = remote_view_run(&client, false);
