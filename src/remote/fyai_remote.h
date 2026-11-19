@@ -95,11 +95,12 @@ int fyai_remote_supervise(struct fyai_ctx *ctx, const char *dir,
 			  fy_generic fields);
 /*
  * Start a session on @branch of the project of @dir at the server that runs
- * its sessions, with @task as its first message. The server keeps the session
- * after its turn. 0, or -1 with the cause reported.
+ * its sessions, with @task as its first message and the global options @args
+ * (a sequence of strings, or fy_invalid). The server keeps the session after
+ * its turn. 0, or -1 with the cause reported.
  */
 int fyai_remote_start(struct fyai_ctx *ctx, const char *dir, const char *branch,
-		      const char *task);
+		      const char *task, fy_generic args);
 /* Replace this process with a new session, or with `resume BRANCH`. */
 int fyai_remote_next_exec(const char *argv0, const char *branch);
 /* Replace this process with the client of the live session @branch. */

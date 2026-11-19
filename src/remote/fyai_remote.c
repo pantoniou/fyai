@@ -1949,7 +1949,7 @@ out:
 }
 
 int fyai_remote_start(struct fyai_ctx *ctx, const char *dir, const char *branch,
-		      const char *task)
+		      const char *task, fy_generic args)
 {
 	struct fy_generic_builder *gb = fy_generic_builder_create(NULL);
 	struct remote_client client = { .ctx = ctx, .gb = gb, .fd = -1, .ssh = -1 };
@@ -1961,7 +1961,8 @@ int fyai_remote_start(struct fyai_ctx *ctx, const char *dir, const char *branch,
 	if (!rc)
 		rc = remote_request(&client, "start", fy_mapping(gb,
 			"subtype", "fyai_session_attach", "branch", branch,
-			"keep", true, "args", fy_seq_empty));
+			"keep", true, "args", fy_is_sequence(args) ?
+					      fy_gb_internalize(gb, args) : fy_seq_empty));
 	if (rc)
 		goto out;
 	/* The task is the first message: the session runs it with no client,

@@ -3594,7 +3594,7 @@ questions is answered in the session.
 
 the projects and sessions under the root project
 
-**Usage:** `fyai fleet {list|scan|start} ...`
+**Usage:** `fyai fleet {list|scan|start|tasks} ...`
 
 The fleet of the root project: the topmost project above this one, and
 every project below it. A project is a directory whose `.fyai` holds an
@@ -3611,6 +3611,7 @@ sets the scan: `fyai config set fleet/scan/depth 2` there.
 | `list` | list every session under the root |
 | `scan` | list the projects under the root |
 | `start` | start a session of a project with a task |
+| `tasks` | list the tasks of the root sessions |
 
 With no command, `list` runs.
 
@@ -3648,7 +3649,9 @@ message. The session runs with no client, and the server keeps it
 after its turn: `fleet list` shows it, `session send` gives it more,
 and `resume` joins it. Its branch is `--branch`, or `fleet/` and the
 first words of the task. A server must run for the project or above
-it: `fyai serve --daemon` in the root.
+it: `fyai serve --daemon` in the root. In a session, the new session
+records this one as the session that started it, and a session of
+the root keeps the task in its branch (`fleet tasks`).
 
 
 ### Arguments
@@ -3663,6 +3666,25 @@ it: `fyai serve --daemon` in the root.
 | Option | Description |
 | --- | --- |
 | `--branch BRANCH` | the branch of the session |
+| `--output FORMAT` | write the result as markdown, json, or yaml; see `help output` |
+| `-h`, `--help` | show this help |
+
+## fyai fleet tasks
+
+list the tasks of the root sessions
+
+**Usage:** `fyai fleet tasks`
+
+List the tasks that the sessions of the root keep: the id, the root
+session that keeps it, the session that runs it (PROJECT:BRANCH), its
+state (`open`, `done` or `dropped`) and its text. A root session makes
+a task when it starts a session with `fleet start`.
+
+
+### Options
+
+| Option | Description |
+| --- | --- |
 | `--output FORMAT` | write the result as markdown, json, or yaml; see `help output` |
 | `-h`, `--help` | show this help |
 
@@ -7426,7 +7448,7 @@ transport.
 
 the projects and sessions under the root project
 
-**Usage:** `/fleet {list|scan|start} ...`
+**Usage:** `/fleet {list|scan|start|task|tasks} ...`
 
 The fleet of the root project: the topmost project above this one, and
 every project below it. A project is a directory whose `.fyai` holds an
@@ -7443,6 +7465,8 @@ sets the scan: `fyai config set fleet/scan/depth 2` there.
 | `list` | list every session under the root |
 | `scan` | list the projects under the root |
 | `start` | start a session of a project with a task |
+| `task` | mark a task of this root session |
+| `tasks` | list the tasks of the root sessions |
 
 With no command, `list` runs.
 
@@ -7479,7 +7503,9 @@ message. The session runs with no client, and the server keeps it
 after its turn: `fleet list` shows it, `session send` gives it more,
 and `resume` joins it. Its branch is `--branch`, or `fleet/` and the
 first words of the task. A server must run for the project or above
-it: `fyai serve --daemon` in the root.
+it: `fyai serve --daemon` in the root. In a session, the new session
+records this one as the session that started it, and a session of
+the root keeps the task in its branch (`fleet tasks`).
 
 
 ### Arguments
@@ -7494,6 +7520,47 @@ it: `fyai serve --daemon` in the root.
 | Option | Description |
 | --- | --- |
 | `--branch BRANCH` | the branch of the session |
+| `-h`, `--help` | show this help |
+
+## /fleet tasks
+
+list the tasks of the root sessions
+
+**Usage:** `/fleet tasks`
+
+List the tasks that the sessions of the root keep: the id, the root
+session that keeps it, the session that runs it (PROJECT:BRANCH), its
+state (`open`, `done` or `dropped`) and its text. A root session makes
+a task when it starts a session with `fleet start`.
+
+
+### Options
+
+| Option | Description |
+| --- | --- |
+| `-h`, `--help` | show this help |
+
+## /fleet task
+
+mark a task of this root session
+
+**Usage:** `/fleet task ID STATE`
+
+Mark the task ID of this root session `done` or `dropped`, or `open`
+again. Only the root session that keeps a task changes it.
+
+
+### Arguments
+
+| Argument | Description |
+| --- | --- |
+| `ID` | the id of the task |
+| `STATE` | the new state of the task (open, done, dropped) |
+
+### Options
+
+| Option | Description |
+| --- | --- |
 | `-h`, `--help` | show this help |
 
 ## /fleet scan

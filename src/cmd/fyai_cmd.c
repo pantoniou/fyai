@@ -121,6 +121,8 @@ static const struct {
 	{ "fleet_list",		fyai_cmd_fleet_list },
 	{ "fleet_scan",		fyai_cmd_fleet_scan },
 	{ "fleet_start",	fyai_cmd_fleet_start },
+	{ "fleet_tasks",	fyai_cmd_fleet_tasks },
+	{ "fleet_task",		fyai_cmd_fleet_task },
 	{ "session_send",	fyai_cmd_session_send },
 	{ "session_interrupt",	fyai_cmd_session_halt },
 	{ "session_answer",	fyai_cmd_session_answer },
