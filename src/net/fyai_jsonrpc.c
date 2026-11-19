@@ -18,6 +18,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#include <poll.h>
 #include <unistd.h>
 
 #include "fyai_curl.h"
@@ -80,6 +81,7 @@ struct jsonrpc_conn {
 	bool protocol_failed;			/* peer sent an invalid frame */
 	bool closed;
 	bool write_failed;			/* the peer takes no more output */
+	unsigned int late_close_tries;		/* turns given to the read side */
 	jsonrpc_serve_fn serve;
 	void *serve_userdata;
 	bool serve_deferred;	/* handler will answer later */
@@ -664,6 +666,27 @@ static enum fyai_event_action jsonrpc_conn_readable(const struct fyai_event *ev)
 	return FYAIEA_CONTINUE;
 }
 
+/*
+ * A peer that closed its end while it still had input for us: its last frame
+ * is read before the close is reported. The write side can see the close
+ * first; this runs after the read side had its turn, and again while input is
+ * pending.
+ */
+static void jsonrpc_conn_late_close(void *userdata)
+{
+	struct jsonrpc_conn *conn = userdata;
+	struct pollfd pfd = { .fd = conn->stdin_fd, .events = POLLIN };
+
+	if (conn->closed)
+		return;
+	if (conn->read_src && conn->stdin_fd >= 0 && ++conn->late_close_tries < 256 &&
+	    poll(&pfd, 1, 0) > 0 &&
+	    fyai_event_defer(fyai_ctx_loop(jsonrpc_conn_ctx(conn)),
+			     jsonrpc_conn_late_close, conn) == 0)
+		return;
+	jsonrpc_conn_fail_pending(conn, "stdio peer closed");
+}
+
 static enum fyai_event_action jsonrpc_conn_writable(const struct fyai_event *ev)
 {
 	struct jsonrpc_conn *conn = ev->userdata;
@@ -692,6 +715,10 @@ static enum fyai_event_action jsonrpc_conn_writable(const struct fyai_event *ev)
 		if (!peer_closed)
 			fyai_error(jsonrpc_conn_ctx(conn), "%s stdio write failed", conn->name);
 		jsonrpc_drop_source(&conn->write_src);
+		if (peer_closed && conn->read_src && !conn->closed &&
+		    !fyai_event_defer(fyai_ctx_loop(jsonrpc_conn_ctx(conn)),
+				      jsonrpc_conn_late_close, conn))
+			return FYAIEA_CONTINUE;
 		jsonrpc_conn_fail_pending(conn, peer_closed ? "stdio peer closed" :
 					  "could not be written");
 		return FYAIEA_CONTINUE;
@@ -1244,6 +1271,9 @@ void jsonrpc_conn_destroy(struct jsonrpc_conn *conn)
 		jsonrpc_conn_settle(conn, "was destroyed", true);
 	}
 	if (conn && conn->transport == JSONRPC_STDIO) {
+		el = fyai_ctx_loop(jsonrpc_conn_ctx(conn));
+		if (el)
+			fyai_event_defer_cancel(el, jsonrpc_conn_late_close, conn);
 		jsonrpc_drop_source(&conn->read_src);
 		jsonrpc_drop_source(&conn->write_src);
 		/* Settle and detach requests before destroying the connection. */
