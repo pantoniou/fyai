@@ -1095,14 +1095,17 @@ static void remote_watch_request(struct fyai_remote_peer *peer, fy_generic frame
 {
 	struct fy_generic_builder *gb = fyai_ctx_transient_gb(fyai_cmd_call_ctx(peer->server->call));
 	struct fyai_remote_session *session = peer->session;
+	fy_generic request;
 	const char *text;
+	bool send;
 
 	if (!fy_is_string(id)) {
 		peer->failed = true;
 		return;
 	}
+	send = !strcmp(subtype, "fyai_session_send");
 	if (strcmp(subtype, "initialize") && strcmp(subtype, "fyai_sync") &&
-	    strcmp(subtype, "fyai_query")) {
+	    strcmp(subtype, "fyai_query") && !send) {
 		remote_reply(peer, id, "a watcher only reads", fy_invalid);
 		return;
 	}
@@ -1111,6 +1114,17 @@ static void remote_watch_request(struct fyai_remote_peer *peer, fy_generic frame
 		return;
 	}
 	text = fy_castp(&id, "");
+	/* The lines that a watcher types are messages to the session; it stays a
+	 * watcher that gets every frame. */
+	if (send) {
+		request = fy_get(frame, "request", fy_invalid);
+		frame = fy_mapping(gb, "type", "control_request", "request", fy_mapping(gb,
+			"subtype", "fyai_message", "text", fy_get(request, "text", ""),
+			"from", fy_get(request, "from", "a watcher")));
+		remote_log(peer->server, "client %lu: sends a message to the worker %ld "
+			   "on branch '%s'", peer->id, (long)session->pid,
+			   session->branch ? session->branch : "none");
+	}
 	frame = fy_assoc(gb, frame, "request_id", fy_stringf(gb,
 		REMOTE_WATCH_PREFIX "%lu:%s", peer->id, text));
 	if (fyai_remote_send(session->worker, frame))
