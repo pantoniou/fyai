@@ -30,6 +30,8 @@
 #include <ctype.h>
 #include <dirent.h>
 #include <errno.h>
+#include <sys/wait.h>
+#include <fcntl.h>
 #include <signal.h>
 #include <stddef.h>
 #include <stdio.h>
@@ -53,6 +55,7 @@
 #include "fyai_event.h"
 #include "fyai_render.h"
 #include "fyai_log.h"
+#include "fyai_host.h"
 #include "fyai_markdown.h"
 #include "fyai_media.h"
 #include "fyai_output.h"
@@ -778,6 +781,147 @@ err_title:
 	free(title);
 err:
 	return -1;
+}
+
+/* The descriptors that a title process gets for the credential transport. */
+#define SESSION_TITLE_AGENT_FD	3
+#define SESSION_TITLE_CTL_FD	4
+#define SESSION_TITLE_SYNC_FD	5
+
+/*
+ * In the new process: move the transport channels to their fixed numbers,
+ * close the rest, attach, and run fyai. Never returns.
+ */
+static void session_title_exec(struct fyai_ctx *ctx, const char *const *argv,
+			       int agent, int ctl, int sync)
+{
+	int high = 64, null;
+
+	if (ctx->transport->client) {
+		agent = fcntl(agent, F_DUPFD, high);
+		ctl = fcntl(ctl, F_DUPFD, high);
+		sync = fcntl(sync, F_DUPFD, high);
+		if (agent < 0 || ctl < 0 || sync < 0)
+			_exit(126);
+	}
+	fyai_loop_restore_signal_mask(ctx->loop);
+	null = open("/dev/null", O_RDWR);
+	if (null >= 0) {
+		dup2(null, 0);
+		dup2(null, 1);
+		dup2(null, 2);
+	}
+	if (ctx->transport->client &&
+	    (dup2(agent, SESSION_TITLE_AGENT_FD) < 0 ||
+	     dup2(ctl, SESSION_TITLE_CTL_FD) < 0 ||
+	     dup2(sync, SESSION_TITLE_SYNC_FD) < 0))
+		_exit(126);
+	fyai_close_fds_from(ctx->transport->client ? SESSION_TITLE_SYNC_FD + 1 : 3);
+	if (ctx->transport->client) {
+		if (fyai_transport_worker_attach(SESSION_TITLE_SYNC_FD,
+						 SESSION_TITLE_AGENT_FD,
+						 SESSION_TITLE_CTL_FD))
+			_exit(126);
+		close(SESSION_TITLE_SYNC_FD);
+	}
+	(void)fyai_exec_self(argv);
+	_exit(127);
+}
+
+void fyai_session_title_auto(struct fyai_ctx *ctx)
+{
+	struct fyai_cfg *cfg = ctx->cfg;
+	const char *branch = fyai_ctx_branch(ctx);
+	const char *argv[9] = { "fyai", "--color", "off", "-b", branch };
+	int argc = 5, n;
+	fy_generic tc = fy_get(cfg->config_doc, "title", fy_invalid);
+	const size_t plen = sizeof(FYAI_BRANCH_SESSION_PREFIX);
+	pid_t pid, grand = -1;
+	int fds[2], agent[2] = { -1, -1 }, ctl[2] = { -1, -1 };
+	int sync[2] = { -1, -1 }, i;
+	/* The supervisor of the credentials ends with a run that is not
+	 * interactive: wait for the title process, which then is no detached one. */
+	bool direct = !cfg->interactive && ctx->transport->client;
+	ssize_t got;
+
+	if (ctx->turn->title_tried || cfg->agent_child || cfg->transient ||
+	    !fy_get(tc, "auto", false) || ctx->bstate->session_unstored ||
+	    (fy_is_valid(ctx->bstate->desc) && !fy_empty(ctx->bstate->desc)) ||
+	    !branch || strncmp(branch, FYAI_BRANCH_SESSION_PREFIX "/", plen) ||
+	    !fyai_exec_self_available())
+		return;
+	ctx->turn->title_tried = true;
+	/* The model of this run, which the branch may not hold. */
+	if (cfg->model && *cfg->model) {
+		argv[argc++] = "-m";
+		argv[argc++] = cfg->model;
+	}
+	argv[argc++] = "title";
+	argv[argc] = NULL;
+	fds[0] = fds[1] = -1;
+	n = fyai_host_pipe(fds);
+	/* With credential isolation the new process asks the supervisor for
+	 * its own channel, as a worker of a server does. */
+	if (!n && ctx->transport->client)
+		n = fyai_host_seqpacket_pair(agent) ||
+		    fyai_host_seqpacket_pair(ctl) || fyai_host_pipe(sync);
+	if (n) {
+		fyai_diag_tracef("title", "channels: %s", strerror(errno));
+		goto out;
+	}
+	pid = fork();
+	if (pid < 0) {
+		fyai_diag_tracef("title", "fork: %s", strerror(errno));
+		goto out;
+	}
+	if (!pid) {
+		/* Detach: the child of the child runs the request. */
+		if (!direct) {
+			setsid();
+			grand = fork();
+			if (grand) {
+				got = write(fds[1], &grand, sizeof(grand));
+				_exit(got == (ssize_t)sizeof(grand) ? 0 : 1);
+			}
+		}
+		session_title_exec(ctx, argv, agent[0], ctl[0], sync[0]);
+	}
+	if (direct) {
+		grand = pid;
+	} else {
+		while (waitpid(pid, NULL, 0) < 0 && errno == EINTR)
+			;
+		got = read(fds[0], &grand, sizeof(grand));
+		if (got != (ssize_t)sizeof(grand)) {
+			fyai_diag_tracef("title", "'%s' not titled: no process", branch);
+			goto out;
+		}
+	}
+	if (ctx->transport->client &&
+	    fyai_transport_worker_admit(ctx->transport, grand, agent[1], ctl[1],
+					sync[1])) {
+		fyai_diag_tracef("title", "'%s' not titled: the transport did not "
+				 "admit process %d", branch, (int)grand);
+		(void)kill(grand, SIGKILL);
+		if (direct)
+			(void)waitpid(grand, NULL, 0);
+		goto out;
+	}
+	fyai_diag_tracef("title", "'%s' titled by process %d", branch, (int)grand);
+	if (direct)
+		while (waitpid(grand, NULL, 0) < 0 && errno == EINTR)
+			;
+out:
+	for (i = 0; i < 2; i++) {
+		if (fds[i] >= 0)
+			close(fds[i]);
+		if (agent[i] >= 0)
+			close(agent[i]);
+		if (ctl[i] >= 0)
+			close(ctl[i]);
+		if (sync[i] >= 0)
+			close(sync[i]);
+	}
 }
 
 /*

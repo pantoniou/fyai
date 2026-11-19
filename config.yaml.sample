@@ -156,6 +156,8 @@ fleet:
   max_live: 8
 # The title that /title asks the model for; the summary shows with --summary.
 title:
+  # Title a new session after its first exchange, unless it has a title.
+  auto: false
   prompt: "Write a short title for this conversation: what it is about, in the language of the conversation. Answer with the title alone, on one line, with no quotes and no final period."
   summary_prompt: "Summarize this conversation in a short paragraph: the goal, what was done, and what is open. Answer with the summary alone."
   max_chars: 60

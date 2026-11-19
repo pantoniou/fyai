@@ -576,6 +576,13 @@ properties:
     description: >-
       The title that `/title` asks the current model to write for a session.
     properties:
+      auto:
+        type: boolean
+        default: false
+        description: >-
+          Title a `session/` branch that has no description after its first
+          exchange, as `/title` does, in a process of its own that prints
+          nothing. A title that the person set is never replaced.
       prompt:
         type: string
         minLength: 1

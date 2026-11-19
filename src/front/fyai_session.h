@@ -45,6 +45,15 @@ int fyai_session_title(struct fyai_ctx *ctx, struct fy_generic_builder *gb,
 		       const char *text, bool summary, const char **titlep,
 		       const char **summaryp);
 
+/*
+ * With `title/auto`, title a `session/` branch that has no description: a
+ * detached `fyai title` of the branch runs the model request, and prints
+ * nothing here. It asks once for each process, never for a title that the
+ * person set, and never for a sub-agent or a transient run. Call it after
+ * the publish of an exchange. A failure is traced.
+ */
+void fyai_session_title_auto(struct fyai_ctx *ctx);
+
 /* Return true when compaction uses a Responses input trigger. */
 bool fyai_session_compact_v2(const struct fyai_cfg *cfg);
 
