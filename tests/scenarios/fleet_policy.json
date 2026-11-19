@@ -4,6 +4,65 @@
       "match": {
         "http": "POST",
         "path": "/v1/chat/completions",
+        "body_contains": "Plan alone"
+      },
+      "response": {
+        "id": "c-four",
+        "object": "chat.completion",
+        "model": "mock-model",
+        "choices": [
+          {
+            "index": 0,
+            "finish_reason": "tool_calls",
+            "message": {
+              "role": "assistant",
+              "content": null,
+              "tool_calls": [
+                {
+                  "id": "call_four",
+                  "type": "function",
+                  "function": {
+                    "name": "fleet",
+                    "arguments": "{\"action\": \"start\", \"project\": \"a\", \"task\": \"Task four\"}"
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "match": {
+        "http": "POST",
+        "path": "/v1/chat/completions",
+        "body_contains": "nobody can answer"
+      },
+      "response": {
+        "id": "c-92923",
+        "object": "chat.completion",
+        "model": "mock-model",
+        "choices": [
+          {
+            "index": 0,
+            "finish_reason": "stop",
+            "message": {
+              "role": "assistant",
+              "content": "Could not start."
+            }
+          }
+        ],
+        "usage": {
+          "prompt_tokens": 10,
+          "completion_tokens": 4,
+          "total_tokens": 14
+        }
+      }
+    },
+    {
+      "match": {
+        "http": "POST",
+        "path": "/v1/chat/completions",
         "body_contains": "Plan the work"
       },
       "response": {
@@ -100,7 +159,7 @@
       "match": {
         "http": "POST",
         "path": "/v1/chat/completions",
-        "body_contains": "fleet/max_live"
+        "body_contains": "\\\"queued\\\": true"
       },
       "response": {
         "id": "c-74665",
@@ -112,7 +171,7 @@
             "finish_reason": "stop",
             "message": {
               "role": "assistant",
-              "content": "Limit reached."
+              "content": "Task three waits. Heard of two."
             }
           }
         ],
@@ -166,66 +225,7 @@
             "finish_reason": "stop",
             "message": {
               "role": "assistant",
-              "content": "Heard of two."
-            }
-          }
-        ],
-        "usage": {
-          "prompt_tokens": 10,
-          "completion_tokens": 4,
-          "total_tokens": 14
-        }
-      }
-    },
-    {
-      "match": {
-        "http": "POST",
-        "path": "/v1/chat/completions",
-        "body_contains": "Plan alone"
-      },
-      "response": {
-        "id": "c-four",
-        "object": "chat.completion",
-        "model": "mock-model",
-        "choices": [
-          {
-            "index": 0,
-            "finish_reason": "tool_calls",
-            "message": {
-              "role": "assistant",
-              "content": null,
-              "tool_calls": [
-                {
-                  "id": "call_four",
-                  "type": "function",
-                  "function": {
-                    "name": "fleet",
-                    "arguments": "{\"action\": \"start\", \"project\": \"a\", \"task\": \"Task four\"}"
-                  }
-                }
-              ]
-            }
-          }
-        ]
-      }
-    },
-    {
-      "match": {
-        "http": "POST",
-        "path": "/v1/chat/completions",
-        "body_contains": "nobody can answer"
-      },
-      "response": {
-        "id": "c-92923",
-        "object": "chat.completion",
-        "model": "mock-model",
-        "choices": [
-          {
-            "index": 0,
-            "finish_reason": "stop",
-            "message": {
-              "role": "assistant",
-              "content": "Could not start."
+              "content": "Task three waits. Heard of two."
             }
           }
         ],

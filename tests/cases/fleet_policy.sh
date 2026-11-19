@@ -1,8 +1,8 @@
 #!/bin/bash
 # SPDX-License-Identifier: MIT
 # fleet/approve and fleet/max_live: the person decides before the root starts
-# a member, a start above the limit is refused without a question, and a run
-# that nobody answers starts no member.
+# a member, a start above the limit is asked and then waits as a queued task,
+# and a run that nobody answers starts no member.
 set -eu
 . "$(dirname "$0")/../harness.sh"
 
@@ -22,7 +22,11 @@ mkdir -p a/.git
 	fail "the root server did not start: $(cat "$TEST_DIR/serve.out")"
 fyai_test_on_exit '"$FYAI_BIN" serve stop >/dev/null 2>&1 || true'
 
-# Rejected, accepted, then over the limit with no question.
+# Rejected, accepted, then over the limit: asked, and queued. The steps of the
+# run of a prompt come first: it replays the history, which holds the events
+# that a step of the first run may not have taken. The tool result
+# and the event of the member can reach the model in one request, which a step
+# of either answers: both say the same.
 pty_run "$TEST_DIR/pty.out" "$FYAI_BIN" -b main -i <<'PTY'
 steps:
   - type: Plan the work
@@ -34,9 +38,13 @@ steps:
     timeout: session
   - wait-screen: "1. Reject"
   - write: "\e[B\r"
-  - wait-screen: "Limit reached."
+  - wait-screen: "Task three. Run it?"
     timeout: session
+  - wait-screen: "1. Reject"
+  - write: "\e[B\r"
   - wait-screen: "Heard of two."
+    timeout: session
+  - wait-screen: "a:fleet/task-two · idle — Two done."
     timeout: session
 PTY
 "$PYTHON" - "$TEST_DIR/requests.jsonl" <<'PY' || fail "the policy did not hold"
@@ -48,10 +56,8 @@ started = [users(r)[0] for r in reqs if users(r) and users(r)[0].startswith("Tas
 assert started == ["Task two"], started
 tools = [m["content"] for r in reqs for m in r["body"]["messages"] if m["role"] == "tool"]
 assert any("the person rejected the call" in t for t in tools), tools
-assert any("fleet/max_live" in t for t in tools), tools
+assert any('"queued": true' in t or '"queued":true' in t for t in tools), tools
 PY
-! grep -q "Task three. Run it?" "$TEST_DIR/pty.out" ||
-	fail "a start over the limit asked the person"
 
 # A run of a prompt has nobody to ask: the start is refused.
 "$FYAI_BIN" "Plan alone" >"$TEST_DIR/alone.out" 2>&1 ||
