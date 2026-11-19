@@ -2,6 +2,11 @@
 #ifndef FYAI_PENDING_H
 #define FYAI_PENDING_H
 
+#include <stdbool.h>
+
+#include <libfyaml.h>
+#include <libfyaml/libfyaml-generic.h>
+
 struct fyai_ctx;
 
 /*
@@ -26,6 +31,12 @@ void fyai_pending_stage(struct fyai_ctx *ctx);
  * owner lives is left alone. Returns 0, or -1 with the cause reported.
  */
 int fyai_pending_restore(struct fyai_ctx *ctx);
+
+/*
+ * Whether the process that wrote the record @row ({pid, start}) still runs. A
+ * process of the same number that started later is another one.
+ */
+bool fyai_pending_owner_alive(fy_generic row);
 
 /* At the end of a run: remove the table that this run owns. Call it after the work is released. */
 void fyai_pending_clear(struct fyai_ctx *ctx);

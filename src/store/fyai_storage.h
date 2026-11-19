@@ -100,6 +100,16 @@ bool fyai_config_has_raw_secret(fy_generic doc);
 char *fyai_peek_branch_pick(const char *arena_dir_opt, const char *root_spec,
 			    const char *cwd, bool all, const char *prefix);
 
+/*
+ * The sessions of the arena at @arena_dir, without a context: the rows of
+ * fyai_branch_select_rows() with all branches, newest first, each with
+ * `owner`, the {pid, start} of its pending table when it has one. The rows
+ * live in @gb. 0 with the rows in *@rowsp (empty when the arena has none), or
+ * -1 when the arena cannot be read.
+ */
+int fyai_peek_sessions(const char *arena_dir, struct fy_generic_builder *gb,
+		       fy_generic *rowsp);
+
 int fyai_peek_arena_config(const char *arena_dir_opt, const char *branch_opt,
 			   const char *root_spec, struct fy_generic_builder *gb,
 			   fy_generic *configp, fy_generic *catalogp,
