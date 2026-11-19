@@ -49,8 +49,17 @@ int fyai_fleet_rows_read(struct fyai_ctx *ctx, struct fy_generic_builder *gb,
 /* The default of fleet/max_live: the most members of a root at one time. */
 #define FYAI_FLEET_MAX_LIVE	8
 
-/* 0 when this root session may start one more member, else -1 with the cause. */
-int fyai_fleet_room(struct fyai_ctx *ctx);
+/* Whether this root session may start one more member now (fleet/max_live). */
+bool fyai_fleet_has_room(struct fyai_ctx *ctx);
+
+/*
+ * Start the queued tasks of this root session, the oldest first, while there
+ * is room: a start above fleet/max_live waits as a task in the state
+ * `queued`. Each member that starts is supervised and the model gets
+ * `[session 'NAME' started: ...]`. A task that cannot start is dropped. The
+ * tasks are staged for the next publish. Returns the number started.
+ */
+int fyai_fleet_dequeue(struct fyai_ctx *ctx);
 
 /*
  * Start a session in @project (relative to the root) on @branch, or on

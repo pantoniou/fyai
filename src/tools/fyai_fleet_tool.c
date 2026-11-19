@@ -180,9 +180,6 @@ static fy_generic fleet_tool_run_generic(struct fyai_ctx *ctx, fy_generic args,
 				"fleet tool");
 	if (fy_any_equal(action, "send", "interrupt", "answer", "stop", "read") && !name)
 		return fy_value(gb, "fleet: name the session, as PROJECT:BRANCH");
-	/* A start above fleet/max_live is refused before the person is asked. */
-	if (fy_equal(action, "start") && fyai_fleet_is_root(ctx) && fyai_fleet_room(ctx))
-		return fleet_tool_failed(ctx, gb, "start");
 	/* fleet/approve: the person decides before the call runs. */
 	if (fleet_tool_asks(ctx, action)) {
 		rc = fleet_tool_review(ctx, gb, fleet_tool_what(gb, action, args), &reply);

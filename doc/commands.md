@@ -3788,7 +3788,7 @@ list the tasks of the root sessions
 
 List the tasks that the sessions of the root keep: the id, the root
 session that keeps it, the session that runs it (PROJECT:BRANCH), its
-state (`open`, `done` or `dropped`) and its text. A root session makes
+state (`open`, `queued`, `done` or `dropped`) and its text. A root session makes
 a task when it starts a session with `fleet start`.
 
 
@@ -7763,7 +7763,7 @@ list the tasks of the root sessions
 
 List the tasks that the sessions of the root keep: the id, the root
 session that keeps it, the session that runs it (PROJECT:BRANCH), its
-state (`open`, `done` or `dropped`) and its text. A root session makes
+state (`open`, `queued`, `done` or `dropped`) and its text. A root session makes
 a task when it starts a session with `fleet start`.
 
 

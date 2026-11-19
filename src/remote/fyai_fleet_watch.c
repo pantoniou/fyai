@@ -331,15 +331,13 @@ static void fleet_watch_trace_failure(struct fyai_ctx *ctx, const char *name)
 	free(why);
 }
 
-void fyai_fleet_watch_restore(struct fyai_ctx *ctx)
+/* Take up the members of the open tasks. */
+static void fleet_watch_restore_open(struct fyai_ctx *ctx)
 {
 	struct fy_generic_builder *gb;
 	fy_generic tasks, rows, row, key, task, state;
 	const char *name;
 
-	if (ctx->fleet->restored || !fyai_fleet_is_root(ctx))
-		return;
-	ctx->fleet->restored = true;
 	tasks = fyai_fleet_tasks_open(ctx);
 	if (fy_empty(tasks))
 		return;
@@ -372,6 +370,16 @@ void fyai_fleet_watch_restore(struct fyai_ctx *ctx)
 		    fyai_fleet_watch_add(ctx, name))
 			fleet_watch_trace_failure(ctx, name);
 	}
+}
+
+void fyai_fleet_watch_restore(struct fyai_ctx *ctx)
+{
+	if (ctx->fleet->restored || !fyai_fleet_is_root(ctx))
+		return;
+	ctx->fleet->restored = true;
+	fleet_watch_restore_open(ctx);
+	/* A root that was lost left queued tasks: they start where there is room. */
+	(void)fyai_fleet_dequeue(ctx);
 }
 
 size_t fyai_fleet_watch_live(struct fyai_ctx *ctx)
@@ -452,6 +460,9 @@ void fyai_fleet_watch_reap(struct fyai_ctx *ctx)
 		fleet_watch_restart(ctx, again, restarts);
 		free(again);
 	}
+	/* A member that ended frees a place for a queued task. */
+	if (changed && fyai_fleet_dequeue(ctx))
+		changed = true;
 	if (changed)
 		fleet_watch_panel(ctx);
 }
