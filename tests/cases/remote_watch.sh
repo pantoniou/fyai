@@ -1,8 +1,8 @@
 #!/bin/bash
 # SPDX-License-Identifier: MIT
 # A client that watches a session sees what the client that drives it sees, as
-# it happens and from the start, and sends the session nothing: the server
-# refuses a request of a watcher that changes the session.
+# it happens and from the start. The server refuses a request of a watcher
+# that changes the session; the lines that a watcher types are messages.
 set -eu
 . "$(dirname "$0")/../remote-harness.sh"
 
@@ -99,7 +99,8 @@ try:
     s.close()
 
     # The full-screen watcher: it opens on the conversation so far, follows the
-    # next turn of the driver, and its typed line goes nowhere.
+    # next turn of the driver, and its typed line reaches the session as a
+# message of a watcher.
     script = cwd + '/watch.yaml'
     open(script, 'w').write('''rows: 30
 cols: 100
@@ -126,6 +127,6 @@ finally:
     driver.communicate(timeout=10)
 PY
 remote_test_stop
-mock_stop 2
-assert_no_request 'any("typed by the watcher" in str(m.get("content", "")) for m in r["body"]["messages"])'
+mock_stop 3
+assert_request 2 'any("[message '"'"'a watcher'"'"']\ntyped by the watcher" in str(m.get("content", "")) for m in r["body"]["messages"])'
 pass
