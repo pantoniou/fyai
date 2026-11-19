@@ -265,6 +265,15 @@ int fyai_chrome_update(struct fyai_ctx *ctx, struct fytim_surface *sf,
 		(void)fytim_surface_margin(sf, &margin_cols);
 		cols += margin_cols + fyai_chrome_scroll_cols(items);
 		ctx->cfg->render_width = cols;
+	} else if (saved_width > 0) {
+		/*
+		 * No width is granted yet. The usual width is one column short
+		 * of the terminal; a head at that width moves its buttons by one
+		 * column when the grant of a tile that spans the terminal comes,
+		 * and a click on a button, or a screen read at that moment, would
+		 * miss. The tile takes the whole row.
+		 */
+		ctx->cfg->render_width = saved_width + 1;
 	}
 	margin = fyai_ui_indicator(ctx, spec->mark, spec->frame, interval_msp);
 	rc = -1;
