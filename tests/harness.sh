@@ -196,8 +196,18 @@ pty_run() {
 	# An interactive session runs at a worker that is a child of the
 	# process. The client keeps its UI over a restart of the session, so it
 	# says that the new worker started instead of taking the keyboard
-	# protocol again.
-	sed -i '/^  - wait-count: "\\e\[>1u"$/{N;s/.*/  - wait-screen: the session restarted/}' "$script"
+	# protocol again. Python, not sed -i: the BSD sed of macOS takes the script
+	# of an in-place edit as the suffix of the backup.
+	"$PYTHON" -I - "$script" <<'PY' || return 1
+import re
+import sys
+
+path = sys.argv[1]
+text = open(path).read()
+text = re.sub(r'^  - wait-count: "\\e\[>1u"\n[^\n]*\n',
+              '  - wait-screen: the session restarted\n', text, flags=re.M)
+open(path, "w").write(text)
+PY
 	env -u FYAI_TRACE -u FYAI_TRACE_LEVEL "$FYAI_BIN" __pty-driver \
 		${keep[@]+"${keep[@]}"} "$script" "$out" "$@"
 }
