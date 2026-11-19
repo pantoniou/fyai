@@ -700,6 +700,22 @@ static int remote_hello(struct remote_client *client)
 #define REMOTE_SPLIT_ERR_MAX	4096
 
 /*
+ * A file that nothing names, for the standard error of a worker on a host with
+ * no memfd: the client reads it by offset, as it reads a memfd. -1 on failure.
+ */
+static int remote_unnamed_file(void)
+{
+	FILE *fp = tmpfile();
+	int fd;
+
+	if (!fp)
+		return -1;
+	fd = fcntl(fileno(fp), F_DUPFD_CLOEXEC, 3);
+	fclose(fp);
+	return fd;
+}
+
+/*
  * Start the worker of a session of this process: a program that speaks the
  * frames of `fyai serve` on a socketpair, with no server between. It has its
  * own session, so no key of the terminal reaches it, and no terminal: its
@@ -750,6 +766,9 @@ static int remote_split_open(struct remote_client *client)
 			 strerror(errno));
 	if (fyai_host_memfd_available())
 		err = fyai_host_memfd("fyai-worker-error", true);
+	/* A host with no memfd keeps it in a file that nothing names. */
+	if (err < 0)
+		err = remote_unnamed_file();
 	if (err < 0)
 		err = open("/dev/null", O_WRONLY | O_CLOEXEC);
 	fyai_error_check(ctx, err >= 0, out,
