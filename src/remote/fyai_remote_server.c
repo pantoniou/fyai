@@ -144,10 +144,24 @@ struct fyai_remote_session {
 
 /* The project server of one project, which a server of projects or the
  * server of a project above it started. */
+/*
+ * A client that was given to a project server and that the project server has
+ * not yet said it received. This server keeps a copy of its descriptor: a
+ * socket that no process holds, with only the message that carries it in
+ * flight, is closed on some hosts (macOS), and the client sees the end.
+ */
+struct fyai_remote_limbo {
+	struct fyai_remote_limbo *next;
+	uint64_t client;
+	int fd;
+};
+
 struct fyai_remote_project {
 	struct fyai_remote_project *next;
 	struct fyai_remote_server *server;
 	struct fyai_event_source *child;
+	struct fyai_event_source *ack;	/* the receipts of the clients */
+	struct fyai_remote_limbo *limbo;
 	char *root;
 	int fd;				/* SOCK_STREAM: a client in each message */
 	pid_t pid;
@@ -1308,10 +1322,54 @@ static enum fyai_event_action remote_project_exit(const struct fyai_event *ev)
 	return FYAIEA_CONTINUE;
 }
 
+/* Close the copies of the clients that @project received, or all of them. */
+static void remote_limbo_close(struct fyai_remote_project *project, uint64_t client,
+			       bool all)
+{
+	struct fyai_remote_limbo **link = &project->limbo, *l;
+
+	while ((l = *link)) {
+		if (!all && l->client != client) {
+			link = &l->next;
+			continue;
+		}
+		*link = l->next;
+		close(l->fd);
+		free(l);
+	}
+}
+
+/* A project server says which client it received: this server lets it go. */
+static enum fyai_event_action remote_project_ack(const struct fyai_event *ev)
+{
+	struct fyai_remote_project *project = ev->userdata;
+	uint64_t client;
+	ssize_t n;
+
+	for (;;) {
+		do {
+			n = recv(ev->fd, &client, sizeof(client), MSG_DONTWAIT);
+		} while (n < 0 && errno == EINTR);
+		if (n == (ssize_t)sizeof(client)) {
+			remote_limbo_close(project, client, false);
+			continue;
+		}
+		if (n == 0 || (n < 0 && errno != EAGAIN && errno != EWOULDBLOCK)) {
+			/* The project server is gone: nothing is in flight. */
+			fyai_event_source_remove(project->ack);
+			project->ack = NULL;
+			remote_limbo_close(project, 0, true);
+		}
+		return FYAIEA_CONTINUE;
+	}
+}
+
 static void remote_project_free(struct fyai_remote_project *project)
 {
 	struct fyai_event_loop *loop = fyai_ctx_loop(fyai_cmd_call_ctx(project->server->call));
 
+	fyai_event_source_remove(project->ack);
+	remote_limbo_close(project, 0, true);
 	if (project->fd >= 0)
 		close(project->fd);
 	fyai_event_source_remove(project->child);
@@ -1373,6 +1431,10 @@ static struct fyai_remote_project *remote_project_start(struct fyai_remote_serve
 	rc = fyai_event_add_child(fyai_ctx_loop(ctx), pid, remote_project_exit,
 				  project, &project->child);
 	fyai_error_check(ctx, !rc, err, "cannot watch a project server");
+	rc = fyai_event_add_fd(fyai_ctx_loop(ctx), project->fd, FYAIEV_READ,
+			       remote_project_ack, project, &project->ack);
+	fyai_error_check(ctx, !rc, err, "cannot read the receipts of a project "
+			 "server");
 	project->next = server->projects;
 	server->projects = project;
 	remote_log(server, "started the project server %ld for '%s'", (long)pid,
@@ -1510,6 +1572,7 @@ static void remote_hand_over(struct fyai_remote_peer *peer, fy_generic id,
 	struct fyai_remote_server *server = peer->server;
 	struct fy_generic_builder *gb = fyai_ctx_transient_gb(fyai_cmd_call_ctx(server->call));
 	struct fyai_remote_project *project;
+	struct fyai_remote_limbo *limbo;
 	const char *text;
 
 	for (project = server->projects; project; project = project->next)
@@ -1534,6 +1597,18 @@ static void remote_hand_over(struct fyai_remote_peer *peer, fy_generic id,
 	}
 	remote_log(server, "client %lu: directory '%s' of the project server %ld",
 		   peer->id, dir, (long)project->pid);
+	/* Keep a copy of the socket until the project server has received it. */
+	limbo = calloc(1, sizeof(*limbo));
+	if (limbo) {
+		limbo->client = peer->id;
+		limbo->fd = fcntl(peer->fd, F_DUPFD_CLOEXEC, 3);
+		if (limbo->fd < 0) {
+			free(limbo);
+		} else {
+			limbo->next = project->limbo;
+			project->limbo = limbo;
+		}
+	}
 	peer->role = REMOTE_PEER_HANDED;
 	peer->failed = true;
 }
@@ -2436,6 +2511,7 @@ static enum fyai_event_action remote_front_receive(const struct fyai_event *ev)
 	char buf[PATH_MAX + 512];
 	const char *dir;
 	fy_generic msg, id;
+	uint64_t client;
 	ssize_t n;
 	int fd;
 
@@ -2452,6 +2528,9 @@ static enum fyai_event_action remote_front_receive(const struct fyai_event *ev)
 		return FYAIEA_CONTINUE;
 	}
 	msg = parse_json_string(gb, buf);
+	/* The front keeps its copy of the client until it hears this. */
+	client = fy_get(msg, "client", 0UL);
+	(void)send(server->front_fd, &client, sizeof(client), MSG_NOSIGNAL);
 	id = fy_get(msg, "request_id", fy_invalid);
 	dir = fy_get(msg, "dir", (const char *)NULL);
 	if (!fy_is_string(id) || !dir || !remote_path_within(server->root, dir)) {
