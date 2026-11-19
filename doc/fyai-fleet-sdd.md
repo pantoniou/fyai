@@ -469,6 +469,12 @@ Fleet
 ● libs/inner:fleet/docs · running
 ```
 
+A member that has a title, the description of its branch (`/title`), shows
+it before its name: `Fix the build (a:fleet/fix-the-build)`. The component
+reads the titles from the list of the fleet when it takes a member up and at
+the end of each turn of a member, since a title is written after the turn.
+`fleet list` gives the title in its rows.
+
 Each row starts with a mark of its state: a dot for `idle`, a diamond for
 `waiting`, a dash for the others. The mark of a `running` member blinks: it
 changes between a full and an empty circle on the phase of the activity
