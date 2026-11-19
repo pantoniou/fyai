@@ -1009,6 +1009,12 @@ static int remote_view_run(struct remote_client *client, bool watch)
 	free(left);
 	if (rc < 0 || client->failed)
 		return -1;
+	/*
+	 * A channel that closed under the client ended with its worker: report
+	 * how the worker ended first, since the first error is the cause.
+	 */
+	if (rc != 1 && !ctx->loop->terminate_pending && client->split)
+		remote_split_reap(client);
 	fyai_error_check(ctx, rc == 1 || ctx->loop->terminate_pending, err,
 			 "the endpoint closed the connection");
 	return 0;
