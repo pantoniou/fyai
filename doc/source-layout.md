@@ -216,6 +216,9 @@ This document gives the owner of each source file and of each shared component. 
   tasks, the search and the read, which a process with an open arena runs in
   a child, and the start and the supervisor requests.
 - `src/tools/fyai_fleet_tool.c`: the `fleet` tool of a root session.
+- `src/remote/fyai_fleet_watch.c`: `struct fyai_fleet_watch` (`ctx->fleet`),
+  the supervisors that a root session keeps on its members, which turn the
+  changes of a member into events.
 - `src/store/fyai_fleet.c`: the tree of projects: the nearest project at or
   above a directory, the parent of a project and the root, by a walk up to a
   ceiling, and the scan of the projects below a root

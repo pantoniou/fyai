@@ -1,7 +1,7 @@
 # Software Design Document: Fleets of sessions
 
 - **Project:** pantoniou/fyai
-- **Status:** Steps 1 to 4 of section 14 are implemented, with the parts that sections 6 to 9 defer
+- **Status:** Steps 1 to 5 of section 14 are implemented, with the parts that sections 6 to 10 defer
 - **Date:** 2026-11-19
 - **Repository path:** `doc/fyai-fleet-sdd.md`
 - **Baseline:** `devel` at `b4355093` (durable by default, every terminal
@@ -376,32 +376,45 @@ The tool sends data to other sessions and starts programs. Step 7 adds
 `fleet/approve`, which decides which calls ask the person; until then a call
 runs as the model asks it.
 
-The root session attaches to each member of an open task as a supervisor with
-`state: true`. A change arrives as an event:
+The root session supervises each member of an open task with a connection
+that stays (`fyai_session_attach {branch, supervise: true}`), kept by the
+component `struct fyai_fleet_watch` (`ctx->fleet`,
+`src/remote/fyai_fleet_watch.c`). The server sends it a frame `{type: fyai,
+subtype: session_state, branch, state, last}` when the state changes:
+`running` and `waiting` from the `fyai_worker` frame of the worker, `idle`
+with `last`, the text of the answer, from each `result` frame, and `ended`
+when the worker goes, after which the connection drains and closes. The root
+model gets events:
 
 ```text
 [session 'fyai:fleet/x' idle]        body: the last answer
-[session 'fyai:fleet/x' waiting]     body: the question
+[session 'fyai:fleet/x' waiting]     body: a question waits for an answer
 [session 'fyai:fleet/x' ended]
-[session 'fyai:fleet/x' restarted: the session was lost ...]
+[session 'fyai:fleet/x' restarted: its process was lost; ...]
 ```
 
-The events of a member are its own; the root model gets no UI stream.
+`running` is no event. The events of a member are its own; the root model
+gets no UI stream, and reads more with the `read` action.
 
 ### 10.1 Durability
 
 - A member is a process of its own. It does not end with the root session.
-- The `pending` table of the root session gets a `session` row for each
-  supervisor attachment. A restart of the root session attaches again and
-  reads the head of each member, so a change during the loss arrives as one
-  event.
-- A member that ended without a result while its task is open (its worker was
-  lost) is started again at its project server on its branch; its own
-  `pending` table restores its work, and the root model gets `restarted`.
-- A member whose project server is not there: the root server starts it.
-- With no root server, the root session runs the member as a worker of its
-  own (a child, as `/background` would make one) and supervises it through
-  the channel of that child; the member is a peer in every other respect.
+- The open tasks are the subscriptions: they are canonical state of the root
+  branch, so the root needs no `pending` rows for them. A worker of a root
+  session takes them up before its first turn
+  (`fyai_fleet_watch_restore()`): it supervises each member that a server
+  lists, and tells the model if one waits on a question. A change during the
+  loss of the root is not repeated: `read` gives what the member did.
+- A member of an open task that is `lost` (its process went with work in
+  flight) is started again at the server of its project on its branch, with
+  no message; its own `pending` table restores its work, and the root model
+  gets `restarted`.
+- A start supervises the member at once. A failure to supervise is a
+  warning: the member runs, and the root does not hear of it.
+
+Deferred: a member whose session is `stored` (it ended, or its worker went
+with no pending work) is not started again, and a root with no server runs
+no member of its own.
 
 ### 10.2 What the root is not
 
@@ -492,8 +505,8 @@ Each step is one series, with its tests.
 4. **Lineage and tasks.** `fleet` and `tasks` in the stores, `fleet tasks`,
    `fleet task`. Test: a root session starts a member, which records its
    parent and task; the root marks the task done.
-5. **The tools and events.** The tools, `state` attachments, the `session`
-   rows of `pending`, the restart of a lost member. Tests with the mock: the
+5. **The tool and the events.** The `fleet` tool, the supervisors that stay,
+   the events, the open tasks taken up again, the restart of a lost member. Tests with the mock: the
    root starts a member, gets `idle` with the answer, the root is killed and
    comes back, a member is killed and comes back.
 6. **The switchboard.** `/jump`, `/sessions`, `/root`, the return target in

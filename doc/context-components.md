@@ -2,7 +2,7 @@
 
 Status: the components exist and `struct fyai_ctx` is a set of pointers to
 them. `struct fyai_app` holds `diag`, `loop`, `arena`, `transient`, `cred`,
-`link`, `transport`, `mcp`, `waitq`, `askq`, `scope`, `tty`, `skills`,
+`link`, `transport`, `mcp`, `waitq`, `askq`, `fleet`, `scope`, `tty`, `skills`,
 `toolspec`, `bstate`, `usage`, `turn`, `jobs`, `astate`, `out`, `uistores`, `screen` and `cfg`, and
 embeds the context. The context holds the configuration, one pointer for each
 component, and three values that no component owns (`tools`, `acp_rpc`,

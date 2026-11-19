@@ -2175,6 +2175,11 @@ last turns of a session. In a session of a root that has projects below it,
 the model has the tool `fleet`, which does the same and starts, messages and
 ends sessions.
 
+A root session hears of the members that it starts: the model gets
+`[session 'PROJECT:BRANCH' idle]` with the answer of the member, `waiting`
+when it asks a question, and `ended` when it goes. A root session that starts
+again on its branch takes up its open tasks and hears of their members again.
+
 `fleet start` typed in a session records that session as the parent of the new
 one. In a session of the root it also keeps a task for it, which `fleet
 tasks` lists and `/fleet task ID done` (or `dropped`) closes; `fleet list`
