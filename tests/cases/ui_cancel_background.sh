@@ -41,7 +41,12 @@ if any("wait 'w1' fired" in u for u in users):
     raise SystemExit("a cancelled wait fired: %r" % users)
 PYEOF
 
-mock_stop 4
+# The end of the sub-agent reaches the model with the results of the cancel, or
+# after them as one more request; both are the work cancelled.
+mock_stop_quiet
+served="$(cat "$TEST_DIR/served" 2>/dev/null || echo 0)"
+[ "$served" -eq 4 ] || [ "$served" -eq 5 ] ||
+    fail "expected 4 or 5 requests, served $served"
 
 # The title row of the stored call names what is cancelled.
 run_fyai history
