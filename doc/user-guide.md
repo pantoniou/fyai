@@ -2206,7 +2206,8 @@ state and the title of the session.
 The tool asks you before the model starts a session (`fleet/approve`:
 `start`, the default; `always` asks before every call that changes a session;
 `never` asks for none), and a root session supervises at most
-`fleet/max_live` members at a time (default 8). Set both in the root:
+`fleet/max_live` members at a time (default 8). A start above the limit
+waits as a queued task and starts when a member ends. Set both in the root:
 `fyai config set fleet/approve always`.
 
 The page of a root session shows its members in a `Fleet` panel under the

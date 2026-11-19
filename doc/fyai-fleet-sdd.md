@@ -525,10 +525,15 @@ commands of views.
 - `fleet/scan/depth`, `fleet/scan/exclude`: the
   scan of section 6.1.
 - `fleet/max_live` (default 8): the most members that a root session
-  supervises at one time. A start of the root above it is refused, before
-  any question, until a member ends; the model is told to wait or to stop
-  one. 0 sets no limit. Deferred: a start above it waiting as an open task
-  and starting when one ends.
+  supervises at one time. A start of the root above it is asked as usual,
+  and then waits as a task in the state `queued`: the result says `queued`,
+  no branch is made and nobody supervises it. When a member ends and a place
+  is free, the root starts the oldest queued task (`fyai_fleet_dequeue()`, at
+  the reap of the members that ended), supervises the member, marks the task
+  `open` and tells the model `[session 'NAME' started: a place became free for
+  its queued task]`. A task that cannot start is dropped, with an event. A
+  queued task is not an open one: a root that starts again does not take it up
+  as a member, and `task ID dropped` cancels it. 0 sets no limit.
 - `fleet/approve`: which calls of the `fleet` tool ask the person first, in
   the question panel, with Reject under the cursor: `start` (the default)
   before a start, `always` before each call that changes a session (`start`,
@@ -583,8 +588,9 @@ Each step is one series, with its tests.
    blinking mark. Members as tiles of the work pane, with their stream, are
    not done.
 8. **Policy.** `fleet/max_live`, `fleet/approve`. Test: a start that the
-   person rejects, one that the person accepts, one over the limit with no
-   question, and a run of a prompt that nobody answers.
+   person rejects, one that the person accepts, one over the limit that is
+   asked and queued, a queued task that starts when a member ends, and a run
+   of a prompt that nobody answers.
 
 ## 15. Open questions
 
