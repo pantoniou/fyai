@@ -3205,6 +3205,7 @@ void fyai_config_set_defaults(struct fyai_cfg *cfg)
 	cfg->parallel_tool_calls_prompt =
 		DEFAULT_PARALLEL_TOOL_CALLS_PROMPT;
 	cfg->max_tool_iterations = MAX_TOOL_LOOP_ITERATIONS;
+	cfg->durable = true;
 	cfg->max_tokens = DEFAULT_MAX_TOKENS;
 	cfg->temperature = DEFAULT_TEMPERATURE;
 	cfg->top_logprobs = -1;

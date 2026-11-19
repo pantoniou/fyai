@@ -67,7 +67,7 @@ max_tool_iterations: 1000
 # waits, monitors, background commands, sub-agents and the events that wait
 # for the model, and a restart opens them again. A session in a view also stores
 # the state of its view each round. It adds a publish a round.
-durable: false
+durable: true
 # Output-token limit per request. Messages requests require this value;
 # other grammars can derive it from the catalogue.
 max_tokens: 8192

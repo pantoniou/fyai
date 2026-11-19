@@ -575,7 +575,8 @@ already holds ends only if the server goes.
 With `durable` set, the turn in flight is stored before each model request,
 when every call of it has its result. A worker that is lost then leaves the
 conversation up to the last round, which `/continue` runs, and a client that
-joins sees the rounds so far. The key is off by default.
+joins sees the rounds so far. The key is on by default; `durable: false` stores
+a turn only when it ends.
 
 A round costs one publish: on the benchmark `tests/bench/durable_rounds.sh`
 (a mock provider, one tool call a round) it adds 1.2 ms a round at 50 rounds,
