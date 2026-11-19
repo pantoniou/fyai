@@ -34,6 +34,7 @@
 #include "fyai_remote.h"
 #include "fyai_remote_http.h"
 #include "fyai_remote_int.h"
+#include "fyai_claude_sdk.h"
 #include "fyai_remote_tls.h"
 #include "fyai_sink.h"
 #include "fyai_storage.h"
@@ -133,6 +134,8 @@ struct fyai_remote_session {
 	 * were told last. */
 	bool busy;
 	const char *state_sent;
+	/* The worker went by a crash, not by an end that was asked for. */
+	bool crashed;
 	/* A registered worker: its own client drives it, and the server lists it
 	 * and serves its watchers. The worker says when it is busy. */
 	bool driven;
@@ -327,6 +330,8 @@ static void remote_states(struct fyai_remote_session *session, const char *state
 			   "state", state);
 	if (fy_is_valid(last))
 		frame = fy_assoc(gb, frame, "last", last);
+	if (session->crashed && !strcmp(state, "ended"))
+		frame = fy_assoc(gb, frame, "crashed", true);
 	for (watcher = session->watchers; watcher; watcher = watcher->wnext)
 		if (watcher->states)
 			remote_peer_send(watcher, frame);
@@ -484,6 +489,24 @@ static void remote_worker_frame(struct jsonrpc_conn *conn, fy_generic frame,
 		jsonrpc_image_free(wire.image);
 }
 
+/*
+ * Whether a worker went by a crash: a fatal signal of the program, or an exit
+ * status that is not the end that the worker reports itself. A kill and an
+ * end that was asked for are not crashes.
+ */
+static bool remote_status_crashed(int status)
+{
+	int sig;
+
+	if (WIFSIGNALED(status)) {
+		sig = WTERMSIG(status);
+		return sig == SIGSEGV || sig == SIGABRT || sig == SIGBUS ||
+		       sig == SIGFPE || sig == SIGILL;
+	}
+	return WIFEXITED(status) && WEXITSTATUS(status) &&
+	       WEXITSTATUS(status) != FYAI_WORKER_EXIT_ENDED;
+}
+
 static enum fyai_event_action remote_worker_exit(const struct fyai_event *ev)
 {
 	struct fyai_remote_session *session = ev->userdata;
@@ -491,6 +514,7 @@ static enum fyai_event_action remote_worker_exit(const struct fyai_event *ev)
 
 	session->child = NULL;
 	session->exited = true;
+	session->crashed = remote_status_crashed(ev->status);
 	session->server->dirty = true;
 	remote_log(session->server, "worker %ld (branch '%s') %s", (long)ev->pid,
 		   session->branch ? session->branch : "none",

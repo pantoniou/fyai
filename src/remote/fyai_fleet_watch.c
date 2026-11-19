@@ -34,7 +34,12 @@ struct fyai_fleet_watcher {
 	char *last;			/* the first line of the last answer, or NULL */
 	char *title;			/* the description of the branch, or NULL */
 	bool ended;			/* free it outside its frame */
+	bool crashed;			/* the worker went by a crash */
+	int restarts;			/* the times that this root started it again */
 };
+
+/* The most times that a root starts a member again after a crash. */
+#define FLEET_RESTARTS_MAX	2
 
 /* The most characters of an answer that the fleet panel shows. */
 #define FLEET_PANEL_LAST	60
@@ -223,6 +228,7 @@ static void fleet_watch_frame(struct jsonrpc_conn *conn, fy_generic frame,
 		rc = fyai_event_injectf(w->owner->waitq, "[session '%s' ended]",
 					w->name);
 		w->ended = true;
+		w->crashed = fy_get(frame, "crashed", false);
 	} else {
 		return;
 	}
@@ -379,19 +385,72 @@ size_t fyai_fleet_watch_live(struct fyai_ctx *ctx)
 	return n;
 }
 
+/* Whether a task of this root for the member @name is open. */
+static bool fleet_task_open(struct fyai_ctx *ctx, const char *name)
+{
+	fy_generic tasks = fyai_fleet_tasks_open(ctx), key, task;
+
+	fy_foreach_key_value(key, task, tasks) {
+		(void)key;
+		if (!strcmp(fy_sprintfa("%s:%s", fy_get(task, "project", "."),
+					fy_get(task, "branch", "")), name))
+			return true;
+	}
+	return false;
+}
+
+/*
+ * Start the member @name again after a crash of its worker, as a root that
+ * starts takes up a lost member, and supervise it. The count of the starts
+ * goes on in the new supervisor.
+ */
+static void fleet_watch_restart(struct fyai_ctx *ctx, const char *name,
+				int restarts)
+{
+	if (fyai_fleet_revive(ctx, name) || fyai_fleet_watch_add(ctx, name)) {
+		fleet_watch_trace_failure(ctx, name);
+		return;
+	}
+	if (ctx->fleet->watchers && !strcmp(ctx->fleet->watchers->name, name))
+		ctx->fleet->watchers->restarts = restarts + 1;
+	if (!fyai_event_injectf(ctx->fleet->waitq, "[session '%s' restarted: its "
+				"process crashed; it goes on from its last stored "
+				"step]", name))
+		fyai_waiters_kick(ctx);
+}
+
 void fyai_fleet_watch_reap(struct fyai_ctx *ctx)
 {
-	struct fyai_fleet_watcher **link = &ctx->fleet->watchers, *w;
+	struct fyai_fleet_watcher **link, *w;
 	bool changed = false;
+	char *again;
+	int restarts;
 
-	while ((w = *link)) {
-		if (!w->ended) {
-			link = &w->next;
-			continue;
+	for (;;) {
+		again = NULL;
+		restarts = 0;
+		link = &ctx->fleet->watchers;
+		while ((w = *link)) {
+			if (!w->ended) {
+				link = &w->next;
+				continue;
+			}
+			*link = w->next;
+			changed = true;
+			/* One member at a time: a start takes the list again. */
+			if (w->crashed && w->restarts < FLEET_RESTARTS_MAX &&
+			    fleet_task_open(ctx, w->name)) {
+				again = strdup(w->name);
+				restarts = w->restarts;
+			}
+			fleet_watcher_free(w);
+			if (again)
+				break;
 		}
-		*link = w->next;
-		fleet_watcher_free(w);
-		changed = true;
+		if (!again)
+			break;
+		fleet_watch_restart(ctx, again, restarts);
+		free(again);
 	}
 	if (changed)
 		fleet_watch_panel(ctx);
