@@ -465,9 +465,16 @@ state, and the first line of its last answer (at most 60 characters):
 
 ```text
 Fleet
-- a:fleet/fix-the-build · idle — Build fixed.
-- libs/inner:fleet/docs · running
+· a:fleet/fix-the-build · idle — Build fixed.
+● libs/inner:fleet/docs · running
 ```
+
+Each row starts with a mark of its state: a dot for `idle`, a diamond for
+`waiting`, a dash for the others. The mark of a `running` member blinks: it
+changes between a full and an empty circle on the phase of the activity
+clock of the UI, which the busy mark uses too. The clock runs only while a
+member runs. This is the whole bird's-eye view of a live member; the
+deferred tile of a member would show its stream.
 
 The component of section 10 writes the rows to the member `fleet` of the
 `panels` store of the UI model at each change of a member; the client of a
@@ -541,8 +548,9 @@ Each step is one series, with its tests.
    client drives, and into one that no process runs.
 7. **The fleet view.** First part done: the fleet panel of the page (section
    11.1). Tests: the panel shows a member and its answer; the page tests fit
-   it and keep it under the todo list. Members as tiles of the work pane, with
-   their stream, are not done.
+   it and keep it under the todo list. The panel marks a running member with a
+   blinking mark. Members as tiles of the work pane, with their stream, are
+   not done.
 8. **Policy.** `fleet/max_live`, `fleet/approve`. Test: a start that the
    person rejects, one that the person accepts, one over the limit with no
    question, and a run of a prompt that nobody answers.
