@@ -8,9 +8,8 @@ set -eu
 . "$(dirname "$0")/../harness.sh"
 
 fyai_test_setup
-# The owner of the session is the process that is killed: in process. A split
-# session goes on at a server when its client is killed, with its shell.
-export FYAI_NO_SPLIT=1
+# The owner of the session is the worker. A killed client leaves the worker
+# going on at a server, with its shell, so the worker is killed after it.
 
 # The shell records its process and writes HOLD in two parts, so only its
 # output holds the word and not the command in the head.
@@ -31,6 +30,12 @@ PTY
 
 [ -s "$TEST_DIR/shell.pid" ] || fail "the shell did not record its process"
 shell=$(cat "$TEST_DIR/shell.pid")
+# The shell is a child of the tool child that serves it, which is a child of
+# the worker.
+tool=$(ps -o ppid= -p "$shell" | tr -d ' ')
+worker=$(ps -o ppid= -p "$tool" | tr -d ' ')
+[ -n "$worker" ] && [ "$worker" -gt 1 ] || fail "the worker of the session is not found"
+kill -KILL "$worker"
 "$PYTHON" -I "$TESTS_DIR/wait_exit.py" "$shell" $((100 * FYAI_TIMEOUT_SCALE)) || {
     kill -KILL "$shell" 2>/dev/null || true
     fail "the shell outlived the process that owned its session"

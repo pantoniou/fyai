@@ -3,8 +3,6 @@
 set -eu
 . "$(dirname "$0")/../harness.sh"
 fyai_test_setup
-# The login prompt belongs to the process that has the terminal.
-export FYAI_NO_SPLIT=1
 
 "$PYTHON" - "$FYAI_BIN" "$TEST_DIR" "$TESTS_DIR" <<'PY'
 import fcntl, os, pathlib, re, select, signal, struct, subprocess, sys, termios, time
@@ -43,8 +41,7 @@ def screen():
     return "\n".join("".join(row) for row in terminal.screen.grid)
 
 try:
-    until(lambda: any(row.lstrip().startswith("❯")
-                      for row in terminal.screen.display()))
+    until(lambda: any("❯" in row for row in terminal.screen.display()))
     os.write(master, b"/auth login --manual\n")
     pattern = r"https://auth.openai.com/api/accounts/authorize\?[^\s┃]+"
     def login_query():

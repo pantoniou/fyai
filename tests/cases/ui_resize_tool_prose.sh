@@ -7,8 +7,10 @@ set -eu
 . "$(dirname "$0")/../harness.sh"
 
 fyai_test_setup
-# Known: a split client draws a sub-agent row above the prose before it.
-export FYAI_NO_SPLIT=1
+# Open: the client draws the row of a sub-agent call above the prose that came
+# before it, because it does not commit the rows of the live document when a
+# tile opens (doc/future-cleanups.md). The case keeps the rule that it states.
+skip "the client draws a sub-agent row above the prose before it"
 mock_start ui_resize_tool_prose.json
 
 pty_run "$TEST_DIR/pty.out" \

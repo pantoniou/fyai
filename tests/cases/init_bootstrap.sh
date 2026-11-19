@@ -11,8 +11,6 @@ set -eu
 . "$(dirname "$0")/../harness.sh"
 
 fyai_test_setup_bare
-# The bootstrap prompt belongs to the process that has the terminal.
-export FYAI_NO_SPLIT=1
 
 # Do not inherit an arena from a scratch-directory ancestor.
 BOOTSTRAP_CONFIG="$TEST_DIR/bootstrap.yaml"
@@ -77,11 +75,14 @@ except TimeoutError:
     sys.stderr.write("fyai did not end; it wrote: %r\n" % buf[-2000:])
     sys.exit(1)
 signal.alarm(0)
+if b"[y/N]" not in buf:
+    sys.stderr.write("the prompt did not appear; it wrote: %r\n" % buf[-1500:])
 sys.exit(0 if b"[y/N]" in buf else 1)
 PY
 if [ -e "$TEST_DIR/.fyai" ]; then fail "an answer of no created $TEST_DIR/.fyai"; fi
 
-# An answer of yes creates the project, and its config reads back.
+# An answer of yes creates the project, and its config reads back. The session
+# starts: its first painted frame is the sign, and an end of input ends it.
 "$PYTHON" - "$FYAI_BIN" "$TEST_DIR" y <<'PY' || fail "the prompt did not appear"
 import os, pty, select, signal, sys, time
 from term_reply import answer_da1
@@ -110,8 +111,8 @@ while time.time() < end:
             os.write(fd, ANSWER.encode() + b"\n")
             sent = True
             end = time.time() + 10
-        elif sent and not exit_sent and b"initialized" in buf and \
-                b"\x1b[?25h\x1b[?2026l" in buf[buf.find(b"initialized"):]:
+        elif sent and not exit_sent and \
+                b"\x1b[?25h\x1b[?2026l" in buf[buf.find(b"[y/N]"):]:
             # Send EOF once; repeated PTY writes can block. The session
             # reads it only after it painted the input: an earlier EOF is
             # lost and the run waits for the time limit.
@@ -138,7 +139,9 @@ except TimeoutError:
     sys.stderr.write("fyai did not end; it wrote: %r\n" % buf[-2000:])
     sys.exit(1)
 signal.alarm(0)
-sys.exit(0 if b"initialized" in buf else 1)
+if not exit_sent:
+    sys.stderr.write("the session did not start; it wrote: %r\n" % buf[-1500:])
+sys.exit(0 if exit_sent else 1)
 PY
 [ -d "$TEST_DIR/.fyai/arena" ] || fail "an answer of yes created no arena"
 

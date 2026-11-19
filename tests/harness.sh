@@ -194,15 +194,10 @@ pty_run() {
 	[ -z "${FYAI_TRACE_LEVEL+x}" ] ||
 		keep+=(--env "FYAI_TRACE_LEVEL=$FYAI_TRACE_LEVEL")
 	# An interactive session runs at a worker that is a child of the
-	# process. FYAI_TEST_NO_SPLIT=1 keeps the oracle baseline in process.
-	if [ -z "${FYAI_TEST_NO_SPLIT:-}" ]; then
-		# The client keeps its UI over a restart of the session, so it
-		# says that the new worker started instead of taking the
-		# keyboard protocol again.
-		sed -i '/^  - wait-count: "\\e\[>1u"$/{N;s/.*/  - wait-screen: the session restarted/}' "$script"
-	else
-		keep+=(--env FYAI_NO_SPLIT=1)
-	fi
+	# process. The client keeps its UI over a restart of the session, so it
+	# says that the new worker started instead of taking the keyboard
+	# protocol again.
+	sed -i '/^  - wait-count: "\\e\[>1u"$/{N;s/.*/  - wait-screen: the session restarted/}' "$script"
 	env -u FYAI_TRACE -u FYAI_TRACE_LEVEL "$FYAI_BIN" __pty-driver \
 		${keep[@]+"${keep[@]}"} "$script" "$out" "$@"
 }

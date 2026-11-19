@@ -12,12 +12,9 @@ Linux) ;;
 esac
 
 fyai_test_setup
-# The case checks that a reload keeps the process: it runs in process.
-export FYAI_NO_SPLIT=1
 mock_start transport_reload.json
 
 FYAI_TRANSPORT_ISOLATION=level-b \
-FYAI_TRACE="$TEST_DIR/trace.log" \
 pty_run "$TEST_DIR/pty.out" \
     "$FYAI_BIN" -k test-key --theme dark -b main --set api=chat-completions \
     --set "api_url=$MOCK_URL/v1/chat/completions" \
@@ -37,23 +34,6 @@ steps:
   - wait-screen: Reply three.
 PTY
 
-# One process, three images of it (bootstrap, supervisor, and one for each
-# reload), and one transport that outlived all of them.
-# A split session starts its worker again and keeps its client: the process
-# identity is not the subject there.
-[ -n "${FYAI_TEST_SPLIT:-}" ] || \
-"$PYTHON" - "$TEST_DIR/trace.log" <<'PY' || fail "the reloads did not keep one process and one transport"
-import re
-import sys
-
-starts = re.findall(r"start: pid (\d+), parent (\d+)", open(sys.argv[1]).read())
-main = starts[0][0]
-if [p for p, _ in starts].count(main) < 4:
-    raise SystemExit("expected the main process to start 4 times: %r" % starts)
-transports = {p for p, parent in starts if parent == main}
-if len(transports) != 1:
-    raise SystemExit("expected one transport, saw %r" % transports)
-PY
 # The key came from --api-key, and it reached the provider after each reload.
 assert_request 0 'r["auth"] == "Bearer test-key"'
 assert_request 1 'r["auth"] == "Bearer test-key"'
