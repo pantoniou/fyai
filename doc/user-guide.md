@@ -260,6 +260,16 @@ fyai dump anchors
 fyai dump providers
 ```
 
+### Title a session
+
+`/title` asks the current model for a short title of the session and keeps it
+as the description of the branch, which the branch list, the fleet list and
+the fleet search show in place of a name such as `session-1234`. The request
+follows the conversation with no tools and is not stored; only the title is.
+`/title --summary` also shows a short summary, which is not kept. `/title
+TEXT` keeps TEXT and sends no request. The keys `title/prompt`,
+`title/summary_prompt` and `title/max_chars` shape the request.
+
 ### Start over or compact
 
 ```sh
