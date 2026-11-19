@@ -1,7 +1,7 @@
 # Software Design Document: Fleets of sessions
 
 - **Project:** pantoniou/fyai
-- **Status:** Steps 1 and 2 of section 14 are implemented, with the parts that section 6 defers
+- **Status:** Steps 1 to 3 of section 14 are implemented, with the parts that sections 6 to 8 defer
 - **Date:** 2026-11-19
 - **Repository path:** `doc/fyai-fleet-sdd.md`
 - **Baseline:** `devel` at `b4355093` (durable by default, every terminal
@@ -237,55 +237,64 @@ no stored exchange yet is listed from the record alone.
 
 ## 7. The supervisor
 
-A third role of a server connection, beside the driver and the watcher:
-`fyai_session_attach {branch, supervise: true}`. Any number of supervisors
-can attach to a session. A supervisor is also a watcher: it may read the
-model and the stored turns. It may send:
+A supervisor sends intent to the live session on a branch, also to one that
+a client drives. Each request names the branch, at the server that runs the
+sessions of its project (the server needs the feature `supervise` of the
+hello):
 
-| Request | Effect at the worker |
-| --- | --- |
-| `fyai_session_send {text, from}` | The event `[message from 'FROM']` with the text as its body. An idle session starts a turn with it; a busy one gets it at its next round. |
-| `fyai_session_interrupt` | `fyai_ui_interrupt()`, as Escape. |
-| `fyai_session_answer {question, answer}` | Settles an open question with the answer of the supervisor. |
-| `fyai_session_end {force}` | As `session kill`. |
+| Request at the server | Request at the worker | Effect |
+| --- | --- | --- |
+| `fyai_session_send {branch, text, from}` | `fyai_message` | The event `[message 'FROM']` with the text as its body. An idle session takes it as a turn between turns; a running one gives it to the model at its next round. |
+| `fyai_session_interrupt {branch}` | `interrupt` | The interrupt of the turn, as Escape. |
+| `fyai_session_answer {branch, answer}` | `fyai_supervise_answer` | Settles the first open question: the number of an option, from 1, or any other text. A set of several questions is refused. |
+| `fyai_session_close {branch, force}` | SIGTERM, or SIGKILL | `session kill`. |
 
-The driver of the session sees each of these as the user does in the session:
-the message arrives as an event card, the interrupt as an interrupt, and the
-answer settles the question that it shows. The supervisor never takes the
-driver role and sends no keys.
+The server sends the request to the worker under the prefix of a watcher, so
+the answer of the worker comes back to the supervisor alone. The connection
+then watches the session quietly: it gets its answers and no frame of the
+session. The driver of the session sees each request as the user does: the
+message as an event card, the interrupt as an interrupt, and the answer
+settles the question that it shows. A supervisor never takes the driver
+role and sends no keys.
 
-A supervisor that wants changes, not frames, asks for `state: true` in the
-attach. It then gets `fyai_session_state` frames in place of the UI stream:
-`{branch, state: idle|running|waiting|ended, head, question, last}`, where
-`last` is the last assistant text of a turn that ended. The server makes them
-from the frames that it already reads for its record.
+Deferred to step 5, where the root session needs it: an attachment that
+stays (`fyai_session_attach {branch, supervise: true}`) and gets
+`fyai_session_state` frames in place of the UI stream: `{branch, state:
+idle|running|waiting|ended, head, question, last}`, where `last` is the last
+assistant text of a turn that ended.
 
 ## 8. Commands
 
-Verbs and slash commands in `data/commands.yaml`, at a server through
-`--remote` and the root server:
+Verbs and slash commands in `data/commands.yaml`:
 
 ```sh
 fyai fleet list                              # every session under the root
-fyai session new --project fyai --branch fleet/x --task "Fix the build"
-fyai session send fyai:fleet/x "Also run the tests."
+fyai fleet start fyai "Fix the build"        # fyai:fleet/fix-the-build
+fyai fleet start --branch fleet/x fyai "Fix the build"
+fyai session send fyai:fleet/x Also run the tests.
+fyai session send --from root:main fyai:fleet/x Also run the tests.
 fyai session interrupt fyai:fleet/x
-fyai session answer fyai:fleet/x yes
-fyai session watch fyai:fleet/x              # remote connect --watch
+fyai session answer fyai:fleet/x 2           # the second option, or a text
 fyai session kill fyai:fleet/x
+fyai -b fleet/x remote connect --watch       # in fyai: watch it
 ```
 
 A session is named `PROJECT:BRANCH`, where PROJECT is the directory relative
-to the root (`.` is the root project). Inside a project, `BRANCH` alone names
-a session of that project.
+to the root (`.` is the root project) that holds a project. A name whose text
+before its first colon is no project is a branch alone, so `main/agent:x`
+stays a branch (`fyai_fleet_name_split()`). Inside a project, `BRANCH` alone
+names a session of that project.
 
-A session in the state `stored` or `lost` is a valid target of every verb
-but `interrupt` and `answer`: `send` starts it at the project server with the
-message as a turn, and `watch` starts it parked.
+`fleet start PROJECT TASK` starts a worker at the server that runs the
+sessions of the project, on `--branch` or on `fleet/` and the first words of
+the task, with the task as its first message. It attaches with `keep`, sends
+the task and leaves: the session runs with no client, and the server keeps it
+after its turn. A branch that a worker runs already gets the task as a
+message of its client.
 
-`session new --task` starts a parked worker at the project server, on a new
-branch (`fleet/` and a name from the task when no branch is given), with the
-task as its first message. `--view` runs it in a view of its own.
+Deferred: verbs for a session that is `stored` or `lost` (they need a live
+session now; `fleet start` and `resume` start one), `--view` for `fleet
+start`, and a `session watch` verb.
 
 ## 9. Lineage and tasks
 
@@ -323,7 +332,7 @@ with `/background`. Its model gets these tools (`data/tools.yaml`, defined in
 
 | Tool | Does |
 | --- | --- |
-| `session_start` | `session new --task`: makes a task and a member. |
+| `session_start` | `fleet start`: makes a task and a member. |
 | `session_send` | Sends a message to a member. |
 | `session_status` | The sessions under the root, with state, task and last answer. |
 | `session_read` | The last N exchanges of a member branch, from its arena. |
@@ -449,7 +458,7 @@ Each step is one series, with its tests.
    leaves the session running; `/background` of a registered worker; two
    workers on one branch.
 3. **The supervisor and the commands.** `send`, `interrupt`, `answer`,
-   `session new --task`, names `PROJECT:BRANCH`. Tests: a message to an idle
+   `fleet start`, names `PROJECT:BRANCH`. Tests: a message to an idle
    session and to a busy one; an answer to a question that a driver sees; an
    interrupt of a running turn.
 4. **Lineage and tasks.** `fleet` and `tasks` in the stores; `session adopt`.

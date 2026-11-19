@@ -2151,6 +2151,24 @@ it is gone with work in flight (a start restores the work), and `running`
 when its process runs with no server. A server gives the state of the
 sessions that it lists.
 
+A session of another project is named `PROJECT:BRANCH`, with the project
+relative to the root (`.` is the root). The `session` verbs reach a live
+session by that name, also one that a person drives in a terminal: the
+person sees the message, the interrupt or the answer as if it came from the
+session itself.
+
+```sh
+fyai fleet start fyai "Fix the build"    # a session fyai:fleet/fix-the-build
+fyai session send fyai:fleet/fix-the-build Also run the tests.
+fyai session interrupt fyai:fleet/fix-the-build
+fyai session answer fyai:fleet/fix-the-build 2   # option 2, or a text
+fyai session kill fyai:fleet/fix-the-build
+```
+
+The model gets a message as the event `[message 'user']` (`--from` names
+another sender). A session that `fleet start` starts runs with no client, and
+its server keeps it: `resume` in its project joins it.
+
 `fyai serve --projects DIR` serves each project under DIR on
 `~/.fyai/unix/serve.sock`. A client names its project with `--project`,
 relative to DIR, or by its own directory. The server starts one project server
