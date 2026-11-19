@@ -2196,7 +2196,10 @@ From any session, `/jump PROJECT:BRANCH` goes into a session of the fleet in
 the same terminal, and `/root` comes back. The session that you leave goes on
 at its server, as `/background` leaves it. A session that nothing runs starts,
 and one that another terminal drives is only watched. `fyai fleet attach
-NAME` joins a session of the fleet from the command line.
+NAME` joins a session of the fleet from the command line. Tab completes the
+name in `/jump`, `fleet attach`, `fleet read` and the `session send`,
+`interrupt` and `answer` commands: each candidate is `PROJECT:BRANCH` with the
+state and the title of the session.
 
 The tool asks you before the model starts a session (`fleet/approve`:
 `start`, the default; `always` asks before every call that changes a session;

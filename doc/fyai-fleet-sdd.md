@@ -452,7 +452,13 @@ turn.
   which the server holds. In a session that no jump reached, the client says
   so and ends; the session stays as it is.
 
-Deferred: a picker of the fleet (`/sessions`); the lines that a watcher of a
+Tab completes the name of a session (the kind `fleet-session`: PROJECT:BRANCH
+with the state and the title) in `/jump`, `fleet attach`, `fleet read` and
+`session send`, `interrupt` and `answer`. Each Tab runs the list of the fleet,
+one short child.
+
+Deferred: a picker window of the fleet (`/sessions`; the question panel holds
+four options, the browser is bound to the sessions of one project); the lines that a watcher of a
 driven session types going to it as messages; the name of the session and
 the way back on the status line; and the events `jumped` and `returned` of
 the root session.
