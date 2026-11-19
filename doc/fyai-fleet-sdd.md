@@ -1,7 +1,7 @@
 # Software Design Document: Fleets of sessions
 
 - **Project:** pantoniou/fyai
-- **Status:** Steps 1 to 6 of section 14 are implemented, and the panel of step 7, with the parts that sections 6 to 11 defer
+- **Status:** Steps 1 to 8 of section 14 are implemented, step 7 as the panel of section 11.1, with the parts that sections 6 to 13 defer
 - **Date:** 2026-11-19
 - **Repository path:** `doc/fyai-fleet-sdd.md`
 - **Baseline:** `devel` at `b4355093` (durable by default, every terminal
@@ -372,9 +372,9 @@ sub-agents and no fleet tools: a member that needs more work done says so in
 its answer, and the root session decides. A person runs the commands of
 section 8 from any directory of the tree.
 
-The tool sends data to other sessions and starts programs. Step 7 adds
-`fleet/approve`, which decides which calls ask the person; until then a call
-runs as the model asks it.
+The tool sends data to other sessions and starts programs: `fleet/approve`
+decides which calls ask the person first, and `fleet/max_live` bounds the
+members (section 13).
 
 The root session supervises each member of an open task with a connection
 that stays (`fyai_session_attach {branch, supervise: true}`), kept by the
@@ -486,14 +486,21 @@ commands of views.
 
 - `fleet/scan/depth`, `fleet/scan/exclude`: the
   scan of section 6.1.
-- `fleet/max_live`: the number of members that run at one time. A start above
-  it waits in the task as `state: open` with no member, and starts when one
-  ends.
-- `fleet/approve`: `never`, `start` (a new member asks the person; the
-  default) or `always`.
+- `fleet/max_live` (default 8): the most members that a root session
+  supervises at one time. A start of the root above it is refused, before
+  any question, until a member ends; the model is told to wait or to stop
+  one. 0 sets no limit. Deferred: a start above it waiting as an open task
+  and starting when one ends.
+- `fleet/approve`: which calls of the `fleet` tool ask the person first, in
+  the question panel, with Reject under the cursor: `start` (the default)
+  before a start, `always` before each call that changes a session (`start`,
+  `send`, `interrupt`, `answer`, `stop`), and `never` for none. A rejection,
+  with what the person typed, is the answer to the model. A call that must
+  ask when nobody can answer (a run of a prompt) is refused. The keys are
+  `read` for the model: it cannot loosen them.
 - A supervisor connection is admitted as any client of the server: the same
   user on the Unix socket.
-- Spend: each member counts its own usage; `session_status` shows it.
+- Spend: each member counts its own usage. Deferred: a total of the fleet.
 
 ## 14. Delivery
 
@@ -536,7 +543,9 @@ Each step is one series, with its tests.
    11.1). Tests: the panel shows a member and its answer; the page tests fit
    it and keep it under the todo list. Members as tiles of the work pane, with
    their stream, are not done.
-8. **Policy.** `fleet/max_live`, `fleet/approve`.
+8. **Policy.** `fleet/max_live`, `fleet/approve`. Test: a start that the
+   person rejects, one that the person accepts, one over the limit with no
+   question, and a run of a prompt that nobody answers.
 
 ## 15. Open questions
 

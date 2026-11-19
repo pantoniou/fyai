@@ -2181,6 +2181,12 @@ at its server, as `/background` leaves it. A session that nothing runs starts,
 and one that another terminal drives is only watched. `fyai fleet attach
 NAME` joins a session of the fleet from the command line.
 
+The tool asks you before the model starts a session (`fleet/approve`:
+`start`, the default; `always` asks before every call that changes a session;
+`never` asks for none), and a root session supervises at most
+`fleet/max_live` members at a time (default 8). Set both in the root:
+`fyai config set fleet/approve always`.
+
 The page of a root session shows its members in a `Fleet` panel under the
 todo list: the name, the state, and the start of the last answer of each.
 
