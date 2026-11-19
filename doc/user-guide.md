@@ -2130,6 +2130,27 @@ cd ~/work && fyai serve --daemon   # ~/work is a project with projects below
 cd ~/work/fyai && fyai --remote . branch list   # served for ~/work/fyai
 ```
 
+A session on a terminal registers with that server when one runs, and with
+the next one that starts when none does. The server lists it (`session
+list`, `serve status`), a watcher reads it (`remote connect --watch`),
+`session kill` ends it, and `/background` gives it to the server on the same
+connection. Its own terminal still drives it.
+
+`fyai fleet` lists the projects below the root, the topmost project above
+the current directory, and their sessions, whether a process runs them or
+not. A scan finds the projects: no project is registered by hand.
+
+```sh
+fyai fleet scan      # the projects: their stored and live sessions
+fyai fleet list      # every session: stored, running, lost, idle, waiting
+fyai config set fleet/scan/depth 2   # in the root: how deep the scan goes
+```
+
+A session is `stored` when nothing runs it, `lost` when the process that ran
+it is gone with work in flight (a start restores the work), and `running`
+when its process runs with no server. A server gives the state of the
+sessions that it lists.
+
 `fyai serve --projects DIR` serves each project under DIR on
 `~/.fyai/unix/serve.sock`. A client names its project with `--project`,
 relative to DIR, or by its own directory. The server starts one project server

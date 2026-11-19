@@ -506,6 +506,12 @@ is running.
 A session in the terminal process has no worker to give. `/background` fails
 there and says why.
 
+A worker that a server lists already (it registered when it started,
+`fyai-fleet-sdd.md` 6.2) sends no adopt: it tells that server that its client
+left, and the connection of the registration becomes its channel. A server of
+this project or of a project above it takes the session; a server starts for
+the project only when none runs on the way up.
+
 A worker that a server holds already (it was adopted, or the server started
 it) has nothing to give: `/background` there ends the client that typed it and
 leaves the session where it is. `/detach` is another name of the command.

@@ -1,7 +1,7 @@
 # Software Design Document: Fleets of sessions
 
 - **Project:** pantoniou/fyai
-- **Status:** Step 1 of section 14 is implemented
+- **Status:** Steps 1 and 2 of section 14 are implemented, with the parts that section 6 defers
 - **Date:** 2026-11-19
 - **Repository path:** `doc/fyai-fleet-sdd.md`
 - **Baseline:** `devel` at `b4355093` (durable by default, every terminal
@@ -129,9 +129,9 @@ directory, which the server starts when it does not run. `fyai serve` in
   The refusal "the server serves projects: name one" stays for it.
 - A project server that a parent server started belongs to it, as now: it ends
   with its parent. One that a person started does not.
-- The root server writes the record of its own sessions as a project server
-  does (`ROOT/.fyai/unix/remote.sock.live`), and answers `session list --all`
-  with the records of the project servers below it.
+- Each project server writes the record of its own sessions
+  (`PROJECT/.fyai/unix/remote.sock.live`), also one that a server above
+  started; `fleet list` reads the record of each project.
 
 The user starts and stops the root server (`fyai serve --daemon` in `~/work`,
 `fyai serve stop`). It keeps no canonical state, as every server.
@@ -144,124 +144,96 @@ the live layer is a hint from the servers.
 ### 6.1 The stored layer
 
 A project is in the fleet when its directory is under the root and holds a
-`.fyai` arena. Nothing registers a project: a scan finds it.
+`.fyai` arena. Nothing registers a project: a scan finds it. The root is the
+topmost project above the current directory (`fyai_fleet_root_of()`).
 
-`fyai fleet scan` (`/fleet scan` in a session) walks the root:
+`fyai fleet scan` (`/fleet scan` in a session) lists the projects, and
+`fyai fleet list` their sessions. Each runs the scan (`fyai_fleet_scan()`):
 
-- It finds each directory with a `.fyai` that holds an arena. A project below
-  a project is a project of its own, as the nearest `.fyai` owns a directory
-  (`fyai_discover_project_root_from()`).
-- It does not go into `.fyai`, `.git`, a mount point of another file system,
-  a symbolic link, or a directory that `fleet/scan/exclude` names
-  (default: `node_modules`, `build*`, `.cache`). It stops at
-  `fleet/scan/depth` levels (default 4).
-- It reads the arena of each project read-only, as `--root` does: the
-  branches that are sessions, with head, last update, task and `pending`
-  table.
-- It finds the running sessions that no server knows (section 6.2): the
-  processes of the user whose executable is fyai and whose directory is in a
-  project of the root. A process found this way is `running (unregistered)`.
-  The search reads `/proc` of the user only, through a host backend
-  (`fyai_host_proc_*()`), and is skipped where the host has none.
+- It finds each directory whose `.fyai` holds an arena, in the order of the
+  names. A project below a project is a project of its own, as the nearest
+  `.fyai` owns a directory.
+- It does not go into `.fyai`, `.git`, a symbolic link, a directory on
+  another file system, or a directory that `fleet/scan/exclude` names
+  (default: `node_modules`, `build*`, `.cache`). It goes `fleet/scan/depth`
+  levels down (default 4). The stored configuration of the root sets both.
+- It reads the arena of each project with a peek (`fyai_peek_sessions()`):
+  the resumable branches, as `resume --all` lists them, with the owner of
+  their `pending` table. A process maps one arena at its fixed address, so
+  the commands open none of their own (`no-storage`) and peek at each in turn.
 
-The result is stored in the store of the root branch as `projects`, an open
-mapping by the directory relative to the root:
+A session is in one of these states when no server lists it:
 
-```yaml
-projects:
-  fyai: {scanned: 1763550000000, sessions: 14}
-  libs/libfyaml: {scanned: 1763550000000, sessions: 3}
-```
+- `stored`: nothing runs it. A jump or a message starts it (section 11).
+- `running`: its `pending` table names a process that runs, which no server
+  lists.
+- `lost`: its `pending` table names a process that is gone. A start restores
+  the work (`fyai-background-sessions-sdd.md` 20.7).
 
-The scan is a hint that the next scan replaces, not the truth: a list reads
-the arena of each project in `projects` again, so the state of a session is
-never older than the list. A directory in `projects` that has no arena now
-is dropped from the list and from the next scan.
+An idle session with no server and no pending work shows as `stored`: nothing
+on the branch names its process.
 
-A scan runs:
+Deferred from this step:
 
-- when the root server starts, and when the root session starts;
-- on `fleet scan`, and on `session list --all --scan`;
-- when a name `PROJECT:BRANCH` names a project that `projects` does not hold;
-- every `fleet/scan/interval_ms` while the root server runs (default 0: off).
-
-A project that a person makes with `fyai init` under the root, or in which a
-session starts, is in `projects` at once: the start registers it (section
-6.2). The scan finds the projects in which nothing started since the last
-scan.
-
-A session of a project is a branch of its arena: a `session/` branch, a
-`fleet/` branch, or a branch with a `fleet` member (section 9). The root reads
-the arena of each project read-only, as `--root` does, for the head, the time
-of the last update, the task, and the `pending` table. A project with no
-process and no server is listed with its sessions in the state `stored`, and
-a jump or a message starts its session (section 11).
-
-A `pending` table whose owner does not run marks a session that was lost with
-work in flight: the state is `lost`, and a start restores the work
-(`fyai-background-sessions-sdd.md` 20.7).
+- A search of the processes of the user (`/proc`) for the sessions that run
+  with no server and no pending work.
+- A `projects` member in the store of the root, which keeps what a scan found
+  so that a list need not scan, and the event `[project 'PATH' added]`. Each
+  command scans: one `stat()` for each directory to the depth of the scan.
 
 ### 6.2 The live layer
 
-A session that starts under the root registers at once with the root server,
-when it runs. It does not wait for a scan, and it does not need a project
-server: the root server starts the project server, as it does for any client
-of that project, and gives it the worker. A session in a project that the
-root does not know yet (made now, in an excluded directory, below the depth
-of the scan) adds the project to `projects` by this registration, and the
-root session gets the event `[project 'PATH' added]`.
+A session on a terminal registers at once with the server of its project, or
+of the nearest project above that runs (the walk of section 5.1). The
+connection is a second channel of the worker beside its client; the server
+needs the feature `register` of the hello. A server above gives the
+connection to the server of the project, which it starts.
 
-The worker finds its server by the walk of section 5.1, from its project up:
+- A project server that a server above started has no socket. It keeps the
+  record of its sessions where the record of its own server would be
+  (`PROJECT/.fyai/unix/remote.sock.live`), so `session list`, `fleet list`
+  and the resume picker of the project find them, and a client joins them
+  through the server above.
+- `session kill`, `/background` and the registration all find the server by
+  the walk, and name the directory to it (`fyai_project`) so that a server
+  above gives the connection on.
+- With no server on the way up, the worker watches the `.fyai/unix`
+  directory of each project on the way (or its `.fyai` where that does not
+  exist yet), through the directory watch of the host (inotify on Linux).
+  A server writes its record once it listens, and the worker registers
+  between turns, not in the event. A server that stops leaves the worker
+  running; it watches again and registers with the next server.
+- A server that refuses (another worker runs the branch: the picker of
+  `resume` on a parked session) leaves the session as it is; the trace says
+  why.
 
-1. the server of its own project, `PROJECT/.fyai/unix/remote.sock`, when it
-   answers;
-2. else the server of the nearest project above it that answers. That server
-   starts the project servers between it and the session, as it does for a
-   client, and gives the worker to the server of its project;
-3. no server on the way up: the worker runs unregistered. It watches the
-   `.fyai/unix` directory of each project on the way (an inotify watch on the
-   loop, through a host backend) and registers when a server appears in one.
-   A session that a person started before the root server is therefore
-   registered when the server starts.
+Registration is `fyai_session_adopt` with `driven: true`. The server lists
+the session with `attached: true` and `local: true` in `serve status`, and
+refuses a client that asks to drive it. The worker sends each frame to its
+client and to the server; an answer and a snapshot go only to the connection
+that asked (a request of a watcher has the prefix that the server gave it).
+The worker reports `busy` in its `fyai_worker` frame.
 
-A session that starts under the root registers with no project server and no
-scan, as soon as some server above it runs.
+- `/background`, and the terminal that goes away, move the session on the
+  registration: the worker sends `fyai_worker` with `driven: false` and
+  `keep`, and the connection becomes its channel. No second connection is
+  made.
+- A worker that SIGTERM asks to end ends its session, and its client says so:
+  `session kill` of a session that its own client drives reaches it only so.
 
-A run of a prompt with no `-i` registers as well, for presence: the server
-lists it and reports its state and its end, and a supervisor can interrupt or
-end it. It has no UI model, so it can not be watched, and a message to it is
-refused. A verb and a frame mode do not register.
+Deferred from this step:
 
-The stored layer still lists a session that runs unregistered (no server, or
-a host with no watch): its `pending` table, when it has one, names a live
-owner, and the scan finds its process, so the state is `running
-(unregistered)`.
-
-Registration is `fyai_session_adopt` with `keep: false` and a new member
-`driven: true`: the driver of the session is the client of the worker, not a
-client of the server. The server enters the session in its registry, its
-record and `session list` with `attached: local`. The worker sends each frame
-of the UI model to its client and to the server, so watchers and supervisors
-of the server see it. The server sends the worker only the intent of
-supervisors and the requests of watchers.
-
-- The server that goes leaves the worker running; the worker forgets the
-  connection.
-- `/background`, and the terminal that goes away, use the connection that
-  exists: the server channel becomes the only channel, and `driven` goes to
-  false. No second adopt is sent.
-- A second worker on a branch that the server already has registers with
-  `pid` as a second key and is listed as `BRANCH (pid)`. Supervisor intent
-  names the branch and, when two sessions have it, the pid. Their publishes
-  meet at the CAS as they do now.
+- A second worker on a branch that a server has is not registered; the
+  design to list it by `pid` is not done.
+- A run of a prompt with no `-i` does not register.
 
 ### 6.3 The list
 
-`session list --all` joins the layers: one row for each session, with
-`project`, `branch`, `state` (`stored`, `lost`, `idle`, `running`,
-`waiting`), `attached`, `task`, and the time of the last update. A live row
-comes from the record of a server; every other row comes from the arena.
-`session list --all --live` shows only the live layer.
+`fleet list` joins the layers: one row for each session, with `project`
+(relative to the root), `branch`, `state`, `attached` and `pid`. A session
+that a server lists has the state of the server (`idle`, `running`,
+`waiting`); the others have the states of section 6.1. A live session with
+no stored exchange yet is listed from the record alone.
 
 ## 7. The supervisor
 
@@ -294,7 +266,7 @@ Verbs and slash commands in `data/commands.yaml`, at a server through
 `--remote` and the root server:
 
 ```sh
-fyai session list --all                      # every session under the root
+fyai fleet list                              # every session under the root
 fyai session new --project fyai --branch fleet/x --task "Fix the build"
 fyai session send fyai:fleet/x "Also run the tests."
 fyai session interrupt fyai:fleet/x
@@ -407,7 +379,7 @@ A person in the root session jumps into any session under the root, controls
 it, and comes back. The root session goes on while the person is away: it is
 parked at the root server, and its events wait for the next turn.
 
-- `/jump PROJECT:BRANCH`, or the picker of `session list --all` (`/sessions`,
+- `/jump PROJECT:BRANCH`, or the picker of `fleet list` (`/sessions`,
   the live rows of every project), chooses the session. The root session
   goes to the root server as for `/background`. The client then runs
   `remote connect` to the project server of the member in its place, as the
@@ -443,7 +415,7 @@ commands of views.
 
 ## 13. Limits and policy
 
-- `fleet/scan/depth`, `fleet/scan/exclude`, `fleet/scan/interval_ms`: the
+- `fleet/scan/depth`, `fleet/scan/exclude`: the
   scan of section 6.1.
 - `fleet/max_live`: the number of members that run at one time. A start above
   it waits in the task as `state: open` with no member, and starts when one
@@ -468,7 +440,7 @@ Each step is one series, with its tests.
    arena, the search of unregistered processes (stored layer); registration
    at the project server or the root server at start, the watch for a server
    that starts later, frames to both channels, prompt runs for presence (live
-   layer); `session list --all`. Tests: a project with no process is listed
+   layer); `fleet list`. Tests: a project with no process is listed
    with its sessions as `stored`; a project below a project and an excluded
    directory; a killed session with work in flight is `lost`; a session
    started by hand under the root with no project server is registered at
