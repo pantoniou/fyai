@@ -40,6 +40,7 @@
 #include "fyai_config.h"
 #include "fyai_fleet.h"
 #include "fyai_storage.h"
+#include "fyai_media.h"
 #include "fyai_pending.h"
 #include "fyai_turn.h"
 #include "fyai_tool_spec.h"
@@ -1400,8 +1401,44 @@ char *fyai_peek_branch_pick(const char *arena_dir_opt, const char *root_spec,
 	return name;
 }
 
+/*
+ * The words of the user and assistant messages of the last @turns turns from
+ * @head, oldest first, as {role, text} in @gb.
+ */
+static fy_generic peek_texts(struct fy_generic_builder *gb, fy_generic head,
+			     size_t turns)
+{
+	fy_generic recent[FYAI_PEEK_TURNS_MAX], cur, msg, role, text, out = fy_seq_empty;
+	const char *s;
+	size_t n = 0, i;
+
+	if (turns > FYAI_PEEK_TURNS_MAX)
+		turns = FYAI_PEEK_TURNS_MAX;
+	fyai_turn_foreach(cur, head) {
+		if (n >= turns)
+			break;
+		recent[n++] = cur;
+	}
+	for (i = n; i-- > 0; ) {
+		fy_foreach(msg, fy_get(recent[i], "messages", fy_seq_empty)) {
+			role = fy_get(msg, "role", fy_invalid);
+			if (!fy_any_equal(role, "user", "assistant"))
+				continue;
+			text = fyai_media_text(gb, fy_get(msg, "content", fy_invalid));
+			s = fy_castp(&text, "");
+			if (!*s)
+				continue;
+			if (strlen(s) > FYAI_PEEK_TEXT_MAX)
+				text = fy_stringf(gb, "%.*s", FYAI_PEEK_TEXT_MAX, s);
+			out = fy_append(gb, out, fy_mapping(gb, "role",
+				fy_gb_internalize(gb, role), "text", text));
+		}
+	}
+	return out;
+}
+
 int fyai_peek_sessions(const char *arena_dir, struct fy_generic_builder *gb,
-		       fy_generic *rowsp)
+		       const char *only, size_t turns, fy_generic *rowsp)
 {
 	struct fy_allocator *allocator;
 	struct fyai_branch b;
@@ -1424,11 +1461,15 @@ int fyai_peek_sessions(const char *arena_dir, struct fy_generic_builder *gb,
 		goto out;
 	rows = fyai_branch_select_rows(NULL, gb, r.branches, NULL, true);
 	fy_foreach(row, rows) {
+		if (only && !fy_equal(fy_get(row, "branch", fy_invalid), only))
+			continue;
 		/* The rows outlive the arena, which closes below. */
 		row = fy_gb_internalize(gb, row);
 		if (!fy_is_valid(row))
 			goto out;
 		fyai_branch_lookup(r.branches, fy_get(row, "branch", ""), &b);
+		if (turns)
+			row = fy_assoc(gb, row, "texts", peek_texts(gb, b.head, turns));
 		/* The lineage of a session of a fleet, and the tasks of a root. */
 		if (fy_is_mapping(b.fleet))
 			row = fy_assoc(gb, row, "fleet", fy_gb_internalize(gb, b.fleet));

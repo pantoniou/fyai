@@ -214,7 +214,7 @@ static int fleet_found(const char *dir, void *data)
 	fy_generic rows, live;
 
 	/* A project that cannot be read is listed with no stored session. */
-	if (fyai_peek_sessions(fy_sprintfa("%s/.fyai/arena", dir), gb, &rows))
+	if (fyai_peek_sessions(fy_sprintfa("%s/.fyai/arena", dir), gb, NULL, 0, &rows))
 		rows = fy_seq_empty;
 	live = fyai_remote_project_sessions(dir, gb);
 	w->projects = fy_append(gb, w->projects, fy_mapping(gb,
@@ -524,7 +524,7 @@ int fyai_cmd_fleet_tasks(struct fyai_cmd_call *call, fy_generic *result)
 	fyai_error_check(ctx, cwd, out, "fleet: cannot read the current directory");
 	root = fyai_fleet_root_of(cwd);
 	fyai_error_check(ctx, root, out, "fleet: no project holds '%s'", cwd);
-	rc = fyai_peek_sessions(fy_sprintfa("%s/.fyai/arena", root), gb, &rows);
+	rc = fyai_peek_sessions(fy_sprintfa("%s/.fyai/arena", root), gb, NULL, 0, &rows);
 	fyai_error_check(ctx, !rc, out, "fleet: cannot read the root '%s'", root);
 	fy_foreach(row, rows)
 		fy_foreach_key_value(key, task, fy_get(row, "tasks", fy_map_empty))
