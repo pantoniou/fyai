@@ -25,7 +25,6 @@ Do not edit; run `ninja docs-commands` to write it again.
 | `--get KEY` | print a configuration key as one-line flow |
 | `--delete KEY` | delete a configuration key |
 | `--transient` | keep the edits and the state of this run in memory only |
-| `--no-split` | run an interactive session in this process, not at a worker that is a child of it; `/background` needs the worker |
 | `-k`, `--api-key KEY` | API key (else the PROVIDER_API_KEY variable) |
 | `--new` | start a new conversation |
 | `--sandbox PROFILE` | confine shell tools by this sandbox profile, for this run only; none confines nothing |

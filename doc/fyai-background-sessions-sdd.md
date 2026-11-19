@@ -475,10 +475,13 @@ and the branch/session identity as they are.
 An interactive session on a terminal runs at a worker that is a child of the
 terminal process (`--split`; `doc/future-cleanups.md`). The worker owns the
 loop, the model stream, the tools and the arena. The terminal process is a
-client: it draws the UI model and sends the keys. This is the default for a
-bare `fyai` and for `fyai resume`. A prompt on the command line, another verb,
-a frame mode and a session with no terminal run in process, as does a session
-started with `--no-split` or with `$FYAI_NO_SPLIT` set.
+client: it draws the UI model and sends the keys. This is how every session
+on a terminal runs: a bare `fyai`, `fyai -i`, `fyai resume` and `fyai switch`.
+A prompt on the command line without `-i`, another verb, a frame mode and a
+session with no terminal run in process, with the plain sink and, for `-i`
+with no terminal, the line editor of the fallback. The client asks whether to
+create a project that does not exist, and tells the worker with `--bootstrap`,
+because the worker has no terminal.
 
 ### 20.2 `/background`
 
