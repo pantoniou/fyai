@@ -15,8 +15,18 @@ pty_run "$TEST_DIR/pty.out" \
 snapshot: "${TEST_DIR}/snapshot.out"
 steps:
   - type: delegate both halves
-  - wait: second half
-    timeout: 3
+  - wait-screen: "[alpha] first half"
+    timeout: session
+  - wait-screen: "[beta] second half"
+    timeout: session
+  # Both stay running while the marks blink: off, and on again.
+  - wait-screen: "  agent [alpha] first half"
+  - wait-screen: "● agent [alpha] first half"
+  - touch: "${TEST_DIR}/release-alpha"
+  # Alpha is retired while beta still runs.
+  - wait-screen: "REPORT-ALPHA"
+  - frame: 3
+  - touch: "${TEST_DIR}/release-beta"
   - wait: Both sub-agents reported.
     timeout: session
   - type: "/status"
