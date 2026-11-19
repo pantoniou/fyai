@@ -75,6 +75,11 @@ fleet_json list >"$TEST_DIR/fleet.json"
 check_rows a main running "$runner" libs/inner work/one stored - ||
 	fail "the list of a running session: $(cat "$TEST_DIR/fleet.json")"
 
+# The names of the sessions complete, from a directory deep in the tree.
+(cd libs/inner/deep && "$FYAI_BIN" __complete fleet attach "") >"$TEST_DIR/words" 2>&1
+grep -q '^libs/inner:work/one' "$TEST_DIR/words" ||
+	fail "the sessions of the fleet did not complete: $(cat "$TEST_DIR/words")"
+
 # The process is lost: its work stays on the branch.
 tree=$("$PYTHON" -I - "$runner" <<'PY'
 import os, sys
