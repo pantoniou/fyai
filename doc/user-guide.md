@@ -2116,6 +2116,20 @@ fyai serve status
 fyai serve stop
 ```
 
+The server of a project is also the front of the projects below it. A
+project is a directory whose `.fyai` holds an arena, and a project below
+another one, at any depth, is a project of its own. `--remote .` in a project
+that no server serves walks up the parent directories, as git does, and takes
+the server of the nearest project above that runs. That server starts the
+server of the project that holds the directory, and gives it the client. The
+walk does not look at `$HOME` and stops there, at a file system boundary, and
+at a directory of `$FYAI_CEILING_DIRECTORIES` (a colon-separated list).
+
+```sh
+cd ~/work && fyai serve --daemon   # ~/work is a project with projects below
+cd ~/work/fyai && fyai --remote . branch list   # served for ~/work/fyai
+```
+
 `fyai serve --projects DIR` serves each project under DIR on
 `~/.fyai/unix/serve.sock`. A client names its project with `--project`,
 relative to DIR, or by its own directory. The server starts one project server

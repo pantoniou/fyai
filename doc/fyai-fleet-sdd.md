@@ -1,7 +1,7 @@
 # Software Design Document: Fleets of sessions
 
 - **Project:** pantoniou/fyai
-- **Status:** Proposed; implementation has not started
+- **Status:** Step 1 of section 14 is implemented
 - **Date:** 2026-11-19
 - **Repository path:** `doc/fyai-fleet-sdd.md`
 - **Baseline:** `devel` at `b4355093` (durable by default, every terminal
@@ -92,11 +92,13 @@ first that holds a `.fyai` with an arena. The walk:
 - looks only for `.fyai` with an arena, not for `.git`
   (`fyai_discover_project_root_from()` takes both; the walk of the fleet has
   its own test);
-- stops at `$HOME` (it looks at `$HOME` itself, not above it) when the
-  directory is under `$HOME`, else at `/`;
-- stops at a directory of `$FYAI_CEILING_DIRECTORIES`, a colon-separated list,
-  as `GIT_CEILING_DIRECTORIES` does, and at the boundary of a file system;
-- is done once at start, and costs one `stat()` a level.
+- does not examine a ceiling, and stops there: `$HOME`, whose `.fyai` is the
+  directory of the user and not a project, a directory of
+  `$FYAI_CEILING_DIRECTORIES` (a colon-separated list, as
+  `GIT_CEILING_DIRECTORIES`), and a directory on another file system than the
+  one below it. With no ceiling above it, the walk ends at `/`;
+- is done once at start, and costs one `stat()` a level
+  (`src/store/fyai_fleet.c`).
 
 A project with no parent is a root. `~/work` with a `.fyai` is the root of
 every project below it; `~/work/libs` with a `.fyai` is a project of the root
@@ -115,7 +117,13 @@ directory, which the server starts when it does not run. `fyai serve` in
 `~/work` is therefore the root server; no option makes it one.
 
 - The socket of a project server stays `PROJECT/.fyai/unix/remote.sock`, so
-  the walk up finds it.
+  the walk up finds it. `--remote .` in a project that no server serves takes
+  the server of the nearest project above that runs; the directory of the
+  client names the project there.
+- A project server started for its parent has no socket: a later client walks
+  up to the parent again, which gives it the same project server.
+- A `serve --once` server refuses a directory of another project: the project
+  server that it started would end with it.
 - `serve --projects DIR` stays for a directory that is not a project: it
   serves no session itself, and `~/.fyai/unix/serve.sock` stays its socket.
   The refusal "the server serves projects: name one" stays for it.

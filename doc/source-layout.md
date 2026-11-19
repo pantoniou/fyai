@@ -211,6 +211,9 @@ This document gives the owner of each source file and of each shared component. 
   (`doc/future-cleanups.md`, The data of the client): a page of rows, a cursor,
   and the `rev` of the data.
 - `src/store/fyai_merge.c`: branch merge and rebase.
+- `src/store/fyai_fleet.c`: the tree of projects: the nearest project at or
+  above a directory, and the parent of a project, by a walk up to a ceiling
+  (`doc/fyai-fleet-sdd.md`, section 5.1).
 - `src/provider/fyai_catalog.c`: provider and model catalogue.
 - `src/core/fyai_media.c`: attachments that a message carries, their bytes, and
   the clipboard helper (`doc/media.md`). `fyai_image.*` is something else:
