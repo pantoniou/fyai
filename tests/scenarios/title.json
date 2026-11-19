@@ -1,0 +1,73 @@
+{
+  "steps": [
+    {
+      "response": {
+        "id": "chatcmpl-t0",
+        "object": "chat.completion",
+        "created": 1735689600,
+        "model": "bar",
+        "choices": [
+          {
+            "index": 0,
+            "message": {
+              "role": "assistant",
+              "content": "Seeded reply."
+            },
+            "finish_reason": "stop"
+          }
+        ],
+        "usage": {
+          "prompt_tokens": 12,
+          "completion_tokens": 4,
+          "total_tokens": 16
+        }
+      }
+    },
+    {
+      "response": {
+        "id": "chatcmpl-t1",
+        "object": "chat.completion",
+        "created": 1735689601,
+        "model": "bar",
+        "choices": [
+          {
+            "index": 0,
+            "message": {
+              "role": "assistant",
+              "content": "\"Magic word handling.\""
+            },
+            "finish_reason": "stop"
+          }
+        ],
+        "usage": {
+          "prompt_tokens": 12,
+          "completion_tokens": 4,
+          "total_tokens": 16
+        }
+      }
+    },
+    {
+      "response": {
+        "id": "chatcmpl-t2",
+        "object": "chat.completion",
+        "created": 1735689602,
+        "model": "bar",
+        "choices": [
+          {
+            "index": 0,
+            "message": {
+              "role": "assistant",
+              "content": "A short summary of xyzzy."
+            },
+            "finish_reason": "stop"
+          }
+        ],
+        "usage": {
+          "prompt_tokens": 12,
+          "completion_tokens": 4,
+          "total_tokens": 16
+        }
+      }
+    }
+  ]
+}
