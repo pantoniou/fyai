@@ -49,6 +49,9 @@ void fyai_remote_ui_close(struct fyai_remote_ui *view);
  */
 fy_generic fyai_remote_live_sessions(struct fyai_ctx *ctx,
 				     struct fy_generic_builder *gb);
+/* As fyai_remote_live_sessions(), for the project at @root. */
+fy_generic fyai_remote_project_sessions(const char *root,
+					struct fy_generic_builder *gb);
 /* What a live session of the record is doing: "waiting", "running" or "idle". */
 const char *fyai_remote_live_state(fy_generic session);
 bool fyai_remote_session_live(struct fyai_ctx *ctx, const char *branch);

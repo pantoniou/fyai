@@ -1572,23 +1572,19 @@ char *fyai_remote_record_path(const char *socket)
 }
 
 /*
- * The sessions that the server of this project has live: a sequence of
- * {branch, busy, attached} in @gb, empty when no server runs. The record is
- * read, not asked for: a picker must not wait on a server. A record of a
- * process that is gone is removed.
+ * The sessions of the record at @path, which it frees: a sequence of {branch,
+ * busy, attached, ...} in @gb, empty when no server runs. The record is read,
+ * not asked for: a picker must not wait on a server. A record of a process
+ * that is gone is removed.
  */
-fy_generic fyai_remote_live_sessions(struct fyai_ctx *ctx,
-				     struct fy_generic_builder *gb)
+static fy_generic remote_record_sessions(char *path, struct fy_generic_builder *gb)
 {
 	fy_generic doc, pid;
-	char *socket, *path = NULL, *text = NULL;
+	char *text = NULL;
 	struct stat st;
 	ssize_t n;
 	int fd = -1;
 
-	socket = fyai_remote_socket_path(ctx, NULL, false, false);
-	if (socket)
-		path = fyai_remote_record_path(socket);
 	if (!path)
 		goto none;
 	fd = open(path, O_RDONLY | O_CLOEXEC);
@@ -1611,15 +1607,35 @@ fy_generic fyai_remote_live_sessions(struct fyai_ctx *ctx,
 	close(fd);
 	free(text);
 	free(path);
-	free(socket);
 	return fy_get(doc, "sessions", fy_seq_empty);
 none:
 	if (fd >= 0)
 		close(fd);
 	free(text);
 	free(path);
-	free(socket);
 	return fy_seq_empty;
+}
+
+fy_generic fyai_remote_live_sessions(struct fyai_ctx *ctx,
+				     struct fy_generic_builder *gb)
+{
+	char *socket, *path = NULL;
+
+	socket = fyai_remote_socket_path(ctx, NULL, false, false);
+	if (socket)
+		path = fyai_remote_record_path(socket);
+	free(socket);
+	return remote_record_sessions(path, gb);
+}
+
+fy_generic fyai_remote_project_sessions(const char *root,
+					struct fy_generic_builder *gb)
+{
+	char *path;
+
+	if (asprintf(&path, "%s/.fyai/unix/remote.sock.live", root) < 0)
+		path = NULL;
+	return remote_record_sessions(path, gb);
 }
 
 /* What a live session of the record is doing: "waiting", "running" or "idle". */
@@ -1662,6 +1678,44 @@ static bool remote_server_up(const char *path)
 	up = !connect(fd, (struct sockaddr *)&address, sizeof(address));
 	close(fd);
 	return up;
+}
+
+/*
+ * The server that runs the sessions of this project: its own, or the server
+ * of the nearest project above that runs, which is the front of this one.
+ * NULL when none runs. The caller frees the path, and names the directory to
+ * a front (remote_session_project()).
+ */
+static char *remote_session_endpoint(struct fyai_ctx *ctx)
+{
+	char *path;
+
+	path = fyai_remote_socket_path(ctx, NULL, false, false);
+	if (path && remote_server_up(path))
+		return path;
+	free(path);
+	path = remote_parent_socket();
+	if (path && remote_server_up(path))
+		return path;
+	free(path);
+	return NULL;
+}
+
+/* Name this directory to the server: a front gives the connection to the
+ * server of its project. */
+static int remote_session_project(struct remote_client *client)
+{
+	char *cwd = getcwd(NULL, 0);
+	int rc;
+
+	fyai_error_check(remote_client_ctx(client), cwd, err,
+			 "cannot read the current directory: %s", strerror(errno));
+	rc = remote_request(client, "project", fy_mapping(client->gb,
+		"subtype", "fyai_project", "path", cwd));
+	free(cwd);
+	return rc;
+err:
+	return -1;
 }
 
 /*
@@ -1731,14 +1785,19 @@ int fyai_remote_adopt(struct fyai_ctx *ctx, const char *branch, bool busy,
 	int rc = -1;
 
 	fyai_error_check(ctx, gb, out, "cannot allocate a request builder");
-	path = fyai_remote_socket_path(ctx, NULL, false, true);
-	if (!path)
-		goto out;
-	if (!remote_server_up(path) && remote_serve_once_start(ctx))
-		goto out;
+	/* A server of this project, or above it, takes the session; else one
+	 * starts here and ends with its turns. */
+	path = remote_session_endpoint(ctx);
+	if (!path) {
+		path = fyai_remote_socket_path(ctx, NULL, false, true);
+		if (!path || remote_serve_once_start(ctx))
+			goto out;
+	}
 	rc = remote_client_open(&client, path, -1);
 	if (!rc)
 		rc = remote_hello(&client);
+	if (!rc)
+		rc = remote_session_project(&client);
 	if (!rc)
 		rc = remote_request(&client, "adopt", fy_mapping(gb,
 			"subtype", "fyai_session_adopt", "branch", branch,
@@ -1774,28 +1833,15 @@ int fyai_remote_register(struct fyai_ctx *ctx, const char *branch, bool busy,
 {
 	struct fy_generic_builder *gb = NULL;
 	struct remote_client client = { .ctx = ctx, .fd = -1, .ssh = -1 };
-	char *path, *cwd = NULL;
+	char *path;
 	int rc = -1;
 
-	path = fyai_remote_socket_path(ctx, NULL, false, false);
-	if (path && !remote_server_up(path)) {
-		free(path);
-		path = remote_parent_socket();
-		if (path && !remote_server_up(path)) {
-			free(path);
-			path = NULL;
-		}
-		if (!path)
-			return 1;
-	}
+	path = remote_session_endpoint(ctx);
 	if (!path)
-		goto out;
+		return 1;
 	gb = fy_generic_builder_create(NULL);
 	fyai_error_check(ctx, gb, out, "cannot allocate a request builder");
 	client.gb = gb;
-	cwd = getcwd(NULL, 0);
-	fyai_error_check(ctx, cwd, out, "cannot read the current directory: %s",
-			 strerror(errno));
 	rc = remote_client_open(&client, path, -1);
 	if (!rc)
 		rc = remote_hello(&client);
@@ -1805,11 +1851,8 @@ int fyai_remote_register(struct fyai_ctx *ctx, const char *branch, bool busy,
 		rc = 1;
 		goto out;
 	}
-	/* The directory names the project: a server above gives the connection
-	 * to the server of the project. */
 	if (!rc)
-		rc = remote_request(&client, "project", fy_mapping(gb,
-			"subtype", "fyai_project", "path", cwd));
+		rc = remote_session_project(&client);
 	if (!rc)
 		rc = remote_request(&client, "register", fy_mapping(gb,
 			"subtype", "fyai_session_adopt", "branch", branch,
@@ -1824,7 +1867,6 @@ int fyai_remote_register(struct fyai_ctx *ctx, const char *branch, bool busy,
 out:
 	remote_client_close(&client);
 	free(path);
-	free(cwd);
 	if (gb)
 		fy_generic_builder_destroy(gb);
 	return rc < 0 ? -1 : rc;
@@ -1843,14 +1885,13 @@ int fyai_remote_session_close(struct fyai_ctx *ctx, const char *branch,
 	int rc = -1;
 
 	fyai_error_check(ctx, gb, out, "cannot allocate a request builder");
-	path = fyai_remote_socket_path(ctx, NULL, false, false);
-	if (!path)
-		goto out;
-	fyai_error_check(ctx, remote_server_up(path), out,
-			 "no server runs sessions of this project");
+	path = remote_session_endpoint(ctx);
+	fyai_error_check(ctx, path, out, "no server runs sessions of this project");
 	rc = remote_client_open(&client, path, -1);
 	if (!rc)
 		rc = remote_hello(&client);
+	if (!rc)
+		rc = remote_session_project(&client);
 	if (!rc)
 		rc = remote_request(&client, "close", fy_mapping(gb,
 			"subtype", "fyai_session_close", "branch", branch,
