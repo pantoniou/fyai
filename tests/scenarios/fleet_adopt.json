@@ -1,0 +1,112 @@
+{
+  "steps": [
+    {
+      "match": {
+        "http": "POST",
+        "path": "/v1/chat/completions",
+        "body_contains": "Hello"
+      },
+      "response": {
+        "id": "ad-a",
+        "object": "chat.completion",
+        "model": "mock-model",
+        "choices": [
+          {
+            "index": 0,
+            "finish_reason": "stop",
+            "message": {
+              "role": "assistant",
+              "content": "Hi there."
+            }
+          }
+        ],
+        "usage": {
+          "prompt_tokens": 10,
+          "completion_tokens": 4,
+          "total_tokens": 14
+        }
+      }
+    },
+    {
+      "match": {
+        "http": "POST",
+        "path": "/v1/chat/completions",
+        "body_contains": "[session 'a:work/hand' idle]"
+      },
+      "response": {
+        "id": "ad-c",
+        "object": "chat.completion",
+        "model": "mock-model",
+        "choices": [
+          {
+            "index": 0,
+            "finish_reason": "stop",
+            "message": {
+              "role": "assistant",
+              "content": "Heard hand."
+            }
+          }
+        ],
+        "usage": {
+          "prompt_tokens": 10,
+          "completion_tokens": 4,
+          "total_tokens": 14
+        }
+      }
+    },
+    {
+      "match": {
+        "http": "POST",
+        "path": "/v1/chat/completions",
+        "body_contains": "Next"
+      },
+      "response": {
+        "id": "ad-b",
+        "object": "chat.completion",
+        "model": "mock-model",
+        "choices": [
+          {
+            "index": 0,
+            "finish_reason": "stop",
+            "message": {
+              "role": "assistant",
+              "content": "Next done."
+            }
+          }
+        ],
+        "usage": {
+          "prompt_tokens": 10,
+          "completion_tokens": 4,
+          "total_tokens": 14
+        }
+      }
+    },
+    {
+      "match": {
+        "http": "POST",
+        "path": "/v1/chat/completions",
+        "body_contains": "[session 'a:work/hand' ended]"
+      },
+      "response": {
+        "id": "ad-e",
+        "object": "chat.completion",
+        "model": "mock-model",
+        "choices": [
+          {
+            "index": 0,
+            "finish_reason": "stop",
+            "message": {
+              "role": "assistant",
+              "content": "Hand ended."
+            }
+          }
+        ],
+        "usage": {
+          "prompt_tokens": 10,
+          "completion_tokens": 4,
+          "total_tokens": 14
+        }
+      }
+    }
+  ]
+}
