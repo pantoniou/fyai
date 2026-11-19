@@ -7,7 +7,7 @@ set -eu
 . "$(dirname "$0")/../remote-harness.sh"
 
 remote_test_setup remote_terminal.json
-"$FYAI_BIN" --set tools=true >/dev/null 2>&1
+"$FYAI_BIN" --set tools=true --set shell/input_poll_ms=0 >/dev/null 2>&1
 pty_run "$TEST_DIR/pty.out" "$(command -v env)" -u MOCK_KEY \
 	"$FYAI_BIN" -b remote/term remote connect <<'PTY'
 rows: 40
