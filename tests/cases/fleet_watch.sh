@@ -21,11 +21,14 @@ mkdir -p a/.git
 	fail "the root server did not start: $(cat "$TEST_DIR/serve.out")"
 fyai_test_on_exit '"$FYAI_BIN" serve stop >/dev/null 2>&1 || true'
 
-# The model starts a member; its answer comes back as an event of the root.
+# The model starts a member; its answer comes back as an event of the root,
+# and the fleet panel of the page shows the member with it.
 pty_run "$TEST_DIR/pty1.out" "$FYAI_BIN" -b main -i <<'PTY'
 steps:
   - type: Start the work
   - wait-screen: "The member finished."
+    timeout: session
+  - wait-screen: "a:fleet/do-the-work · idle — Work done."
     timeout: session
 PTY
 assert_request 3 '"[session '"'"'a:fleet/do-the-work'"'"' idle]\nWork done." in r["body"]["messages"][-1]["content"]'
