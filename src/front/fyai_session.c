@@ -616,6 +616,170 @@ int fyai_session_compact(struct fyai_ctx *ctx, const char *hint)
 	return 0;
 }
 
+#define SESSION_TITLE_PROMPT \
+	"Write a short title for this conversation: what it is about, in the " \
+	"language of the conversation. Answer with the title alone, on one " \
+	"line, with no quotes and no final period."
+#define SESSION_SUMMARY_PROMPT \
+	"Summarize this conversation in a short paragraph: the goal, what was " \
+	"done, and what is open. Answer with the summary alone."
+#define SESSION_TITLE_MAX 60
+
+/* The string @key of the `title` configuration, or @dflt. */
+static const char *session_title_key(const struct fyai_cfg *cfg,
+				     const char *key, const char *dflt)
+{
+	fy_generic g = fy_get(fy_get(cfg->config_doc, "title", fy_invalid),
+			      key, fy_invalid);
+
+	return fy_is_string(g) && !fy_empty(g) ?
+	       fy_gb_intern_string(cfg->gb, fy_castp(&g, "")) : dflt;
+}
+
+/*
+ * Ask the model @instruction after the conversation, with no tools and with
+ * nothing stored. Returns the text of its answer in @gb, or NULL with the
+ * cause reported.
+ */
+static const char *session_ask(struct fyai_ctx *ctx,
+			       struct fy_generic_builder *gb,
+			       const char *instruction)
+{
+	struct fyai_cfg *cfg = ctx->cfg;
+	fy_generic head = ctx->turn->last_message, all, source, base, turn, v;
+	fy_generic msgs, m, content, text;
+	bool tools_save = cfg->enable_tools;
+	bool shell_save = cfg->enable_builtin_shell;
+	bool durable_save = cfg->durable;
+	size_t n;
+
+	/* Bound the history as a compaction does. */
+	base = head;
+	all = fyai_turn_messages_since(ctx, head, fy_invalid);
+	if (fy_is_valid(all)) {
+		source = session_compact_source(ctx, all);
+		if (fy_not_equal(source, all)) {
+			base = fyai_turn_append(ctx, fy_invalid, source);
+			if (fy_is_invalid(base))
+				base = head;
+		}
+	}
+	turn = fyai_turn_append(ctx, base,
+		fy_sequence(fy_mapping(ctx->arena->gb, "role", "user",
+				       "content", fy_value(ctx->arena->gb,
+							   instruction))));
+	fyai_error_check(ctx, fy_is_valid(turn), err,
+			 "title: cannot build the request");
+	cfg->enable_tools = false;
+	cfg->enable_builtin_shell = false;
+	/* A checkpoint would store the request in the branch. */
+	cfg->durable = false;
+	ctx->turn->compacting = true;
+	v = fyai_run_turn(ctx, turn);
+	ctx->turn->compacting = false;
+	cfg->enable_tools = tools_save;
+	cfg->enable_builtin_shell = shell_save;
+	cfg->durable = durable_save;
+	/* The request and its answer are not conversation. */
+	ctx->turn->last_message = head;
+	v = fyai_report_diag(ctx, v);
+	fyai_error_check(ctx, fy_is_valid(v) && !fy_is_null(v), err,
+			 "title: the request failed");
+	msgs = fy_get(v, "messages", fy_seq_empty);
+	n = fy_len(msgs);
+	m = n ? fy_get_at(msgs, n - 1) : fy_invalid;
+	content = fy_get(m, "content", fy_invalid);
+	text = fyai_media_text(gb, content);
+	fyai_error_check(ctx, fy_is_string(text) && !fy_empty(text), err,
+			 "title: the model gave no text");
+	return fy_gb_intern_string(gb, fy_castp(&text, ""));
+err:
+	return NULL;
+}
+
+/*
+ * Make @text a title in place: its first line without the quotes around it
+ * and the final period, cut at @max characters.
+ */
+static void session_title_clean(char *text, size_t max)
+{
+	char *start = text, *end;
+	size_t i, chars;
+
+	text[strcspn(text, "\n")] = '\0';
+	while (*start && (isspace((unsigned char)*start) || *start == '"' ||
+			  *start == '\'' || *start == '`' || *start == '#'))
+		start++;
+	memmove(text, start, strlen(start) + 1);
+	for (i = chars = 0; text[i]; i++)
+		if (((unsigned char)text[i] & 0xc0) != 0x80 && ++chars > max)
+			break;
+	text[i] = '\0';
+	end = text + strlen(text);
+	while (end > text && (isspace((unsigned char)end[-1]) ||
+			      end[-1] == '"' || end[-1] == '\'' ||
+			      end[-1] == '`' || end[-1] == '.'))
+		*--end = '\0';
+}
+
+int fyai_session_title(struct fyai_ctx *ctx, struct fy_generic_builder *gb,
+		       const char *text, bool summary, const char **titlep,
+		       const char **summaryp)
+{
+	long long max = fy_get(fy_get(ctx->cfg->config_doc, "title", fy_invalid),
+			       "max_chars", (long long)SESSION_TITLE_MAX);
+	const char *answer;
+	char *title;
+	int rc;
+
+	*titlep = NULL;
+	*summaryp = NULL;
+	if (max < 8 || max > 200)
+		max = SESSION_TITLE_MAX;
+	if (text && *text) {
+		title = strdup(text);
+	} else {
+		fyai_error_check(ctx, fyai_credential_available(ctx), err,
+				 "title: no API key or ChatGPT login is available");
+		fyai_error_check(ctx, fy_is_valid(ctx->turn->last_message) &&
+				 !fy_is_null(ctx->turn->last_message), err,
+				 "title: the conversation is empty; give the "
+				 "title as text");
+		answer = session_ask(ctx, gb, session_title_key(ctx->cfg,
+				"prompt", SESSION_TITLE_PROMPT));
+		if (!answer)
+			return -1;
+		title = strdup(answer);
+	}
+	fyai_error_check(ctx, title, err, "title: out of memory");
+	session_title_clean(title, (size_t)max);
+	fyai_error_check(ctx, *title, err_title, "title: the title is empty");
+
+	if (ctx->bstate->session_unstored) {
+		/* The first publish of the branch carries it. */
+		ctx->bstate->desc = fy_value(ctx->arena->gb, title);
+		rc = 0;
+	} else {
+		rc = fyai_branch_describe(ctx, NULL, title);
+	}
+	if (rc)
+		goto err_title;
+	*titlep = fy_gb_intern_string(gb, title);
+	free(title);
+
+	if (summary && !text) {
+		*summaryp = session_ask(ctx, gb, session_title_key(ctx->cfg,
+				"summary_prompt", SESSION_SUMMARY_PROMPT));
+		if (!*summaryp)
+			return -1;
+	}
+	return 0;
+err_title:
+	free(title);
+err:
+	return -1;
+}
+
 /*
  * Persist a session switch into the arena config through the one commit
  * path (validate -> commit -> publish root); under --transient the publish

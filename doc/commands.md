@@ -1121,6 +1121,35 @@ summary.
 | `--output FORMAT` | write the result as markdown, json, or yaml; see `help output` |
 | `-h`, `--help` | show this help |
 
+## fyai title
+
+give the session a title that the model writes
+
+**Usage:** `fyai title [-s] [TEXT...]`
+
+Ask the current model for a title of the session and keep it as the
+description of the branch, in place of a name such as `session-1234`.
+The `branch` list, the fleet list and the fleet search show it. With
+TEXT, keep TEXT as the title and send no request. `--summary` also shows
+a short summary of the conversation, which is not kept. The keys
+`title/prompt`, `title/summary_prompt` and `title/max_chars` shape the
+request.
+
+
+### Arguments
+
+| Argument | Description |
+| --- | --- |
+| `TEXT` | the title to keep, with no model request |
+
+### Options
+
+| Option | Description |
+| --- | --- |
+| `-s`, `--summary` | also show a summary of the conversation |
+| `--output FORMAT` | write the result as markdown, json, or yaml; see `help output` |
+| `-h`, `--help` | show this help |
+
 ## fyai config
 
 inspect or change the configuration of the branch
@@ -4858,6 +4887,34 @@ summary.
 
 | Option | Description |
 | --- | --- |
+| `-h`, `--help` | show this help |
+
+## /title
+
+give the session a title that the model writes
+
+**Usage:** `/title [-s] [TEXT...]`
+
+Ask the current model for a title of the session and keep it as the
+description of the branch, in place of a name such as `session-1234`.
+The `branch` list, the fleet list and the fleet search show it. With
+TEXT, keep TEXT as the title and send no request. `--summary` also shows
+a short summary of the conversation, which is not kept. The keys
+`title/prompt`, `title/summary_prompt` and `title/max_chars` shape the
+request.
+
+
+### Arguments
+
+| Argument | Description |
+| --- | --- |
+| `TEXT` | the title to keep, with no model request |
+
+### Options
+
+| Option | Description |
+| --- | --- |
+| `-s`, `--summary` | also show a summary of the conversation |
 | `-h`, `--help` | show this help |
 
 ## /config

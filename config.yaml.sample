@@ -154,6 +154,11 @@ fleet:
   approve: start
   # The most members that a root session supervises at once (0: no limit).
   max_live: 8
+# The title that /title asks the model for; the summary shows with --summary.
+title:
+  prompt: "Write a short title for this conversation: what it is about, in the language of the conversation. Answer with the title alone, on one line, with no quotes and no final period."
+  summary_prompt: "Summarize this conversation in a short paragraph: the goal, what was done, and what is open. Answer with the summary alone."
+  max_chars: 60
 agent:
   timeout_ms: 0
   max_timeout_ms: 3600000

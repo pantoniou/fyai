@@ -1366,6 +1366,36 @@ commands:
           x-fyai-rest: true
           x-fyai-meta: HINT
 
+  - command: title
+    title: give the session a title that the model writes
+    description: |
+      Ask the current model for a title of the session and keep it as the
+      description of the branch, in place of a name such as `session-1234`.
+      The `branch` list, the fleet list and the fleet search show it. With
+      TEXT, keep TEXT as the title and send no request. `--summary` also shows
+      a short summary of the conversation, which is not kept. The keys
+      `title/prompt`, `title/summary_prompt` and `title/max_chars` shape the
+      request.
+    surfaces: [cli, session]
+    handler: title
+    flags: [model, transient]
+    arguments:
+      type: object
+      additionalProperties: false
+      properties:
+        summary:
+          type: boolean
+          description: also show a summary of the conversation
+          x-fyai-short: s
+        text:
+          type: string
+          description: the title to keep, with no model request
+          x-fyai-positional: 0
+          x-fyai-rest: true
+          x-fyai-meta: TEXT
+    render:
+      message: "{title}"
+
   - command: config
     title: inspect or change the configuration of the branch
     description: |

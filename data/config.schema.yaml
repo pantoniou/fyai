@@ -569,6 +569,34 @@ properties:
         description: >-
           The most members that a root session supervises at one time; a
           start above it is refused until one ends. 0 sets no limit.
+  title:
+    x-fyai-model: read
+    type: object
+    additionalProperties: false
+    description: >-
+      The title that `/title` asks the current model to write for a session.
+    properties:
+      prompt:
+        type: string
+        minLength: 1
+        default: >-
+          Write a short title for this conversation: what it is about, in the
+          language of the conversation. Answer with the title alone, on one
+          line, with no quotes and no final period.
+        description: The instruction for the title.
+      summary_prompt:
+        type: string
+        minLength: 1
+        default: >-
+          Summarize this conversation in a short paragraph: the goal, what was
+          done, and what is open. Answer with the summary alone.
+        description: The instruction for the summary that `/title --summary` shows.
+      max_chars:
+        type: integer
+        minimum: 8
+        maximum: 200
+        default: 60
+        description: The most characters of a title; a longer one is cut.
   agent:
     x-fyai-model: read
     type: object

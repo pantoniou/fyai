@@ -598,6 +598,22 @@ int fyai_cmd_compact(struct fyai_cmd_call *call, fy_generic *result)
 	return fyai_session_compact(fyai_cmd_call_ctx(call), fyai_cmd_arg_str(call, "hint"));
 }
 
+int fyai_cmd_title(struct fyai_cmd_call *call, fy_generic *result)
+{
+	const char *title = NULL, *summary = NULL;
+	int rc;
+
+	rc = fyai_session_title(fyai_cmd_call_ctx(call), call->gb,
+				fyai_cmd_arg_str(call, "text"),
+				fyai_cmd_arg_bool(call, "summary"), &title,
+				&summary);
+	if (rc)
+		return -1;
+	*result = fy_mapping(call->gb, "title", title ? title : "",
+			     "summary", summary ? summary : "");
+	return 0;
+}
+
 int fyai_cmd_render(struct fyai_cmd_call *call, fy_generic *result)
 {
 	const char *file = fyai_cmd_arg_str(call, "file");

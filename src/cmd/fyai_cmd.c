@@ -101,6 +101,7 @@ static const struct {
 	{ "log",		fyai_cmd_log },
 	{ "secret",		fyai_cmd_secret },
 	{ "compact",		fyai_cmd_compact },
+	{ "title",		fyai_cmd_title },
 	{ "dump",		fyai_cmd_dump },
 	{ "import",		fyai_cmd_import },
 	{ "replay",		fyai_cmd_replay },

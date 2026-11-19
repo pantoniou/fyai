@@ -33,6 +33,18 @@ int fyai_session_clear(struct fyai_ctx *ctx);
  * summary; @hint optionally focuses the summary. Needs request credentials. */
 int fyai_session_compact(struct fyai_ctx *ctx, const char *hint);
 
+/*
+ * Give the branch a title, as its description. With @text the title is
+ * @text. Without it one model request writes the title from the conversation
+ * (`title/prompt`, cut at `title/max_chars`); @summary adds a second request
+ * for a summary (`title/summary_prompt`), which is not kept. The strings are
+ * copies in @gb: @titlep gets the title, @summaryp the summary or NULL. The
+ * caller presents the result. Returns 0, or -1 with the cause reported.
+ */
+int fyai_session_title(struct fyai_ctx *ctx, struct fy_generic_builder *gb,
+		       const char *text, bool summary, const char **titlep,
+		       const char **summaryp);
+
 /* Return true when compaction uses a Responses input trigger. */
 bool fyai_session_compact_v2(const struct fyai_cfg *cfg);
 
