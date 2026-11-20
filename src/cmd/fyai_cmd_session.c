@@ -340,6 +340,25 @@ int fyai_cmd_fleet_start(struct fyai_cmd_call *call, fy_generic *result)
 				fyai_cmd_arg_str(call, "branch"), true, result);
 }
 
+/* Make a project below the root; with a task, start a session in it. */
+int fyai_cmd_fleet_create(struct fyai_cmd_call *call, fy_generic *result)
+{
+	bool kept;
+	int rc;
+
+	rc = fyai_fleet_create(fyai_cmd_call_ctx(call), call->gb,
+			       fyai_cmd_arg_str(call, "project"),
+			       fyai_cmd_arg_str(call, "task"),
+			       fyai_cmd_arg_str(call, "branch"),
+			       fyai_cmd_arg_bool(call, "default_config"), true,
+			       result);
+	if (!rc) {
+		kept = !fy_get(*result, "created", false);
+		*result = fy_assoc(call->gb, *result, "kept", kept);
+	}
+	return rc;
+}
+
 /*
  * Move the session to a server of the project, with its turn in flight. Only
  * a worker of a split session can: it owns the turn and the tools, and the

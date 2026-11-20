@@ -86,6 +86,20 @@ int fyai_fleet_start(struct fyai_ctx *ctx, struct fy_generic_builder *gb,
 		     const char *project, const char *task, const char *branch,
 		     bool publish, fy_generic *resultp);
 
+/*
+ * Make the project @project below the root: the directory, each name of it,
+ * and its arena, made by fyai_arena_create(). @project is a path of plain
+ * names, with no `.`, `..` or link out of the tree. A directory that holds a
+ * project is kept as it is. The arena takes the configuration of this
+ * session, without fleet/root, or with @default_config the sample
+ * configuration that `fyai init` stores. With @task, start a session in it as
+ * fyai_fleet_start() does, with the same @branch and @publish. *@resultp is
+ * {project, created} and, with a task, the members of fyai_fleet_start().
+ */
+int fyai_fleet_create(struct fyai_ctx *ctx, struct fy_generic_builder *gb,
+		      const char *project, const char *task, const char *branch,
+		      bool default_config, bool publish, fy_generic *resultp);
+
 /* Mark the task @id of this root session @state: open, done or dropped. */
 int fyai_fleet_task_mark(struct fyai_ctx *ctx, const char *id, const char *state,
 			 bool publish);

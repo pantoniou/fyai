@@ -3626,7 +3626,7 @@ questions is answered in the session.
 
 the projects and sessions under the root project
 
-**Usage:** `fyai fleet {attach|list|read|scan|search|start|tasks} ...`
+**Usage:** `fyai fleet {attach|create|list|read|scan|search|start|tasks} ...`
 
 The fleet of the root project: the topmost project above this one, and
 every project below it. A project is a directory whose `.fyai` holds an
@@ -3641,6 +3641,7 @@ sets the scan: `fyai config set fleet/scan/depth 2` there.
 | Command | Description |
 | --- | --- |
 | `attach` | join a session of the fleet in this terminal |
+| `create` | make a project below the root, and start a session in it |
 | `list` | list every session under the root |
 | `read` | read the last turns of a session of the fleet |
 | `scan` | list the projects under the root |
@@ -3701,6 +3702,40 @@ the root keeps the task in its branch (`fleet tasks`).
 | Option | Description |
 | --- | --- |
 | `--branch BRANCH` | the branch of the session |
+| `--output FORMAT` | write the result as markdown, json, or yaml; see `help output` |
+| `-h`, `--help` | show this help |
+
+## fyai fleet create
+
+make a project below the root, and start a session in it
+
+**Usage:** `fyai fleet create [--branch BRANCH] [--default-config] PROJECT [TASK...]`
+
+Make the directory PROJECT (a path of plain names, relative to the
+root; each name is made when it is missing) and create the arena of a
+project in it, as `fyai init` does there. A directory that holds a
+project is kept as it is. The project takes the configuration of the
+session or command that makes it (the root's own, in the root), not
+its `fleet/root`; `--default-config` takes the sample configuration
+that `fyai init` stores instead. With TASK, start a session in the project as
+`fleet start` does, on `--branch` or on `fleet/` and the first words
+of the task. In a session of the root, the model calls it with the
+`create` action of the `fleet` tool.
+
+
+### Arguments
+
+| Argument | Description |
+| --- | --- |
+| `PROJECT` | the project, a path of names relative to the root |
+| `TASK` | the first message of a session in the project |
+
+### Options
+
+| Option | Description |
+| --- | --- |
+| `--branch BRANCH` | the branch of the session |
+| `--default-config` | store the sample configuration, not the one of this project |
 | `--output FORMAT` | write the result as markdown, json, or yaml; see `help output` |
 | `-h`, `--help` | show this help |
 
@@ -7659,7 +7694,7 @@ transport.
 
 the projects and sessions under the root project
 
-**Usage:** `/fleet {list|read|scan|search|start|task|tasks} ...`
+**Usage:** `/fleet {create|list|read|scan|search|start|task|tasks} ...`
 
 The fleet of the root project: the topmost project above this one, and
 every project below it. A project is a directory whose `.fyai` holds an
@@ -7673,6 +7708,7 @@ sets the scan: `fyai config set fleet/scan/depth 2` there.
 
 | Command | Description |
 | --- | --- |
+| `create` | make a project below the root, and start a session in it |
 | `list` | list every session under the root |
 | `read` | read the last turns of a session of the fleet |
 | `scan` | list the projects under the root |
@@ -7733,6 +7769,39 @@ the root keeps the task in its branch (`fleet tasks`).
 | Option | Description |
 | --- | --- |
 | `--branch BRANCH` | the branch of the session |
+| `-h`, `--help` | show this help |
+
+## /fleet create
+
+make a project below the root, and start a session in it
+
+**Usage:** `/fleet create [--branch BRANCH] [--default-config] PROJECT [TASK...]`
+
+Make the directory PROJECT (a path of plain names, relative to the
+root; each name is made when it is missing) and create the arena of a
+project in it, as `fyai init` does there. A directory that holds a
+project is kept as it is. The project takes the configuration of the
+session or command that makes it (the root's own, in the root), not
+its `fleet/root`; `--default-config` takes the sample configuration
+that `fyai init` stores instead. With TASK, start a session in the project as
+`fleet start` does, on `--branch` or on `fleet/` and the first words
+of the task. In a session of the root, the model calls it with the
+`create` action of the `fleet` tool.
+
+
+### Arguments
+
+| Argument | Description |
+| --- | --- |
+| `PROJECT` | the project, a path of names relative to the root |
+| `TASK` | the first message of a session in the project |
+
+### Options
+
+| Option | Description |
+| --- | --- |
+| `--branch BRANCH` | the branch of the session |
+| `--default-config` | store the sample configuration, not the one of this project |
 | `-h`, `--help` | show this help |
 
 ## /fleet search

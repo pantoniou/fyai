@@ -4422,6 +4422,57 @@ commands:
               description: the branch of the session
               x-fyai-long: branch
               x-fyai-meta: BRANCH
+      - command: create
+        title: make a project below the root, and start a session in it
+        description: |
+          Make the directory PROJECT (a path of plain names, relative to the
+          root; each name is made when it is missing) and create the arena of a
+          project in it, as `fyai init` does there. A directory that holds a
+          project is kept as it is. The project takes the configuration of the
+          session or command that makes it (the root's own, in the root), not
+          its `fleet/root`; `--default-config` takes the sample configuration
+          that `fyai init` stores instead. With TASK, start a session in the project as
+          `fleet start` does, on `--branch` or on `fleet/` and the first words
+          of the task. In a session of the root, the model calls it with the
+          `create` action of the `fleet` tool.
+        surfaces: [cli, session]
+        handler: fleet_create
+        flags: [no-storage]
+        while_busy: run
+        render:
+          message:
+            - "created project {project}{?created}"
+            - "kept project {project}{?kept}"
+            - "started {name}"
+        arguments:
+          type: object
+          required: [project]
+          additionalProperties: false
+          properties:
+            project:
+              type: string
+              minLength: 1
+              description: the project, a path of names relative to the root
+              x-fyai-positional: 0
+              x-fyai-meta: PROJECT
+              x-fyai-complete: dir
+            task:
+              type: string
+              minLength: 1
+              description: the first message of a session in the project
+              x-fyai-positional: 1
+              x-fyai-rest: true
+              x-fyai-meta: TASK
+            branch:
+              type: string
+              minLength: 1
+              description: the branch of the session
+              x-fyai-long: branch
+              x-fyai-meta: BRANCH
+            default_config:
+              type: boolean
+              description: store the sample configuration, not the one of this project
+              x-fyai-long: default-config
       - command: attach
         title: join a session of the fleet in this terminal
         description: |
