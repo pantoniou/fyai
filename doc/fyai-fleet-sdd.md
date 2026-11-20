@@ -260,6 +260,34 @@ Deferred from this step:
   design to list it by `pid` is not done.
 - A run of a prompt with no `-i` does not register.
 
+### 6.2.1 The idle end of a parked worker
+
+A worker that the server keeps (`keep`) with no client ends after
+`serve/idle_ms` (default 30 s, read from the `--config` file of `fyai serve`,
+0 for never). The session stays stored: `resume`, `/jump` or `fleet start`
+runs it again in a new worker. A project server stays; the root server is the
+user's to stop.
+
+The server holds the timer. A session is a candidate while it has no client,
+no watcher that reads or sends (a supervisor that stays does not count), no
+turn and no question. After `idle_ms` as a candidate the server asks the
+worker `fyai_idle`, and the worker says whether it is settled: no turn or
+queued line, no tool job, side question, sub-agent, monitor or terminal
+session, no supervised member and no open fleet task. A root session with an
+open task is the subscription of its members and never ends.
+
+A wakeup can come while this runs:
+
+- Before the question is answered: the server counts the frames that clients
+  send to the worker. A worker that answers `settled` ends only if no frame
+  went to it since the question; else the timer starts again, and the worker
+  runs the frame.
+- After the decision: the server marks the session `closing` before it sends
+  SIGTERM. A closing session takes no client, so the next one starts a worker
+  on the branch. The old worker has nothing unpublished (no turn runs), and
+  the publish of the branch is a compare-and-swap, so the two never write
+  the same state.
+
 ### 6.3 The list
 
 `fleet list` joins the layers: one row for each session, with `project`

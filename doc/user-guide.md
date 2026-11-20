@@ -2153,6 +2153,11 @@ list`, `serve status`), a watcher reads it (`remote connect --watch`),
 `session kill` ends it, and `/background` gives it to the server on the same
 connection. Its own terminal still drives it.
 
+A session that the server keeps with no client, no turn and no work ends
+after 30 seconds: its worker exits, the session stays stored, and `resume`
+or `/jump` runs it again. `fyai --config FILE serve` with `serve: {idle_ms:
+N}` in FILE changes the time, and 0 keeps the workers.
+
 `fyai fleet` lists the projects below the root, the topmost project above
 the current directory, and their sessions, whether a process runs them or
 not. A scan finds the projects: no project is registered by hand.
