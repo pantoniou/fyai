@@ -91,8 +91,9 @@ int fyai_fleet_task_mark(struct fyai_ctx *ctx, const char *id, const char *state
 			 bool publish);
 
 /*
- * Whether this session is of a root with a project below it: the session
- * that supervises the fleet. Found once for a run.
+ * Whether this session is of a fleet root: the topmost project of its tree
+ * with fleet/root set. It supervises the fleet and has the `fleet` tool. Found
+ * once for a run.
  */
 bool fyai_fleet_is_root(struct fyai_ctx *ctx);
 

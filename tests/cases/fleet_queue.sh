@@ -19,6 +19,8 @@ set_common=(--set api=chat-completions --set display/stream=false
 mkdir -p a/.git
 (cd a && "$FYAI_BIN" init >/dev/null 2>&1 &&
 	"$FYAI_BIN" "${set_common[@]}" >/dev/null 2>&1) || fail "cannot make the project"
+"$FYAI_BIN" config set fleet/root true >/dev/null 2>&1 ||
+	fail "cannot make the project a fleet root"
 "$FYAI_BIN" serve --daemon >"$TEST_DIR/serve.out" 2>&1 ||
 	fail "the root server did not start: $(cat "$TEST_DIR/serve.out")"
 fyai_test_on_exit '"$FYAI_BIN" serve stop >/dev/null 2>&1 || true'

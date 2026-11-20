@@ -55,6 +55,7 @@ int fyai_cmd_init_prepare(struct fyai_cfg *cfg, fy_generic args)
 
 	memset(a, 0, sizeof(*a));
 	a->force = fy_get(args, "force", false);
+	a->root = fy_get(args, "root", false);
 	cwd = getcwd(NULL, 0);
 	fyai_cfg_error_check(cfg, cwd, err, "init: cannot read the current "
 			     "directory");

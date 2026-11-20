@@ -86,6 +86,13 @@ int fyai_publish_branches(struct fyai_ctx *ctx, fy_generic base,
 int fyai_init_storage(struct fyai_ctx *ctx);
 
 /*
+ * @config with fleet/root set to true, or, with @root false, removed. A
+ * config with no such key stays as it is. fy_invalid when it cannot be built.
+ */
+fy_generic fyai_config_fleet_root(struct fy_generic_builder *gb,
+				  fy_generic config, bool root);
+
+/*
  * Create the arena of a project in @project_dir, with @config as the
  * configuration of its branch `main`, or, when @config is fy_invalid, the
  * sample configuration that `fyai init` stores. The process can have another

@@ -56,6 +56,7 @@ struct fyai_prompt_args {
 struct fyai_init_args {
 	const char *dir;
 	bool force;
+	bool root;
 	const char *config;
 };
 

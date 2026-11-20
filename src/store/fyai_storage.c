@@ -2371,6 +2371,23 @@ static char *fyai_enclosing_project(const char *dir)
 	}
 }
 
+fy_generic fyai_config_fleet_root(struct fy_generic_builder *gb,
+				  fy_generic config, bool root)
+{
+	fy_generic fleet;
+
+	fleet = fy_get(config, "fleet", fy_invalid);
+	if (!root && !fy_is_valid(fy_get(fleet, "root", fy_invalid)))
+		return config;
+	if (!fy_is_mapping(config))
+		config = fy_map_empty;
+	if (!fy_is_mapping(fleet))
+		fleet = fy_map_empty;
+	fleet = root ? fy_assoc(gb, fleet, "root", true) :
+		       fy_disassoc(gb, fleet, "root");
+	return fy_assoc(gb, config, "fleet", fleet);
+}
+
 int fyai_init_storage(struct fyai_ctx *ctx)
 {
 	struct fyai_cfg *cfg = ctx->cfg;
@@ -2433,7 +2450,7 @@ int fyai_init_storage(struct fyai_ctx *ctx)
 			fyai_error(ctx, "init: arena already carries a config (use --force)");
 			goto out;
 		}
-		if (!args->config && rc >= 0) {
+		if (!args->config && !args->root && rc >= 0) {
 			fyai_result(ctx, "already initialized .fyai\n");
 			ret = 0;
 			goto out;
@@ -2461,6 +2478,13 @@ int fyai_init_storage(struct fyai_ctx *ctx)
 			goto out;
 	}
 
+	if (args->root) {
+		config = fyai_config_fleet_root(ctx->arena->gb, config, true);
+		if (!fy_is_valid(config)) {
+			fyai_error(ctx, "init: cannot set fleet/root");
+			goto out;
+		}
+	}
 	ctx->bstate->config = config;
 	ctx->bstate->catalog = catalog;
 	ctx->turn->last_message = head;

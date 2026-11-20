@@ -359,11 +359,13 @@ one provider.
 
 create the arena in this directory
 
-**Usage:** `fyai init [-f] [FILE]`
+**Usage:** `fyai init [-f] [--root] [FILE]`
 
 Create ./.fyai/arena/ and publish its first root. FILE, or
 config.yaml when it exists, is stored as the configuration; `--force`
-stores it over an existing configuration.
+stores it over an existing configuration. With `--root` the project is
+a fleet root: `fleet/root` is set in its configuration, and a session of
+it gets the `fleet` tool that makes and runs the projects below it.
 
 
 ### Arguments
@@ -377,6 +379,7 @@ stores it over an existing configuration.
 | Option | Description |
 | --- | --- |
 | `-f`, `--force` | store the configuration over an existing one |
+| `--root` | make the project a fleet root (set fleet/root) |
 | `--output FORMAT` | write the result as markdown, json, or yaml; see `help output` |
 | `-h`, `--help` | show this help |
 

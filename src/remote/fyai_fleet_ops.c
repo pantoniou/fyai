@@ -880,36 +880,24 @@ bool fyai_fleet_has_room(struct fyai_ctx *ctx)
 	return max <= 0 || (long long)fyai_fleet_watch_live(ctx) < max;
 }
 
-/* A scan stops at the second project: the root has one below it. */
-static int fleet_root_found(const char *dir, void *data)
-{
-	int *count = data;
-
-	(void)dir;
-	return ++*count > 1;
-}
-
 bool fyai_fleet_is_root(struct fyai_ctx *ctx)
 {
 	struct fyai_cfg *cfg = ctx->cfg;
-	fy_generic scan = fy_get(fy_get(cfg->config_doc, "fleet", fy_invalid), "scan",
-				 fy_invalid);
+	fy_generic fleet;
 	char *cwd, *project = NULL, *root = NULL;
-	int count = 0;
 
 	if (cfg->fleet_tool)
 		return cfg->fleet_tool > 0;
 	cfg->fleet_tool = -1;
+	fleet = fy_get(cfg->config_doc, "fleet", fy_invalid);
+	if (!fy_get(fleet, "root", false))
+		return false;
 	cwd = getcwd(NULL, 0);
 	if (cwd) {
 		project = fyai_fleet_project_of(cwd);
 		root = fyai_fleet_root_of(cwd);
 	}
-	if (project && root && !strcmp(project, root) &&
-	    fyai_fleet_scan(root, (int)fy_get(scan, "depth",
-					      (long long)DEFAULT_FLEET_SCAN_DEPTH),
-			    fy_get(scan, "exclude", fy_seq_empty),
-			    fleet_root_found, &count) > 0)
+	if (project && root && !strcmp(project, root))
 		cfg->fleet_tool = 1;
 	free(root);
 	free(project);
