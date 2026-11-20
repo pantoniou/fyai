@@ -11,8 +11,38 @@
 
 #include "fyai.h"
 #include "fyai_cover.h"
+#include "fyai_event.h"
+#include "fyai_loop.h"
 #include "fyai_orphan.h"
 #include "fyai_scope.h"
+
+/* How often the process that ended a holder looks for its exit. */
+#define SCOPE_REAP_MS 500
+
+static void scope_reap_arm(struct fyai_scope *scope);
+
+static enum fyai_event_action scope_reap_cb(const struct fyai_event *ev)
+{
+	struct fyai_scope *scope = ev->userdata;
+
+	scope->cover_reap = NULL;
+	if (fyai_cover_reap(&scope->cover))
+		scope_reap_arm(scope);
+	return FYAIEA_STOP;
+}
+
+/*
+ * A holder ends after its grace time: reap it then, not at the next exchange,
+ * so an idle process does not keep a zombie.
+ */
+static void scope_reap_arm(struct fyai_scope *scope)
+{
+	struct fyai_event_loop *el = fyai_loop_get(scope->loop);
+
+	if (el && !scope->cover_reap)
+		(void)fyai_event_add_timer(el, SCOPE_REAP_MS, 0, scope_reap_cb,
+					   scope, &scope->cover_reap);
+}
 
 /* End the scope when no exchange runs and no object keeps it. */
 static void fyai_scope_settle(struct fyai_scope *scope)
@@ -24,6 +54,8 @@ static void fyai_scope_settle(struct fyai_scope *scope)
 	if (scope->cover.owner) {
 		fyai_diag_tracef("scope", "end, holder %ld", (long)scope->cover.holder);
 		fyai_cover_release(&scope->cover);
+		if (fyai_cover_reap(&scope->cover))
+			scope_reap_arm(scope);
 	}
 	if (fyai_orphan_count(scope))
 		fyai_diag_tracef("scope", "stop %zu tracked daemons",

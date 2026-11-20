@@ -56,6 +56,12 @@ void fyai_cover_drain(struct fyai_cover *cover)
 	(void)cover;
 }
 
+bool fyai_cover_reap(struct fyai_cover *cover)
+{
+	(void)cover;
+	return false;
+}
+
 enum fyai_cover_method fyai_cover_select(struct fyai_cover *cover, const char *mode,
 				  const char *const *paths, size_t n, pid_t *holder,
 				  enum fyai_cover_start start)
