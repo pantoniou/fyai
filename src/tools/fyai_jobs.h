@@ -57,5 +57,10 @@ void fyai_jobs_init(struct fyai_jobs *jobs, struct fyai_loop *loop,
 		    struct fyai_diag *diag);
 /* The live stream and the patch display of the parent are not the child's. */
 void fyai_jobs_abandon(struct fyai_jobs *jobs);
+/*
+ * Whether work of a tool call runs: a tool job, a side question, a background
+ * sub-agent, a monitor or a terminal session with a program.
+ */
+bool fyai_jobs_active(const struct fyai_jobs *jobs);
 
 #endif

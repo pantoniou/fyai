@@ -104,6 +104,12 @@ int fyai_remote_supervisor_open(struct fyai_ctx *ctx, const char *dir,
 				const char *branch, int *fdp, bool *imagep,
 				const char **statep);
 /*
+ * Make sure a server runs the sessions of the project of @dir (NULL: this
+ * directory): start one that ends with its turns when none runs. 0, or -1
+ * with the cause reported.
+ */
+int fyai_remote_serve_ensure(struct fyai_ctx *ctx, const char *dir);
+/*
  * Start a session on @branch of the project of @dir at the server that runs
  * its sessions, with @task as its first message and the global options @args
  * (a sequence of strings, or fy_invalid). The server keeps the session after

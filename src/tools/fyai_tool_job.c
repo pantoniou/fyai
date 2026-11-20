@@ -2461,3 +2461,15 @@ void fyai_tool_job_group_destroy(struct fyai_tool_job_group *group)
 	fy_generic_builder_destroy(group->gb);
 	free(group);
 }
+
+bool fyai_jobs_active(const struct fyai_jobs *jobs)
+{
+	const struct fyai_shell_session *s;
+
+	if (jobs->tools || jobs->btw || jobs->agent_bg || jobs->monitors)
+		return true;
+	for (s = jobs->sessions; s; s = s->next)
+		if (s->job)
+			return true;
+	return false;
+}
