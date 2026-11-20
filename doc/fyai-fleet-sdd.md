@@ -18,6 +18,13 @@ of the fleet, controls it, and comes back: the root is a switchboard. It is a re
 tasks are records, its work is branches of the projects, and every state it
 has is canonical state in an arena.
 
+The use case: a person runs the root session in the root project and connects
+to it, from a command line invocation or from the web UI. The person asks it
+to make a directory and a project in it, and then has the root direct the work
+in the project, or jumps into the session there. The root makes the project
+with the `create` action of its `fleet` tool; a person makes one with `fleet
+create` (section 8). Section 5.3 shows how to make the root.
+
 This design adds no new kind of state and no resident process with state of
 its own. It uses what exists: the arena and its CAS publish, `fyai serve` and
 its server of projects, the worker of each session, watchers, `durable` and
@@ -135,6 +142,28 @@ directory, which the server starts when it does not run. `fyai serve` in
 
 The user starts and stops the root server (`fyai serve --daemon` in `~/work`,
 `fyai serve stop`). It keeps no canonical state, as every server.
+
+### 5.3 Making a root
+
+A root is a project that sets `fleet/root`, and it is the topmost project of
+its tree. Make one in three steps:
+
+```sh
+mkdir ~/work && cd ~/work
+fyai init --root          # the project, with fleet/root: true
+fyai serve --daemon       # optional: a server that people connect to
+```
+
+`fyai init --root` makes the project as `fyai init` does and sets `fleet/root`
+in its configuration. A project that exists becomes a root with `fyai config
+set fleet/root true`; `fyai config set fleet/root false` undoes it. Set the
+model and the other keys of the root before any member exists, because
+`fleet create` copies them (section 8).
+
+A session started in the root (`fyai -i`, or a connection to the server) has
+the `fleet` tool. A project with a project above it is never a root, whatever
+its configuration: only the topmost project of a tree supervises it. Then
+make the members with `fyai fleet create PROJECT` or the `create` action.
 
 ## 6. Presence
 
@@ -275,6 +304,8 @@ Verbs and slash commands in `data/commands.yaml`:
 fyai fleet list                              # every session under the root
 fyai fleet start fyai "Fix the build"        # fyai:fleet/fix-the-build
 fyai fleet start --branch fleet/x fyai "Fix the build"
+fyai fleet create apps/web                   # the directory and its project
+fyai fleet create apps/web "Write the readme"  # and a session with a task
 fyai session send fyai:fleet/x Also run the tests.
 fyai session send --from root:main fyai:fleet/x Also run the tests.
 fyai session interrupt fyai:fleet/x
@@ -295,6 +326,23 @@ the task, with the task as its first message. It attaches with `keep`, sends
 the task and leaves: the session runs with no client, and the server keeps it
 after its turn. A branch that a worker runs already gets the task as a
 message of its client.
+
+`fleet create PROJECT [TASK] [--default-config]` makes the project PROJECT,
+a path of plain names below the root (a root is made as section 5.3 says):
+each missing directory is made, and then its arena is created in this process
+(`fyai_arena_create()`), also by a session that has its own arena open. A name
+with `.`, `..`, an empty name, `.fyai` or an absolute path is refused, and so is a name whose real path leaves the root through a link; no
+directory is made through such a link. A directory that holds a project is
+kept as it is (`kept`). The new project stores the configuration of the
+session or command that makes it (the root's own, in the root, with the
+`--set` and `--config` of that run), without `fleet/root`, so that its sessions
+use the same model. `--default-config`, or `default_config` of the tool, stores
+the sample configuration of `fyai init` instead. A process maps one arena at
+the base that its boot section records, so the new arena of a session takes a
+base beside the open arena, a whole region size further, and keeps it: a later
+process that opens only this arena maps it there. With TASK, the command goes
+on as `fleet start` does, on the same `--branch` rules, and the result holds
+both.
 
 Deferred: verbs for a session that is `stored` or `lost` (they need a live
 session now; `fleet start` and `resume` start one), `--view` for `fleet
@@ -365,6 +413,7 @@ what it does, and `search` is where the model starts.
 | `read` | The words of the last `turns` turns of a session, oldest first. | `fleet read` |
 | `tasks` | The tasks of the root sessions. | `fleet tasks` |
 | `start` | Starts a member with a task; the root keeps the task. | `fleet start` |
+| `create` | Makes a project below the root, with `project` as its path, and with `task` starts a member in it as `start` does. | `fleet create` |
 | `send`, `interrupt`, `answer`, `stop` | The requests of the supervisor (section 7); a message is from `.:BRANCH` of the root session. | `session send` and the others |
 | `task` | Marks a task `open`, `done` or `dropped`. | `/fleet task` |
 
@@ -374,9 +423,14 @@ readers run the matching command in a child with no arena and take its rows
 as JSON. A `start` and a `task` of the tool stage the tasks for the next
 publish, which a turn makes; the commands publish at once.
 
-Only a session of a root project gets the tool: the `describe` of its entry
-offers it when the project of the session is the root and a scan finds a
-project below it, once for a run. A delegated agent cannot call it. A member has its
+Only a session of a fleet root gets the tool: the `describe` of its entry
+offers it when the project of the session is the topmost project of its tree
+and `fleet/root` is set in its configuration, once for a run. The key is
+explicit, so that a plain project gets no tool and no extra tokens in each
+request, and a new root needs no project below it. `fyai init --root` makes a
+root, and `fyai config set fleet/root true` makes a project one. The model can
+read the key and cannot set it. A project that `fleet create` makes does not
+take the key. A delegated agent cannot call it. A member has its
 sub-agents and no fleet tools: a member that needs more work done says so in
 its answer, and the root session decides. A person runs the commands of
 section 8 from any directory of the tree.
@@ -541,8 +595,8 @@ commands of views.
   as a member, and `task ID dropped` cancels it. 0 sets no limit.
 - `fleet/approve`: which calls of the `fleet` tool ask the person first, in
   the question panel, with Reject under the cursor: `start` (the default)
-  before a start, `always` before each call that changes a session (`start`,
-  `send`, `interrupt`, `answer`, `stop`), and `never` for none. A rejection,
+  before a start or a `create`, `always` before each call that changes a
+  session (`start`, `create`, `send`, `interrupt`, `answer`, `stop`), and `never` for none. A rejection,
   with what the person typed, is the answer to the model. A call that must
   ask when nobody can answer (a run of a prompt) is refused. The keys are
   `read` for the model: it cannot loosen them.
@@ -596,6 +650,14 @@ Each step is one series, with its tests.
    person rejects, one that the person accepts, one over the limit that is
    asked and queued, a queued task that starts when a member ends, and a run
    of a prompt that nobody answers.
+
+9. **A project made by the root.** `fleet create` and the `create` action:
+   the directory, the arena with the configuration of the root, and an
+   optional first session. Tests (`fleet_create`): a nested name, a project
+   that exists, names that leave the tree (including through a link), the
+   project in `fleet list`, and the model that makes a project and starts a
+   task there. Not done: the web UI connects to the root and does the same
+   (list, task, create, jump); the CLI is the reference for its operations.
 
 ## 15. Open questions
 

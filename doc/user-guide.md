@@ -2161,6 +2161,10 @@ not. A scan finds the projects: no project is registered by hand.
 fyai fleet scan      # the projects: their stored and live sessions
 fyai fleet list      # every session: stored, running, lost, idle, waiting
 fyai config set fleet/scan/depth 2   # in the root: how deep the scan goes
+fyai init --root                     # a new fleet root: its sessions get the fleet tool
+fyai config set fleet/root true      # make an existing top project a root
+fyai fleet create apps/web           # a project below the root, with the root's configuration
+fyai fleet create apps/web --default-config   # with the sample configuration instead
 ```
 
 A session is `stored` when nothing runs it, `lost` when the process that ran
