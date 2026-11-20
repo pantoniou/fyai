@@ -130,7 +130,10 @@ static int fleet_child(struct fyai_ctx *ctx, struct fy_generic_builder *gb,
 	if (!strncmp(cause, "remote: ", strlen("remote: ")))
 		cause += strlen("remote: ");
 	fyai_error_check(ctx, WIFEXITED(status) && !WEXITSTATUS(status), out,
-			 "%s", *cause ? cause : "fleet: the scan failed");
+			 "%s", *cause ? cause : fy_sprintfa("fleet: the scan %s %d",
+				WIFEXITED(status) ? "exited with status" :
+				"ended by signal", WIFEXITED(status) ?
+				WEXITSTATUS(status) : WTERMSIG(status)));
 	*rowsp = parse_json_string(gb, out.data);
 	fyai_error_check(ctx, fy_is_sequence(*rowsp), out,
 			 "fleet: the scan gave no rows");
