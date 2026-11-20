@@ -3626,7 +3626,7 @@ questions is answered in the session.
 
 the projects and sessions under the root project
 
-**Usage:** `fyai fleet {attach|create|list|read|scan|search|start|tasks} ...`
+**Usage:** `fyai fleet {attach|create|kill|list|read|scan|search|start|tasks} ...`
 
 The fleet of the root project: the topmost project above this one, and
 every project below it. A project is a directory whose `.fyai` holds an
@@ -3642,6 +3642,7 @@ sets the scan: `fyai config set fleet/scan/depth 2` there.
 | --- | --- |
 | `attach` | join a session of the fleet in this terminal |
 | `create` | make a project below the root, and start a session in it |
+| `kill` | end every live session of the fleet |
 | `list` | list every session under the root |
 | `read` | read the last turns of a session of the fleet |
 | `scan` | list the projects under the root |
@@ -3678,6 +3679,35 @@ root project).
 
 | Option | Description |
 | --- | --- |
+| `--output FORMAT` | write the result as markdown, json, or yaml; see `help output` |
+| `-h`, `--help` | show this help |
+
+## fyai fleet kill
+
+end every live session of the fleet
+
+**Usage:** `fyai fleet kill [-f] [PROJECT]`
+
+End the live sessions of the fleet, as `session kill` ends one: each
+worker gets SIGTERM and its clients see the session end. The branches
+keep the turns that were stored; a turn in flight is lost. With
+PROJECT, end only the sessions of that project and the projects below
+it. From a session, the session that runs the command stays. With
+`--force` each worker gets SIGKILL at once. A session that refuses is
+listed as `refused`.
+
+
+### Arguments
+
+| Argument | Description |
+| --- | --- |
+| `PROJECT` | only the sessions of this project and below |
+
+### Options
+
+| Option | Description |
+| --- | --- |
+| `-f`, `--force` | kill each worker at once (SIGKILL) |
 | `--output FORMAT` | write the result as markdown, json, or yaml; see `help output` |
 | `-h`, `--help` | show this help |
 
@@ -7703,7 +7733,7 @@ transport.
 
 the projects and sessions under the root project
 
-**Usage:** `/fleet {create|list|read|scan|search|start|task|tasks} ...`
+**Usage:** `/fleet {create|kill|list|read|scan|search|start|task|tasks} ...`
 
 The fleet of the root project: the topmost project above this one, and
 every project below it. A project is a directory whose `.fyai` holds an
@@ -7718,6 +7748,7 @@ sets the scan: `fyai config set fleet/scan/depth 2` there.
 | Command | Description |
 | --- | --- |
 | `create` | make a project below the root, and start a session in it |
+| `kill` | end every live session of the fleet |
 | `list` | list every session under the root |
 | `read` | read the last turns of a session of the fleet |
 | `scan` | list the projects under the root |
@@ -7755,6 +7786,34 @@ root project).
 
 | Option | Description |
 | --- | --- |
+| `-h`, `--help` | show this help |
+
+## /fleet kill
+
+end every live session of the fleet
+
+**Usage:** `/fleet kill [-f] [PROJECT]`
+
+End the live sessions of the fleet, as `session kill` ends one: each
+worker gets SIGTERM and its clients see the session end. The branches
+keep the turns that were stored; a turn in flight is lost. With
+PROJECT, end only the sessions of that project and the projects below
+it. From a session, the session that runs the command stays. With
+`--force` each worker gets SIGKILL at once. A session that refuses is
+listed as `refused`.
+
+
+### Arguments
+
+| Argument | Description |
+| --- | --- |
+| `PROJECT` | only the sessions of this project and below |
+
+### Options
+
+| Option | Description |
+| --- | --- |
+| `-f`, `--force` | kill each worker at once (SIGKILL) |
 | `-h`, `--help` | show this help |
 
 ## /fleet start

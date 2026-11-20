@@ -157,4 +157,16 @@ int fyai_fleet_supervise(struct fyai_ctx *ctx, const char *name,
 int fyai_fleet_close(struct fyai_ctx *ctx, const char *name, bool force,
 		     bool *busyp);
 
+/*
+ * End every live session of @project and the projects below it (NULL or empty:
+ * the whole fleet) but @skip (PROJECT:BRANCH, or NULL), as fyai_fleet_close()
+ * ends one. A session that refuses is reported, not fatal. *@rowsp is the
+ * sessions that were live: {name, state, busy, why}, @state `ended` or
+ * `refused`. Returns 0, or -1 with the cause reported when the fleet cannot
+ * be read.
+ */
+int fyai_fleet_kill(struct fyai_ctx *ctx, struct fy_generic_builder *gb,
+		    const char *project, bool force, const char *skip,
+		    fy_generic *rowsp);
+
 #endif

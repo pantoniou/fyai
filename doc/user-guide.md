@@ -2166,6 +2166,7 @@ not. A scan finds the projects: no project is registered by hand.
 fyai fleet scan      # the projects: their stored and live sessions
 fyai fleet list      # every session: stored, running, lost, idle, waiting
 fyai fleet list libs # only the sessions of the project libs and below
+fyai fleet kill      # end every live session (`kill libs`: of that project and below)
 fyai config set fleet/scan/depth 2   # in the root: how deep the scan goes
 fyai init --root                     # a new fleet root: its sessions get the fleet tool
 fyai config set fleet/root true      # make an existing top project a root
