@@ -85,6 +85,16 @@ int fyai_publish_branches(struct fyai_ctx *ctx, fy_generic base,
 
 int fyai_init_storage(struct fyai_ctx *ctx);
 
+/*
+ * Create the arena of a project in @project_dir, with @config as the
+ * configuration of its branch `main`, or, when @config is fy_invalid, the
+ * sample configuration that `fyai init` stores. The process can have another
+ * arena open: the new arena takes a base beside the open one and keeps it.
+ * The context keeps its own arena. Fails when the directory holds an arena.
+ */
+int fyai_arena_create(struct fyai_ctx *ctx, const char *project_dir,
+		      fy_generic config);
+
 /* Return true if a configuration contains a literal api_key. */
 bool fyai_config_has_raw_secret(fy_generic doc);
 
