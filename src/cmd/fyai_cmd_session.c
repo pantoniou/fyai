@@ -186,7 +186,12 @@ int fyai_cmd_session_list(struct fyai_cmd_call *call, fy_generic *result)
 
 int fyai_cmd_fleet_list(struct fyai_cmd_call *call, fy_generic *result)
 {
-	return fyai_fleet_rows_list(fyai_cmd_call_ctx(call), call->gb, result);
+	const char *project = fyai_cmd_arg_str(call, "project");
+
+	if (fyai_fleet_rows_list(fyai_cmd_call_ctx(call), call->gb, result))
+		return -1;
+	*result = fyai_fleet_rows_in(call->gb, *result, project);
+	return 0;
 }
 
 int fyai_cmd_fleet_scan(struct fyai_cmd_call *call, fy_generic *result)

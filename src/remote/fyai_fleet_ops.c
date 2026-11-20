@@ -303,6 +303,27 @@ int fyai_fleet_rows_list(struct fyai_ctx *ctx, struct fy_generic_builder *gb,
 	return fy_is_valid(out) ? 0 : -1;
 }
 
+fy_generic fyai_fleet_rows_in(struct fy_generic_builder *gb, fy_generic rows,
+			      const char *project)
+{
+	fy_generic row, out = fy_seq_empty;
+	const char *name;
+	size_t len;
+
+	if (!project || !*project)
+		return rows;
+	len = strlen(project);
+	while (len > 1 && project[len - 1] == '/')
+		len--;
+	fy_foreach(row, rows) {
+		name = fy_get(row, "project", ".");
+		if (!strncmp(name, project, len) &&
+		    (!name[len] || name[len] == '/'))
+			out = fy_append(gb, out, row);
+	}
+	return out;
+}
+
 int fyai_fleet_rows_scan(struct fyai_ctx *ctx, struct fy_generic_builder *gb,
 			 fy_generic *rowsp)
 {

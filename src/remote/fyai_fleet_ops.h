@@ -23,6 +23,13 @@ struct fyai_ctx;
 int fyai_fleet_rows_list(struct fyai_ctx *ctx, struct fy_generic_builder *gb,
 			 fy_generic *rowsp);
 
+/*
+ * The rows of @rows (as fyai_fleet_rows_list() gives them) of the project
+ * @project and the projects below it. NULL or empty @project keeps all rows.
+ */
+fy_generic fyai_fleet_rows_in(struct fy_generic_builder *gb, fy_generic rows,
+			      const char *project);
+
 /* Each project: {project, sessions, live}. */
 int fyai_fleet_rows_scan(struct fyai_ctx *ctx, struct fy_generic_builder *gb,
 			 fy_generic *rowsp);

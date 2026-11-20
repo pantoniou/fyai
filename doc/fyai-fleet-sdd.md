@@ -302,6 +302,7 @@ Verbs and slash commands in `data/commands.yaml`:
 
 ```sh
 fyai fleet list                              # every session under the root
+fyai fleet list libs                         # the sessions of libs and below
 fyai fleet start fyai "Fix the build"        # fyai:fleet/fix-the-build
 fyai fleet start --branch fleet/x fyai "Fix the build"
 fyai fleet create apps/web                   # the directory and its project

@@ -75,6 +75,20 @@ fleet_json list >"$TEST_DIR/fleet.json"
 check_rows a main running "$runner" libs/inner work/one stored - ||
 	fail "the list of a running session: $(cat "$TEST_DIR/fleet.json")"
 
+# A project limits the list to it and the projects below it.
+fleet_json list libs >"$TEST_DIR/filter.json"
+"$PYTHON" - "$TEST_DIR/filter.json" <<'PY' || fail "fleet list libs: $(cat "$TEST_DIR/filter.json")"
+import json, sys
+rows = json.load(open(sys.argv[1]))
+assert rows and all(r['project'].startswith('libs') for r in rows), rows
+PY
+fleet_json list a >"$TEST_DIR/filter.json"
+"$PYTHON" - "$TEST_DIR/filter.json" <<'PY' || fail "fleet list a: $(cat "$TEST_DIR/filter.json")"
+import json, sys
+rows = json.load(open(sys.argv[1]))
+assert rows and all(r['project'] == 'a' for r in rows), rows
+PY
+
 # The names of the sessions complete, from a directory deep in the tree.
 (cd libs/inner/deep && "$FYAI_BIN" __complete fleet attach "") >"$TEST_DIR/words" 2>&1
 grep -q '^libs/inner:work/one' "$TEST_DIR/words" ||

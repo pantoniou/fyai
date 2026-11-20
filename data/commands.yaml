@@ -4367,7 +4367,9 @@ commands:
           lists is `idle`, `running` or `waiting`. A session that no server
           lists is `stored`; one whose stored work names a process that still
           runs is `running` with no server, and one whose process was lost is
-          `lost`: a start restores its work.
+          `lost`: a start restores its work. With PROJECT, list only the
+          sessions of that project and the projects below it (`.` is the
+          root project).
         surfaces: [cli, session]
         handler: fleet_list
         flags: [no-storage]
@@ -4380,6 +4382,14 @@ commands:
         arguments:
           type: object
           additionalProperties: false
+          properties:
+            project:
+              type: string
+              minLength: 1
+              description: only the sessions of this project and below
+              x-fyai-positional: 0
+              x-fyai-meta: PROJECT
+              x-fyai-complete: dir
       - command: start
         title: start a session of a project with a task
         description: |

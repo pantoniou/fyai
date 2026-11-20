@@ -3655,7 +3655,7 @@ With no command, `list` runs.
 
 list every session under the root
 
-**Usage:** `fyai fleet list`
+**Usage:** `fyai fleet list [PROJECT]`
 
 List the sessions of every project under the root: the project
 (relative to the root), the branch, what it does, whether a client
@@ -3663,8 +3663,16 @@ drives it, and the process of its worker. A session that a server
 lists is `idle`, `running` or `waiting`. A session that no server
 lists is `stored`; one whose stored work names a process that still
 runs is `running` with no server, and one whose process was lost is
-`lost`: a start restores its work.
+`lost`: a start restores its work. With PROJECT, list only the
+sessions of that project and the projects below it (`.` is the
+root project).
 
+
+### Arguments
+
+| Argument | Description |
+| --- | --- |
+| `PROJECT` | only the sessions of this project and below |
 
 ### Options
 
@@ -7724,7 +7732,7 @@ With no command, `list` runs.
 
 list every session under the root
 
-**Usage:** `/fleet list`
+**Usage:** `/fleet list [PROJECT]`
 
 List the sessions of every project under the root: the project
 (relative to the root), the branch, what it does, whether a client
@@ -7732,8 +7740,16 @@ drives it, and the process of its worker. A session that a server
 lists is `idle`, `running` or `waiting`. A session that no server
 lists is `stored`; one whose stored work names a process that still
 runs is `running` with no server, and one whose process was lost is
-`lost`: a start restores its work.
+`lost`: a start restores its work. With PROJECT, list only the
+sessions of that project and the projects below it (`.` is the
+root project).
 
+
+### Arguments
+
+| Argument | Description |
+| --- | --- |
+| `PROJECT` | only the sessions of this project and below |
 
 ### Options
 

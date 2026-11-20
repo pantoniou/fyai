@@ -955,7 +955,8 @@
           type: string
           description: |-
             For `start`: the project, relative to the root. For `create`: the path of the new
-            project, of plain names, relative to the root.
+            project, of plain names, relative to the root. For `list`: only the sessions of
+            this project and below (`.` is the root project).
         task:
           type: string
           description: |-
