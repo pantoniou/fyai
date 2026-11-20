@@ -4542,8 +4542,9 @@ int fyai_display_recap(struct fyai_ctx *ctx, int max_exchanges, int max_rows)
 	for (i = 0; i < count; i++)
 		if (fyai_turn_has_user_message(stack.items[i]))
 			starts[exchanges++] = i;
+	/* A conversation with no question is one exchange: its commands. */
 	if (!exchanges)
-		goto out;
+		starts[exchanges++] = 0;
 	starts[0] = 0;
 	starts[exchanges] = count;
 

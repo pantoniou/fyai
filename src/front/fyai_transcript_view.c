@@ -1012,9 +1012,12 @@ int fyai_transcript_view_refresh(struct fyai_ctx *ctx,
 	for (i = 0; i < count; i++)
 		if (fyai_turn_has_user_message(stack.items[i]))
 			starts[exchanges++] = i;
-	/* The turns before the first question go with it, as a recap has it. */
+	/* The turns before the first question go with it, as a recap has it. A
+	 * conversation with no question is one exchange: its commands. */
 	if (exchanges)
 		starts[0] = 0;
+	else if (count)
+		starts[exchanges++] = 0;
 	starts[exchanges] = count;
 	/* An exchange is the turns it stored: its last turn names it. */
 	for (i = 0; i < exchanges; i++)
