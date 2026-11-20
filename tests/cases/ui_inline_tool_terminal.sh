@@ -38,7 +38,8 @@ sys.path.insert(0, sys.argv[2])
 from screen import Screen
 
 # A frame paints only the cells that changed, so a capture cut inside one does
-# not show the screen: read the last whole frame that shows the live output.
+# not show the screen: read the last whole frame that shows the live output
+# and the answer above it. A later frame can have scrolled the answer away.
 data = open(sys.argv[1], "rb").read()
 rows = []
 end = data.find(b"\x1b[?2026l")
@@ -46,7 +47,8 @@ while end >= 0:
     s = Screen(30, 100)
     s.feed(data[:end + 8])
     shown = [r.rstrip() for r in s.display() if r.strip()]
-    if any(r.strip() == "PIPE-B" for r in shown):
+    if (any(r.strip() == "PIPE-B" for r in shown) and
+            any(r.strip() == "done." for r in shown)):
         rows = shown
     end = data.find(b"\x1b[?2026l", end + 1)
 
