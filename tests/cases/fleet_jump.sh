@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: MIT
 # The root session is a switchboard: /jump goes into a session of the fleet,
 # which the terminal controls, and /root goes back to the root session, which
-# went on at its server meanwhile.
+# went on at its server meanwhile. A project alone names its main session.
 set -eu
 . "$(dirname "$0")/../harness.sh"
 
@@ -42,6 +42,9 @@ steps:
     timeout: session
   - type: Root again
   - wait-screen: "Root reply."
+    timeout: session
+  - type: /jump a
+  - wait-screen: "jumped from .:main"
     timeout: session
 PTY
 "$PYTHON" - "$TEST_DIR/requests.jsonl" <<'PY' || fail "the turns ran in the wrong sessions"

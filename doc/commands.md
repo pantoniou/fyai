@@ -6522,8 +6522,9 @@ go into a session of the fleet
 
 **Usage:** `/jump NAME`
 
-Go into the session NAME of the fleet (PROJECT:BRANCH, or BRANCH of this
-project) and control it in this terminal; `/root` comes back. This
+Go into the session NAME of the fleet (PROJECT:BRANCH, BRANCH of this
+project, or PROJECT alone, which takes its `main` session, else its
+first) and control it in this terminal; `/root` comes back. This
 session goes to a server as `/background` leaves it, and goes on there.
 A session that no process runs starts; one that another client drives
 is watched. `fleet list` names the sessions.
@@ -6533,7 +6534,7 @@ is watched. `fleet list` names the sessions.
 
 | Argument | Description |
 | --- | --- |
-| `NAME` | the session, as PROJECT:BRANCH or BRANCH |
+| `NAME` | the session, as PROJECT:BRANCH, BRANCH or PROJECT |
 
 ### Options
 

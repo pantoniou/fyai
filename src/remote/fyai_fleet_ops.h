@@ -125,6 +125,14 @@ const char *fyai_fleet_name_full(struct fyai_ctx *ctx, struct fy_generic_builder
 				 const char *name);
 
 /*
+ * The full name (PROJECT:BRANCH) of the session that a jump to @name takes:
+ * @name as fyai_fleet_name_full() gives it, or, when @name is a project of
+ * the fleet alone, its session `main`, else its first. Borrows from @gb.
+ */
+const char *fyai_fleet_jump_name(struct fyai_ctx *ctx,
+				 struct fy_generic_builder *gb, const char *name);
+
+/*
  * Make this process the client of the session @name when it ends: start the
  * session when no process runs it, and join it from the directory of its
  * project, as a watcher when another client drives it. @ret, or NULL, is the
