@@ -82,6 +82,7 @@ int fyai_remote_spawn(struct fyai_ctx *ctx, char *const args[],
 		execvp(args[0], args);
 		_exit(127);
 	}
+	fyai_diag_tracef("spawn", "%s, pid %ld", args[0], (long)pid);
 	close(sv[1]);
 	*fdp = sv[0];
 	*pidp = pid;
@@ -793,6 +794,7 @@ static int remote_split_open(struct remote_client *client)
 		execvp(args[0], args);
 		_exit(127);
 	}
+	fyai_diag_tracef("spawn", "worker, pid %ld", (long)pid);
 	client->split = true;
 	client->ssh = pid;
 	client->fd = sv[0];
@@ -1816,6 +1818,8 @@ static int remote_serve_once_start(struct fyai_ctx *ctx, const char *dir)
 		_exit(127);
 	}
 	close(null);
+	fyai_diag_tracef("spawn", "serve --once, pid %ld, in '%s'", (long)pid,
+			 dir ? dir : ".");
 	while (waitpid(pid, &status, 0) < 0 && errno == EINTR)
 		;
 	free(self);
