@@ -28,6 +28,7 @@
 #include "fyai_ui.h"
 #include "fyai_uidraw.h"
 #include "fyai_uilog.h"
+#include "fyai_storage.h"
 #include "fyai_uimodel.h"
 #include "utils.h"
 
@@ -842,10 +843,20 @@ err:
 	return -1;
 }
 
+/* Keep @line in the history file, which every interactive session shares. */
+static void remote_ui_history_save(struct fyai_ctx *ctx, const char *line)
+{
+	char *path = fyai_history_path();
+
+	fyai_ui_history_save(ctx, path, line);
+	free(path);
+}
+
 /* Open the display, with the configuration that the state gave. */
 static int remote_ui_display_open(struct fyai_remote_ui *view)
 {
 	struct fyai_ctx *ctx = fyai_remote_ui_ctx(view);
+	char *path;
 	int rc;
 
 	rc = fyai_ui_open(ctx);
@@ -860,6 +871,10 @@ static int remote_ui_display_open(struct fyai_remote_ui *view)
 				       "session as a message; ^C leaves\n");
 		fyai_ui_pane_end(ctx, "remote", true, true);
 	}
+	/* The lines of the earlier sessions answer the Up key. */
+	path = fyai_history_path();
+	fyai_ui_history_load(ctx, path);
+	free(path);
 	view->opened = true;
 	if (view->picker) {
 		view->picker = false;
@@ -1735,6 +1750,7 @@ int fyai_remote_ui_step(struct fyai_remote_ui *view)
 	while (view->initialized && !view->watch && view->busy &&
 	       (head = fyai_ui_peek_line_nth(ctx, view->queued)) &&
 	       head[0] != '/' && head[0] != '!') {
+		remote_ui_history_save(ctx, head);
 		if (remote_ui_queued(view, head))
 			return -1;
 		view->queued++;
@@ -1747,6 +1763,7 @@ int fyai_remote_ui_step(struct fyai_remote_ui *view)
 	while (view->initialized &&
 	       (line = view->queued ? remote_ui_take_command(ctx, view->queued) :
 				      fyai_ui_take_line(ctx))) {
+		remote_ui_history_save(ctx, line);
 		/* A new line asks for new candidates. */
 		fyai_cmd_complete_reset(ctx);
 		if (line[0] == '/' && fyai_cmd_session_ends(line + 1)) {

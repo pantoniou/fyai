@@ -1,0 +1,39 @@
+#!/bin/bash
+# SPDX-License-Identifier: MIT
+# The client of a remote session keeps the lines that it sends in the history
+# file, and a new client finds them with the Up key.
+set -eu
+. "$(dirname "$0")/../harness.sh"
+
+fyai_test_setup
+mock_start fleet_history.json
+export MOCK_KEY=test-key
+set_common=(--set api=chat-completions --set display/stream=false
+	    --set tools=true
+	    --set "api_url=$MOCK_URL/v1/chat/completions" --set model=mock-model
+	    --set 'api_key={type: env, value: MOCK_KEY}')
+"$FYAI_BIN" "${set_common[@]}" >/dev/null 2>&1
+"$FYAI_BIN" serve --daemon >"$TEST_DIR/serve.out" 2>&1 ||
+	fail "the root server did not start: $(cat "$TEST_DIR/serve.out")"
+fyai_test_on_exit '"$FYAI_BIN" serve stop >/dev/null 2>&1 || true'
+
+pty_run "$TEST_DIR/pty.out" "$FYAI_BIN" -b main -i <<'PTY'
+exit:
+  clear: true
+steps:
+  - type: Say it
+  - wait-screen: "Heard it."
+    timeout: session
+PTY
+
+# A new client of the session finds the line in its history.
+pty_run "$TEST_DIR/pty2.out" "$FYAI_BIN" -b main -i <<'PTY'
+exit:
+  clear: true
+steps:
+  - wait-screen: "Heard it."
+    timeout: session
+  - write: "\e[A\e[A"
+  - wait-input: "Say it"
+PTY
+pass
