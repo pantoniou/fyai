@@ -183,6 +183,7 @@ int fyai_cmd_session_list(struct fyai_cmd_call *call, fy_generic *result);
 int fyai_cmd_session_kill(struct fyai_cmd_call *call, fy_generic *result);
 int fyai_cmd_fleet_list(struct fyai_cmd_call *call, fy_generic *result);
 int fyai_cmd_fleet_kill(struct fyai_cmd_call *call, fy_generic *result);
+int fyai_cmd_tile_split(struct fyai_cmd_call *call, fy_generic *result);
 int fyai_cmd_fleet_panel(struct fyai_cmd_call *call, fy_generic *result);
 int fyai_cmd_fleet_create(struct fyai_cmd_call *call, fy_generic *result);
 int fyai_cmd_fleet_start(struct fyai_cmd_call *call, fy_generic *result);

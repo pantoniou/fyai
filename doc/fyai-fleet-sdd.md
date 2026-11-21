@@ -537,6 +537,12 @@ turn.
   `jump:NAME RETURN`, where RETURN is the full name of this session. The
   client of the terminal runs `fyai fleet attach NAME --return RETURN` in its
   place.
+- `/jump --split NAME` and `/split [NAME]` keep this session and show a second
+  client in a tile of the work pane: the worker runs `fyai fleet attach NAME`
+  (with no NAME, `fyai -b BRANCH remote connect --watch`) as a command of the
+  user, as `!` does. The tile is a watcher of a session that a client drives,
+  so the branch does not change and what is typed there goes to the session
+  as a message.
 - `fleet attach NAME` finds the session in `fleet list`. One that no process
   runs (`stored` or `lost`) starts at the server of its project on its
   branch, with no message, which restores the work of a lost one. The client

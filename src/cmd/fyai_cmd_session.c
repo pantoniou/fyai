@@ -13,10 +13,12 @@
 #include "config.h"
 #endif
 
+#include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
+#include "fyai_buf.h"
 #include "fyai_fleet_ops.h"
 #include "fyai_fleet_watch.h"
 #include "fyai_pending.h"
@@ -335,15 +337,74 @@ int fyai_cmd_session_adopt(struct fyai_cmd_call *call, fy_generic *result)
 }
 
 /*
+ * Show a client of a session in a tile of the work pane: @args, the words
+ * that follow the program of fyai, run as a command of the user (`!`), so
+ * the tile holds a second client in a terminal of its own. Only a session
+ * that runs at a worker has a server to join.
+ */
+static int fleet_tile(struct fyai_cmd_call *call, const char *cmd,
+		      const char *args)
+{
+	struct fyai_ctx *ctx = fyai_cmd_call_ctx(call);
+	struct fyai_buf line = { 0 };
+	char exe[PATH_MAX];
+	ssize_t n;
+	int rc = -1;
+
+	fyai_error_check(ctx, ctx->turn->background, out,
+			 "%s: this session does not run at a worker; a session "
+			 "on a terminal does", cmd);
+	n = fyai_host_executable(exe, sizeof(exe) - 1);
+	fyai_error_check(ctx, n > 0, out,
+			 "%s: cannot find the program of fyai", cmd);
+	exe[n] = '\0';
+	rc = fyai_shell_quote(&line, exe) ||
+	     fyai_buf_append(&line, " ") || fyai_buf_append(&line, args);
+	fyai_error_check(ctx, !rc, out, "%s: cannot make the command", cmd);
+	rc = fyai_tools_bang(ctx, line.data, 0, 0);
+	fyai_error_check(ctx, !rc, out, "%s: the tile could not start", cmd);
+out:
+	free(line.data);
+	return rc ? -1 : 0;
+}
+
+/* `fleet attach NAME` of the full name of the session @name, as @args. */
+static int fleet_tile_attach(struct fyai_cmd_call *call, const char *cmd,
+			     const char *name, fy_generic *result)
+{
+	struct fyai_ctx *ctx = fyai_cmd_call_ctx(call);
+	struct fyai_buf args = { 0 };
+	const char *full;
+	int rc = -1;
+
+	full = fyai_fleet_jump_name(ctx, call->gb, name);
+	if (!full)
+		return -1;
+	rc = fyai_buf_append(&args, "fleet attach ") ||
+	     fyai_shell_quote(&args, full);
+	fyai_error_check(ctx, !rc, out, "%s: cannot make the command", cmd);
+	rc = fleet_tile(call, cmd, args.data);
+	if (!rc)
+		*result = fy_mapping(call->gb, "name", full);
+out:
+	free(args.data);
+	return rc ? -1 : 0;
+}
+
+/*
  * Go into a session of the fleet (doc/fyai-fleet-sdd.md, section 11): this
  * session goes to a server as /background leaves it, and the client of this
- * terminal joins NAME, with the way back to this session for `/root`.
+ * terminal joins NAME, with the way back to this session for `/root`. With
+ * `split` the client of NAME is a tile beside this session, which stays.
  */
 int fyai_cmd_fleet_jump(struct fyai_cmd_call *call, fy_generic *result)
 {
 	struct fyai_ctx *ctx = fyai_cmd_call_ctx(call);
 	const char *name, *self;
 
+	if (fyai_cmd_arg_bool(call, "split"))
+		return fleet_tile_attach(call, "jump",
+					 fyai_cmd_arg_str(call, "name"), result);
 	name = fyai_fleet_jump_name(ctx, call->gb,
 				    fyai_cmd_arg_str(call, "name"));
 	self = name ? fyai_fleet_name_full(ctx, call->gb, fyai_ctx_branch(ctx)) : NULL;
@@ -358,6 +419,33 @@ int fyai_cmd_fleet_jump(struct fyai_cmd_call *call, fy_generic *result)
 	return 0;
 err:
 	return -1;
+}
+
+/*
+ * Split the session: a second client in a tile of the work pane. With no
+ * NAME it watches this session, which keeps its branch; what is typed in
+ * the tile goes to the session as a message. With NAME it joins that session
+ * of the fleet.
+ */
+int fyai_cmd_tile_split(struct fyai_cmd_call *call, fy_generic *result)
+{
+	struct fyai_ctx *ctx = fyai_cmd_call_ctx(call);
+	const char *name = fyai_cmd_arg_str(call, "name");
+	struct fyai_buf args = { 0 };
+	int rc;
+
+	if (name)
+		return fleet_tile_attach(call, "split", name, result);
+	rc = fyai_buf_append(&args, "-b ") ||
+	     fyai_shell_quote(&args, fyai_ctx_branch(ctx)) ||
+	     fyai_buf_append(&args, " remote connect --watch");
+	fyai_error_check(ctx, !rc, out, "split: cannot make the command");
+	rc = fleet_tile(call, "split", args.data);
+	if (!rc)
+		*result = fy_mapping(call->gb, "name", fyai_ctx_branch(ctx));
+out:
+	free(args.data);
+	return rc ? -1 : 0;
 }
 
 /* Go back to the session that `/jump` came from. */

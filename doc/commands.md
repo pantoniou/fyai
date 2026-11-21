@@ -6558,14 +6558,16 @@ terminal process (`FYAI_NO_SPLIT`) cannot do this.
 
 go into a session of the fleet
 
-**Usage:** `/jump NAME`
+**Usage:** `/jump [--split] NAME`
 
 Go into the session NAME of the fleet (PROJECT:BRANCH, BRANCH of this
 project, or PROJECT alone, which takes its `main` session, else its
 first) and control it in this terminal; `/root` comes back. This
 session goes to a server as `/background` leaves it, and goes on there.
 A session that no process runs starts; one that another client drives
-is watched. `fleet list` names the sessions.
+is watched. `fleet list` names the sessions. With `--split` this
+session stays, and the client of NAME is a tile of the work pane beside
+it (see `/split`).
 
 
 ### Arguments
@@ -6573,6 +6575,34 @@ is watched. `fleet list` names the sessions.
 | Argument | Description |
 | --- | --- |
 | `NAME` | the session, as PROJECT:BRANCH, BRANCH or PROJECT |
+
+### Options
+
+| Option | Description |
+| --- | --- |
+| `--split` | open the session in a tile and keep this one |
+| `-h`, `--help` | show this help |
+
+## /split
+
+show a second client of a session in a tile
+
+**Usage:** `/split [NAME]`
+
+Open a second client in a tile of the work pane. With no NAME it joins
+this session, which keeps its branch: the tile watches it, and what is
+typed in the tile goes to the session as a message. No branch changes
+unless a command that changes one runs. With NAME (PROJECT:BRANCH,
+BRANCH of this project, or PROJECT alone) the tile joins that session
+of the fleet, as `/jump --split` does. A session on a terminal process
+(`FYAI_NO_SPLIT`) has no server to join and cannot split.
+
+
+### Arguments
+
+| Argument | Description |
+| --- | --- |
+| `NAME` | the session to show, as PROJECT:BRANCH, BRANCH or PROJECT |
 
 ### Options
 
