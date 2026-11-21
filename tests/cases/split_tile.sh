@@ -6,12 +6,17 @@ set -eu
 . "$(dirname "$0")/../harness.sh"
 
 fyai_test_setup
+# The confined tools run in a user namespace that cannot reach the build tree.
+cp "$FYAI_BIN" "$TEST_DIR/fyai"
+FYAI_BIN="$TEST_DIR/fyai"
 mock_start split_tile.json
 export MOCK_KEY=test-key
 set_common=(--set api=chat-completions --set display/stream=false
 	    --set tools=true
 	    --set "api_url=$MOCK_URL/v1/chat/completions" --set model=mock-model
-	    --set 'api_key={type: env, value: MOCK_KEY}')
+	    --set 'api_key={type: env, value: MOCK_KEY}'
+	    --set sandbox_profile=t
+	    --set "sandbox_profiles={t: {extends: dev, deny: [$TEST_DIR/.fyai/unix]}}")
 "$FYAI_BIN" "${set_common[@]}" >/dev/null 2>&1
 "$FYAI_BIN" serve --daemon >"$TEST_DIR/serve.out" 2>&1 ||
 	fail "the server did not start: $(cat "$TEST_DIR/serve.out")"

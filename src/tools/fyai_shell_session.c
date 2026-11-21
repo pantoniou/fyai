@@ -1807,19 +1807,34 @@ err:
 	return -1;
 }
 
-int fyai_tools_bang(struct fyai_ctx *ctx, const char *command, int rows,
-		    int cols)
+static int fyai_tools_bang_start(struct fyai_ctx *ctx, const char *command,
+				 const char *prefix, const char *what,
+				 fy_generic env_keep, int rows, int cols)
 {
 	struct fyai_shell_session *sess;
 
-	if (fyai_tools_user_start(ctx, command, "bang", "bang shell",
-				  fy_invalid, rows, cols, &sess))
+	if (fyai_tools_user_start(ctx, command, prefix, what, env_keep, rows,
+				  cols, &sess))
 		return -1;
 	if (sess)
 		sess->keep_tile = true;
 	if (sess && sess->surface)
 		(void)fyai_tools_focus(ctx, sess->surface);
 	return 0;
+}
+
+int fyai_tools_bang(struct fyai_ctx *ctx, const char *command, int rows,
+		    int cols)
+{
+	return fyai_tools_bang_start(ctx, command, "bang", "bang shell",
+				     fy_invalid, rows, cols);
+}
+
+int fyai_tools_split(struct fyai_ctx *ctx, const char *command)
+{
+	/* An empty sequence: no sandbox and no credential. */
+	return fyai_tools_bang_start(ctx, command, "split", "split",
+				     fy_seq_empty, 0, 0);
 }
 
 static void fyai_tools_probe_input(void *data, const char *name,

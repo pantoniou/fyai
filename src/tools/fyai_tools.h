@@ -200,6 +200,13 @@ void fyai_tools_keys_to_prompt(struct fyai_ctx *ctx);
 int fyai_tools_bang(struct fyai_ctx *ctx, const char *command, int rows,
 		    int cols);
 /*
+ * Start @command, a program of fyai itself, in a tile of the work pane as
+ * fyai_tools_bang() does, but with no shell sandbox and with no credential:
+ * the second client of a session must reach the socket of the server, which
+ * the sandbox of the session denies.
+ */
+int fyai_tools_split(struct fyai_ctx *ctx, const char *command);
+/*
  * The size that the tile of a bang of @command gets now, in *@rowsp and
  * *@colsp, or 0 when the display has no layout: the client of a remote
  * session starts the program of the worker at that size, as a local tile

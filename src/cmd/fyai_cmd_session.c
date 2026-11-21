@@ -338,8 +338,9 @@ int fyai_cmd_session_adopt(struct fyai_cmd_call *call, fy_generic *result)
 
 /*
  * Show a client of a session in a tile of the work pane: @args, the words
- * that follow the program of fyai, run as a command of the user (`!`), so
- * the tile holds a second client in a terminal of its own. Only a session
+ * that follow the program of fyai, run as a command of the user like `!`
+ * but outside the shell sandbox, which denies the socket of the server. The
+ * tile holds a second client in a terminal of its own. Only a session
  * that runs at a worker has a server to join.
  */
 static int fleet_tile(struct fyai_cmd_call *call, const char *cmd,
@@ -361,7 +362,7 @@ static int fleet_tile(struct fyai_cmd_call *call, const char *cmd,
 	rc = fyai_shell_quote(&line, exe) ||
 	     fyai_buf_append(&line, " ") || fyai_buf_append(&line, args);
 	fyai_error_check(ctx, !rc, out, "%s: cannot make the command", cmd);
-	rc = fyai_tools_bang(ctx, line.data, 0, 0);
+	rc = fyai_tools_split(ctx, line.data);
 	fyai_error_check(ctx, !rc, out, "%s: the tile could not start", cmd);
 out:
 	free(line.data);
