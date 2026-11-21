@@ -125,6 +125,7 @@ struct fyai_remote_ui {
 	size_t queued;
 	long long taken;
 	bool initialized, busy, failed;
+	bool input;			/* a command of the worker reads lines */
 	bool watch;			/* reads a session that another client drives */
 	/* The view of an agent that the worker shows here: its document, which
 	 * the client draws at its own size and scrolls, and the draft that the
@@ -849,10 +850,15 @@ err:
 }
 
 /* Keep @line in the history file, which every interactive session shares. */
-static void remote_ui_history_save(struct fyai_ctx *ctx, const char *line)
+static void remote_ui_history_save(struct fyai_remote_ui *view,
+				   struct fyai_ctx *ctx, const char *line)
 {
-	char *path = fyai_history_path();
+	char *path;
 
+	/* A line that a command reads, as a pasted code, is not a message. */
+	if (view->input)
+		return;
+	path = fyai_history_path();
 	fyai_ui_history_save(ctx, path, line);
 	free(path);
 }
@@ -968,6 +974,7 @@ static int remote_ui_store(struct fyai_remote_ui *view, fy_generic frame)
 	fy_generic root = fy_get(frame, "root", fy_invalid);
 	long long head, taken;
 	bool busy;
+	char *line;
 
 	if (!strcmp(name, "state") && remote_ui_state(view, root))
 		return -1;
@@ -978,6 +985,7 @@ static int remote_ui_store(struct fyai_remote_ui *view, fy_generic frame)
 				fy_invalid), "branch", fyai_ctx_branch(ctx))))
 			return -1;
 		fyai_ui_header_refresh(ctx);
+		view->input = fy_get(root, "input", false);
 		busy = fy_get(fy_get(root, "turn", fy_invalid), "busy", false);
 		if (busy != view->busy) {
 			view->busy = busy;
@@ -994,7 +1002,13 @@ static int remote_ui_store(struct fyai_remote_ui *view, fy_generic frame)
 		 * them as pending. */
 		taken = fy_get(root, "queued", 0LL);
 		while (view->queued && view->taken < taken) {
-			free(fyai_ui_take_line(ctx));
+			/* A line that the worker takes as an answer to a
+			 * prompt for a secret is not counted here: only a
+			 * message goes into the history. */
+			line = fyai_ui_take_line(ctx);
+			if (line)
+				remote_ui_history_save(view, ctx, line);
+			free(line);
 			view->queued--;
 			view->taken++;
 		}
@@ -1755,7 +1769,6 @@ int fyai_remote_ui_step(struct fyai_remote_ui *view)
 	while (view->initialized && !view->watch && view->busy &&
 	       (head = fyai_ui_peek_line_nth(ctx, view->queued)) &&
 	       head[0] != '/' && head[0] != '!') {
-		remote_ui_history_save(ctx, head);
 		if (remote_ui_queued(view, head))
 			return -1;
 		view->queued++;
@@ -1768,7 +1781,7 @@ int fyai_remote_ui_step(struct fyai_remote_ui *view)
 	while (view->initialized &&
 	       (line = view->queued ? remote_ui_take_command(ctx, view->queued) :
 				      fyai_ui_take_line(ctx))) {
-		remote_ui_history_save(ctx, line);
+		remote_ui_history_save(view, ctx, line);
 		/* A new line asks for new candidates. */
 		fyai_cmd_complete_reset(ctx);
 		if (line[0] == '/' && fyai_cmd_session_ends(line + 1)) {

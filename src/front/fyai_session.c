@@ -2097,6 +2097,17 @@ void fyai_session_queued_set(struct fyai_ctx *ctx, long long taken)
 	fyai_uimodel_end(ctx);
 }
 
+void fyai_session_input_set(struct fyai_ctx *ctx, bool input)
+{
+	struct fy_generic_builder *gb;
+
+	gb = fyai_uimodel_begin(ctx);
+	if (gb)
+		(void)fyai_uimodel_set_member(ctx, FYAI_UI_SESSION, "input",
+					      fy_value(gb, input));
+	fyai_uimodel_end(ctx);
+}
+
 void fyai_session_head_set(struct fyai_ctx *ctx, fy_generic entry)
 {
 	struct fy_generic_builder *gb;
