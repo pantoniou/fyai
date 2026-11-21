@@ -4230,26 +4230,6 @@ static bool sdk_working(struct fyai_ctx *ctx, void *data)
  * as it is. The connection to the server waits in adopt_fd until the answer
  * to the command left on the channel of the client.
  */
-static void sdk_register(struct sdk_server *srv);
-
-/* A server lists the session: the one that holds it, or one that starts now. */
-static int sdk_share_request(struct fyai_ctx *ctx, void *data)
-{
-	struct sdk_server *srv = data;
-
-	if (srv->at_server ||
-	    (srv->reg && !srv->reg_lost && !jsonrpc_conn_closed(srv->reg)))
-		return 0;
-	if (fyai_remote_serve_ensure(ctx, NULL))
-		return -1;
-	sdk_register(srv);
-	fyai_error_check(ctx, srv->reg && !srv->reg_lost, err,
-			 "no server lists this session");
-	return 0;
-err:
-	return -1;
-}
-
 static int sdk_background_request(struct fyai_ctx *ctx, void *data)
 {
 	struct sdk_server *srv = data;
@@ -4618,7 +4598,6 @@ static int sdk_cmd_channel(struct sdk_server *srv)
 		jsonrpc_conn_on_close(srv->conn, sdk_channel_closed, srv);
 		ctx->turn->background = sdk_background_request;
 		ctx->turn->background_data = srv;
-		ctx->turn->share = sdk_share_request;
 		ctx->turn->working = sdk_working;
 	}
 	rc = jsonrpc_conn_frames(srv->conn, sdk_frame, srv);

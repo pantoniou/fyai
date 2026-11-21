@@ -105,13 +105,6 @@ struct fyai_turnstate {
 	int (*background)(struct fyai_ctx *ctx, void *data);
 	void *background_data;
 	/*
-	 * Make sure that a server lists the session, so that a second client can
-	 * join it: start a server of this project that ends with its turns when
-	 * none runs. 0 when it is listed, -1 with a diagnostic. NULL in a session
-	 * that cannot. Takes @background_data.
-	 */
-	int (*share)(struct fyai_ctx *ctx, void *data);
-	/*
 	 * What the session starts when it leaves: NULL for nothing, "" for a new
 	 * session, else the branch to resume. Set by the caller of @background.
 	 */

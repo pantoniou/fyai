@@ -6585,17 +6585,17 @@ it (see `/split`).
 
 ## /split
 
-show a second client of a session in a tile
+open a second session of this branch in a tile
 
 **Usage:** `/split [NAME]`
 
-Open a second client in a tile of the work pane. With no NAME it joins
-this session, which keeps its branch: the tile watches it, and what is
-typed in the tile goes to the session as a message. No branch changes
-unless a command that changes one runs. With NAME (PROJECT:BRANCH,
-BRANCH of this project, or PROJECT alone) the tile joins that session
-of the fleet, as `/jump --split` does. A session on a terminal process
-(`FYAI_NO_SPLIT`) has no server to join and cannot split.
+Open a session of its own in a tile of the work pane, on the branch of
+this session. Both sessions are whole and take every command. The branch
+stays one while only one of them commits. The one that commits second
+moves to a new `session/` branch that starts where it started, as
+`/btw` does at once. With NAME (PROJECT:BRANCH, BRANCH of this project,
+or PROJECT alone) the tile watches that session of the fleet, as
+`/jump --split` does; that needs a session that runs at a worker.
 
 
 ### Arguments

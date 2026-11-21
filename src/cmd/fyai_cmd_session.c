@@ -20,6 +20,7 @@
 
 #include "fyai_buf.h"
 #include "fyai_fleet_ops.h"
+#include "fyai_config.h"
 #include "fyai_fleet_watch.h"
 #include "fyai_pending.h"
 #include "fyai_remote.h"
@@ -337,11 +338,10 @@ int fyai_cmd_session_adopt(struct fyai_cmd_call *call, fy_generic *result)
 }
 
 /*
- * Show a client of a session in a tile of the work pane: @args, the words
- * that follow the program of fyai, run as a command of the user like `!`
- * but outside the shell sandbox, which denies the socket of the server. The
- * tile holds a second client in a terminal of its own. Only a session
- * that runs at a worker has a server to join. The tile shows @title.
+ * Run fyai with @args, the words that follow its program, in a tile of the
+ * work pane as a command of the user like `!`, but outside the shell sandbox,
+ * which denies the socket of the server. The tile shows @title and no
+ * command.
  */
 static int fleet_tile(struct fyai_cmd_call *call, const char *cmd,
 		      const char *args, const char *title)
@@ -352,9 +352,6 @@ static int fleet_tile(struct fyai_cmd_call *call, const char *cmd,
 	ssize_t n;
 	int rc = -1;
 
-	fyai_error_check(ctx, ctx->turn->background, out,
-			 "%s: this session does not run at a worker; a session "
-			 "on a terminal does", cmd);
 	n = fyai_host_executable(exe, sizeof(exe) - 1);
 	fyai_error_check(ctx, n > 0, out,
 			 "%s: cannot find the program of fyai", cmd);
@@ -383,6 +380,10 @@ static int fleet_tile_attach(struct fyai_cmd_call *call, const char *cmd,
 	const char *full;
 	int rc = -1;
 
+	/* Only a session that runs at a worker has a server to join. */
+	fyai_error_check(ctx, ctx->turn->background, out,
+			 "%s: this session does not run at a worker; a session "
+			 "on a terminal does", cmd);
 	full = fyai_fleet_jump_name(ctx, call->gb, name);
 	if (!full)
 		return -1;
@@ -429,10 +430,11 @@ err:
 }
 
 /*
- * Split the session: a second client in a tile of the work pane. With no
- * NAME it watches this session, which keeps its branch; what is typed in
- * the tile goes to the session as a message. With NAME it joins that session
- * of the fleet.
+ * Split the session: a second session of its own in a tile of the work pane,
+ * on the same branch. Both sessions are whole, with every command. The
+ * branch stays one while only one side commits; the side that commits second
+ * moves to a new branch that starts where it started (`branch/on_conflict:
+ * fork`). With NAME the tile joins that session of the fleet instead.
  */
 int fyai_cmd_tile_split(struct fyai_cmd_call *call, fy_generic *result)
 {
@@ -443,14 +445,17 @@ int fyai_cmd_tile_split(struct fyai_cmd_call *call, fy_generic *result)
 
 	if (name)
 		return fleet_tile_attach(call, "split", name, result);
-	fyai_error_check(ctx, ctx->turn->share, out,
-			 "split: this session does not run at a worker; a session "
-			 "on a terminal does");
-	if (ctx->turn->share(ctx, ctx->turn->background_data))
+	fyai_error_check(ctx, !ctx->bstate->session_unstored ||
+			 strcmp(ctx->bstate->session_unstored,
+				fyai_ctx_branch(ctx)),
+			 out, "split: this session has no exchange yet, so there "
+			 "is nothing to share");
+	rc = fyai_config_session_set(ctx, "branch/on_conflict",
+				     fy_value(call->gb, "fork"));
+	if (rc)
 		return -1;
-	rc = fyai_buf_append(&args, "-b ") ||
-	     fyai_shell_quote(&args, fyai_ctx_branch(ctx)) ||
-	     fyai_buf_append(&args, " remote connect --watch");
+	rc = fyai_buf_append(&args, "--set branch/on_conflict=fork -b ") ||
+	     fyai_shell_quote(&args, fyai_ctx_branch(ctx));
 	fyai_error_check(ctx, !rc, out, "split: cannot make the command");
 	rc = fleet_tile(call, "split", args.data,
 			fy_sprintfa("split %s", fyai_ctx_branch(ctx)));

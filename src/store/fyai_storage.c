@@ -1653,7 +1653,34 @@ static bool publish_conflict_replays(struct fyai_ctx *ctx)
 	const char *policy;
 
 	policy = ctx->cfg->branch_on_conflict;
-	return policy && strcmp(policy, "abort");
+	return policy && strcmp(policy, "abort") && strcmp(policy, "fork");
+}
+
+/*
+ * Move this run to a new session branch that starts at the entry it started
+ * from: its turns are on the base head and stay as they are. The publish that
+ * follows creates the branch, so the branch that the other side moved keeps
+ * its own history.
+ */
+static int publish_fork(struct fyai_ctx *ctx, const char *from)
+{
+	char name[128];
+	int rc;
+
+	from = fyai_ctx_keep_str(ctx, from);
+	fyai_error_check(ctx, from, err_out, "could not keep the branch name");
+	rc = fyai_branch_session_name(ctx->bstate->branches, name, sizeof(name));
+	fyai_error_check(ctx, !rc, err_out, "could not name the new branch");
+	rc = fyai_ctx_set_branch(ctx, name);
+	fyai_error_check(ctx, !rc, err_out, "could not select the new branch");
+	fyai_ctx_branch_prev_set(ctx, fy_invalid);
+	fyai_branch_op_set(ctx, FYAI_BRANCH_OP_CREATE, from);
+	fyai_notice(ctx, "branch '%s' changed while this session was running; "
+		    "this session goes on in '%s'", from, fyai_ctx_branch(ctx));
+	return 0;
+
+err_out:
+	return -1;
 }
 
 /*
@@ -1784,6 +1811,9 @@ static int publish_reconcile(struct fyai_ctx *ctx)
 		fyai_ctx_branch_prev_set(ctx, cur.entry);
 		return 0;
 	}
+
+	if (!strcmp(ctx->cfg->branch_on_conflict, "fork"))
+		return publish_fork(ctx, fyai_ctx_branch(ctx));
 
 	if (!publish_conflict_replays(ctx)) {
 		fyai_error(ctx, "branch '%s' changed while this command was "

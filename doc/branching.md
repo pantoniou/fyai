@@ -690,6 +690,7 @@ A true conflict is only when the **same** branch moved. The
 | `abort` | Write nothing and report the problem. The default. |
 | `rebase` | Put our turns after theirs. |
 | `merge` | The same as `rebase` here. Refer below. |
+| `fork` | Keep our turns on a new `session/` branch that starts where we started. `/split` sets it in both of its sessions. |
 
 ```sh
 fyai config set branch/on_conflict rebase
