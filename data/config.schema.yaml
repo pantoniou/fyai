@@ -588,6 +588,14 @@ properties:
           before each call that changes a session (start, send, interrupt,
           answer, stop), and `never` asks for none. A call that must ask when
           nobody can answer is refused.
+      panel:
+        type: boolean
+        default: true
+        x-fyai-scope: session
+        description: >-
+          Show the fleet panel on the page of a root session, with a row for
+          each member that it supervises. `fleet panel off` hides it for the
+          session.
       max_live:
         type: integer
         minimum: 0

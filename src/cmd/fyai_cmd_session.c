@@ -18,6 +18,7 @@
 #include <string.h>
 
 #include "fyai_fleet_ops.h"
+#include "fyai_fleet_watch.h"
 #include "fyai_pending.h"
 #include "fyai_remote.h"
 #include "fyai_turn.h"
@@ -207,6 +208,33 @@ int fyai_cmd_fleet_kill(struct fyai_cmd_call *call, fy_generic *result)
 	}
 	return fyai_fleet_kill(ctx, call->gb, fyai_cmd_arg_str(call, "project"),
 			       fyai_cmd_arg_bool(call, "force"), self, result);
+}
+
+/* Show whether the fleet panel is on, or turn it on or off. */
+int fyai_cmd_fleet_panel(struct fyai_cmd_call *call, fy_generic *result)
+{
+	struct fyai_ctx *ctx = fyai_cmd_call_ctx(call);
+	const char *value = fyai_cmd_arg_str(call, "value");
+	bool on;
+
+	if (value) {
+		if (!strcmp(value, "on") || !strcmp(value, "true"))
+			on = true;
+		else if (!strcmp(value, "off") || !strcmp(value, "false"))
+			on = false;
+		else {
+			fyai_error(ctx, "%s: invalid value '%s' (on|off)",
+				   call->path, value);
+			return -1;
+		}
+		if (fyai_fleet_watch_panel_set(ctx, on))
+			return -1;
+	}
+	on = fy_get(fy_get(ctx->cfg->config_doc, "fleet", fy_invalid), "panel",
+		    true);
+	*result = fy_mapping(call->gb, "setting", "panel",
+			     "value", on ? "on" : "off");
+	return 0;
 }
 
 int fyai_cmd_fleet_scan(struct fyai_cmd_call *call, fy_generic *result)

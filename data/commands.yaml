@@ -4390,6 +4390,27 @@ commands:
               x-fyai-positional: 0
               x-fyai-meta: PROJECT
               x-fyai-complete: dir
+      - command: panel
+        title: show or hide the fleet panel
+        description: |
+          With no value, show whether the fleet panel of the page is on. With
+          `on` or `off`, show or hide it for this session. The panel lists the
+          members that a root session supervises; `fleet/panel` is the key.
+        surfaces: [session]
+        handler: fleet_panel
+        while_busy: bare
+        arguments:
+          type: object
+          additionalProperties: false
+          properties:
+            value:
+              type: string
+              enum: ["on", "off"]
+              description: on or off
+              x-fyai-positional: 0
+              x-fyai-meta: VALUE
+        render:
+          message: "{setting}: {value}"
       - command: kill
         title: end every live session of the fleet
         description: |

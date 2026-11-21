@@ -2226,7 +2226,9 @@ waits as a queued task and starts when a member ends. Set both in the root:
 `fyai config set fleet/approve always`.
 
 The page of a root session shows its members in a `Fleet` panel under the
-todo list: the name, the state, and the start of the last answer of each.
+todo list: the name, the state, and the start of the last answer of each. It
+shows from the start, with `no members` until a member runs. `fleet panel off`
+hides it for the session and `fleet panel on` shows it again.
 
 A root session hears of the members that it starts: the model gets
 `[session 'PROJECT:BRANCH' idle]` with the answer of the member, `waiting`

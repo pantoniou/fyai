@@ -507,6 +507,25 @@ out:
 	return rc;
 }
 
+/*
+ * The glyph of frame @frame of the running indicator, the mark that a tool
+ * row has; borrowed from the renderer or the theme.
+ */
+static const char *ui_indicator_glyph(struct fyai_ui *ui, size_t frame)
+{
+	struct fyai_ctx *ctx = fyai_ui_ctx(ui);
+	const char *glyph, *on, *off;
+	unsigned int interval_ms;
+
+	if (ui->chrome_renderer &&
+	    !fymd_renderer_get_indicator(ui->chrome_renderer,
+					 FYMD_INDICATOR_PENDING, frame, &glyph,
+					 &on, &off, &interval_ms))
+		return glyph;
+	return frame & 1 ? markdown_glyph(ctx->cfg, "tool.pending.1", " ") :
+			   markdown_glyph(ctx->cfg, "tool.pending", "\u25cf");
+}
+
 /* Make the source of the fleet panel from the panels store. */
 static void ui_fleet_rebuild(struct fyai_ui *ui)
 {
@@ -516,8 +535,10 @@ static void ui_fleet_rebuild(struct fyai_ui *ui)
 	ui->fleet_rows = 0;
 	ui->fleet_cols = 0;
 	ui->fleet_source = fyai_fleet_panel_source(fy_get(
-		fyai_uimodel_get(ctx, FYAI_UI_PANELS), "fleet", fy_seq_empty),
-		ui->activity_phase, &ui->fleet_blink);
+		fyai_uimodel_get(ctx, FYAI_UI_PANELS), "fleet", fy_invalid),
+		ui_indicator_glyph(ui, (size_t)(ui->activity_phase < 0 ? 0 :
+						ui->activity_phase)),
+		&ui->fleet_blink);
 	if (ui->fleet_blink && !ui->activity_interval_ms)
 		ui->activity_interval_ms = 500;
 }

@@ -54,6 +54,12 @@ int fyai_fleet_watch_add(struct fyai_ctx *ctx, const char *name);
  */
 void fyai_fleet_watch_restore(struct fyai_ctx *ctx);
 
+/*
+ * Show (@on) or hide the fleet panel for this session: set `fleet/panel` and
+ * publish the panel again. Returns 0, or -1 with the cause reported.
+ */
+int fyai_fleet_watch_panel_set(struct fyai_ctx *ctx, bool on);
+
 /* The number of members that this session supervises now. */
 size_t fyai_fleet_watch_live(struct fyai_ctx *ctx);
 
@@ -65,12 +71,14 @@ void fyai_fleet_watch_cleanup(struct fyai_fleet_watch *fw);
 
 /*
  * The UI Markdown of the fleet panel of the page from the rows of the member
- * `fleet` of the panels store, {name, state, last, title}, or NULL when there is no
- * row. A row has a mark of its state; the mark of a running member blinks
- * with @phase. @blinks, when not NULL, tells whether a member runs, that is
- * whether the next phase changes the text. The caller frees it.
+ * `fleet` of the panels store, {name, state, last, title}, or NULL when it is
+ * no sequence (a session that is no root). An empty sequence gives a line that
+ * says there is no member. A row has a mark of its state; a running member has @running, the
+ * glyph of the frame of the running indicator.
+ * @blinks, when not NULL, tells whether a member runs, that is whether the
+ * next frame changes the text. The caller frees it.
  */
-char *fyai_fleet_panel_source(fy_generic rows, int phase, bool *blinks);
+char *fyai_fleet_panel_source(fy_generic rows, const char *running, bool *blinks);
 
 /* A forked child forgets the connections of its parent. */
 void fyai_fleet_watch_abandon(struct fyai_fleet_watch *fw);

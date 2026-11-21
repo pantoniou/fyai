@@ -590,11 +590,17 @@ the end of each turn of a member, since a title is written after the turn.
 `fleet list` gives the title in its rows.
 
 Each row starts with a mark of its state: a dot for `idle`, a diamond for
-`waiting`, a dash for the others. The mark of a `running` member blinks: it
-changes between a full and an empty circle on the phase of the activity
-clock of the UI, which the busy mark uses too. The clock runs only while a
-member runs. This is the whole bird's-eye view of a live member; the
+`waiting`, a dash for the others. The mark of a `running` member is the
+running indicator of a tool row: it takes the frame of the activity clock of
+the UI, as the busy mark and the tool rows do, and the theme gives its
+glyphs. The clock runs only while a member runs. This is the whole bird's-eye view of a live member; the
 deferred tile of a member would show its stream.
+
+The panel shows from the start of a root session: with no member it holds the
+line `no members`. `fleet panel off` hides it for the session and `fleet
+panel on` shows it again (`fleet/panel`, on by default). The worker of the
+root decides: with the key off it publishes no rows, so the client needs no
+setting of its own.
 
 The component of section 10 writes the rows to the member `fleet` of the
 `panels` store of the UI model at each change of a member; the client of a
