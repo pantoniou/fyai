@@ -203,9 +203,10 @@ int fyai_tools_bang(struct fyai_ctx *ctx, const char *command, int rows,
  * Start @command, a program of fyai itself, in a tile of the work pane as
  * fyai_tools_bang() does, but with no shell sandbox and with no credential:
  * the second client of a session must reach the socket of the server, which
- * the sandbox of the session denies.
+ * the sandbox of the session denies. The tile shows @title and no command.
  */
-int fyai_tools_split(struct fyai_ctx *ctx, const char *command);
+int fyai_tools_split(struct fyai_ctx *ctx, const char *command,
+		     const char *title);
 /*
  * The size that the tile of a bang of @command gets now, in *@rowsp and
  * *@colsp, or 0 when the display has no layout: the client of a remote

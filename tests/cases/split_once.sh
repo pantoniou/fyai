@@ -25,7 +25,7 @@ exit:
   clear: true
 steps:
   - type: /split
-  - wait-screen: "remote connect --watch"
+  - wait-screen: "split main"
     timeout: session
   - wait-file: "${TEST_DIR}/.fyai/logs/serve.log"
     contains: "watches the worker"

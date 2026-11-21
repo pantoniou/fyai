@@ -29,7 +29,7 @@ exit:
   clear: true
 steps:
   - type: /jump --split main
-  - wait-screen: "fleet attach"
+  - wait-screen: "split main"
     timeout: session
   - wait-file: "${TEST_DIR}/.fyai/logs/serve.log"
     contains: "watches the worker"

@@ -341,10 +341,10 @@ int fyai_cmd_session_adopt(struct fyai_cmd_call *call, fy_generic *result)
  * that follow the program of fyai, run as a command of the user like `!`
  * but outside the shell sandbox, which denies the socket of the server. The
  * tile holds a second client in a terminal of its own. Only a session
- * that runs at a worker has a server to join.
+ * that runs at a worker has a server to join. The tile shows @title.
  */
 static int fleet_tile(struct fyai_cmd_call *call, const char *cmd,
-		      const char *args)
+		      const char *args, const char *title)
 {
 	struct fyai_ctx *ctx = fyai_cmd_call_ctx(call);
 	struct fyai_buf line = { 0 };
@@ -359,10 +359,15 @@ static int fleet_tile(struct fyai_cmd_call *call, const char *cmd,
 	fyai_error_check(ctx, n > 0, out,
 			 "%s: cannot find the program of fyai", cmd);
 	exe[n] = '\0';
-	rc = fyai_shell_quote(&line, exe) ||
+	/* The terminal of the tile answers no colour query: the client in it
+	 * takes the variant of this session from the usual hint. */
+	rc = fyai_buf_append(&line, ctx->cfg->theme_variant &&
+			     !strcmp(ctx->cfg->theme_variant, "light") ?
+			     "COLORFGBG='0;15' " : "COLORFGBG='15;0' ") ||
+	     fyai_shell_quote(&line, exe) ||
 	     fyai_buf_append(&line, " ") || fyai_buf_append(&line, args);
 	fyai_error_check(ctx, !rc, out, "%s: cannot make the command", cmd);
-	rc = fyai_tools_split(ctx, line.data);
+	rc = fyai_tools_split(ctx, line.data, title);
 	fyai_error_check(ctx, !rc, out, "%s: the tile could not start", cmd);
 out:
 	free(line.data);
@@ -384,7 +389,8 @@ static int fleet_tile_attach(struct fyai_cmd_call *call, const char *cmd,
 	rc = fyai_buf_append(&args, "fleet attach ") ||
 	     fyai_shell_quote(&args, full);
 	fyai_error_check(ctx, !rc, out, "%s: cannot make the command", cmd);
-	rc = fleet_tile(call, cmd, args.data);
+	rc = fleet_tile(call, cmd, args.data,
+			fy_sprintfa("split %s", full));
 	if (!rc)
 		*result = fy_mapping(call->gb, "name", full);
 out:
@@ -446,7 +452,8 @@ int fyai_cmd_tile_split(struct fyai_cmd_call *call, fy_generic *result)
 	     fyai_shell_quote(&args, fyai_ctx_branch(ctx)) ||
 	     fyai_buf_append(&args, " remote connect --watch");
 	fyai_error_check(ctx, !rc, out, "split: cannot make the command");
-	rc = fleet_tile(call, "split", args.data);
+	rc = fleet_tile(call, "split", args.data,
+			fy_sprintfa("split %s", fyai_ctx_branch(ctx)));
 	if (!rc)
 		*result = fy_mapping(call->gb, "name", fyai_ctx_branch(ctx));
 out:

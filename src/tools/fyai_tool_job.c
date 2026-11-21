@@ -1050,6 +1050,9 @@ static int fyai_tool_job_submit_spawn(struct fyai_ctx *ctx,
 				scols = fyai_shell_inline_cols(ctx);
 		}
 		session_command = fy_get(args, "command", fy_invalid);
+		/* The tile of an invocation of fyai shows a title only. */
+		if (fy_is_string(fy_get(args, "_fyai_title", fy_invalid)))
+			session_command = fy_invalid;
 		session_desc = fy_get(args, "description", fy_invalid);
 		session_title = fyai_format_shell_label(args);
 		job->session = fyai_shell_session_create(ctx, sub->session_name,

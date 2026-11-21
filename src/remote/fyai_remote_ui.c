@@ -702,6 +702,11 @@ static int remote_ui_terms(struct fyai_remote_ui *view, fy_generic root)
 			remote_ui_term_free(ctx, t);
 			t = NULL;
 		}
+		/* A command of the user belongs to the client that typed it. A
+		 * watcher shows none: the tile of /split holds a watcher. */
+		if (!t && view->watch && !strcmp(fy_get(item, "kind", ""),
+						 "user-shell"))
+			continue;
 		/* The tiles of agents open in the order they started: the
 		 * worker lists the newest first, and an older agent that has
 		 * no terminal yet comes first. */

@@ -1739,11 +1739,13 @@ int fyai_tools_kill(struct fyai_ctx *ctx, const char *name,
 /*
  * Start @command as a user-owned terminal session in the work pane, named
  * @prefix-N. @what names the program in a diagnostic. *@sessp is the session
- * of the job, or NULL when the job has none.
+ * of the job, or NULL when the job has none. A @title names an invocation of
+ * fyai itself: the tile shows it and no command.
  */
 static int fyai_tools_user_start(struct fyai_ctx *ctx, const char *command,
 				 const char *prefix, const char *what,
-				 fy_generic env_keep, int rows, int cols,
+				 fy_generic env_keep, const char *title,
+				 int rows, int cols,
 				 struct fyai_shell_session **sessp)
 {
 	struct fyai_tool_job *job = NULL;
@@ -1778,6 +1780,8 @@ static int fyai_tools_user_start(struct fyai_ctx *ctx, const char *command,
 			  "tty", true,
 			  "name", name,
 			  "_fyai_user_owned", true);
+	if (fy_is_valid(args) && title)
+		args = fy_assoc(gb, args, "_fyai_title", title);
 	/* A client of a remote session gives the size of the tile that shows
 	 * the program, as a local tile gives it. */
 	if (fy_is_valid(args) && rows > 0 && cols > 0)
@@ -1809,12 +1813,13 @@ err:
 
 static int fyai_tools_bang_start(struct fyai_ctx *ctx, const char *command,
 				 const char *prefix, const char *what,
-				 fy_generic env_keep, int rows, int cols)
+				 fy_generic env_keep, const char *title,
+				 int rows, int cols)
 {
 	struct fyai_shell_session *sess;
 
-	if (fyai_tools_user_start(ctx, command, prefix, what, env_keep, rows,
-				  cols, &sess))
+	if (fyai_tools_user_start(ctx, command, prefix, what, env_keep, title,
+				  rows, cols, &sess))
 		return -1;
 	if (sess)
 		sess->keep_tile = true;
@@ -1827,14 +1832,15 @@ int fyai_tools_bang(struct fyai_ctx *ctx, const char *command, int rows,
 		    int cols)
 {
 	return fyai_tools_bang_start(ctx, command, "bang", "bang shell",
-				     fy_invalid, rows, cols);
+				     fy_invalid, NULL, rows, cols);
 }
 
-int fyai_tools_split(struct fyai_ctx *ctx, const char *command)
+int fyai_tools_split(struct fyai_ctx *ctx, const char *command,
+		     const char *title)
 {
 	/* An empty sequence: no sandbox and no credential. */
 	return fyai_tools_bang_start(ctx, command, "split", "split",
-				     fy_seq_empty, 0, 0);
+				     fy_seq_empty, title, 0, 0);
 }
 
 static void fyai_tools_probe_input(void *data, const char *name,
@@ -2042,8 +2048,8 @@ fyai_tools_program_start(struct fyai_ctx *ctx, const char *command,
 {
 	struct fyai_shell_session *sess;
 
-	if (fyai_tools_user_start(ctx, command, prefix, what, env_keep, 0, 0,
-				  &sess))
+	if (fyai_tools_user_start(ctx, command, prefix, what, env_keep, NULL,
+				  0, 0, &sess))
 		return NULL;
 	fyai_error_check(ctx, sess, err,
 			 "the %s was given no terminal session", what);
