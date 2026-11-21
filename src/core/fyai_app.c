@@ -201,6 +201,7 @@ void fyai_turnstate_abandon(struct fyai_turnstate *turn)
 	turn->end_requested = false;
 	turn->background = NULL;
 	turn->background_data = NULL;
+	turn->share = NULL;
 	turn->background_next = NULL;
 	turn->working = NULL;
 	turn->continue_requested = false;

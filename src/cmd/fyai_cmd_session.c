@@ -433,10 +433,15 @@ int fyai_cmd_tile_split(struct fyai_cmd_call *call, fy_generic *result)
 	struct fyai_ctx *ctx = fyai_cmd_call_ctx(call);
 	const char *name = fyai_cmd_arg_str(call, "name");
 	struct fyai_buf args = { 0 };
-	int rc;
+	int rc = -1;
 
 	if (name)
 		return fleet_tile_attach(call, "split", name, result);
+	fyai_error_check(ctx, ctx->turn->share, out,
+			 "split: this session does not run at a worker; a session "
+			 "on a terminal does");
+	if (ctx->turn->share(ctx, ctx->turn->background_data))
+		return -1;
 	rc = fyai_buf_append(&args, "-b ") ||
 	     fyai_shell_quote(&args, fyai_ctx_branch(ctx)) ||
 	     fyai_buf_append(&args, " remote connect --watch");
