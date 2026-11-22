@@ -147,9 +147,25 @@ static int linux_seqpacket_pair(int fd[2])
 	return socketpair(AF_UNIX, SOCK_SEQPACKET | SOCK_CLOEXEC, 0, fd);
 }
 
+/*
+ * Return the executable path. If the binary was unlinked or replaced since
+ * exec, readlink appends " (deleted)"; fall back to "/proc/self/exe", which
+ * remains execable.
+ */
 static ssize_t linux_executable(char *path, size_t capacity)
 {
-	return readlink("/proc/self/exe", path, capacity);
+	static const char deleted[] = " (deleted)";
+	static const char self[] = "/proc/self/exe";
+	ssize_t n = readlink(self, path, capacity);
+
+	if (n >= (ssize_t)sizeof(deleted) - 1 &&
+	    !memcmp(path + n - (sizeof(deleted) - 1), deleted, sizeof(deleted) - 1)) {
+		if (capacity < sizeof(self))
+			return -1;
+		memcpy(path, self, sizeof(self) - 1);
+		return sizeof(self) - 1;
+	}
+	return n;
 }
 
 static int linux_boot_id(char id[37])
