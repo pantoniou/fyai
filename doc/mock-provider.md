@@ -53,11 +53,13 @@ step is left, the reply is status 500 with `mock: scenario exhausted`.
 | `done` | Add `data: [DONE]` at the end of the stream. |
 | `chunk_split` | Byte offsets in the stream where a new write starts. |
 | `chunk_delay` | Seconds to wait between the writes of `chunk_split`. |
+| `event_delay` | Seconds to wait after each event of the stream. It replaces `chunk_split`. It paces a stream for a person to watch; a test orders its steps with `wait_for`. |
 | `delay` | Seconds to wait before the reply starts. |
 | `wait_for` | The name of a marker file in RUNDIR. Without `wait_after_event`, the reply starts when the file exists. |
 | `wait_after_event` | With `wait_for`, the stream stops after this event (zero-based) until the file exists. |
 | `close_after` | Send only this number of `sse` events. The reply promises 64 more bytes than it sends. Then the mock closes the connection. |
 | `match` | See below. |
+| `repeat` | With `match`, the step stays: it answers each request that it fits. |
 
 A wait for a marker ends after 30 seconds multiplied by `FYAI_TIMEOUT_SCALE`
 before a reply, and after 5 seconds inside a stream. When the wait expires, the
@@ -71,5 +73,27 @@ reply is `raw`. `wait_for` and `delay` apply to `POST` only.
 `match` is a mapping. Every key must fit. The keys `http` (the method), `path`,
 `method` (the `method` of a JSON-RPC body), `auth` (the `Authorization`
 header) and `session` (the `Mcp-Session-Id` header) must be equal to the value.
-The key `body_contains` is a substring test on the request body. An unknown key
-fits only the empty string.
+The key `body_contains` is a substring test on the request body. The keys
+`last_contains` and `last_role` test the last item of the conversation of a
+model request: the last of `messages`, else of `input`. `last_contains` is a
+substring test on each string of that item. `last_role` is equal to its
+`role`, or to its `type` when it has no role. An unknown key fits only the
+empty string.
+
+## Playground
+
+`tests/mock-play.sh` starts the mock and an interactive `fyai` against it, in a
+private sandbox of the test harness with the shipped display defaults. A
+person uses it to examine the terminal UI:
+
+```sh
+tests/mock-play.sh                         # tests/play/menu.yaml
+tests/mock-play.sh -s my.yaml -- --set display/screen=inline
+```
+
+The default scenario answers a word typed at the prompt: `help` lists the
+words (`reasoning`, `python`, `agents`, `agents8`, `agents12`, `shells`,
+`long`, `mix`). Its steps use `repeat`, `last_contains` and `last_role`, so
+a word can be typed again, and each tool result gets the same final reply.
+`-b` selects the fyai binary, and `-k` keeps the sandbox with
+`requests.jsonl` and `mock.log`.
