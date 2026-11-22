@@ -886,10 +886,13 @@ static bool workpane_tile_agent(const struct fyai_workpane_tile *t)
 }
 
 void fyai_panel_list_init(struct fyai_panel_list *pl,
-			  const char *const *marks, int cols, int max)
+			  const char *const *marks, int mark_cols,
+			  const char *blank, int cols, int max)
 {
 	memset(pl, 0, sizeof(*pl));
 	pl->marks = marks;
+	pl->mark_cols = mark_cols;
+	pl->blank = blank;
 	pl->cols = cols;
 	pl->max = max;
 }
@@ -901,7 +904,7 @@ int fyai_panel_list_add(struct fyai_panel_list *pl, enum fyai_ui_mark mark,
 	char *esc = NULL, *dst;
 	const char *glyph, *src;
 	size_t len;
-	int rc;
+	int room, rc;
 
 	pl->count++;
 	if (mark == FYAI_UI_MARK_RUNNING)
@@ -928,23 +931,23 @@ int fyai_panel_list_add(struct fyai_panel_list *pl, enum fyai_ui_mark mark,
 		}
 		esc = *last ? markdown_ui_escape(last) : NULL;
 	}
-	rc = fyai_buf_append(&line, glyph ? glyph : "") ||
-	     fyai_buf_append(&line, " ") ||
-	     fyai_buf_append(&line, fy_str_empty(title) ? "**work**" : title) ||
+	rc = fyai_buf_append(&line, fy_str_empty(title) ? "**work**" : title) ||
 	     (esc && (fyai_buf_append(&line, " \u2014 ") ||
 		      fyai_buf_append(&line, esc)));
-	/* A list item takes two columns before its text; a row never wraps. */
+	/* The lines are rows of one paragraph: the mark stands in the gutter,
+	 * and a row never wraps. */
+	if (!rc && pl->out.len)
+		rc = fyai_buf_append(&pl->out, "\\\n");
 	if (!rc)
-		rc = fyai_buf_append(&pl->out, "- ");
-	if (!rc && pl->cols > 3 &&
-	    fyai_chrome_markup_cols(line.data, NULL, 0) > pl->cols - 3) {
-		(void)fyai_chrome_markup_cols(line.data, &pl->out, pl->cols - 4);
+		rc = fyai_buf_append(&pl->out, glyph ? glyph : "");
+	room = pl->cols - pl->mark_cols - 1;
+	if (!rc && room > 1 &&
+	    fyai_chrome_markup_cols(line.data, NULL, 0) > room) {
+		(void)fyai_chrome_markup_cols(line.data, &pl->out, room - 1);
 		rc = fyai_buf_append(&pl->out, "\u2026");
 	} else if (!rc) {
 		rc = fyai_buf_append(&pl->out, line.data);
 	}
-	if (!rc)
-		rc = fyai_buf_append(&pl->out, "\n");
 	if (!rc)
 		pl->shown++;
 	free(line.data);
@@ -955,16 +958,22 @@ int fyai_panel_list_add(struct fyai_panel_list *pl, enum fyai_ui_mark mark,
 char *fyai_panel_list_finish(struct fyai_panel_list *pl)
 {
 	char more[64];
+	int rc = 0;
 
 	if (pl->count > pl->shown) {
-		snprintf(more, sizeof(more), "- \u2026 %d more\n",
+		snprintf(more, sizeof(more), "\u2026 %d more",
 			 pl->count - pl->shown);
-		if (fyai_buf_append(&pl->out, more)) {
-			free(pl->out.data);
-			pl->out.data = NULL;
-		}
+		rc = (pl->out.len && fyai_buf_append(&pl->out, "\\\n")) ||
+		     fyai_buf_append(&pl->out, pl->blank ? pl->blank : "") ||
+		     fyai_buf_append(&pl->out, more);
 	}
-	return pl->count ? pl->out.data : (free(pl->out.data), NULL);
+	if (!rc && pl->out.len)
+		rc = fyai_buf_append(&pl->out, "\n");
+	if (rc || !pl->count) {
+		free(pl->out.data);
+		pl->out.data = NULL;
+	}
+	return pl->out.data;
 }
 
 int fyai_workpane_panel_add(const struct fyai_workpane_manager *wm,

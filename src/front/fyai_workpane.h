@@ -197,19 +197,22 @@ void fyai_workpane_tile_set_agent(struct fyai_workpane_manager *wm,
 /*
  * The UI Markdown of an agents or a shells panel: a list with one line for
  * each piece of work that has no room, cut to the @cols columns of the page.
- * A line starts with the UI Markdown of its state in @marks, which the theme
- * makes: its indicator glyph in its role. With @max above zero, at most @max
- * lines, the last of which counts those left out.
+ * A line starts in the gutter with the UI Markdown of its state in @marks,
+ * which the theme makes and which takes @mark_cols columns; @blank is an
+ * empty gutter. With @max above zero, at most @max lines, the last of which
+ * counts those left out.
  */
 struct fyai_panel_list {
 	struct fyai_buf out;
 	const char *const *marks;	/* by enum fyai_ui_mark */
-	int cols, max, count, shown;
+	const char *blank;
+	int mark_cols, cols, max, count, shown;
 	bool blinks;		/* a piece of the work runs */
 };
 
 void fyai_panel_list_init(struct fyai_panel_list *pl,
-			  const char *const *marks, int cols, int max);
+			  const char *const *marks, int mark_cols,
+			  const char *blank, int cols, int max);
 /* Add a line: the state @mark, the UI Markdown @title (its first line) and
  * the plain text @last, which may be NULL; @last is changed. */
 int fyai_panel_list_add(struct fyai_panel_list *pl, enum fyai_ui_mark mark,

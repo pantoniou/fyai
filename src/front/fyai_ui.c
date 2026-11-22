@@ -425,6 +425,17 @@ out:
 static int ui_inline_set(struct fyai_ui *ui, uintptr_t key, const char *head,
 			 size_t hlen, const char *body, size_t blen,
 			 int max_rows, bool commit, bool fenced);
+/* A state mark: the glyph of this frame, the glyph of the first frame,
+ * which sets its width, and its palette role. */
+struct ui_mark {
+	const char *glyph;
+	const char *first;
+	const char *role;
+};
+
+/* The longest UI Markdown of a mark. */
+#define UI_MARK_MAX 160
+
 /* A call drawn in a block of the transcript while it runs. */
 struct ui_live {
 	uintptr_t key;
@@ -565,19 +576,132 @@ static const char *ui_indicator_glyph(struct fyai_ui *ui, size_t frame)
 			   markdown_glyph(ctx->cfg, "tool.pending", "\u25cf");
 }
 
+/* The glyph of the indicator @state of the theme at @frame. */
+static const char *ui_indicator_frame(struct fyai_ui *ui,
+				      enum fymd_indicator_state state,
+				      size_t frame)
+{
+	struct fyai_ctx *ctx = fyai_ui_ctx(ui);
+	const char *glyph, *on, *off;
+	unsigned int interval_ms;
+
+	if (ui->chrome_renderer &&
+	    !fymd_renderer_get_indicator(ui->chrome_renderer, state, frame,
+					 &glyph, &on, &off, &interval_ms))
+		return glyph;
+	if (state == FYMD_INDICATOR_PENDING)
+		return ui_indicator_glyph(ui, frame);
+	return markdown_glyph(ctx->cfg, state == FYMD_INDICATOR_SUCCESS ?
+			      "tool.ok" : "tool.fail", "\u25cf");
+}
+
+/*
+ * The UI Markdown of the marks of @spec in @buf, each its glyph in its
+ * palette role in the gutter, as the head of a call has it: the gutter of
+ * the theme, or the widest first frame and a blank. A blank frame of a blink
+ * keeps its columns, and the text after a mark does not move. *@colsp gets
+ * the columns of a mark, and @blank an empty gutter as wide.
+ */
+static int ui_marks_markup(struct fyai_ui *ui, const struct ui_mark *spec,
+			   size_t n, char (*buf)[UI_MARK_MAX],
+			   const char **marks, char *blank, int *colsp)
+{
+	const char *glyph;
+	int width = 1, w, pad, len;
+	size_t i;
+	char *esc;
+
+	for (i = 0; i < n; i++) {
+		w = spec[i].first ? (int)fymd_str_width(spec[i].first,
+						strlen(spec[i].first)) : 0;
+		if (w > width)
+			width = w;
+	}
+	width++;
+	w = markdown_gutter_cols(fyai_ui_ctx(ui)->cfg);
+	if (w > width)
+		width = w;
+	*colsp = width;
+	len = snprintf(blank, UI_MARK_MAX, "<fy-space n=\"%d\"/>", width);
+	if (len < 0 || len >= UI_MARK_MAX)
+		return -1;
+	for (i = 0; i < n; i++) {
+		glyph = spec[i].glyph;
+		if (glyph && !glyph[strspn(glyph, " ")])
+			glyph = NULL;
+		pad = width - (glyph ? (int)fymd_str_width(glyph,
+						strlen(glyph)) : 0);
+		esc = markdown_ui_escape(glyph ? glyph : "");
+		if (!esc)
+			return -1;
+		if (pad > 0)
+			len = snprintf(buf[i], UI_MARK_MAX,
+				       "<fy-role name=\"%s\">%s</fy-role>"
+				       "<fy-space n=\"%d\"/>",
+				       spec[i].role, esc, pad);
+		else
+			len = snprintf(buf[i], UI_MARK_MAX,
+				       "<fy-role name=\"%s\">%s</fy-role>",
+				       spec[i].role, esc);
+		free(esc);
+		if (len < 0 || len >= UI_MARK_MAX)
+			return -1;
+		marks[i] = buf[i];
+	}
+	return 0;
+}
+
 /* Rebuild cached fleet panel Markdown from the UI panels store. */
 static void ui_fleet_rebuild(struct fyai_ui *ui)
 {
+	static const struct {
+		const char *glyph;	/* NULL for the indicator of a call */
+		const char *fallback;
+		const char *role;
+	} states[] = {
+		[FYAI_FLEET_MARK_RUNNING] = { NULL, NULL, "tool.pending" },
+		[FYAI_FLEET_MARK_WAITING] = { "fleet.waiting", "\u25c6",
+					      "fleet.waiting" },
+		[FYAI_FLEET_MARK_IDLE] = { "fleet.idle", "\u00b7",
+					   "fleet.idle" },
+		[FYAI_FLEET_MARK_ENDED] = { "fleet.ended", "\u2013",
+					    "fleet.ended" },
+	};
 	struct fyai_ctx *ctx = fyai_ui_ctx(ui);
+	struct ui_mark spec[ARRAY_SIZE(states)];
+	char mark[ARRAY_SIZE(states)][UI_MARK_MAX], blank[UI_MARK_MAX];
+	const char *marks[ARRAY_SIZE(states)];
+	size_t frame, i;
+	int mark_cols;
 
 	free(ui->fleet_source);
+	ui->fleet_source = NULL;
 	ui->fleet_rows = 0;
 	ui->fleet_cols = 0;
+	/* A running member blinks as a call does; the other states take the
+	 * glyphs of the theme. */
+	frame = (size_t)(ui->activity_phase < 0 ? 0 : ui->activity_phase);
+	for (i = 0; i < ARRAY_SIZE(states); i++) {
+		spec[i].role = states[i].role;
+		if (!states[i].glyph) {
+			spec[i].glyph = ui_indicator_frame(ui,
+					FYMD_INDICATOR_PENDING, frame);
+			spec[i].first = ui_indicator_frame(ui,
+					FYMD_INDICATOR_PENDING, 0);
+			continue;
+		}
+		spec[i].glyph = markdown_glyph(ctx->cfg, states[i].glyph,
+					       states[i].fallback);
+		spec[i].first = spec[i].glyph;
+	}
+	if (ui_marks_markup(ui, spec, ARRAY_SIZE(states), mark, marks, blank,
+			    &mark_cols)) {
+		fyai_warning(ctx, "fleet: cannot draw the marks of the members");
+		return;
+	}
 	ui->fleet_source = fyai_fleet_panel_source(fy_get(
 		fyai_uimodel_get(ctx, FYAI_UI_PANELS), "fleet", fy_invalid),
-		ui_indicator_glyph(ui, (size_t)(ui->activity_phase < 0 ? 0 :
-						ui->activity_phase)),
-		&ui->fleet_blink);
+		marks, blank, &ui->fleet_blink);
 	if (ui->fleet_blink && !ui->activity_interval_ms)
 		ui->activity_interval_ms = 500;
 }
@@ -2928,16 +3052,13 @@ static int ui_work_panels(struct fyai_ui *ui, struct fyai_page_state *st,
 		[FYAI_UI_MARK_OK] = { FYMD_INDICATOR_SUCCESS, "tool.ok" },
 		[FYAI_UI_MARK_FAILED] = { FYMD_INDICATOR_FAILURE, "tool.fail" },
 	};
+	struct ui_mark spec[ARRAY_SIZE(states)];
 	struct fyai_panel_list pl;
-	char mark[ARRAY_SIZE(states)][160];
+	char mark[ARRAY_SIZE(states)][UI_MARK_MAX], blank[UI_MARK_MAX];
 	const char *marks[ARRAY_SIZE(states)];
-	const char *glyph, *on, *off;
-	unsigned int interval_ms;
 	bool blinks = false, more = false;
 	size_t frame, i;
-	int width, pad, n;
-	char *esc;
-	int rc;
+	int mark_cols, rc;
 
 	free(ui->agents_source);
 	free(ui->shells_source);
@@ -2945,54 +3066,23 @@ static int ui_work_panels(struct fyai_ui *ui, struct fyai_page_state *st,
 	ui->work_blink = false;
 	if (fyai_agent_delegated(ctx) || (st->fullscreen && st->popup_title))
 		return 0;
-	/*
-	 * Each state is the indicator of the theme for this frame, in the
-	 * palette role of the state, as wide as its first frame: a blank
-	 * frame of a blink keeps its columns, and the line does not move.
-	 */
 	frame = (size_t)(ui->activity_phase < 0 ? 0 : ui->activity_phase);
 	for (i = 0; i < ARRAY_SIZE(states); i++) {
-		width = 1;
-		glyph = NULL;
-		if (ui->chrome_renderer &&
-		    !fymd_renderer_get_indicator(ui->chrome_renderer,
-				states[i].state, 0, &glyph, &on, &off,
-				&interval_ms))
-			width = (int)fymd_str_width(glyph, strlen(glyph));
-		if (width < 1)
-			width = 1;
-		if (ui->chrome_renderer &&
-		    fymd_renderer_get_indicator(ui->chrome_renderer,
-				states[i].state, frame, &glyph, &on, &off,
-				&interval_ms))
-			glyph = NULL;
-		if (glyph && !glyph[strspn(glyph, " ")])
-			glyph = NULL;
-		pad = width - (glyph ? (int)fymd_str_width(glyph,
-						strlen(glyph)) : 0);
-		esc = markdown_ui_escape(glyph ? glyph : "");
-		if (!esc)
-			return -1;
-		if (pad > 0)
-			n = snprintf(mark[i], sizeof(mark[i]),
-				     "<fy-role name=\"%s\">%s</fy-role>"
-				     "<fy-space n=\"%d\"/>",
-				     states[i].role, esc, pad);
-		else
-			n = snprintf(mark[i], sizeof(mark[i]),
-				     "<fy-role name=\"%s\">%s</fy-role>",
-				     states[i].role, esc);
-		free(esc);
-		if (n < 0 || (size_t)n >= sizeof(mark[i]))
-			return -1;
-		marks[i] = mark[i];
+		spec[i].glyph = ui_indicator_frame(ui, states[i].state, frame);
+		spec[i].first = ui_indicator_frame(ui, states[i].state, 0);
+		spec[i].role = states[i].role;
 	}
-	fyai_panel_list_init(&pl, marks, cols, ui_work_panel_max(rows));
+	if (ui_marks_markup(ui, spec, ARRAY_SIZE(states), mark, marks, blank,
+			    &mark_cols))
+		return -1;
+	fyai_panel_list_init(&pl, marks, mark_cols, blank, cols,
+			     ui_work_panel_max(rows));
 	rc = fyai_workpane_panel_add(wm, true, &pl) ||
 	     ui_live_panel_add(ui, true, &pl);
 	blinks = pl.blinks;
 	ui->agents_source = fyai_panel_list_finish(&pl);
-	fyai_panel_list_init(&pl, marks, cols, ui_work_panel_max(rows));
+	fyai_panel_list_init(&pl, marks, mark_cols, blank, cols,
+			     ui_work_panel_max(rows));
 	rc = rc || fyai_workpane_panel_add(wm, false, &pl) ||
 	     ui_live_panel_add(ui, false, &pl);
 	more = pl.blinks;

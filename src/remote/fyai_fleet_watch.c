@@ -97,19 +97,20 @@ static void fleet_watch_last(struct fyai_fleet_watcher *w, const char *text)
 	w->last = *text ? strndup(text, i) : NULL;
 }
 
-/* Map member state to panel glyph; running uses @running spinner frame. */
-static const char *fleet_panel_mark(const char *state, const char *running)
+/* The mark of the member state @state among @marks. */
+static const char *fleet_panel_mark(const char *state, const char *const *marks)
 {
 	if (!strcmp(state, "running"))
-		return running;
+		return marks[FYAI_FLEET_MARK_RUNNING];
 	if (!strcmp(state, "waiting"))
-		return "\u25c6";
+		return marks[FYAI_FLEET_MARK_WAITING];
 	if (!strcmp(state, "idle"))
-		return "\u00b7";
-	return "\u2013";
+		return marks[FYAI_FLEET_MARK_IDLE];
+	return marks[FYAI_FLEET_MARK_ENDED];
 }
 
-char *fyai_fleet_panel_source(fy_generic rows, const char *running, bool *blinks)
+char *fyai_fleet_panel_source(fy_generic rows, const char *const *marks,
+			      const char *blank, bool *blinks)
 {
 	struct fyai_buf out = { 0 };
 	const char *name, *last, *state, *title;
@@ -121,8 +122,14 @@ char *fyai_fleet_panel_source(fy_generic rows, const char *running, bool *blinks
 		*blinks = false;
 	if (!fy_is_sequence(rows))
 		return NULL;
-	if (fy_empty(rows))
-		return strdup("- no members\n");
+	if (fy_empty(rows)) {
+		if (fyai_buf_append(&out, blank ? blank : "") ||
+		    fyai_buf_append(&out, "no members\n")) {
+			free(out.data);
+			return NULL;
+		}
+		return out.data;
+	}
 	fy_foreach(row, rows) {
 		gs = fy_get(row, "state", fy_invalid);
 		state = fy_castp(&gs, "?");
@@ -140,9 +147,10 @@ char *fyai_fleet_panel_source(fy_generic rows, const char *running, bool *blinks
 		if (!esc_name || (*last && !esc_last) || (*title && !esc_title))
 			rc = -1;
 		if (!rc)
-			rc = fyai_buf_append(&out, out.data ? "\n- " : "- ") ||
-			     fyai_buf_append(&out, fleet_panel_mark(state, running)) ||
-			     fyai_buf_append(&out, " ") ||
+			/* The rows of one paragraph, each with its mark in
+			 * the gutter. */
+			rc = (out.data && fyai_buf_append(&out, "\\\n")) ||
+			     fyai_buf_append(&out, fleet_panel_mark(state, marks)) ||
 			     (esc_title ? fyai_buf_append(&out, esc_title) ||
 					  fyai_buf_append(&out, " (") ||
 					  fyai_buf_append(&out, esc_name) ||

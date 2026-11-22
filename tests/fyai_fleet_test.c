@@ -174,6 +174,12 @@ int fleet_walk(void)
 /* Running member indicators blink across phases; idle ones stay static. */
 int fleet_panel_blinks(void)
 {
+	static const char *const on[FYAI_FLEET_MARKS] = {
+		"R1", "W", "I", "E"
+	};
+	static const char *const off[FYAI_FLEET_MARKS] = {
+		"R2", "W", "I", "E"
+	};
 	struct fy_generic_builder_cfg gbc = { .flags = FYGBCF_SCOPE_LEADER };
 	struct fy_generic_builder *gb = fy_generic_builder_create(&gbc);
 	fy_generic rows, idle;
@@ -186,13 +192,15 @@ int fleet_panel_blinks(void)
 	idle = fy_mapping(gb, "name", "b:y", "state", "idle");
 	rows = fy_append(gb, rows, idle);
 
-	a = fyai_fleet_panel_source(rows, "\u25cf", &blinks);
+	a = fyai_fleet_panel_source(rows, on, "  ", &blinks);
 	CHECK(a && blinks);
-	b = fyai_fleet_panel_source(rows, "\u25cb", NULL);
-	c = fyai_fleet_panel_source(rows, "\u25cf", NULL);
+	b = fyai_fleet_panel_source(rows, off, "  ", NULL);
+	c = fyai_fleet_panel_source(rows, on, "  ", NULL);
 	CHECK(b && c && strcmp(a, b) && !strcmp(a, c));
-	CHECK(a && strstr(a, "\u25cf a") && strstr(a, "\u00b7 b"));
-	CHECK(b && strstr(b, "\u25cb a") && strstr(b, "\u00b7 b"));
+	/* Each state takes its mark in the gutter, and the rows are one
+	 * paragraph. */
+	CHECK(a && !strncmp(a, "R1a", 3) && strstr(a, "\\\nIb"));
+	CHECK(b && !strncmp(b, "R2a", 3) && strstr(b, "\\\nIb"));
 	free(a);
 	free(b);
 	free(c);
@@ -200,20 +208,20 @@ int fleet_panel_blinks(void)
 	/* Member title renders before the parenthesized session name. */
 	rows = fy_sequence(gb, fy_mapping(gb, "name", "a:x", "state", "idle",
 					  "title", "Fix the build"));
-	a = fyai_fleet_panel_source(rows, "\u25cf", NULL);
+	a = fyai_fleet_panel_source(rows, on, "  ", NULL);
 	CHECK(a && strstr(a, "Fix the build (a") && strstr(a, "idle"));
 	free(a);
 
 	/* With no running members, blinking is disabled. */
 	rows = fy_sequence(gb, idle);
-	a = fyai_fleet_panel_source(rows, "\u25cf", &blinks);
+	a = fyai_fleet_panel_source(rows, on, "  ", &blinks);
 	CHECK(a && !blinks);
 	free(a);
 	/* Empty sequence renders "no members"; invalid value hides the panel. */
-	a = fyai_fleet_panel_source(fy_seq_empty, "\u25cf", &blinks);
-	CHECK(a && strstr(a, "no members") && !blinks);
+	a = fyai_fleet_panel_source(fy_seq_empty, on, "  ", &blinks);
+	CHECK(a && !strcmp(a, "  no members\n") && !blinks);
 	free(a);
-	CHECK(!fyai_fleet_panel_source(fy_invalid, "\u25cf", &blinks) && !blinks);
+	CHECK(!fyai_fleet_panel_source(fy_invalid, on, "  ", &blinks) && !blinks);
 	fy_generic_builder_destroy(gb);
 	return failures ? 1 : 0;
 }
