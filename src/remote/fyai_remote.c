@@ -700,6 +700,22 @@ static int remote_hello(struct remote_client *client)
 #define REMOTE_SPLIT_ERR_MAX	4096
 
 /*
+ * Create an unlinked temp file fd for worker stderr when memfd is unavailable;
+ * readable via pread() like a memfd. Returns fd or -1 on error.
+ */
+static int remote_unnamed_file(void)
+{
+	FILE *fp = tmpfile();
+	int fd;
+
+	if (!fp)
+		return -1;
+	fd = fcntl(fileno(fp), F_DUPFD_CLOEXEC, 3);
+	fclose(fp);
+	return fd;
+}
+
+/*
  * Start the worker of a session of this process: a program that speaks the
  * frames of `fyai serve` on a socketpair, with no server between. It has its
  * own session, so no key of the terminal reaches it, and no terminal: its
@@ -750,6 +766,9 @@ static int remote_split_open(struct remote_client *client)
 			 strerror(errno));
 	if (fyai_host_memfd_available())
 		err = fyai_host_memfd("fyai-worker-error", true);
+	/* Fall back to an unlinked temp file when memfd is unavailable. */
+	if (err < 0)
+		err = remote_unnamed_file();
 	if (err < 0)
 		err = open("/dev/null", O_WRONLY | O_CLOEXEC);
 	fyai_error_check(ctx, err >= 0, out,
@@ -1009,6 +1028,12 @@ static int remote_view_run(struct remote_client *client, bool watch)
 	free(left);
 	if (rc < 0 || client->failed)
 		return -1;
+	/*
+	 * Reap the split worker first so its exit status/stderr is recorded as
+	 * the primary diagnostic before the generic disconnect error.
+	 */
+	if (rc != 1 && !ctx->loop->terminate_pending && client->split)
+		remote_split_reap(client);
 	fyai_error_check(ctx, rc == 1 || ctx->loop->terminate_pending, err,
 			 "the endpoint closed the connection");
 	return 0;

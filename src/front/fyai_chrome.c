@@ -265,6 +265,13 @@ int fyai_chrome_update(struct fyai_ctx *ctx, struct fytim_surface *sf,
 		(void)fytim_surface_margin(sf, &margin_cols);
 		cols += margin_cols + fyai_chrome_scroll_cols(items);
 		ctx->cfg->render_width = cols;
+	} else if (saved_width > 0) {
+		/*
+		 * Before layout grants a surface width, use full terminal width
+		 * (saved_width + 1) so header button coordinates do not shift
+		 * by 1 column once a full-width tile grant arrives.
+		 */
+		ctx->cfg->render_width = saved_width + 1;
 	}
 	margin = fyai_ui_indicator(ctx, spec->mark, spec->frame, interval_msp);
 	rc = -1;
