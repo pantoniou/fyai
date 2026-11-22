@@ -250,7 +250,8 @@ struct fyai_terminal_view;
  * with the outcome @ok. Zero when drawn. */
 int fyai_tools_inline_view(struct fyai_ctx *ctx, uintptr_t key,
 			   const char *title, struct fyai_terminal_view *view,
-			   int rows, size_t frame, bool done, bool ok);
+			   int rows, size_t frame, bool done, bool ok,
+			   bool agent);
 /* Give the mirror the bytes that the program of the worker wrote. */
 void fyai_tools_mirror_feed(struct fyai_shell_session *sess,
 			    const char *data, size_t len);

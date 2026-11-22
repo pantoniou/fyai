@@ -206,7 +206,7 @@ void fyai_agent_inline_paint(struct fyai_tool_job *job, bool done,
 				    job->title ? job->title : "**agent**",
 				    NULL, screen.data, screen.len,
 				    job->pty_rows, job->animation_frame, done,
-				    ok))
+				    ok, true))
 		fyai_warning(fyai_tool_job_ctx(job),
 			     "agent: cannot draw a sub-agent in the transcript");
 out:

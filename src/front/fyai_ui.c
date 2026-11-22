@@ -250,6 +250,10 @@ struct fyai_ui {
 	char *agents_source;
 	char *shells_source;
 	bool work_blink;
+	/* The calls drawn in blocks of the transcript while they run, and
+	 * the rows the last frame left them: the page without the chrome. */
+	struct ui_live *live;
+	int live_room;
 	/*
 	 * The lines typed while a turn runs, as UI Markdown on top of the
 	 * input area of the page, or NULL; the rows they take at @pending_cols.
@@ -409,6 +413,24 @@ out:
 static int ui_inline_set(struct fyai_ui *ui, uintptr_t key, const char *head,
 			 size_t hlen, const char *body, size_t blen,
 			 int max_rows, bool commit, bool fenced);
+/* A call drawn in a block of the transcript while it runs. */
+struct ui_live {
+	uintptr_t key;
+	char *title;		/* UI Markdown */
+	enum fyai_ui_mark mark;
+	bool agent;
+	bool collapsed;		/* it stands in a panel */
+	char *last;		/* the last row it drew, plain */
+	int head_rows;
+	int rows;		/* the rows of its output */
+	struct ui_live *next;
+};
+
+static void ui_live_forget(struct fyai_ui *ui, uintptr_t key);
+static int ui_live_note(struct fyai_ui *ui, uintptr_t key, const char *title,
+			enum fyai_ui_mark mark, bool agent);
+static int ui_live_panel_add(struct fyai_ui *ui, bool agents,
+			     struct fyai_panel_list *pl);
 
 /* The text of the call that the shared band shows. */
 static void ui_tool_text_free(struct fyai_ui *ui)
@@ -2853,6 +2875,24 @@ err_page:
 	return -1;
 }
 
+/* Add a line for each call of the transcript that stands in a panel. */
+static int ui_live_panel_add(struct fyai_ui *ui, bool agents,
+			     struct fyai_panel_list *pl)
+{
+	struct ui_live *l;
+	char *last;
+	int rc = 0;
+
+	for (l = ui->live; l && !rc; l = l->next) {
+		if (!l->collapsed || l->agent != agents)
+			continue;
+		last = l->last ? strdup(l->last) : NULL;
+		rc = fyai_panel_list_add(pl, l->mark, l->title, last);
+		free(last);
+	}
+	return rc;
+}
+
 /* The most lines of an agents or shells panel: a quarter of the page. */
 static int ui_work_panel_max(int rows)
 {
@@ -2868,8 +2908,24 @@ static int ui_work_panels(struct fyai_ui *ui, struct fyai_page_state *st,
 {
 	struct fyai_ctx *ctx = fyai_ui_ctx(ui);
 	struct fyai_workpane_manager *wm = ctx->screen->workpane;
-	const char *running;
+	static const struct {
+		enum fymd_indicator_state state;
+		const char *role;
+	} states[] = {
+		[FYAI_UI_MARK_RUNNING] = { FYMD_INDICATOR_PENDING, "tool.pending" },
+		[FYAI_UI_MARK_OK] = { FYMD_INDICATOR_SUCCESS, "tool.ok" },
+		[FYAI_UI_MARK_FAILED] = { FYMD_INDICATOR_FAILURE, "tool.fail" },
+	};
+	struct fyai_panel_list pl;
+	char mark[ARRAY_SIZE(states)][160];
+	const char *marks[ARRAY_SIZE(states)];
+	const char *glyph, *on, *off;
+	unsigned int interval_ms;
 	bool blinks = false, more = false;
+	size_t frame, i;
+	int width, pad, n;
+	char *esc;
+	int rc;
 
 	free(ui->agents_source);
 	free(ui->shells_source);
@@ -2877,13 +2933,61 @@ static int ui_work_panels(struct fyai_ui *ui, struct fyai_page_state *st,
 	ui->work_blink = false;
 	if (fyai_agent_delegated(ctx) || (st->fullscreen && st->popup_title))
 		return 0;
-	running = ui_indicator_glyph(ui, (size_t)(ui->activity_phase < 0 ? 0 :
-						  ui->activity_phase));
-	ui->agents_source = fyai_workpane_panel_source(wm, true, running, cols,
-		ui_work_panel_max(rows), &blinks);
-	ui->shells_source = fyai_workpane_panel_source(wm, false, running, cols,
-		ui_work_panel_max(rows), &more);
+	/*
+	 * Each state is the indicator of the theme for this frame, in the
+	 * palette role of the state, as wide as its first frame: a blank
+	 * frame of a blink keeps its columns, and the line does not move.
+	 */
+	frame = (size_t)(ui->activity_phase < 0 ? 0 : ui->activity_phase);
+	for (i = 0; i < ARRAY_SIZE(states); i++) {
+		width = 1;
+		glyph = NULL;
+		if (ui->chrome_renderer &&
+		    !fymd_renderer_get_indicator(ui->chrome_renderer,
+				states[i].state, 0, &glyph, &on, &off,
+				&interval_ms))
+			width = (int)fymd_str_width(glyph, strlen(glyph));
+		if (width < 1)
+			width = 1;
+		if (ui->chrome_renderer &&
+		    fymd_renderer_get_indicator(ui->chrome_renderer,
+				states[i].state, frame, &glyph, &on, &off,
+				&interval_ms))
+			glyph = NULL;
+		if (glyph && !glyph[strspn(glyph, " ")])
+			glyph = NULL;
+		pad = width - (glyph ? (int)fymd_str_width(glyph,
+						strlen(glyph)) : 0);
+		esc = markdown_ui_escape(glyph ? glyph : "");
+		if (!esc)
+			return -1;
+		if (pad > 0)
+			n = snprintf(mark[i], sizeof(mark[i]),
+				     "<fy-role name=\"%s\">%s</fy-role>"
+				     "<fy-space n=\"%d\"/>",
+				     states[i].role, esc, pad);
+		else
+			n = snprintf(mark[i], sizeof(mark[i]),
+				     "<fy-role name=\"%s\">%s</fy-role>",
+				     states[i].role, esc);
+		free(esc);
+		if (n < 0 || (size_t)n >= sizeof(mark[i]))
+			return -1;
+		marks[i] = mark[i];
+	}
+	fyai_panel_list_init(&pl, marks, cols, ui_work_panel_max(rows));
+	rc = fyai_workpane_panel_add(wm, true, &pl) ||
+	     ui_live_panel_add(ui, true, &pl);
+	blinks = pl.blinks;
+	ui->agents_source = fyai_panel_list_finish(&pl);
+	fyai_panel_list_init(&pl, marks, cols, ui_work_panel_max(rows));
+	rc = rc || fyai_workpane_panel_add(wm, false, &pl) ||
+	     ui_live_panel_add(ui, false, &pl);
+	more = pl.blinks;
+	ui->shells_source = fyai_panel_list_finish(&pl);
 	ui->work_blink = blinks || more;
+	if (rc)
+		return -1;
 	st->agents.source = ui->agents_source;
 	st->agents.rows = ui_markup_rows(ui->agents_source, cols);
 	st->agents.shown = ui->agents_source != NULL;
@@ -2900,6 +3004,7 @@ static int ui_page_frame_fit(struct fyai_ui *ui, struct ui_page_frame *f)
 	struct fyai_page_tile *tiles = f->tiles;
 	int cols = f->cols, rows = f->rows;
 	struct fyai_ctx *ctx = fyai_ui_ctx(ui);
+	struct fyai_page_state base;
 	const char *typed;
 	int rc;
 
@@ -2971,6 +3076,11 @@ static int ui_page_frame_fit(struct fyai_ui *ui, struct ui_page_frame *f)
 	rc = ui_work_panels(ui, st, cols, rows);
 	fyai_error_check(ctx, !rc, err_page,
 			 "cannot make the agents and shells panels");
+	/* The calls of the transcript size to what the chrome leaves, the
+	 * panels they go to not counted. */
+	base = *st;
+	base.agents.shown = base.shells.shown = false;
+	ui->live_room = rows - fyai_page_chrome_rows(&base);
 	ui_pending_fit(ui, st, cols, rows);
 	fyai_page_fit(st, rows);
 	rc = fyai_page_fit_document(ui->page, st, cols, rows);
@@ -3889,6 +3999,8 @@ void fyai_ui_close(struct fyai_ctx *ctx)
 	free(ui->todo_source);
 	free(ui->agents_source);
 	free(ui->shells_source);
+	while (ui->live)
+		ui_live_forget(ui, ui->live->key);
 	free(ui->fleet_source);
 	free(ui->pending_source);
 	free(ui->pending_fit);
@@ -5211,6 +5323,163 @@ static size_t ui_last_rows(const char *body, size_t len, int rows)
  * block and presents the whole band as a tile commit does. @fenced says that
  * the separation was drawn when the band opened.
  */
+static struct ui_live *ui_live_find(struct fyai_ui *ui, uintptr_t key)
+{
+	struct ui_live *l;
+
+	for (l = ui ? ui->live : NULL; l; l = l->next)
+		if (l->key == key)
+			return l;
+	return NULL;
+}
+
+static int ui_live_note(struct fyai_ui *ui, uintptr_t key, const char *title,
+			enum fyai_ui_mark mark, bool agent)
+{
+	struct ui_live *l;
+	char *copy;
+
+	if (!ui || !key)
+		return 0;
+	l = ui_live_find(ui, key);
+	if (!l) {
+		l = calloc(1, sizeof(*l));
+		if (!l)
+			return -1;
+		l->key = key;
+		l->next = ui->live;
+		ui->live = l;
+	}
+	copy = strndup(title ? title : "", title ? strcspn(title, "\n") : 0);
+	if (!copy)
+		return -1;
+	free(l->title);
+	l->title = copy;
+	l->mark = mark;
+	l->agent = agent;
+	return 0;
+}
+
+static void ui_live_forget(struct fyai_ui *ui, uintptr_t key)
+{
+	struct ui_live **pp, *l;
+
+	for (pp = ui ? &ui->live : NULL; pp && *pp; pp = &(*pp)->next) {
+		if ((*pp)->key != key)
+			continue;
+		l = *pp;
+		*pp = l->next;
+		free(l->title);
+		free(l->last);
+		free(l);
+		return;
+	}
+}
+
+static int ui_live_text_rows(const char *text, size_t len)
+{
+	int rows = 0;
+	size_t i;
+
+	for (i = 0; i < len; i++)
+		rows += text[i] == '\n';
+	return rows + (len && text[len - 1] != '\n');
+}
+
+/* The last row of @text that holds more than blanks, without its escapes. */
+static char *ui_plain_last_row(const char *text, size_t len)
+{
+	size_t end = len, start, i, n;
+	char *out;
+	bool blank;
+
+	while (end) {
+		for (start = end; start && text[start - 1] != '\n'; start--)
+			;
+		out = malloc(end - start + 1);
+		if (!out)
+			return NULL;
+		for (i = start, n = 0, blank = true; i < end; i++) {
+			if (text[i] == '\x1b') {
+				/* CSI and OSC sequences draw nothing. */
+				i++;
+				if (i < end && text[i] == '[')
+					while (i + 1 < end &&
+					       !(text[i + 1] >= '@' &&
+						 text[i + 1] <= '~'))
+						i++;
+				else if (i < end && text[i] == ']')
+					while (i + 1 < end &&
+					       text[i + 1] != '\x07' &&
+					       text[i + 1] != '\x1b')
+						i++;
+				i++;
+				continue;
+			}
+			if (text[i] != ' ' && text[i] != '\r')
+				blank = false;
+			out[n++] = text[i];
+		}
+		out[n] = '\0';
+		if (!blank)
+			return out;
+		free(out);
+		end = start ? start - 1 : 0;
+	}
+	return NULL;
+}
+
+/* The rows that the calls of the transcript may take: what the chrome of the
+ * last frame left, else the work pane height of display/work_zoom_rows. */
+static int ui_live_room(struct fyai_ui *ui)
+{
+	struct fyai_ctx *ctx = fyai_ui_ctx(ui);
+	int rows = ui->render_rows > 0 ? ui->render_rows : 24;
+
+	if (ui->live_room > 0)
+		return ui->live_room;
+	return fyai_workpane_ceiling(ctx->screen->workpane, rows);
+}
+
+/*
+ * The live rows that the block @key may show under its head @head, at most
+ * @max_rows of its output @body: all of them while every call that runs
+ * fits in the work rows; else display/tile_live_rows; else -1, and the call
+ * takes a line in a panel instead.
+ */
+static int ui_live_level(struct fyai_ui *ui, uintptr_t key, const char *head,
+			 size_t hlen, const char *body, size_t blen,
+			 int max_rows)
+{
+	struct fyai_cfg *cfg = fyai_ui_ctx(ui)->cfg;
+	struct ui_live *l = ui_live_find(ui, key), *o;
+	int room, live, full = 0, least = 0, shown;
+	char *last;
+
+	if (!l)
+		return max_rows;
+	l->head_rows = ui_live_text_rows(head, hlen);
+	l->rows = ui_live_text_rows(body, blen);
+	last = ui_plain_last_row(body, blen);
+	if (last) {
+		free(l->last);
+		l->last = last;
+	}
+	live = cfg->tile_live_rows > 0 ? cfg->tile_live_rows : 1;
+	for (o = ui->live; o; o = o->next) {
+		shown = max_rows > 0 && o->rows > max_rows ? max_rows : o->rows;
+		full += o->head_rows + shown;
+		least += o->head_rows + (shown < live ? shown : live);
+	}
+	room = ui_live_room(ui);
+	l->collapsed = full > room && least > room;
+	if (l->collapsed)
+		return -1;
+	if (full > room && (max_rows <= 0 || max_rows > live))
+		return live;
+	return max_rows;
+}
+
 static int ui_inline_set(struct fyai_ui *ui, uintptr_t key, const char *head,
 			 size_t hlen, const char *body, size_t blen,
 			 int max_rows, bool commit, bool fenced)
@@ -5223,6 +5492,20 @@ static int ui_inline_set(struct fyai_ui *ui, uintptr_t key, const char *head,
 	int rc = -1;
 
 	flow = fyai_sink_flow(fyai_ui_ctx(ui)->out->sink);
+	if (!commit) {
+		/* The calls that run share the work rows: each one keeps
+		 * fewer live rows, or leaves the transcript for a panel. */
+		max_rows = ui_live_level(ui, key, head, hlen, body, blen,
+					 max_rows);
+		if (max_rows < 0) {
+			fyai_transcript_view_block_drop(ui_blocks(ui, false),
+							key);
+			ui->frame_pending = true;
+			return 0;
+		}
+	} else {
+		ui_live_forget(ui, key);
+	}
 	if (commit) {
 		if (ui->inline_focus == key)
 			(void)fyai_ui_inline_keys(fyai_ui_ctx(ui), 0, NULL, NULL);
@@ -5459,6 +5742,9 @@ int fyai_ui_inline_update(struct fyai_ctx *ctx, uintptr_t key, bool commit,
 {
 	if (!fyai_ui_tools_inline(ctx) || !key)
 		return -1;
+	if (ui_live_note(ctx->screen->ui, key, title, FYAI_UI_MARK_RUNNING,
+			 false))
+		return -1;
 	if (command)
 		return ui_shell_band_update(ctx, NULL, key, commit, 0, title,
 					    command, body, len, first_margin);
@@ -5469,13 +5755,18 @@ int fyai_ui_inline_update(struct fyai_ctx *ctx, uintptr_t key, bool commit,
 int fyai_ui_inline_terminal(struct fyai_ctx *ctx, uintptr_t key,
 			    const char *title, const char *command,
 			    const char *screen, size_t len, int rows,
-			    size_t frame, bool done, bool ok)
+			    size_t frame, bool done, bool ok, bool agent)
 {
 	char *margin;
 	int rc;
 
 	if (!fyai_ui_tools_inline(ctx) || !key)
 		return -1;
+	rc = ui_live_note(ctx->screen->ui, key, title,
+			  !done ? FYAI_UI_MARK_RUNNING :
+			  ok ? FYAI_UI_MARK_OK : FYAI_UI_MARK_FAILED, agent);
+	fyai_error_check(ctx, !rc, err_out,
+			 "cannot keep the state of a call in the transcript");
 	margin = fyai_ui_indicator(ctx, !done ? FYAI_UI_MARK_RUNNING :
 				   ok ? FYAI_UI_MARK_OK : FYAI_UI_MARK_FAILED,
 				   done ? 0 : frame, NULL);
@@ -5632,6 +5923,7 @@ void fyai_ui_inline_drop(struct fyai_ctx *ctx, uintptr_t key)
 	if (ctx->screen->ui->inline_focus == key)
 		(void)fyai_ui_inline_keys(ctx, 0, NULL, NULL);
 	fyai_transcript_view_block_drop(ui_blocks(ctx->screen->ui, false), key);
+	ui_live_forget(ctx->screen->ui, key);
 	ctx->screen->ui->frame_pending = true;
 }
 

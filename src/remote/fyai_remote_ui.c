@@ -250,7 +250,8 @@ static void remote_ui_term_paint(struct fyai_remote_ui *view,
 
 	if (fyai_tools_inline_view(ctx, (uintptr_t)t,
 				   t->title ? t->title : "**agent**",
-				   t->view, t->rows, t->frame, done, ok))
+				   t->view, t->rows, t->frame, done, ok,
+				   t->agent))
 		fyai_warning(ctx, "cannot draw the agent %s in the transcript",
 			     t->name);
 }

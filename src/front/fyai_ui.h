@@ -158,12 +158,13 @@ int fyai_ui_inline_update(struct fyai_ctx *ctx, uintptr_t key, bool commit,
  * head of a call, with the @command row of a shell call when it is not NULL:
  * the last @rows rows of it, with frame @frame of the mark of a call that
  * runs. @done presents the whole of it in the transcript with the mark
- * of the outcome @ok, and drops the block. Returns 0, or -1.
+ * of the outcome @ok, and drops the block. @agent lists a block that has no
+ * room with the agents, else with the shells. Returns 0, or -1.
  */
 int fyai_ui_inline_terminal(struct fyai_ctx *ctx, uintptr_t key,
 			    const char *title, const char *command,
 			    const char *screen, size_t len, int rows,
-			    size_t frame, bool done, bool ok);
+			    size_t frame, bool done, bool ok, bool agent);
 /*
  * Give the keys to the transcript block of @key, which has no surface: the
  * canvas of the page takes them, @cb gets what is typed, and a fullscreen

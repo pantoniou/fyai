@@ -9,6 +9,7 @@
 
 #include <stdbool.h>
 
+#include "fyai_buf.h"
 #include "fyai_ui.h"
 
 struct fyai_ctx;
@@ -187,19 +188,38 @@ int fyai_workpane_page_grid(struct fyai_workpane_manager *wm, int height,
 int fyai_workpane_tile_set_summary(struct fyai_workpane_manager *wm,
 				   const struct fytim_surface *sf,
 				   const char *title, enum fyai_ui_mark mark);
+/* The rows that display/work_zoom_rows gives the work on a terminal of
+ * @rows rows. */
+int fyai_workpane_ceiling(const struct fyai_workpane_manager *wm, int rows);
 /* List the tile of @sf with the agents, whatever its kind. */
 void fyai_workpane_tile_set_agent(struct fyai_workpane_manager *wm,
 				  const struct fytim_surface *sf, bool agent);
 /*
- * The UI Markdown of the agents panel (@agents) or the shells panel: a list
- * with one line for each tile that overflowed, or NULL with none. A line is
- * cut to the @cols columns of the page. Running tiles take the mark
- * @running. With @max above zero, at most @max lines, the last of which
- * counts those left out. *@blinks says whether a tile runs.
+ * The UI Markdown of an agents or a shells panel: a list with one line for
+ * each piece of work that has no room, cut to the @cols columns of the page.
+ * A line starts with the UI Markdown of its state in @marks, which the theme
+ * makes: its indicator glyph in its role. With @max above zero, at most @max
+ * lines, the last of which counts those left out.
  */
-char *fyai_workpane_panel_source(const struct fyai_workpane_manager *wm,
-				 bool agents, const char *running, int cols,
-				 int max, bool *blinks);
+struct fyai_panel_list {
+	struct fyai_buf out;
+	const char *const *marks;	/* by enum fyai_ui_mark */
+	int cols, max, count, shown;
+	bool blinks;		/* a piece of the work runs */
+};
+
+void fyai_panel_list_init(struct fyai_panel_list *pl,
+			  const char *const *marks, int cols, int max);
+/* Add a line: the state @mark, the UI Markdown @title (its first line) and
+ * the plain text @last, which may be NULL; @last is changed. */
+int fyai_panel_list_add(struct fyai_panel_list *pl, enum fyai_ui_mark mark,
+			const char *title, char *last);
+/* The source of the list, which the caller frees, or NULL with no line. */
+char *fyai_panel_list_finish(struct fyai_panel_list *pl);
+/* Add a line for each tile that overflowed: of agents (@agents) or of the
+ * other work. */
+int fyai_workpane_panel_add(const struct fyai_workpane_manager *wm,
+			    bool agents, struct fyai_panel_list *pl);
 /* The rows that the page can give the pane at most, for the sizing of
  * fyai_workpane_page_grid() at height zero; 0 for the pane ceiling only. */
 void fyai_workpane_set_room(struct fyai_workpane_manager *wm, int rows);

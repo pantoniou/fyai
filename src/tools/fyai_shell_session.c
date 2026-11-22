@@ -930,7 +930,7 @@ void fyai_shell_session_inline_paint(struct fyai_shell_session *sess,
 				    sess->title ? sess->title : "**shell**",
 				    sess->command, screen.data, screen.len,
 				    sess->rows, sess->animation_frame, done,
-				    ok))
+				    ok, false))
 		fyai_warning(fyai_shell_session_ctx(sess),
 			     "shell: cannot draw session '%s' in the transcript",
 			     sess->name ? sess->name : "");
@@ -943,7 +943,8 @@ out:
  * @done present it there with the outcome @ok. Zero when drawn. */
 int fyai_tools_inline_view(struct fyai_ctx *ctx, uintptr_t key,
 			   const char *title, struct fyai_terminal_view *view,
-			   int rows, size_t frame, bool done, bool ok)
+			   int rows, size_t frame, bool done, bool ok,
+			   bool agent)
 {
 	struct fyai_buf screen = {0};
 	const char *indent = markdown_tool_output_indent(ctx->cfg);
@@ -958,7 +959,7 @@ int fyai_tools_inline_view(struct fyai_ctx *ctx, uintptr_t key,
 		screen.len = fyai_inline_screen_trim(ctx, screen.data,
 						     screen.len);
 	rc = fyai_ui_inline_terminal(ctx, key, title, NULL, screen.data,
-				     screen.len, rows, frame, done, ok);
+				     screen.len, rows, frame, done, ok, agent);
 out:
 	free(screen.data);
 	return rc;
