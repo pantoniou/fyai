@@ -64,6 +64,7 @@
 #include "fyai_cover.h"
 #include "fyai_fsview.h"
 #include "fyai_asks.h"
+#include "fyai_fleet_watch.h"
 #include "fyai_wait.h"
 #include "fyai_prof.h"
 #include "fyai_render.h"
@@ -2380,6 +2381,7 @@ void fyai_ctx_fork_disown(struct fyai_ctx *ctx)
 	fyai_tool_jobs_abandon(ctx);		/* its running tool children */
 	fyai_waitq_abandon(ctx->waitq);		/* its named waits and their events */
 	fyai_asks_abandon(ctx->askq);			/* and its pending questions */
+	fyai_fleet_watch_abandon(ctx->fleet);	/* fleet member watchers */
 	fyai_ask_abandon(ctx);			/* the questions the parent put */
 	fyai_uilog_release(ctx);		/* the span of its command */
 	fyai_uiwork_release(ctx);		/* the bands of the parent */

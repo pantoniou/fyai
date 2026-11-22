@@ -60,6 +60,18 @@ int fyai_fleet_start(struct fyai_ctx *ctx, struct fy_generic_builder *gb,
 int fyai_fleet_task_mark(struct fyai_ctx *ctx, const char *id, const char *state,
 			 bool publish);
 
+/*
+ * Whether this session is of a root with a project below it: the session
+ * that supervises the fleet. Found once for a run.
+ */
+bool fyai_fleet_is_root(struct fyai_ctx *ctx);
+
+/* Open tasks of this root session as an id-keyed mapping (may be empty). */
+fy_generic fyai_fleet_tasks_open(struct fyai_ctx *ctx);
+
+/* Restart session @name (PROJECT:BRANCH) on its branch with no new message. */
+int fyai_fleet_revive(struct fyai_ctx *ctx, const char *name);
+
 /* Forward a supervisor control request to live session @name. */
 int fyai_fleet_supervise(struct fyai_ctx *ctx, const char *name,
 			 const char *subtype, fy_generic fields);

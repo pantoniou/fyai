@@ -45,6 +45,7 @@
 #include "fyai_config.h"
 #include "fyai_event.h"
 #include "fyai_fleet.h"
+#include "fyai_fleet_watch.h"
 #include "fyai_jsonrpc.h"
 #include "fyai_media.h"
 #include "fyai_output.h"
@@ -4631,9 +4632,9 @@ static int sdk_cmd_serve(struct sdk_server *srv)
 		unsetenv("FYAI_SESSION_RESTART");
 		sdk_send(srv, fy_mapping("type", "fyai", "subtype", "restarted"));
 	}
-	/* The server of the project lists a session that its client drives. */
 	sdk_register(srv);
-	/* Work that a lost process left on the branch goes on here. */
+	if (srv->remote_worker)
+		fyai_fleet_watch_restore(ctx);
 	if (srv->remote_worker && fyai_pending_restore(ctx))
 		fyai_warning(ctx, "durable: the pending work was not restored");
 	/* SIGTERM ends client-driven sessions (used by `session kill`). */
@@ -4670,6 +4671,7 @@ static int sdk_cmd_serve(struct sdk_server *srv)
 		}
 		sdk_retired_free(srv);
 		sdk_reg_free(srv);
+		fyai_fleet_watch_reap(ctx);
 		/* Retry server registration between turns on dir-watch. */
 		if (srv->reg_retry) {
 			srv->reg_retry = false;

@@ -90,10 +90,19 @@ int fyai_remote_supervise(struct fyai_ctx *ctx, const char *dir,
 			  const char *branch, const char *subtype,
 			  fy_generic fields);
 /*
- * Start a session on @branch of the project of @dir at the server that runs
- * its sessions, with @task as its first message and the global options @args
- * (a sequence of strings, or fy_invalid). The server keeps the session after
- * its turn. 0, or -1 with the cause reported.
+ * Open a persistent supervisor connection to the live session on @branch in
+ * @dir (doc/fyai-fleet-sdd.md, section 7). *@fdp receives fyai session_state
+ * frames on each transition, *@imagep indicates image support, and *@statep
+ * receives the initial static state string. Returns 0, or -1 on error.
+ */
+int fyai_remote_supervisor_open(struct fyai_ctx *ctx, const char *dir,
+				const char *branch, int *fdp, bool *imagep,
+				const char **statep);
+/*
+ * Start a persistent session on @branch in @dir via its server with initial
+ * message @task and global CLI options @args (string sequence or fy_invalid).
+ * If @task is NULL, starts the worker without sending a message to resume
+ * pending work from a dead process. Returns 0, or -1 on error.
  */
 int fyai_remote_start(struct fyai_ctx *ctx, const char *dir, const char *branch,
 		      const char *task, fy_generic args);

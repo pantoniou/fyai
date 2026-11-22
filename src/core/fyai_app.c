@@ -155,6 +155,7 @@ int fyai_app_init(struct fyai_app *app)
 			    &app->cfg, &app->arena, &app->link, &app->diag);
 	fyai_waitq_init(&app->waitq, &app->loop, &app->diag);
 	fyai_askq_init(&app->askq, &app->diag, &app->waitq, &app->cfg);
+	fyai_fleet_watch_init(&app->fleet, &app->loop, &app->waitq);
 	fyai_scope_state_init(&app->scope, &app->loop, &app->diag, &app->cfg);
 	fyai_tty_init(&app->tty, &app->loop, &app->diag);
 	fyai_skills_init(&app->skills, &app->arena, &app->transient);

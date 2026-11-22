@@ -25,53 +25,11 @@
 /* Max characters of model-supplied text rendered in a tool header span. */
 #define FLEET_SPAN_MAX	60
 
-/* A scan stops at the second project: the root has one below it. */
-static int fleet_tool_found(const char *dir, void *data)
-{
-	int *count = data;
-
-	(void)dir;
-	return ++*count > 1;
-}
-
-/*
- * The tool is offered to a session of a root project that has a project
- * below it. The answer is kept for the run: the tree does not change under a
- * session often enough to scan it for each request.
- */
-static bool fleet_tool_offered(struct fyai_ctx *ctx)
-{
-	struct fyai_cfg *cfg = ctx->cfg;
-	fy_generic scan = fy_get(fy_get(cfg->config_doc, "fleet", fy_invalid), "scan",
-				 fy_invalid);
-	char *cwd, *project = NULL, *root = NULL;
-	int count = 0;
-
-	if (cfg->fleet_tool)
-		return cfg->fleet_tool > 0;
-	cfg->fleet_tool = -1;
-	cwd = getcwd(NULL, 0);
-	if (cwd) {
-		project = fyai_fleet_project_of(cwd);
-		root = fyai_fleet_root_of(cwd);
-	}
-	if (project && root && !strcmp(project, root) &&
-	    fyai_fleet_scan(root, (int)fy_get(scan, "depth",
-					      (long long)DEFAULT_FLEET_SCAN_DEPTH),
-			    fy_get(scan, "exclude", fy_seq_empty),
-			    fleet_tool_found, &count) > 0)
-		cfg->fleet_tool = 1;
-	free(root);
-	free(project);
-	free(cwd);
-	return cfg->fleet_tool > 0;
-}
-
 static fy_generic fleet_tool_describe(struct fyai_ctx *ctx,
 				      struct fy_generic_builder *gb, fy_generic tool)
 {
 	(void)gb;
-	return fleet_tool_offered(ctx) ? tool : fy_invalid;
+	return fyai_fleet_is_root(ctx) ? tool : fy_invalid;
 }
 
 /* Format this root session as sender spec `.:BRANCH` in @gb. */

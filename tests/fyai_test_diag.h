@@ -11,6 +11,7 @@
 #include "fyai_link.h"
 #include "fyai_loop.h"
 #include "fyai_transient.h"
+#include "fyai_fleet_watch.h"
 
 /*
  * A configuration that stands alone owns its diagnostics in a test: the sink
@@ -168,6 +169,20 @@ static inline struct fyai_askq *fyai_test_askq_of(struct fyai_ctx *ctx)
 	return ctx->askq;
 }
 
+/*
+ * Fleet member watcher for test contexts (no app/server connection attached).
+ */
+static inline struct fyai_fleet_watch *fyai_test_fleet_of(struct fyai_ctx *ctx)
+{
+	if (!ctx->fleet) {
+		ctx->fleet = calloc(1, sizeof(*ctx->fleet));
+		if (!ctx->fleet)
+			return NULL;
+		fyai_fleet_watch_init(ctx->fleet, ctx->loop, ctx->waitq);
+	}
+	return ctx->fleet;
+}
+
 /* The scope, terminal, skill files and tool specification components. */
 static inline struct fyai_scope *fyai_test_scope_of(struct fyai_ctx *ctx)
 {
@@ -312,6 +327,7 @@ static inline void fyai_test_attach(struct fyai_ctx *ctx)
 	fyai_test_mcp_of(ctx);
 	fyai_test_waitq_of(ctx);
 	fyai_test_askq_of(ctx);
+	fyai_test_fleet_of(ctx);
 	fyai_test_scope_of(ctx);
 	fyai_test_tty_of(ctx);
 	fyai_test_toolspec_of(ctx);
