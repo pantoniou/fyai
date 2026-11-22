@@ -75,6 +75,11 @@ fleet_json list >"$TEST_DIR/fleet.json"
 check_rows a main running "$runner" libs/inner work/one stored - ||
 	fail "the list of a running session: $(cat "$TEST_DIR/fleet.json")"
 
+# Session name completion works from nested subdirectories.
+(cd libs/inner/deep && "$FYAI_BIN" __complete fleet attach "") >"$TEST_DIR/words" 2>&1
+grep -q '^libs/inner:work/one' "$TEST_DIR/words" ||
+	fail "the sessions of the fleet did not complete: $(cat "$TEST_DIR/words")"
+
 # Kill the standalone worker tree so its pending work marks the session `lost`.
 tree=$("$PYTHON" -I - "$runner" <<'PY'
 import os, sys

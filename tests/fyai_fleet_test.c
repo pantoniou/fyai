@@ -195,6 +195,13 @@ int fleet_panel_blinks(void)
 	free(b);
 	free(c);
 
+	/* Member title renders before the parenthesized session name. */
+	rows = fy_sequence(gb, fy_mapping(gb, "name", "a:x", "state", "idle",
+					  "title", "Fix the build"));
+	a = fyai_fleet_panel_source(rows, 0, NULL);
+	CHECK(a && strstr(a, "Fix the build (a") && strstr(a, "idle"));
+	free(a);
+
 	/* With no running members, blinking is disabled. */
 	rows = fy_sequence(gb, idle);
 	a = fyai_fleet_panel_source(rows, 0, &blinks);
