@@ -1776,10 +1776,10 @@ static int remote_session_project(struct remote_client *client)
 }
 
 /*
- * Start `fyai serve --daemon --once` for this project and wait until it
- * serves. It ends by itself when its sessions have no turn and no client.
+ * Spawn `fyai serve --daemon --once` in @dir (NULL for cwd) and wait for the
+ * daemonizer to report readiness. The server exits once all sessions go idle.
  */
-static int remote_serve_once_start(struct fyai_ctx *ctx)
+static int remote_serve_once_start(struct fyai_ctx *ctx, const char *dir)
 {
 	char *self, *args[5];
 	int status = -1, null;
@@ -1803,6 +1803,8 @@ static int remote_serve_once_start(struct fyai_ctx *ctx)
 	if (!pid) {
 		if (dup2(null, STDIN_FILENO) < 0 || dup2(null, STDOUT_FILENO) < 0 ||
 		    dup2(null, STDERR_FILENO) < 0)
+			_exit(126);
+		if (dir && chdir(dir))
 			_exit(126);
 		fyai_close_fds_from(STDERR_FILENO + 1);
 		fyai_loop_restore_signal_mask(ctx->loop);
@@ -1838,7 +1840,7 @@ int fyai_remote_adopt(struct fyai_ctx *ctx, const char *branch, bool busy,
 	path = remote_session_endpoint(ctx);
 	if (!path) {
 		path = fyai_remote_socket_path(ctx, NULL, false, true);
-		if (!path || remote_serve_once_start(ctx))
+		if (!path || remote_serve_once_start(ctx, NULL))
 			goto out;
 	}
 	rc = remote_client_open(&client, path, -1);
@@ -1944,6 +1946,29 @@ static int remote_session_open_at(struct remote_client *client, const char *dir,
 	return remote_session_project_at(client, dir);
 err:
 	return -1;
+}
+
+int fyai_remote_serve_ensure(struct fyai_ctx *ctx, const char *dir)
+{
+	struct fy_generic_builder *gb = fy_generic_builder_create(NULL);
+	struct remote_client client = { .ctx = ctx, .gb = gb, .fd = -1, .ssh = -1 };
+	int rc = -1;
+
+	fyai_error_check(ctx, gb, out, "cannot allocate a request builder");
+	/*
+	 * An ancestor `--once` server only serves its own project and will
+	 * reject @dir; fall back to starting a dedicated server for @dir.
+	 */
+	rc = remote_session_open_at(&client, dir, "session");
+	remote_client_close(&client);
+	if (!rc)
+		goto out;
+	fyai_diag_reset(ctx->cfg->diag);
+	rc = remote_serve_once_start(ctx, dir);
+out:
+	if (gb)
+		fy_generic_builder_destroy(gb);
+	return rc ? -1 : 0;
 }
 
 int fyai_remote_supervise(struct fyai_ctx *ctx, const char *dir,

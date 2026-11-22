@@ -21,6 +21,8 @@ fy_generic fyai_wait_tool(struct fyai_ctx *ctx, fy_generic args, bool *okp);
 bool fyai_wait_cancel(struct fyai_waitq *q, const char *name);
 
 /* True when a named wait @name is pending. */
+/* Return true if any named wait timer is currently scheduled. */
+bool fyai_waits_scheduled(struct fyai_waitq *q);
 bool fyai_wait_exists(struct fyai_waitq *q, const char *name);
 
 /*

@@ -255,6 +255,12 @@ static void fyai_waits_reap(struct fyai_waitq *q)
 	}
 }
 
+bool fyai_waits_scheduled(struct fyai_waitq *q)
+{
+	fyai_waits_reap(q);
+	return q->waits != NULL;
+}
+
 bool fyai_wait_exists(struct fyai_waitq *q, const char *name)
 {
 	fyai_waits_reap(q);

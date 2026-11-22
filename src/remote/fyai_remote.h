@@ -99,6 +99,11 @@ int fyai_remote_supervisor_open(struct fyai_ctx *ctx, const char *dir,
 				const char *branch, int *fdp, bool *imagep,
 				const char **statep);
 /*
+ * Ensure a session server is running for @dir (NULL for cwd), starting a
+ * transient server if needed. Returns 0, or -1 on error.
+ */
+int fyai_remote_serve_ensure(struct fyai_ctx *ctx, const char *dir);
+/*
  * Start a persistent session on @branch in @dir via its server with initial
  * message @task and global CLI options @args (string sequence or fy_invalid).
  * If @task is NULL, starts the worker without sending a message to resume

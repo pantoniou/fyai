@@ -519,6 +519,24 @@ properties:
           Limit the time that the clipboard helper may run. A helper that
           waits for a clipboard no program fills would otherwise hold the
           scene. 0 removes the limit.
+  serve:
+    x-fyai-model: read
+    type: object
+    additionalProperties: false
+    description: >-
+      The server that `fyai serve` runs for this project.
+    properties:
+      idle_ms:
+        type: integer
+        minimum: 0
+        default: 30000
+        description: >-
+          End a worker that the server keeps for no client when it has had
+          nothing to do for this long: no turn, no tool job, no terminal
+          session, no question and no open fleet task. The session is
+          stored; `resume`, `/jump` or `fleet start` runs it again. The
+          server reads it from the `--config` file of `fyai serve`, which
+          runs without arena storage. 0 keeps the workers until they end.
   fleet:
     x-fyai-model: read
     type: object

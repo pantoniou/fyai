@@ -1135,7 +1135,8 @@ int fyai_fleet_revive(struct fyai_ctx *ctx, const char *name)
 	if (fleet_name(ctx, name, &dir, &branch))
 		return -1;
 	fyai_error_check(ctx, dir, err, "fleet: '%s' is not PROJECT:BRANCH", name);
-	rc = fyai_remote_start(ctx, dir, branch, NULL, fy_invalid);
+	rc = fyai_remote_serve_ensure(ctx, dir) ? -1 :
+	     fyai_remote_start(ctx, dir, branch, NULL, fy_invalid);
 	free(dir);
 	return rc;
 err:
@@ -1259,16 +1260,64 @@ out:
 	return rc;
 }
 
+/* True if @name exists on disk with no live worker ("stored" or "lost"). */
+static bool fleet_session_stored(struct fyai_ctx *ctx, const char *name)
+{
+	struct fy_generic_builder *gb = fyai_ctx_transient_gb(ctx);
+	fy_generic rows, row;
+	const char *full;
+
+	full = fyai_fleet_name_full(ctx, gb, name);
+	if (!full || fyai_fleet_rows_list(ctx, gb, &rows))
+		return false;
+	row = fleet_row_find(rows, full);
+	return fy_is_valid(row) &&
+	       fy_any_equal(fy_get(row, "state", fy_invalid), "stored", "lost");
+}
+
+/*
+ * Ensure the root session supervises @name after sending @text: watch it if
+ * already covered by an open task, otherwise adopt it under a new task.
+ */
+static int fleet_member_take(struct fyai_ctx *ctx, const char *name, const char *text)
+{
+	struct fy_generic_builder *gb = fyai_ctx_transient_gb(ctx);
+	fy_generic key, task;
+	const char *full = fyai_fleet_name_full(ctx, gb, name);
+
+	if (!full)
+		return -1;
+	fy_foreach_key_value(key, task, fyai_fleet_tasks_open(ctx)) {
+		(void)key;
+		if (!strcmp(fy_sprintfa("%s:%s", fy_get(task, "project", "."),
+					fy_get(task, "branch", "")), full))
+			return fyai_fleet_watch_add(ctx, full);
+	}
+	return fyai_fleet_adopt(ctx, gb, full, text, false, NULL);
+}
+
 int fyai_fleet_supervise(struct fyai_ctx *ctx, const char *name,
 			 const char *subtype, fy_generic fields)
 {
 	const char *branch;
 	char *dir = NULL;
+	bool send;
 	int rc;
 
 	if (fleet_name(ctx, name, &dir, &branch))
 		return -1;
-	rc = fyai_remote_supervise(ctx, dir, branch, subtype, fields);
+	send = !strcmp(subtype, "fyai_session_send");
+	if (send && fleet_session_stored(ctx, name))
+		rc = fyai_remote_serve_ensure(ctx, dir) ? -1 :
+		     fyai_remote_start(ctx, dir, branch,
+				       fy_get(fields, "text", ""), fy_invalid);
+	else
+		rc = fyai_remote_supervise(ctx, dir, branch, subtype, fields);
+	/* Subscribe root supervision to any member it sends a message to. */
+	if (!rc && send && fyai_fleet_is_root(ctx) &&
+	    fleet_member_take(ctx, name, fy_get(fields, "text", "")))
+		fyai_warning(ctx, "fleet: '%s' got the message, but this session "
+			     "does not hear of it", name);
 	free(dir);
 	return rc;
 }

@@ -145,6 +145,10 @@ media:
 # timeout_kill stops an agent after hang_timeout_ms additional time, or after
 # hang_timeout_ms from submission when no advisory limit is set.
 # Set timeout_kill to false or hang_timeout_ms to 0 to disable termination.
+# The server of `fyai serve` (read from its --config file).
+serve:
+  # End a parked worker after this many milliseconds with nothing to do (0: never).
+  idle_ms: 30000
 # The scan of the projects under the root project (fyai session list --all).
 fleet:
   # A fleet root: a session of this project gets the fleet tool for the projects below.

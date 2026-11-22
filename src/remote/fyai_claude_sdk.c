@@ -45,6 +45,7 @@
 #include "fyai_config.h"
 #include "fyai_event.h"
 #include "fyai_fleet.h"
+#include "fyai_fleet_ops.h"
 #include "fyai_fleet_watch.h"
 #include "fyai_jsonrpc.h"
 #include "fyai_media.h"
@@ -2201,6 +2202,23 @@ static bool sdk_turn_queued(const struct sdk_server *srv)
 	return false;
 }
 
+/*
+ * True if the worker has no active turn, queued input, open questions, active
+ * jobs, scheduled waits, watched members, or open tasks. The server uses this
+ * to reap parked workers (doc/fyai-fleet-sdd.md, section 6.2).
+ */
+static bool sdk_settled(const struct sdk_server *srv)
+{
+	struct fyai_ctx *ctx = sdk_server_ctx((struct sdk_server *)srv);
+	fy_generic open;
+
+	open = fy_get(fyai_uimodel_get(ctx, FYAI_UI_QUESTIONS), "open",
+		      fy_seq_empty);
+	return !srv->busy && !sdk_turn_queued(srv) && fy_empty(open) &&
+	       !fyai_jobs_active(ctx->jobs) && !fyai_waits_scheduled(ctx->waitq) &&
+	       !fyai_fleet_watch_live(ctx) && fy_empty(fyai_fleet_tasks_open(ctx));
+}
+
 static void sdk_model_command(struct sdk_server *srv, fy_generic id,
 			      const char *line)
 {
@@ -2997,6 +3015,12 @@ static void sdk_control(struct sdk_server *srv, fy_generic frame)
 	}
 	if (!strcmp(subtype, "fyai_message")) {
 		sdk_respond(srv, id, fy_invalid, sdk_supervise_message(srv, req));
+		return;
+	}
+	if (!strcmp(subtype, "fyai_idle")) {
+		sdk_respond(srv, id, fy_mapping(fyai_ctx_transient_gb(
+				sdk_server_ctx(srv)), "settled",
+				sdk_settled(srv)), NULL);
 		return;
 	}
 	if (!strcmp(subtype, "fyai_fleet_lineage")) {

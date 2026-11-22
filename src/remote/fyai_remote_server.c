@@ -134,6 +134,14 @@ struct fyai_remote_session {
 	/* Worker exited via fatal signal or unexpected non-zero status. */
 	bool crashed;
 	/*
+	 * Idle reap state for parked workers (remote_idle_check()): timestamp
+	 * idle began, pending fyai_idle query, client frame counter snapshot,
+	 * and SIGTERM-sent flag. Closing sessions reject new attaches.
+	 */
+	fyai_event_ms_t idle_since;
+	bool asking, closing;
+	unsigned long sent, ask_sent;
+	/*
 	 * Registered client-driven worker: server advertises it and serves
 	 * watchers, while its local client remains primary.
 	 */
@@ -141,8 +149,6 @@ struct fyai_remote_session {
 	const char *branch;
 };
 
-/* The project server of one project, which a server of projects or the
- * server of a project above it started. */
 /*
  * In-flight client fd passed to a project server via SCM_RIGHTS. Kept open
  * until the project server acknowledges receipt; on macOS, closing the last
@@ -194,8 +200,13 @@ struct fyai_remote_server {
 	bool stop;
 	/* `serve --once`: exit once started and no sessions remain active. */
 	bool once, started;
-	/* The record of the live sessions is out of date. */
-	bool dirty;
+	bool dirty;			/* `.live` record needs rewrite */
+	/*
+	 * `serve/idle_ms`: idle timeout before reaping settled parked workers
+	 * (0 disables reaping).
+	 */
+	fyai_event_ms_t idle_ms;
+	unsigned long idle_asks;
 };
 
 static void remote_log(struct fyai_remote_server *server, const char *fmt, ...)
@@ -356,6 +367,22 @@ static const char *remote_state_of(const struct fyai_remote_session *session)
 	return session->waiting ? "waiting" : session->busy ? "running" : "idle";
 }
 
+/* True if @session is accepting clients (running and not shutting down). */
+static bool remote_session_live(const struct fyai_remote_session *session)
+{
+	return !session->exited && !session->closing;
+}
+
+/* Request ID prefix for server-originated fyai_idle probes. */
+#define REMOTE_IDLE_PREFIX "fyai-idle-"
+
+static int remote_to_worker(struct fyai_remote_session *session,
+			    fy_generic frame)
+{
+	session->sent++;
+	return fyai_remote_send(session->worker, frame);
+}
+
 /*
  * Notify peers that @session exited: send `ended` and drain persistent
  * supervisors; mark the primary peer and other watchers failed immediately.
@@ -399,6 +426,9 @@ static void remote_worker_driven(struct fyai_remote_session *session,
 	remote_log(session->server, "worker %ld: its client left; the server "
 		   "keeps the session", (long)session->pid);
 }
+
+static void remote_idle_answer(struct fyai_remote_session *session,
+			       fy_generic response);
 
 static void remote_worker_frame(struct jsonrpc_conn *conn, fy_generic frame,
 				void *data)
@@ -476,6 +506,11 @@ static void remote_worker_frame(struct jsonrpc_conn *conn, fy_generic frame,
 	if (fy_equal(fy_get(frame, "type", ""), "control_response")) {
 		response = fy_get(frame, "response", fy_invalid);
 		id = fy_get(response, "request_id", "");
+		if (!strncmp(id, REMOTE_IDLE_PREFIX,
+			     strlen(REMOTE_IDLE_PREFIX))) {
+			remote_idle_answer(session, response);
+			return;
+		}
 		watcher = remote_watcher_of(session, id, &rest);
 		if (watcher)
 			frame = fy_assoc(gb, frame, "response", fy_assoc(gb,
@@ -1138,7 +1173,7 @@ static void remote_watch_request(struct fyai_remote_peer *peer, fy_generic frame
 	}
 	frame = fy_assoc(gb, frame, "request_id", fy_stringf(gb,
 		REMOTE_WATCH_PREFIX "%lu:%s", peer->id, text));
-	if (fyai_remote_send(session->worker, frame))
+	if (remote_to_worker(session, frame))
 		peer->failed = true;
 }
 
@@ -1185,7 +1220,7 @@ static void remote_attach(struct fyai_remote_peer *peer, fy_generic id,
 	struct fyai_remote_session *session;
 
 	for (session = server->sessions; session; session = session->next)
-		if (!session->exited && session->branch &&
+		if (remote_session_live(session) && session->branch &&
 		    !strcmp(session->branch, branch))
 			break;
 	if (watch) {
@@ -1739,6 +1774,100 @@ static bool remote_once_done(const struct fyai_remote_server *server)
 	return true;
 }
 
+/* True if @session is parked, idle, and unattached to non-supervisor peers. */
+static bool remote_idle_eligible(const struct fyai_remote_session *session)
+{
+	const struct fyai_remote_peer *watcher;
+
+	if (!remote_session_live(session) || !session->keep ||
+	    session->driven || session->peer || session->due ||
+	    session->waiting || session->busy)
+		return false;
+	/* Supervisors do not pin a parked worker; interactive watchers do. */
+	for (watcher = session->watchers; watcher; watcher = watcher->wnext)
+		if (!watcher->states)
+			return false;
+	return true;
+}
+
+/*
+ * Probe parked workers that have been idle for `serve/idle_ms` via fyai_idle.
+ * Workers that confirm settled (with no client frames sent in the meantime)
+ * are terminated with SIGTERM in remote_idle_answer() and marked closing so
+ * new attaches spawn a fresh worker against the arena state.
+ *
+ * Returns ms until the next worker hits the idle deadline, or -1 if none.
+ */
+static fyai_event_ms_t remote_idle_check(struct fyai_remote_server *server)
+{
+	struct fyai_ctx *ctx = fyai_cmd_call_ctx(server->call);
+	struct fyai_remote_session *session;
+	fyai_event_ms_t now, due, next = 0;
+	fy_generic frame;
+
+	if (!server->idle_ms)
+		return -1;
+	now = fyai_event_now_ms();
+	for (session = server->sessions; session; session = session->next) {
+		if (!remote_idle_eligible(session)) {
+			session->idle_since = 0;
+			continue;
+		}
+		if (!session->idle_since)
+			session->idle_since = now;
+		due = session->idle_since + server->idle_ms;
+		if (session->asking)
+			continue;
+		if (due > now) {
+			if (!next || due < next)
+				next = due;
+			continue;
+		}
+		frame = fy_mapping(fyai_ctx_transient_gb(ctx),
+			"type", "control_request",
+			"request_id", fy_stringf(fyai_ctx_transient_gb(ctx),
+				REMOTE_IDLE_PREFIX "%lu", ++server->idle_asks),
+			"request", fy_mapping(fyai_ctx_transient_gb(ctx),
+				"subtype", "fyai_idle"));
+		if (!session->worker ||
+		    fyai_remote_send(session->worker, frame)) {
+			session->idle_since = now;
+			continue;
+		}
+		session->asking = true;
+		session->ask_sent = session->sent;
+		remote_log(server, "worker %ld (branch '%s'): idle, asks if it "
+			   "is settled", (long)session->pid,
+			   session->branch ? session->branch : "none");
+	}
+	return next ? next - now : -1;
+}
+
+/* Handle a worker's fyai_idle reply; SIGTERM if settled and untouched. */
+static void remote_idle_answer(struct fyai_remote_session *session,
+			       fy_generic response)
+{
+	struct fyai_remote_server *server = session->server;
+	bool settled;
+
+	session->asking = false;
+	settled = fy_get(fy_get(response, "response", fy_invalid), "settled",
+			 false);
+	if (!settled || !remote_idle_eligible(session) ||
+	    session->sent != session->ask_sent) {
+		/* Activity occurred during the probe; reset the idle timer. */
+		session->idle_since = 0;
+		return;
+	}
+	remote_log(server, "worker %ld (branch '%s'): idle for %lu ms, ends",
+		   (long)session->pid,
+		   session->branch ? session->branch : "none",
+		   (unsigned long)server->idle_ms);
+	session->closing = true;
+	server->dirty = true;
+	(void)kill(session->pid, SIGTERM);
+}
+
 /* The state of the server, for `serve status`. */
 static fy_generic remote_status(struct fyai_remote_server *server)
 {
@@ -1920,7 +2049,7 @@ static void remote_adopt(struct fyai_remote_peer *peer, fy_generic id,
 		return;
 	}
 	for (session = server->sessions; session; session = session->next)
-		if (!session->exited && session->branch &&
+		if (remote_session_live(session) && session->branch &&
 		    !strcmp(session->branch, branch)) {
 			remote_log(server, "client %lu: refused: a worker runs "
 				   "'%s'", peer->id, branch);
@@ -1983,7 +2112,7 @@ static void remote_supervise(struct fyai_remote_peer *peer, fy_generic id,
 	fy_generic order;
 
 	for (session = server->sessions; branch && session; session = session->next)
-		if (!session->exited && session->branch &&
+		if (remote_session_live(session) && session->branch &&
 		    !strcmp(session->branch, branch))
 			break;
 	if (!session || !session->worker) {
@@ -2015,7 +2144,7 @@ static void remote_supervise(struct fyai_remote_peer *peer, fy_generic id,
 	remote_log(server, "client %lu: %s to the worker %ld on branch '%s'",
 		   peer->id, subtype + strlen("fyai_session_"), (long)session->pid,
 		   branch);
-	if (fyai_remote_send(session->worker, fy_mapping(gb,
+	if (remote_to_worker(session, fy_mapping(gb,
 			"type", "control_request",
 			"request_id", fy_stringf(gb, REMOTE_WATCH_PREFIX "%lu:%s",
 						 peer->id, fy_castp(&id, "")),
@@ -2038,7 +2167,7 @@ static void remote_session_close(struct fyai_remote_peer *peer, fy_generic id,
 	bool force = fy_get(request, "force", false), busy;
 
 	for (session = server->sessions; branch && session; session = session->next)
-		if (!session->exited && session->branch &&
+		if (remote_session_live(session) && session->branch &&
 		    !strcmp(session->branch, branch))
 			break;
 	if (!session) {
@@ -2240,7 +2369,7 @@ static void remote_admit_frame(struct jsonrpc_conn *conn, fy_generic frame,
 		peer->session->due++;
 		server->dirty = true;
 	}
-	if (fyai_remote_send(peer->session->worker, frame))
+	if (remote_to_worker(peer->session, frame))
 		peer->failed = true;
 }
 
@@ -2953,7 +3082,8 @@ int fyai_cmd_remote_serve(struct fyai_cmd_call *call, fy_generic *result)
 	struct fyai_remote_session *session;
 	struct fyai_remote_peer *peer;
 	int rc = -1, token_fd, ready_fd = -1;
-	fyai_event_ms_t deadline;
+	fyai_event_ms_t deadline, wait = -1;
+	fy_generic serve_cfg;
 	bool success = false;
 
 	if (ctx->cfg->serve_daemon)
@@ -2962,6 +3092,8 @@ int fyai_cmd_remote_serve(struct fyai_cmd_call *call, fy_generic *result)
 	token_fd = fy_get(call->args, "token_fd", -1);
 	server.front_fd = fy_get(call->args, "front_fd", -1);
 	server.once = fy_get(call->args, "once", false);
+	serve_cfg = fy_get(ctx->cfg->config_doc, "serve", fy_invalid);
+	server.idle_ms = fy_get(serve_cfg, "idle_ms", 30000LL);
 	fyai_error_check(ctx, !server.once || (!projects && server.front_fd < 0),
 			 out, "--once serves one project, not projects");
 	if (projects) {
@@ -3028,10 +3160,11 @@ int fyai_cmd_remote_serve(struct fyai_cmd_call *call, fy_generic *result)
 	while (!ctx->loop->terminate_pending && !fyai_interrupt_check(ctx) &&
 	       !server.stop) {
 		fyai_event_interrupt_ack(ctx->loop);
-		rc = fyai_event_loop_step(loop, -1);
+		rc = fyai_event_loop_step(loop, wait);
 		if (rc < 0)
 			break;
 		remote_reap(&server);
+		wait = remote_idle_check(&server);
 		if (server.dirty)
 			remote_record(&server);
 		if (remote_once_done(&server)) {
