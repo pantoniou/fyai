@@ -387,9 +387,10 @@ display:
   stream: true            # Present model output as it arrives.
   # Exchanges replayed at session start: -1 fills the screen; 0 skips replay.
   recap_exchanges: -1
-  # fullscreen uses the alternate screen and a scrollable transcript view;
-  # inline uses terminal scrollback.
-  screen: fullscreen
+  # primary takes the whole normal screen with a scrollable transcript view
+  # and sends the rows that leave it to the terminal scrollback; fullscreen
+  # uses the alternate screen; inline uses terminal scrollback.
+  screen: primary
   # YAML page document; empty selects embedded data/page.yaml.
   # `/page` reports the document in use.
   page: ""

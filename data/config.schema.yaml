@@ -1584,7 +1584,7 @@ properties:
       screen:
         type: string
         enum: [inline, primary, fullscreen]
-        default: fullscreen
+        default: primary
         description: >-
           Select where the page renderer draws. inline keeps the transcript in the
           scrollback of the terminal under it. primary takes the whole normal

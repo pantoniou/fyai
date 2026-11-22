@@ -168,7 +168,7 @@ static inline fy_generic fyai_generic_or_null(fy_generic v)
 #define DEFAULT_TILE_SEP " ┃ "
 #define DEFAULT_WORK_CONTROLS "full"
 /* Put the page on the alternate screen or in the scrollback. */
-#define DEFAULT_SCREEN "fullscreen"
+#define DEFAULT_SCREEN "primary"
 /* Mark shell commands and align continuation rows. */
 #define FYAI_TOOL_MARKER "⎿  "
 #define FYAI_TOOL_MARKER_PAD "   "
