@@ -1,0 +1,493 @@
+# SPDX-License-Identifier: MIT
+# Mock playground: a person types a word and gets its reply.
+# Run with tests/mock-play.sh; doc/mock-provider.md describes the keys.
+steps:
+  - match: {"last_role": "tool", "path": "/v1/chat/completions"}
+    repeat: true
+    done: true
+    event_delay: 0.04
+    sse:
+      - {"choices": [{"index": 0, "delta": {"role": "assistant"}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "Done: the calls "}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "finished."}}]}
+      - {"choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}]}
+  - match: {"last_contains": "PLAY-AGENT", "path": "/v1/chat/completions"}
+    repeat: true
+    done: true
+    sse:
+      - {"choices": [{"index": 0, "delta": {"role": "assistant"}}]}
+      - {"choices": [{"index": 0, "delta": {"tool_calls": [{"index": 0, "id": "call_exec_command_0", "type": "function", "function": {"name": "exec_command", "arguments": "{\"command\": \"for i in $(seq 1 40); do echo \\\"agent line $i\\\"; sleep 0.25; done\", \"description\": \"slow agent loop\"}"}}]}}]}
+      - {"choices": [{"index": 0, "delta": {}, "finish_reason": "tool_calls"}]}
+  - match: {"last_contains": "agents12", "path": "/v1/chat/completions"}
+    repeat: true
+    done: true
+    sse:
+      - {"choices": [{"index": 0, "delta": {"role": "assistant", "content": "Delegating 12 sub-agents.\n"}}]}
+      - {"choices": [{"index": 0, "delta": {"tool_calls": [{"index": 0, "id": "call_agent_0", "type": "function", "function": {"name": "agent", "arguments": "{\"name\": \"t1\", \"description\": \"play agent 1\", \"context\": \"fresh\", \"task\": \"PLAY-AGENT t1: run the slow loop and report\"}"}}]}}]}
+      - {"choices": [{"index": 0, "delta": {"tool_calls": [{"index": 1, "id": "call_agent_1", "type": "function", "function": {"name": "agent", "arguments": "{\"name\": \"t2\", \"description\": \"play agent 2\", \"context\": \"fresh\", \"task\": \"PLAY-AGENT t2: run the slow loop and report\"}"}}]}}]}
+      - {"choices": [{"index": 0, "delta": {"tool_calls": [{"index": 2, "id": "call_agent_2", "type": "function", "function": {"name": "agent", "arguments": "{\"name\": \"t3\", \"description\": \"play agent 3\", \"context\": \"fresh\", \"task\": \"PLAY-AGENT t3: run the slow loop and report\"}"}}]}}]}
+      - {"choices": [{"index": 0, "delta": {"tool_calls": [{"index": 3, "id": "call_agent_3", "type": "function", "function": {"name": "agent", "arguments": "{\"name\": \"t4\", \"description\": \"play agent 4\", \"context\": \"fresh\", \"task\": \"PLAY-AGENT t4: run the slow loop and report\"}"}}]}}]}
+      - {"choices": [{"index": 0, "delta": {"tool_calls": [{"index": 4, "id": "call_agent_4", "type": "function", "function": {"name": "agent", "arguments": "{\"name\": \"t5\", \"description\": \"play agent 5\", \"context\": \"fresh\", \"task\": \"PLAY-AGENT t5: run the slow loop and report\"}"}}]}}]}
+      - {"choices": [{"index": 0, "delta": {"tool_calls": [{"index": 5, "id": "call_agent_5", "type": "function", "function": {"name": "agent", "arguments": "{\"name\": \"t6\", \"description\": \"play agent 6\", \"context\": \"fresh\", \"task\": \"PLAY-AGENT t6: run the slow loop and report\"}"}}]}}]}
+      - {"choices": [{"index": 0, "delta": {"tool_calls": [{"index": 6, "id": "call_agent_6", "type": "function", "function": {"name": "agent", "arguments": "{\"name\": \"t7\", \"description\": \"play agent 7\", \"context\": \"fresh\", \"task\": \"PLAY-AGENT t7: run the slow loop and report\"}"}}]}}]}
+      - {"choices": [{"index": 0, "delta": {"tool_calls": [{"index": 7, "id": "call_agent_7", "type": "function", "function": {"name": "agent", "arguments": "{\"name\": \"t8\", \"description\": \"play agent 8\", \"context\": \"fresh\", \"task\": \"PLAY-AGENT t8: run the slow loop and report\"}"}}]}}]}
+      - {"choices": [{"index": 0, "delta": {"tool_calls": [{"index": 8, "id": "call_agent_8", "type": "function", "function": {"name": "agent", "arguments": "{\"name\": \"t9\", \"description\": \"play agent 9\", \"context\": \"fresh\", \"task\": \"PLAY-AGENT t9: run the slow loop and report\"}"}}]}}]}
+      - {"choices": [{"index": 0, "delta": {"tool_calls": [{"index": 9, "id": "call_agent_9", "type": "function", "function": {"name": "agent", "arguments": "{\"name\": \"t10\", \"description\": \"play agent 10\", \"context\": \"fresh\", \"task\": \"PLAY-AGENT t10: run the slow loop and report\"}"}}]}}]}
+      - {"choices": [{"index": 0, "delta": {"tool_calls": [{"index": 10, "id": "call_agent_10", "type": "function", "function": {"name": "agent", "arguments": "{\"name\": \"t11\", \"description\": \"play agent 11\", \"context\": \"fresh\", \"task\": \"PLAY-AGENT t11: run the slow loop and report\"}"}}]}}]}
+      - {"choices": [{"index": 0, "delta": {"tool_calls": [{"index": 11, "id": "call_agent_11", "type": "function", "function": {"name": "agent", "arguments": "{\"name\": \"t12\", \"description\": \"play agent 12\", \"context\": \"fresh\", \"task\": \"PLAY-AGENT t12: run the slow loop and report\"}"}}]}}]}
+      - {"choices": [{"index": 0, "delta": {}, "finish_reason": "tool_calls"}]}
+  - match: {"last_contains": "agents8", "path": "/v1/chat/completions"}
+    repeat: true
+    done: true
+    sse:
+      - {"choices": [{"index": 0, "delta": {"role": "assistant", "content": "Delegating 8 sub-agents.\n"}}]}
+      - {"choices": [{"index": 0, "delta": {"tool_calls": [{"index": 0, "id": "call_agent_0", "type": "function", "function": {"name": "agent", "arguments": "{\"name\": \"e1\", \"description\": \"play agent 1\", \"context\": \"fresh\", \"task\": \"PLAY-AGENT e1: run the slow loop and report\"}"}}]}}]}
+      - {"choices": [{"index": 0, "delta": {"tool_calls": [{"index": 1, "id": "call_agent_1", "type": "function", "function": {"name": "agent", "arguments": "{\"name\": \"e2\", \"description\": \"play agent 2\", \"context\": \"fresh\", \"task\": \"PLAY-AGENT e2: run the slow loop and report\"}"}}]}}]}
+      - {"choices": [{"index": 0, "delta": {"tool_calls": [{"index": 2, "id": "call_agent_2", "type": "function", "function": {"name": "agent", "arguments": "{\"name\": \"e3\", \"description\": \"play agent 3\", \"context\": \"fresh\", \"task\": \"PLAY-AGENT e3: run the slow loop and report\"}"}}]}}]}
+      - {"choices": [{"index": 0, "delta": {"tool_calls": [{"index": 3, "id": "call_agent_3", "type": "function", "function": {"name": "agent", "arguments": "{\"name\": \"e4\", \"description\": \"play agent 4\", \"context\": \"fresh\", \"task\": \"PLAY-AGENT e4: run the slow loop and report\"}"}}]}}]}
+      - {"choices": [{"index": 0, "delta": {"tool_calls": [{"index": 4, "id": "call_agent_4", "type": "function", "function": {"name": "agent", "arguments": "{\"name\": \"e5\", \"description\": \"play agent 5\", \"context\": \"fresh\", \"task\": \"PLAY-AGENT e5: run the slow loop and report\"}"}}]}}]}
+      - {"choices": [{"index": 0, "delta": {"tool_calls": [{"index": 5, "id": "call_agent_5", "type": "function", "function": {"name": "agent", "arguments": "{\"name\": \"e6\", \"description\": \"play agent 6\", \"context\": \"fresh\", \"task\": \"PLAY-AGENT e6: run the slow loop and report\"}"}}]}}]}
+      - {"choices": [{"index": 0, "delta": {"tool_calls": [{"index": 6, "id": "call_agent_6", "type": "function", "function": {"name": "agent", "arguments": "{\"name\": \"e7\", \"description\": \"play agent 7\", \"context\": \"fresh\", \"task\": \"PLAY-AGENT e7: run the slow loop and report\"}"}}]}}]}
+      - {"choices": [{"index": 0, "delta": {"tool_calls": [{"index": 7, "id": "call_agent_7", "type": "function", "function": {"name": "agent", "arguments": "{\"name\": \"e8\", \"description\": \"play agent 8\", \"context\": \"fresh\", \"task\": \"PLAY-AGENT e8: run the slow loop and report\"}"}}]}}]}
+      - {"choices": [{"index": 0, "delta": {}, "finish_reason": "tool_calls"}]}
+  - match: {"last_contains": "agents", "path": "/v1/chat/completions"}
+    repeat: true
+    done: true
+    sse:
+      - {"choices": [{"index": 0, "delta": {"role": "assistant", "content": "Delegating 4 sub-agents.\n"}}]}
+      - {"choices": [{"index": 0, "delta": {"tool_calls": [{"index": 0, "id": "call_agent_0", "type": "function", "function": {"name": "agent", "arguments": "{\"name\": \"f1\", \"description\": \"play agent 1\", \"context\": \"fresh\", \"task\": \"PLAY-AGENT f1: run the slow loop and report\"}"}}]}}]}
+      - {"choices": [{"index": 0, "delta": {"tool_calls": [{"index": 1, "id": "call_agent_1", "type": "function", "function": {"name": "agent", "arguments": "{\"name\": \"f2\", \"description\": \"play agent 2\", \"context\": \"fresh\", \"task\": \"PLAY-AGENT f2: run the slow loop and report\"}"}}]}}]}
+      - {"choices": [{"index": 0, "delta": {"tool_calls": [{"index": 2, "id": "call_agent_2", "type": "function", "function": {"name": "agent", "arguments": "{\"name\": \"f3\", \"description\": \"play agent 3\", \"context\": \"fresh\", \"task\": \"PLAY-AGENT f3: run the slow loop and report\"}"}}]}}]}
+      - {"choices": [{"index": 0, "delta": {"tool_calls": [{"index": 3, "id": "call_agent_3", "type": "function", "function": {"name": "agent", "arguments": "{\"name\": \"f4\", \"description\": \"play agent 4\", \"context\": \"fresh\", \"task\": \"PLAY-AGENT f4: run the slow loop and report\"}"}}]}}]}
+      - {"choices": [{"index": 0, "delta": {}, "finish_reason": "tool_calls"}]}
+  - match: {"last_contains": "reasoning", "path": "/v1/chat/completions"}
+    repeat: true
+    done: true
+    event_delay: 0.04
+    sse:
+      - {"choices": [{"index": 0, "delta": {"role": "assistant"}}]}
+      - {"choices": [{"index": 0, "delta": {"reasoning_content": "The user wants "}}]}
+      - {"choices": [{"index": 0, "delta": {"reasoning_content": "to see how "}}]}
+      - {"choices": [{"index": 0, "delta": {"reasoning_content": "a reasoning trace "}}]}
+      - {"choices": [{"index": 0, "delta": {"reasoning_content": "renders."}}]}
+      - {"choices": [{"index": 0, "delta": {"reasoning_content": "\n"}}]}
+      - {"choices": [{"index": 0, "delta": {"reasoning_content": "\n"}}]}
+      - {"choices": [{"index": 0, "delta": {"reasoning_content": "First I list "}}]}
+      - {"choices": [{"index": 0, "delta": {"reasoning_content": "what to check:"}}]}
+      - {"choices": [{"index": 0, "delta": {"reasoning_content": "\n"}}]}
+      - {"choices": [{"index": 0, "delta": {"reasoning_content": "- blank lines "}}]}
+      - {"choices": [{"index": 0, "delta": {"reasoning_content": "inside the trace"}}]}
+      - {"choices": [{"index": 0, "delta": {"reasoning_content": "\n"}}]}
+      - {"choices": [{"index": 0, "delta": {"reasoning_content": "- a list "}}]}
+      - {"choices": [{"index": 0, "delta": {"reasoning_content": "like this one"}}]}
+      - {"choices": [{"index": 0, "delta": {"reasoning_content": "\n"}}]}
+      - {"choices": [{"index": 0, "delta": {"reasoning_content": "\n"}}]}
+      - {"choices": [{"index": 0, "delta": {"reasoning_content": "  an indented "}}]}
+      - {"choices": [{"index": 0, "delta": {"reasoning_content": "line after a "}}]}
+      - {"choices": [{"index": 0, "delta": {"reasoning_content": "blank line"}}]}
+      - {"choices": [{"index": 0, "delta": {"reasoning_content": "\n"}}]}
+      - {"choices": [{"index": 0, "delta": {"reasoning_content": "\n"}}]}
+      - {"choices": [{"index": 0, "delta": {"reasoning_content": "\n"}}]}
+      - {"choices": [{"index": 0, "delta": {"reasoning_content": "Two blank lines "}}]}
+      - {"choices": [{"index": 0, "delta": {"reasoning_content": "stood above this "}}]}
+      - {"choices": [{"index": 0, "delta": {"reasoning_content": "paragraph."}}]}
+      - {"choices": [{"index": 0, "delta": {"reasoning_content": "\n"}}]}
+      - {"choices": [{"index": 0, "delta": {"reasoning_content": "```c"}}]}
+      - {"choices": [{"index": 0, "delta": {"reasoning_content": "\n"}}]}
+      - {"choices": [{"index": 0, "delta": {"reasoning_content": "int main(void) { "}}]}
+      - {"choices": [{"index": 0, "delta": {"reasoning_content": "return 0; }"}}]}
+      - {"choices": [{"index": 0, "delta": {"reasoning_content": "\n"}}]}
+      - {"choices": [{"index": 0, "delta": {"reasoning_content": "```"}}]}
+      - {"choices": [{"index": 0, "delta": {"reasoning_content": "\n"}}]}
+      - {"choices": [{"index": 0, "delta": {"reasoning_content": "\n"}}]}
+      - {"choices": [{"index": 0, "delta": {"reasoning_content": "Last paragraph of "}}]}
+      - {"choices": [{"index": 0, "delta": {"reasoning_content": "the reasoning."}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "The reasoning ended "}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "above this answer."}}]}
+      - {"choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}]}
+  - match: {"last_contains": "python", "path": "/v1/chat/completions"}
+    repeat: true
+    done: true
+    sse:
+      - {"choices": [{"index": 0, "delta": {"role": "assistant", "content": "Editing with a script.\n"}}]}
+      - {"choices": [{"index": 0, "delta": {"tool_calls": [{"index": 0, "id": "call_exec_command_0", "type": "function", "function": {"name": "exec_command", "arguments": "{\"command\": \"python3 - <<'EOF'\\nimport os, re, sys\\n\\ndef edit(path):\\n    # step 1 of a long generated edit\\n    # step 2 of a long generated edit\\n    # step 3 of a long generated edit\\n    # step 4 of a long generated edit\\n    # step 5 of a long generated edit\\n    # step 6 of a long generated edit\\n    # step 7 of a long generated edit\\n    # step 8 of a long generated edit\\n    # step 9 of a long generated edit\\n    # step 10 of a long generated edit\\n    # step 11 of a long generated edit\\n    # step 12 of a long generated edit\\n    # step 13 of a long generated edit\\n    # step 14 of a long generated edit\\n    # step 15 of a long generated edit\\n    # step 16 of a long generated edit\\n    # step 17 of a long generated edit\\n    # step 18 of a long generated edit\\n    # step 19 of a long generated edit\\n    # step 20 of a long generated edit\\n    # step 21 of a long generated edit\\n    # step 22 of a long generated edit\\n    # step 23 of a long generated edit\\n    # step 24 of a long generated edit\\n    # step 25 of a long generated edit\\n    # step 26 of a long generated edit\\n    # step 27 of a long generated edit\\n    # step 28 of a long generated edit\\n    # step 29 of a long generated edit\\n    # step 30 of a long generated edit\\n    # step 31 of a long generated edit\\n    # step 32 of a long generated edit\\n    # step 33 of a long generated edit\\n    # step 34 of a long generated edit\\n    # step 35 of a long generated edit\\n    # step 36 of a long generated edit\\n    # step 37 of a long generated edit\\n    # step 38 of a long generated edit\\n    # step 39 of a long generated edit\\n    # step 40 of a long generated edit\\n    # step 41 of a long generated edit\\n    # step 42 of a long generated edit\\n    # step 43 of a long generated edit\\n    # step 44 of a long generated edit\\n    # step 45 of a long generated edit\\n    # step 46 of a long generated edit\\n    # step 47 of a long generated edit\\n    # step 48 of a long generated edit\\n    # step 49 of a long generated edit\\n    return path\\n\\nprint('edited', edit('src/x.c'))\\nEOF\", \"description\": \"edit with python\"}"}}]}}]}
+      - {"choices": [{"index": 0, "delta": {}, "finish_reason": "tool_calls"}]}
+  - match: {"last_contains": "shells", "path": "/v1/chat/completions"}
+    repeat: true
+    done: true
+    sse:
+      - {"choices": [{"index": 0, "delta": {"role": "assistant"}}]}
+      - {"choices": [{"index": 0, "delta": {"tool_calls": [{"index": 0, "id": "call_exec_command_0", "type": "function", "function": {"name": "exec_command", "arguments": "{\"command\": \"for i in $(seq 1 60); do echo \\\"shell 1 line $i\\\"; sleep 0.2; done\", \"description\": \"slow shell 1\"}"}}]}}]}
+      - {"choices": [{"index": 0, "delta": {"tool_calls": [{"index": 1, "id": "call_exec_command_1", "type": "function", "function": {"name": "exec_command", "arguments": "{\"command\": \"for i in $(seq 1 60); do echo \\\"shell 2 line $i\\\"; sleep 0.2; done\", \"description\": \"slow shell 2\"}"}}]}}]}
+      - {"choices": [{"index": 0, "delta": {"tool_calls": [{"index": 2, "id": "call_exec_command_2", "type": "function", "function": {"name": "exec_command", "arguments": "{\"command\": \"for i in $(seq 1 60); do echo \\\"shell 3 line $i\\\"; sleep 0.2; done\", \"description\": \"slow shell 3\"}"}}]}}]}
+      - {"choices": [{"index": 0, "delta": {"tool_calls": [{"index": 3, "id": "call_exec_command_3", "type": "function", "function": {"name": "exec_command", "arguments": "{\"command\": \"for i in $(seq 1 60); do echo \\\"shell 4 line $i\\\"; sleep 0.2; done\", \"description\": \"slow shell 4\"}"}}]}}]}
+      - {"choices": [{"index": 0, "delta": {"tool_calls": [{"index": 4, "id": "call_exec_command_4", "type": "function", "function": {"name": "exec_command", "arguments": "{\"command\": \"for i in $(seq 1 60); do echo \\\"shell 5 line $i\\\"; sleep 0.2; done\", \"description\": \"slow shell 5\"}"}}]}}]}
+      - {"choices": [{"index": 0, "delta": {"tool_calls": [{"index": 5, "id": "call_exec_command_5", "type": "function", "function": {"name": "exec_command", "arguments": "{\"command\": \"for i in $(seq 1 60); do echo \\\"shell 6 line $i\\\"; sleep 0.2; done\", \"description\": \"slow shell 6\"}"}}]}}]}
+      - {"choices": [{"index": 0, "delta": {}, "finish_reason": "tool_calls"}]}
+  - match: {"last_contains": "long", "path": "/v1/chat/completions"}
+    repeat: true
+    done: true
+    event_delay: 0.02
+    sse:
+      - {"choices": [{"index": 0, "delta": {"role": "assistant"}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "## Section 1"}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "\n"}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "\n"}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "Paragraph 1 of "}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "a long answer. "}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "It has **bold**, "}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "`code` and enough "}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "words to wrap "}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "on a narrow "}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "terminal so that "}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "the tail of "}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "the page grows "}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "and scrolls while "}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "it streams."}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "\n"}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "\n"}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "- item one"}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "\n"}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "- item two"}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "\n"}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "- item three"}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "\n"}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "\n"}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "## Section 2"}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "\n"}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "\n"}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "Paragraph 2 of "}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "a long answer. "}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "It has **bold**, "}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "`code` and enough "}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "words to wrap "}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "on a narrow "}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "terminal so that "}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "the tail of "}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "the page grows "}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "and scrolls while "}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "it streams."}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "\n"}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "\n"}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "- item one"}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "\n"}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "- item two"}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "\n"}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "- item three"}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "\n"}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "\n"}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "## Section 3"}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "\n"}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "\n"}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "Paragraph 3 of "}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "a long answer. "}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "It has **bold**, "}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "`code` and enough "}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "words to wrap "}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "on a narrow "}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "terminal so that "}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "the tail of "}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "the page grows "}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "and scrolls while "}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "it streams."}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "\n"}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "\n"}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "- item one"}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "\n"}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "- item two"}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "\n"}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "- item three"}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "\n"}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "\n"}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "## Section 4"}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "\n"}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "\n"}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "Paragraph 4 of "}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "a long answer. "}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "It has **bold**, "}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "`code` and enough "}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "words to wrap "}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "on a narrow "}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "terminal so that "}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "the tail of "}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "the page grows "}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "and scrolls while "}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "it streams."}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "\n"}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "\n"}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "- item one"}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "\n"}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "- item two"}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "\n"}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "- item three"}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "\n"}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "\n"}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "## Section 5"}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "\n"}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "\n"}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "Paragraph 5 of "}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "a long answer. "}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "It has **bold**, "}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "`code` and enough "}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "words to wrap "}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "on a narrow "}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "terminal so that "}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "the tail of "}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "the page grows "}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "and scrolls while "}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "it streams."}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "\n"}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "\n"}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "- item one"}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "\n"}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "- item two"}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "\n"}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "- item three"}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "\n"}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "\n"}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "## Section 6"}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "\n"}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "\n"}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "Paragraph 6 of "}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "a long answer. "}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "It has **bold**, "}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "`code` and enough "}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "words to wrap "}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "on a narrow "}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "terminal so that "}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "the tail of "}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "the page grows "}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "and scrolls while "}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "it streams."}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "\n"}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "\n"}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "- item one"}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "\n"}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "- item two"}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "\n"}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "- item three"}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "\n"}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "\n"}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "## Section 7"}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "\n"}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "\n"}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "Paragraph 7 of "}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "a long answer. "}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "It has **bold**, "}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "`code` and enough "}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "words to wrap "}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "on a narrow "}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "terminal so that "}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "the tail of "}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "the page grows "}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "and scrolls while "}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "it streams."}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "\n"}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "\n"}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "- item one"}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "\n"}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "- item two"}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "\n"}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "- item three"}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "\n"}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "\n"}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "## Section 8"}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "\n"}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "\n"}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "Paragraph 8 of "}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "a long answer. "}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "It has **bold**, "}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "`code` and enough "}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "words to wrap "}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "on a narrow "}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "terminal so that "}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "the tail of "}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "the page grows "}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "and scrolls while "}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "it streams."}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "\n"}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "\n"}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "- item one"}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "\n"}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "- item two"}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "\n"}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "- item three"}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "\n"}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "\n"}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "## Section 9"}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "\n"}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "\n"}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "Paragraph 9 of "}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "a long answer. "}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "It has **bold**, "}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "`code` and enough "}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "words to wrap "}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "on a narrow "}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "terminal so that "}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "the tail of "}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "the page grows "}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "and scrolls while "}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "it streams."}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "\n"}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "\n"}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "- item one"}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "\n"}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "- item two"}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "\n"}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "- item three"}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "\n"}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "\n"}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "## Section 10"}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "\n"}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "\n"}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "Paragraph 10 of "}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "a long answer. "}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "It has **bold**, "}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "`code` and enough "}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "words to wrap "}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "on a narrow "}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "terminal so that "}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "the tail of "}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "the page grows "}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "and scrolls while "}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "it streams."}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "\n"}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "\n"}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "- item one"}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "\n"}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "- item two"}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "\n"}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "- item three"}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "\n"}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "\n"}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "## Section 11"}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "\n"}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "\n"}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "Paragraph 11 of "}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "a long answer. "}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "It has **bold**, "}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "`code` and enough "}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "words to wrap "}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "on a narrow "}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "terminal so that "}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "the tail of "}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "the page grows "}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "and scrolls while "}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "it streams."}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "\n"}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "\n"}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "- item one"}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "\n"}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "- item two"}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "\n"}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "- item three"}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "\n"}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "\n"}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "## Section 12"}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "\n"}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "\n"}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "Paragraph 12 of "}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "a long answer. "}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "It has **bold**, "}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "`code` and enough "}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "words to wrap "}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "on a narrow "}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "terminal so that "}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "the tail of "}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "the page grows "}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "and scrolls while "}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "it streams."}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "\n"}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "\n"}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "- item one"}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "\n"}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "- item two"}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "\n"}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "- item three"}}]}
+      - {"choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}]}
+  - match: {"last_contains": "mix", "path": "/v1/chat/completions"}
+    repeat: true
+    done: true
+    event_delay: 0.04
+    sse:
+      - {"choices": [{"index": 0, "delta": {"role": "assistant"}}]}
+      - {"choices": [{"index": 0, "delta": {"reasoning_content": "The user wants "}}]}
+      - {"choices": [{"index": 0, "delta": {"reasoning_content": "to see how "}}]}
+      - {"choices": [{"index": 0, "delta": {"reasoning_content": "a reasoning trace "}}]}
+      - {"choices": [{"index": 0, "delta": {"reasoning_content": "renders."}}]}
+      - {"choices": [{"index": 0, "delta": {"reasoning_content": "\n"}}]}
+      - {"choices": [{"index": 0, "delta": {"reasoning_content": "\n"}}]}
+      - {"choices": [{"index": 0, "delta": {"reasoning_content": "First I list "}}]}
+      - {"choices": [{"index": 0, "delta": {"reasoning_content": "what to check:"}}]}
+      - {"choices": [{"index": 0, "delta": {"reasoning_content": "\n"}}]}
+      - {"choices": [{"index": 0, "delta": {"reasoning_content": "- blank lines "}}]}
+      - {"choices": [{"index": 0, "delta": {"reasoning_content": "inside the trace"}}]}
+      - {"choices": [{"index": 0, "delta": {"reasoning_content": "\n"}}]}
+      - {"choices": [{"index": 0, "delta": {"reasoning_content": "- a list "}}]}
+      - {"choices": [{"index": 0, "delta": {"reasoning_content": "like this one"}}]}
+      - {"choices": [{"index": 0, "delta": {"reasoning_content": "\n"}}]}
+      - {"choices": [{"index": 0, "delta": {"reasoning_content": "\n"}}]}
+      - {"choices": [{"index": 0, "delta": {"reasoning_content": "  an indented "}}]}
+      - {"choices": [{"index": 0, "delta": {"reasoning_content": "line after a "}}]}
+      - {"choices": [{"index": 0, "delta": {"reasoning_content": "blank line"}}]}
+      - {"choices": [{"index": 0, "delta": {"reasoning_content": "\n"}}]}
+      - {"choices": [{"index": 0, "delta": {"reasoning_content": "\n"}}]}
+      - {"choices": [{"index": 0, "delta": {"reasoning_content": "\n"}}]}
+      - {"choices": [{"index": 0, "delta": {"reasoning_content": "Two blank lines "}}]}
+      - {"choices": [{"index": 0, "delta": {"reasoning_content": "stood above this "}}]}
+      - {"choices": [{"index": 0, "delta": {"reasoning_content": "paragraph."}}]}
+      - {"choices": [{"index": 0, "delta": {"reasoning_content": "\n"}}]}
+      - {"choices": [{"index": 0, "delta": {"reasoning_content": "```c"}}]}
+      - {"choices": [{"index": 0, "delta": {"reasoning_content": "\n"}}]}
+      - {"choices": [{"index": 0, "delta": {"reasoning_content": "int main(void) { "}}]}
+      - {"choices": [{"index": 0, "delta": {"reasoning_content": "return 0; }"}}]}
+      - {"choices": [{"index": 0, "delta": {"reasoning_content": "\n"}}]}
+      - {"choices": [{"index": 0, "delta": {"reasoning_content": "```"}}]}
+      - {"choices": [{"index": 0, "delta": {"reasoning_content": "\n"}}]}
+      - {"choices": [{"index": 0, "delta": {"reasoning_content": "\n"}}]}
+      - {"choices": [{"index": 0, "delta": {"reasoning_content": "Last paragraph of "}}]}
+      - {"choices": [{"index": 0, "delta": {"reasoning_content": "the reasoning."}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "Running a script and four agents.\n"}}]}
+      - {"choices": [{"index": 0, "delta": {"tool_calls": [{"index": 0, "id": "call_mix_0", "type": "function", "function": {"name": "exec_command", "arguments": "{\"command\": \"python3 - <<'EOF'\\nimport os, re, sys\\n\\ndef edit(path):\\n    # step 1 of a long generated edit\\n    # step 2 of a long generated edit\\n    # step 3 of a long generated edit\\n    # step 4 of a long generated edit\\n    # step 5 of a long generated edit\\n    # step 6 of a long generated edit\\n    # step 7 of a long generated edit\\n    # step 8 of a long generated edit\\n    # step 9 of a long generated edit\\n    # step 10 of a long generated edit\\n    # step 11 of a long generated edit\\n    # step 12 of a long generated edit\\n    # step 13 of a long generated edit\\n    # step 14 of a long generated edit\\n    # step 15 of a long generated edit\\n    # step 16 of a long generated edit\\n    # step 17 of a long generated edit\\n    # step 18 of a long generated edit\\n    # step 19 of a long generated edit\\n    # step 20 of a long generated edit\\n    # step 21 of a long generated edit\\n    # step 22 of a long generated edit\\n    # step 23 of a long generated edit\\n    # step 24 of a long generated edit\\n    # step 25 of a long generated edit\\n    # step 26 of a long generated edit\\n    # step 27 of a long generated edit\\n    # step 28 of a long generated edit\\n    # step 29 of a long generated edit\\n    # step 30 of a long generated edit\\n    # step 31 of a long generated edit\\n    # step 32 of a long generated edit\\n    # step 33 of a long generated edit\\n    # step 34 of a long generated edit\\n    # step 35 of a long generated edit\\n    # step 36 of a long generated edit\\n    # step 37 of a long generated edit\\n    # step 38 of a long generated edit\\n    # step 39 of a long generated edit\\n    # step 40 of a long generated edit\\n    # step 41 of a long generated edit\\n    # step 42 of a long generated edit\\n    # step 43 of a long generated edit\\n    # step 44 of a long generated edit\\n    # step 45 of a long generated edit\\n    # step 46 of a long generated edit\\n    # step 47 of a long generated edit\\n    # step 48 of a long generated edit\\n    # step 49 of a long generated edit\\n    return path\\n\\nprint('edited', edit('src/x.c'))\\nEOF\", \"description\": \"edit with python\"}"}}]}}]}
+      - {"choices": [{"index": 0, "delta": {"tool_calls": [{"index": 1, "id": "call_mix_1", "type": "function", "function": {"name": "agent", "arguments": "{\"name\": \"m1\", \"description\": \"play agent 1\", \"context\": \"fresh\", \"task\": \"PLAY-AGENT m1: run the slow loop and report\"}"}}]}}]}
+      - {"choices": [{"index": 0, "delta": {"tool_calls": [{"index": 2, "id": "call_mix_2", "type": "function", "function": {"name": "agent", "arguments": "{\"name\": \"m2\", \"description\": \"play agent 2\", \"context\": \"fresh\", \"task\": \"PLAY-AGENT m2: run the slow loop and report\"}"}}]}}]}
+      - {"choices": [{"index": 0, "delta": {"tool_calls": [{"index": 3, "id": "call_mix_3", "type": "function", "function": {"name": "agent", "arguments": "{\"name\": \"m3\", \"description\": \"play agent 3\", \"context\": \"fresh\", \"task\": \"PLAY-AGENT m3: run the slow loop and report\"}"}}]}}]}
+      - {"choices": [{"index": 0, "delta": {"tool_calls": [{"index": 4, "id": "call_mix_4", "type": "function", "function": {"name": "agent", "arguments": "{\"name\": \"m4\", \"description\": \"play agent 4\", \"context\": \"fresh\", \"task\": \"PLAY-AGENT m4: run the slow loop and report\"}"}}]}}]}
+      - {"choices": [{"index": 0, "delta": {}, "finish_reason": "tool_calls"}]}
+  - match: {"path": "/v1/chat/completions"}
+    repeat: true
+    done: true
+    sse:
+      - {"choices": [{"index": 0, "delta": {"role": "assistant"}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "Mock playground. Type "}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "a word to "}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "get its reply:"}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "\n"}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "\n"}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "- `reasoning`: a "}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "reasoning trace with "}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "blank lines, a "}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "list and code"}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "\n"}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "- `python`: a "}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "shell call with "}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "a 55-line python "}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "heredoc"}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "\n"}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "- `agents`, `agents8`, "}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "`agents12`: parallel sub-agents "}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "running slow loops"}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "\n"}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "- `shells`: six "}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "parallel slow shell "}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "calls"}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "\n"}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "- `long`: a "}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "long streamed answer"}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "\n"}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "- `mix`: reasoning, "}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "a script and "}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "four agents in "}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "one reply"}}]}
+      - {"choices": [{"index": 0, "delta": {"content": "\n"}}]}
+      - {"choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}]}
