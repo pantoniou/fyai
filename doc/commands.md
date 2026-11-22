@@ -7733,7 +7733,7 @@ transport.
 
 the projects and sessions under the root project
 
-**Usage:** `/fleet {create|kill|list|read|scan|search|start|task|tasks} ...`
+**Usage:** `/fleet {create|kill|list|panel|read|scan|search|start|task|tasks} ...`
 
 The fleet of the root project: the topmost project above this one, and
 every project below it. A project is a directory whose `.fyai` holds an
@@ -7750,6 +7750,7 @@ sets the scan: `fyai config set fleet/scan/depth 2` there.
 | `create` | make a project below the root, and start a session in it |
 | `kill` | end every live session of the fleet |
 | `list` | list every session under the root |
+| `panel` | show or hide the fleet panel |
 | `read` | read the last turns of a session of the fleet |
 | `scan` | list the projects under the root |
 | `search` | find sessions and tasks by their words |
@@ -7781,6 +7782,29 @@ root project).
 | Argument | Description |
 | --- | --- |
 | `PROJECT` | only the sessions of this project and below |
+
+### Options
+
+| Option | Description |
+| --- | --- |
+| `-h`, `--help` | show this help |
+
+## /fleet panel
+
+show or hide the fleet panel
+
+**Usage:** `/fleet panel [VALUE]`
+
+With no value, show whether the fleet panel of the page is on. With
+`on` or `off`, show or hide it for this session. The panel lists the
+members that a root session supervises; `fleet/panel` is the key.
+
+
+### Arguments
+
+| Argument | Description |
+| --- | --- |
+| `VALUE` | on or off (on, off) |
 
 ### Options
 

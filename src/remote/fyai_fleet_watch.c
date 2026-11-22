@@ -11,6 +11,7 @@
 #include "fyai.h"
 #include "fyai_app.h"
 #include "fyai_buf.h"
+#include "fyai_config.h"
 #include "fyai_fleet.h"
 #include "fyai_fleet_ops.h"
 #include "fyai_fleet_watch.h"
@@ -73,7 +74,10 @@ static void fleet_watch_panel(struct fyai_ctx *ctx)
 			row = fy_assoc(gb, row, "last", fy_value(gb, w->last));
 		rows = fy_append(gb, rows, row);
 	}
-	/* The write gives 1 when the store changed. */
+	/* Null hides the panel when fleet/panel is false. */
+	if (!fy_get(fy_get(ctx->cfg->config_doc, "fleet", fy_invalid), "panel",
+		    true))
+		rows = fy_null;
 	if (!fy_is_valid(rows) ||
 	    fyai_uimodel_set_member(ctx, FYAI_UI_PANELS, "fleet", rows) < 0)
 		fyai_warning(ctx, "fleet: cannot keep the members for the display");
@@ -93,11 +97,11 @@ static void fleet_watch_last(struct fyai_fleet_watcher *w, const char *text)
 	w->last = *text ? strndup(text, i) : NULL;
 }
 
-/* The mark of a state: a running member blinks with the phase. */
-static const char *fleet_panel_mark(const char *state, int phase)
+/* Map member state to panel glyph; running uses @running spinner frame. */
+static const char *fleet_panel_mark(const char *state, const char *running)
 {
 	if (!strcmp(state, "running"))
-		return (phase & 1) ? "\u25cb" : "\u25cf";
+		return running;
 	if (!strcmp(state, "waiting"))
 		return "\u25c6";
 	if (!strcmp(state, "idle"))
@@ -105,7 +109,7 @@ static const char *fleet_panel_mark(const char *state, int phase)
 	return "\u2013";
 }
 
-char *fyai_fleet_panel_source(fy_generic rows, int phase, bool *blinks)
+char *fyai_fleet_panel_source(fy_generic rows, const char *running, bool *blinks)
 {
 	struct fyai_buf out = { 0 };
 	const char *name, *last, *state, *title;
@@ -115,8 +119,10 @@ char *fyai_fleet_panel_source(fy_generic rows, int phase, bool *blinks)
 
 	if (blinks)
 		*blinks = false;
-	if (!fy_is_sequence(rows) || fy_empty(rows))
+	if (!fy_is_sequence(rows))
 		return NULL;
+	if (fy_empty(rows))
+		return strdup("- no members\n");
 	fy_foreach(row, rows) {
 		gs = fy_get(row, "state", fy_invalid);
 		state = fy_castp(&gs, "?");
@@ -135,7 +141,7 @@ char *fyai_fleet_panel_source(fy_generic rows, int phase, bool *blinks)
 			rc = -1;
 		if (!rc)
 			rc = fyai_buf_append(&out, out.data ? "\n- " : "- ") ||
-			     fyai_buf_append(&out, fleet_panel_mark(state, phase)) ||
+			     fyai_buf_append(&out, fleet_panel_mark(state, running)) ||
 			     fyai_buf_append(&out, " ") ||
 			     (esc_title ? fyai_buf_append(&out, esc_title) ||
 					  fyai_buf_append(&out, " (") ||
@@ -387,8 +393,19 @@ void fyai_fleet_watch_restore(struct fyai_ctx *ctx)
 		return;
 	ctx->fleet->restored = true;
 	fleet_watch_restore_open(ctx);
+	/* Always publish the panel on root startup, even when empty. */
+	fleet_watch_panel(ctx);
 	/* Dispatch any queued tasks left over from a prior root process. */
 	(void)fyai_fleet_dequeue(ctx);
+}
+
+int fyai_fleet_watch_panel_set(struct fyai_ctx *ctx, bool on)
+{
+	if (fyai_config_session_set(ctx, "fleet/panel", on ? fy_true : fy_false))
+		return -1;
+	if (fyai_fleet_is_root(ctx))
+		fleet_watch_panel(ctx);
+	return 0;
 }
 
 size_t fyai_fleet_watch_live(struct fyai_ctx *ctx)

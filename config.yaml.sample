@@ -153,6 +153,8 @@ serve:
 fleet:
   # A fleet root: a session of this project gets the fleet tool for the projects below.
   root: false
+  # Show the fleet panel in a root session, also before a member runs.
+  panel: true
   scan:
     depth: 4
     exclude: [node_modules, "build*", .cache]

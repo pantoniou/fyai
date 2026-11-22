@@ -186,10 +186,10 @@ int fleet_panel_blinks(void)
 	idle = fy_mapping(gb, "name", "b:y", "state", "idle");
 	rows = fy_append(gb, rows, idle);
 
-	a = fyai_fleet_panel_source(rows, 0, &blinks);
+	a = fyai_fleet_panel_source(rows, "\u25cf", &blinks);
 	CHECK(a && blinks);
-	b = fyai_fleet_panel_source(rows, 1, NULL);
-	c = fyai_fleet_panel_source(rows, 2, NULL);
+	b = fyai_fleet_panel_source(rows, "\u25cb", NULL);
+	c = fyai_fleet_panel_source(rows, "\u25cf", NULL);
 	CHECK(b && c && strcmp(a, b) && !strcmp(a, c));
 	CHECK(a && strstr(a, "\u25cf a") && strstr(a, "\u00b7 b"));
 	CHECK(b && strstr(b, "\u25cb a") && strstr(b, "\u00b7 b"));
@@ -200,16 +200,20 @@ int fleet_panel_blinks(void)
 	/* Member title renders before the parenthesized session name. */
 	rows = fy_sequence(gb, fy_mapping(gb, "name", "a:x", "state", "idle",
 					  "title", "Fix the build"));
-	a = fyai_fleet_panel_source(rows, 0, NULL);
+	a = fyai_fleet_panel_source(rows, "\u25cf", NULL);
 	CHECK(a && strstr(a, "Fix the build (a") && strstr(a, "idle"));
 	free(a);
 
 	/* With no running members, blinking is disabled. */
 	rows = fy_sequence(gb, idle);
-	a = fyai_fleet_panel_source(rows, 0, &blinks);
+	a = fyai_fleet_panel_source(rows, "\u25cf", &blinks);
 	CHECK(a && !blinks);
 	free(a);
-	CHECK(!fyai_fleet_panel_source(fy_seq_empty, 0, &blinks) && !blinks);
+	/* Empty sequence renders "no members"; invalid value hides the panel. */
+	a = fyai_fleet_panel_source(fy_seq_empty, "\u25cf", &blinks);
+	CHECK(a && strstr(a, "no members") && !blinks);
+	free(a);
+	CHECK(!fyai_fleet_panel_source(fy_invalid, "\u25cf", &blinks) && !blinks);
 	fy_generic_builder_destroy(gb);
 	return failures ? 1 : 0;
 }

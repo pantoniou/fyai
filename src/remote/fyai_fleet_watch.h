@@ -26,7 +26,6 @@ struct fyai_fleet_watcher;
  * them so no member is orphaned. Embedded in struct fyai_app (ctx->fleet).
  */
 struct fyai_fleet_watch {
-	/* Dependencies. */
 	struct fyai_loop *loop;
 	struct fyai_waitq *waitq;
 
@@ -51,6 +50,12 @@ int fyai_fleet_watch_add(struct fyai_ctx *ctx, const char *name);
  */
 void fyai_fleet_watch_restore(struct fyai_ctx *ctx);
 
+/*
+ * Toggle the fleet panel for this session by updating `fleet/panel` and
+ * republishing the panel. Returns 0, or -1 on error.
+ */
+int fyai_fleet_watch_panel_set(struct fyai_ctx *ctx, bool on);
+
 /* Count of currently supervised members. */
 size_t fyai_fleet_watch_live(struct fyai_ctx *ctx);
 
@@ -61,13 +66,13 @@ void fyai_fleet_watch_reap(struct fyai_ctx *ctx);
 void fyai_fleet_watch_cleanup(struct fyai_fleet_watch *fw);
 
 /*
- * The UI Markdown of the fleet panel of the page from the rows of the member
- * `fleet` of the panels store, {name, state, last, title}, or NULL when there is no
- * row. A row has a mark of its state; the mark of a running member blinks
- * with @phase. @blinks, when not NULL, tells whether a member runs, that is
- * whether the next phase changes the text. The caller frees it.
+ * Render fleet panel Markdown from panel store rows ({name, state, last,
+ * title}). Returns NULL if @rows is not a sequence (non-root session); an
+ * empty sequence produces a placeholder line. Running rows use @running as the
+ * spinner glyph. If @blinks is non-NULL, sets *@blinks to true when any member
+ * is running. Caller frees the returned string.
  */
-char *fyai_fleet_panel_source(fy_generic rows, int phase, bool *blinks);
+char *fyai_fleet_panel_source(fy_generic rows, const char *running, bool *blinks);
 
 /* Drop inherited watcher connections in a forked child without closing fds. */
 void fyai_fleet_watch_abandon(struct fyai_fleet_watch *fw);
