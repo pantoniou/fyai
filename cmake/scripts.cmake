@@ -2,7 +2,9 @@
 #
 # Targets that run the build scripts: a static executable and a Fil-C
 # executable, each as a release build and as a build that keeps debug
-# information (RelWithDebInfo). None is part of "all". Each build has its own
+# information (RelWithDebInfo), and a static executable with every library
+# built with the address and undefined-behavior sanitizers (RelWithDebInfo).
+# None is part of "all". Each build has its own
 # directory under script-builds/ and leaves its executable in out/<name>/fyai.
 
 set(FYAI_SCRIPT_JOBS 12 CACHE STRING "Parallel jobs of the script builds")
@@ -26,6 +28,7 @@ if(UNIX)
     fyai_script_build(static-native build-static-native.sh Release)
     fyai_script_build(static-native-debug build-static-native.sh
         RelWithDebInfo)
+    fyai_script_build(static-asan build-static-asan.sh RelWithDebInfo)
 endif()
 
 # The Fil-C distribution: $FILC, else ~/filc, as build-filc.sh reads it.

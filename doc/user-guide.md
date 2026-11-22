@@ -46,6 +46,12 @@ The targets `static-native` and `static-native-debug` of any build directory
 run `scripts/build-static-native.sh`. The second keeps the debug information
 (`RelWithDebInfo`). The executable is `out/NAME/fyai` of the build directory.
 
+The target `static-asan` runs `scripts/build-static-asan.sh`. It builds zlib,
+OpenSSL, libfyaml, the other fetched libraries and libcurl from source with the
+address and undefined-behavior sanitizers, and links the sanitizer runtime in.
+The build type is `RelWithDebInfo`. The C library stays dynamic, because a
+sanitizer cannot run in a fully static glibc executable.
+
 A self-contained musl binary can be built with:
 
 ```sh
