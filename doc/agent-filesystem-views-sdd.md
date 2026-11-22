@@ -2064,8 +2064,10 @@ mount. It is made before the publish, and not again after a lost CAS.
   the predecessor is not recorded again, so entries that have one state share
   one manifest.
 - Only a run whose arena is in the `.fyai` directory of the project records a
-  state, so a run never captures a directory by chance. A run in a view, a
-  tool child and a transient or pinned run do not record one. A capture that
+  state, so a run never captures a directory by chance. Tool children and
+  transient or pinned runs do not record state. A run inside a view does not
+  capture directly; with `durable`, a session in a view records its view state
+  through its supervisor (see the next section). A capture that
   fails is a warning, and the entry keeps the earlier state.
 - A reference stands for the state of its entry. `HEAD~N` stands for the oldest
   entry that holds that turn, which is the state at the end of the turn.
@@ -2082,6 +2084,34 @@ mount. It is made before the publish, and not again after a lost CAS.
   head only, and says so.
 - The list of the ref log (`list reflog`) shows the start of the root for each
   entry. Section 11.7 collects the manifests and blobs that entries name.
+
+#### Session in a view with `durable`
+
+A session inside a view cannot access project storage directly, so it delegates
+view capture to its supervisor outside the view. Before each model request in a
+durable turn, the session sends a `checkpoint` request over the same channel
+used by `push` and `pull`. The supervisor captures the view (as `push` does)
+and returns the capture reference, storage path, and view runtime. The session
+stores that reference in the `project` field of the checkpoint ref-log entry so
+the files and conversation for a round form a single atomic state that `view
+diff` and `reset` can read like any other reference.
+
+Starting a session on a branch after a crash finds a view that did not exit
+cleanly. Without `durable`, startup fails as before. With `durable`, the
+supervisor reads the head ref-log entry. If the entry references this view, the
+supervisor opens the view, captures its current state, and applies the diff
+from that state back to the checkpointed state inside the view before starting
+the session, passing the project storage objects as a temporary file descriptor
+for that step only. The session then resumes from its last checkpoint: writes
+from the crashed round are discarded, while writes from earlier rounds are
+preserved. If the head entry does not reference this view runtime, the view was
+never checkpointed; it is discarded and the session starts on the project tree.
+When the session ends cleanly, the view is applied to the project as usual.
+
+Limitations: captures snapshot the live view, so a background process left
+running by a tool that continues writing can produce filesystem state that no
+conversation round observed. Ignored paths are not captured and are not
+restored.
 
 ### 11.7 Collection of the project storage
 

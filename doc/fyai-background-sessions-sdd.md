@@ -463,3 +463,329 @@ This proposal selects one worker per branch per server, one controller plus watc
 Before implementation, confirm limit defaults through measurement, choose the exact branch naming helper, verify that model snapshot serialization supplies a consistent cut, and map the existing root-CAS reconciliation/merge outcomes into remote session state. Those implementation checks may refine interfaces but must preserve the requirements above.
 
 The native feature is complete when a user can create two sessions on different branches, submit work in each, close all clients, reconnect while either session is running or after it completes, recover questions and display state, and continue without duplicated work. The same tests must distinguish client loss from worker loss and server loss. Stock SDK callback recovery and browser integration remain separately reported milestones.
+
+## 20. Background sessions with a split worker
+
+This milestone implements the minimal subset of the design above. It does not
+add protocol v2, submission recovery, or transparent reconnect; instead, it
+builds on the existing server, worker-per-branch model, and branch/session
+identity.
+
+### 20.1 Split worker execution
+
+Every interactive terminal session (`fyai`, `fyai -i`, `fyai resume`, `fyai
+switch`) runs in a worker child process spawned by the terminal process (see
+`doc/future-cleanups.md`). The worker owns the event loop, model stream, tools,
+and arena. The terminal process acts as a thin client: it renders the UI model
+and forwards keyboard input.
+
+Non-interactive invocations—one-shot prompts without `-i`, subcommands, frame
+modes, and sessions without a terminal—run in-process using the plain output
+sink (and the fallback line editor for `-i` without a TTY). When no project
+exists yet, the terminal client prompts the user to initialize one and passes
+`--bootstrap` to the worker, since the worker has no controlling terminal.
+
+### 20.2 `/background`
+
+`/background` (aliased as `/detach`) runs in the worker at any time—while a
+model request is in flight, while tools are running, while a question is open,
+or while idle:
+
+1. If the project has no running server, the worker starts `fyai serve --daemon
+   --once`, connects, completes the hello handshake, and sends
+   `fyai_session_adopt` with its branch name, PID, `busy` status (whether a
+   turn is in flight), and `keep` when idle.
+2. The server adopts that connection as the session channel for the branch.
+   Because the worker was not spawned by the server, closing the channel ends
+   the session entry.
+3. The worker replies to the command on the terminal client channel, sends
+   `{"type":"fyai","subtype":"backgrounded"}`, flushes outgoing frames, and
+   switches its active channel to the server connection. The client prints a
+   status notice and exits without waiting for the worker.
+
+No state is serialized or restarted: the active turn, running tools, and open
+questions continue uninterrupted in the same worker process. The client channel
+is freed once all of its in-flight frames complete.
+
+In-process sessions have no worker to hand off, so `/background` fails with an
+explanatory error.
+
+If the worker already registered with a server at startup (see
+`doc/fyai-fleet-sdd.md` section 6.2), it skips `fyai_session_adopt`; it
+notifies that server that its client detached, and the existing registration
+connection becomes its primary channel. A server for the current project or any
+ancestor project adopts the session; a project server is started only when no
+ancestor server is running.
+
+If the worker is already owned by a server (either previously adopted or
+spawned by the server), `/background` simply disconnects the requesting client
+and leaves the session running on the server.
+
+### 20.3 Server lifecycle and live registry
+
+- `serve --once` exits once at least one session has run and no remaining
+  session has an active turn, an attached client, or a `keep` flag. A turn is
+  active until its `result` frame is emitted; a pending question keeps the turn
+  open.
+- A session with `keep` set (a parked session) persists until `fyai serve stop`
+  (or idle timeout; see `doc/fyai-fleet-sdd.md` section 6.2.1).
+- The server writes `<socket>.live` (JSON containing `pid` and a `sessions`
+  list with `branch`, `busy`, `waiting`, and `attached` fields) whenever a
+  session starts, exits, attaches or detaches a client, starts or finishes a
+  turn, or opens or resolves a question. The server removes the file on exit.
+  Readers ignore and remove stale files whose PID no longer exists. This file
+  is a discovery hint for pickers, not canonical state.
+- Workers report open questions (`waiting`) in their `fyai_worker` status
+  frame. Tool permission prompts that do not use the question mechanism are not
+  reported as `waiting`.
+
+### 20.4 Joining and switching
+
+- The resume picker labels live sessions `[live · idle]`, `[live · running]`,
+  or `[live · waiting]`. Selecting a live row closes the current client and
+  executes `fyai -b BRANCH remote connect` in its place (via
+  `cfg->attach_branch`, matching how `/reload` uses `reload_branch`). When a
+  client cannot read `<socket>.live` directly, the worker annotates the rows.
+- `fyai resume --last` and `fyai resume NAME` attach to an existing live
+  session for the branch instead of spawning a second worker.
+- An attached remote client can open `/resume` and switch to another live
+  session the same way; selecting the currently attached branch is rejected.
+- `/continue` invokes the model on the current branch head without adding a new
+  user message. Use it to resume a turn that stopped after a tool round (for
+  example, after hitting the tool-call limit or recovering from a crash). It
+  rejects conversations whose last message is not a tool result, user message,
+  or agent message (`fyai_turn_continuable()`).
+
+### 20.5 Listing, killing, and leaving sessions running
+
+- On `/exit` or `/background`, after restoring the terminal, the client prints
+  a summary line naming the backgrounded or parked session and up to four other
+  live sessions (with their states), along with reminders for `fyai resume`,
+  `session list`, and `serve stop`. Nothing is printed if the server holds no
+  sessions.
+- `session list` (alias `ps`) lists the project's live sessions from the server
+  registry (`branch`, `state` as `idle`/`running`/`waiting`, `attached`, and
+  worker `pid`). It works both as a CLI command and as a slash command.
+- `session kill BRANCH` terminates a live session: the server sends `SIGTERM`
+  (or `SIGKILL` with `--force`) to the worker, and attached clients observe the
+  exit. Already-published turns remain stored on the branch. Pressing `K` on a
+  live row in the resume picker performs the same action. A client cannot kill
+  the session it is currently attached to.
+- `session new` and `resume` keep the current session running if it has active
+  work (an in-flight turn, an open tool terminal session, an attached sub-agent,
+  or an open question). The worker hands off to the server just as with
+  `/background`, and the `backgrounded` frame instructs the client what to
+  launch next (`next`: a new session or `resume BRANCH`), which `main()` runs
+  in place of the exiting client. An idle session exits cleanly after its
+  branch is saved. In-process sessions have no worker to hand off and refuse to
+  switch while work is active.
+
+### 20.6 Client disconnection
+
+If a split worker's client channel closes unexpectedly (terminal closed,
+connection dropped, or client killed) while work is active, the worker hands
+itself off to the server just as `/background` does and continues running its
+turn, tools, and open questions. An idle worker exits with its client. A worker
+already owned by a server exits only if the server itself stops.
+
+### 20.7 `durable`
+
+When `durable` is enabled (the default), the in-flight turn is published to the
+arena before each model request once all tool calls for the previous round have
+returned results. If the worker crashes, the conversation is preserved through
+the last completed round (resumable with `/continue`), and newly attaching
+clients see all completed rounds. Setting `durable: false` publishes turns only
+upon completion.
+
+Each round adds one publish. On `tests/bench/durable_rounds.sh` (mock provider,
+one tool call per round), overhead is 1.2 ms/round at 50 rounds, 1.7 ms at 200,
+1.6 ms at 500, and 2.2 ms at 1000, independent of tool result size (1 KB to
+100 KB), with ~0.3 KB of arena growth per round. Each round writes a ref-log
+entry of kind `checkpoint`, which the next publish replaces so a completed turn
+leaves no checkpoint entries and `BRANCH@{N}` counts exchanges identically with
+or without `durable`.
+
+#### Pending work
+
+With `durable` enabled, each publish also records active background work and
+queued model events in the branch store under the `pending` field: named waits,
+monitors, background commands, background sub-agents, and pending events. Each
+record stores the name, command or reason, due timestamp (wall clock in
+milliseconds), timeout, and owner identity (PID and process start time).
+`fyai_pending_stage()` stages the table as part of the publish so it commits
+atomically with the conversation round.
+
+The `pending` table persists only while its owner process is alive. Clean
+shutdown, `/clear`, `/reset`, `/resume`, and `/checkout` clear it along with
+the active work. A surviving table whose owner PID/start time is no longer
+running indicates a crashed process. When a worker or interactive session
+starts on that branch (or runs `/continue`), `fyai_pending_restore()` takes
+over the table:
+
+- Named waits resume for their remaining duration; overdue waits fire
+  immediately.
+- Monitors and background commands restart with their remaining timeout inside
+  the restored filesystem view root. Monitors emit
+  `[monitor 'NAME' restarted: ...]` to the model because previously printed
+  lines may repeat.
+- Monitors whose timeout has already elapsed terminate with a timeout event.
+- Background sub-agents restart using their stored call parameters. Because
+  each sub-agent runs on its own branch with `durable` enabled, it resumes from
+  its last checkpointed round. Its task is re-delivered with a restart notice,
+  and the parent model receives `[agent 'NAME' restarted: ...]`.
+- Queued model events (such as sub-agent completion or fired waits) are
+  re-enqueued ahead of the restarted work, up to 64 events. Events already
+  consumed by a waiter and interactive agent input prompts are not persisted.
+
+For a session running in a filesystem view, each checkpoint also snapshots the
+view state so crash recovery restores the view before restarting the session
+(see "Session in a view with `durable`" in `doc/agent-filesystem-views-sdd.md`).
+
+A `pending` table whose owner process is still alive is left untouched. A
+blocking `wait` tool call belongs to the in-flight round and will be re-issued
+by the model after recovery. State changes not followed by a publish (such as a
+wait firing while idle) are persisted on the next publish, so a crash in that
+window may fire the wait again. Queued events are persisted on the first
+publish after enqueueing; sub-agent completions, waits, and monitors remain
+backed by their own records until then and are redelivered after a crash.
+Unbacked transient items—inter-agent messages and unsent user input—are lost on
+crash; restarted sub-agents and their parents are notified that messages may
+have been lost, and the user can re-enter input.
+
+A restarted sub-agent restores its own branch's `pending` table before its first
+turn, recursively restarting any background sub-agents it owned. Because each
+level tracks its own owner PID/start time, levels whose process did not crash
+are left untouched.
+
+### 20.8 Limitations
+
+- Joining a live session always connects to the project's default Unix socket.
+  Clients connected via non-default endpoints (`--remote`, SSH, or HTTP) do not
+  join live rows.
+- A worker retains its working directory and runtime configuration (including
+  unpersisted `--set` flags) when handed off to the server. By contrast, a
+  session started on demand when attaching by name starts in the server's
+  working directory.
+- With `durable: false`, an in-flight turn is persisted only when it completes,
+  so an attaching client sees live display output rather than historical turns
+  for the current exchange.
+- Selecting a live row that exited before connection fails at connect time.
+- Frames sent by a joining client during the brief window between the server's
+  handshake reply and the worker's channel switch can be dropped; the client
+  re-initializes automatically if it receives no response.
+  (`fyai_turn_continuable()`).
+
+### 20.5 Listing, killing, and leaving a session running
+
+- A client that leaves, by `/exit` or `/background`, writes one note on the
+  terminal after its display closed. It names the session that went to the
+  server, parked or in the background, and counts the other live sessions of
+  the record, up to four by name and state. `fyai resume`, `session list` and
+  `serve stop` are the commands it points to. It writes nothing when the
+  server holds no session.
+
+- `session list` (`ps`) shows the live sessions of the project from the record
+  of the server: `branch`, `state` (`idle`, `running`, `waiting`), `attached`,
+  and the `pid` of the worker. It works on the command line and in a session.
+- `session kill BRANCH` ends one live session: the server sends its worker
+  SIGTERM (SIGKILL with `--force`), and its clients see it end. The branch
+  keeps the turns that were stored. The picker's `K` key does the same on a
+  live row. A client does not close the session it is on.
+- `session new` and `resume` leave the current session running when it does
+  work: a turn, a tool session, an attached agent or an open question. The
+  worker goes to the server as for `/background`, and the `backgrounded` frame
+  tells the client what to start in its terminal (`next`: a new session, or
+  `resume BRANCH`); `main()` runs it in place of the client. An idle session
+  just ends, and its branch is stored. A session in the terminal process has
+  no worker to leave and refuses while it does work.
+
+### 20.6 The terminal goes away
+
+A split worker whose channel closes (the terminal closed, the connection
+dropped, the client was killed) while it does work gives itself to the server,
+as `/background` does, and goes on: the turn, the tools and the questions are
+as they were. An idle worker ends with its client. A worker that a server
+already holds ends only if the server goes.
+
+### 20.7 `durable`
+
+With `durable` set, the turn in flight is stored before each model request,
+when every call of it has its result. A worker that is lost then leaves the
+conversation up to the last round, which `/continue` runs, and a client that
+joins sees the rounds so far. The key is on by default; `durable: false` stores
+a turn only when it ends.
+
+A round costs one publish: on the benchmark `tests/bench/durable_rounds.sh`
+(a mock provider, one tool call a round) it adds 1.2 ms a round at 50 rounds,
+1.7 ms at 200, 1.6 ms at 500 and 2.2 ms at 1000, whatever the size of the
+tool results (1 KB to 100 KB). The arena grows by about 0.3 KB a round. A
+round is a ref-log entry of the kind `checkpoint`. The next publish takes
+its place, so a finished turn leaves no checkpoint and `BRANCH@{N}` counts
+exchanges as it does without `durable`.
+
+#### Pending work
+
+With `durable`, each publish also records the named waits, the monitors, the
+commands and sub-agents in the background of the run, and the events that wait
+for the model, in the store of the branch, as the member `pending`. A record holds the name, the command or the reason, the due
+time (wall clock, in milliseconds), the time limit, and the owner: the pid and
+the start time of the process. The table is staged by the publish itself
+(`fyai_pending_stage()`), so it commits with the conversation of the same
+round.
+
+The table exists only while its owner runs. A run that ends, and `/clear`,
+`/reset`, `/resume` and `/checkout`, remove it with the work. A table that
+outlives its owner therefore means the owner was lost. A worker or an
+interactive session that starts on the branch, and `/continue`, take such a
+table over (`fyai_pending_restore()`):
+
+- a wait opens again for the time that remains; one that is past due fires at
+  once;
+- a monitor or a command in the background starts again with the time limit
+  that remains, in the view of the restored root, and the model gets one event,
+  `[monitor 'NAME' restarted: ...]`, because lines it printed before can print
+  again;
+- a monitor whose limit has passed ends with the event of its limit;
+- a sub-agent in the background starts again with its stored call. Its
+  conversation is on its own branch, which `durable` stores before each of its
+  model requests, so it revives that branch and goes on from the last round
+  that it stored. Its task is sent again with a line that says so, and the
+  model gets one event, `[agent 'NAME' restarted: ...]`.
+
+- an event that waited for the model (the end of a sub-agent, a wait that
+  fired) is queued again, before the work above. The table holds at most 64 of
+  them; an event that a waiter has seen, and agent input, are not stored.
+
+A session in a view stores the state of its view with each checkpoint, and a
+start after a loss puts the view back to it before the session runs; the
+section on a session in a view of `agent-filesystem-views-sdd.md` has the
+rules.
+
+A table whose owner still runs is left alone. A `wait` that holds a tool call
+is part of the round in flight: the model asks it again. A change that no
+publish follows (a wait that fires while the session is idle) is stored by the
+next publish, and a loss in that gap fires the wait again. An event is stored
+by the first publish after it was queued. The end of a sub-agent, a wait and a
+monitor are also kept by their own records until then, so a loss in that gap
+delivers them again. What nothing backs is lost: a message between agents, and
+what a person typed. A restarted sub-agent and its parent are told that a
+message can be lost; the person sees the break and types again.
+
+A restarted sub-agent takes over the table of its own branch before its first
+turn, as the session does for its branch: a sub-agent that it had in the
+background is started again, and told so, and so on down. Each level keeps its
+own table, with its own owner, so a level that lost no process is left alone.
+
+### 20.8 Limits
+
+- The new client connects to the default socket of the project. A client of
+  another endpoint (`--remote`, ssh, HTTP) does not join a live row.
+- A worker keeps its own directory and configuration when it moves, so an
+  unstored `--set` goes with it. A session that a client attaches to by name
+  starts a worker in the directory of the server.
+- The conversation of a running turn is stored when the turn ends, so a client
+  that joins sees the live display and not the turn so far in the history.
+- A row that ended before the user chose it fails at the connection.
+- A frame that a joining client sends in the moment between the answer of the
+  server and the new channel of the worker is lost. The client initializes
+  again when it sees no answer.

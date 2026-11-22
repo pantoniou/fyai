@@ -412,10 +412,8 @@ session, until the default step removes it, calls the same function directly.
      checkpoint of a call does not reach the view of the client in the right
      order; it needs the client to commit the rows of the document when a tile
      opens. `catalog_available` fails with or without the split.
-     The oracle cases keep their local run local
-     (`FYAI_TEST_NO_SPLIT`): with a split client in that role, the tile of a bang
-     is one column narrower in about a third of the loaded runs, and the
-     cause is not known.
+     The oracle cases compare a split client connected to a child worker
+     against one connected to `fyai serve`; the in-process path has been removed.
    - The resume picker of a client: the query `sessions` gives the rows, a
      choice runs `/resume NAME` in the worker, `/resume` with no name runs
      the picker in the client, and `--split resume [SESSION]` opens the picker
@@ -475,8 +473,11 @@ this order: implementation, tests, documentation.
 2. Parity. Run the PTY suite with the option on, by an environment variable of
    the harness, and fix each divergence in the worker or in the client. The
    oracle cases must pass. Do not add a second path in the worker for a split
-   session. `FYAI_TEST_SPLIT=1 ctest -R case_` puts `--split` in each `pty_run`
-   of a command that is not a client of a server. Of 480 cases, 78 fail in
+   session. Interactive terminal sessions are now always split: the `--split`
+   flag, `$FYAI_NO_SPLIT`, and the in-process UI loop were removed in step 6.
+   `ui_resize_tool_prose` is skipped because it still fails in split mode (see
+   below). The counts that follow were recorded before split mode became the
+   default: of 480 cases, 78 failed in
    split mode and 1 fails (`catalog_available`) without it. The first run had
    183: the client replayed `--set` against an arena that it has not, which
    `config: leave the --set ops to the worker of --remote` fixed. What stays,
@@ -522,9 +523,9 @@ this order: implementation, tests, documentation.
    arena and no terminal either, so the same request serves it. Check each of
    the 68 keys against the four kinds below. A client with no arena must work:
    add a case that connects with an empty `HOME`.
-6. Default. The split is the way of an interactive run. Remove the option, the
-   in-process presentation of an interactive run and the `fyai_ui_*` calls of
-   the core that nothing uses. This removes the blockers that the thread plan
+6. Done. Split mode is now the only interactive terminal architecture. Removed
+   the `--split` flag, the in-process interactive presentation layer, and the
+   unused `fyai_ui_*` calls in core. This removes the blockers that the thread plan
    had to solve first. Update the layout and the event-loop rules of
    `CLAUDE.md` and `doc/remote-sessions-sdd.md`.
 
