@@ -143,6 +143,13 @@ struct fyai_page_state {
 	int todo_rows;
 	bool todo_shown;
 	/*
+	 * Fleet member panel below todo: borrowed UI Markdown for the frame
+	 * (or NULL), its rendered row count, and visibility flag.
+	 */
+	const char *fleet_source;
+	int fleet_rows;
+	bool fleet_shown;
+	/*
 	 * The lines the user typed while a turn runs, which wait for the
 	 * prompt and stand on top of the input area. UI Markdown, borrowed for
 	 * the frame; NULL when none waits. @pending_rows is what it takes;

@@ -341,7 +341,8 @@ int fyai_page_chrome_rows(const struct fyai_page_state *st)
 	rows += st->note_nlines;
 	if (st->log_title && st->log_rows > 0)
 		rows += st->log_rows + 1;
-	return rows + (st->todo_shown ? st->todo_rows + 2 : 0);
+	return rows + (st->todo_shown ? st->todo_rows + 2 : 0) +
+	       (st->fleet_shown ? st->fleet_rows + 2 : 0);
 }
 
 int fyai_page_pending_budget(const struct fyai_page_state *st, int height)
@@ -371,6 +372,8 @@ void fyai_page_fit(struct fyai_page_state *st, int height)
 		st->pane_rows = height > 1 ? height - 1 : height;
 		st->todo_rows = 0;
 		st->todo_shown = false;
+		st->fleet_rows = 0;
+		st->fleet_shown = false;
 		st->tail_rows = 0;
 		st->transcript_rows = 0;
 		return;
@@ -381,6 +384,8 @@ void fyai_page_fit(struct fyai_page_state *st, int height)
 		st->pane_rows = 0;
 		st->todo_rows = 0;
 		st->todo_shown = false;
+		st->fleet_rows = 0;
+		st->fleet_shown = false;
 		st->tail_rows = 0;
 		st->transcript_rows = 0;
 		return;
@@ -406,6 +411,13 @@ void fyai_page_fit(struct fyai_page_state *st, int height)
 		left = height - fyai_page_chrome_rows(st) - st->pane_rows;
 		if (todo_rows <= left)
 			st->todo_shown = true;
+	}
+	/* Show fleet panel below todo only if remaining height permits. */
+	if (st->fleet_shown) {
+		st->fleet_shown = false;
+		left = height - fyai_page_chrome_rows(st) - st->pane_rows;
+		if (st->fleet_rows + 2 <= left)
+			st->fleet_shown = true;
 	}
 	left = height - fyai_page_chrome_rows(st);
 	/* The work outranks the tail, which shows its last rows. */
@@ -900,6 +912,11 @@ fy_generic fyai_page_state_generic(struct fy_generic_builder *gb,
 			"below", (bool)(st->todo_shown && st->pane_below),
 			"source", page_str(st->todo_source),
 			"rows", st->todo_rows),
+		"fleet", fy_mapping(gb,
+			"shown", (bool)st->fleet_shown,
+			"below", (bool)(st->fleet_shown && st->pane_below),
+			"source", page_str(st->fleet_source),
+			"rows", st->fleet_rows),
 		"note", fy_mapping(gb,
 			"shown", (bool)(st->note_nlines > 0),
 			"rows", st->note_nlines),

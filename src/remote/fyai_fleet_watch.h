@@ -4,6 +4,9 @@
 
 #include <stdbool.h>
 
+#include <libfyaml.h>
+#include <libfyaml/libfyaml-generic.h>
+
 struct fyai_ctx;
 struct fyai_loop;
 struct fyai_waitq;
@@ -52,6 +55,13 @@ void fyai_fleet_watch_reap(struct fyai_ctx *ctx);
 
 /* Close all watcher connections during shutdown. */
 void fyai_fleet_watch_cleanup(struct fyai_fleet_watch *fw);
+
+/*
+ * The UI Markdown of the fleet panel of the page from the rows of the member
+ * `fleet` of the panels store, {name, state, last}, or NULL when there is no
+ * row. The caller frees it.
+ */
+char *fyai_fleet_panel_source(fy_generic rows);
 
 /* Drop inherited watcher connections in a forked child without closing fds. */
 void fyai_fleet_watch_abandon(struct fyai_fleet_watch *fw);
