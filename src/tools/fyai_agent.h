@@ -45,6 +45,11 @@ bool fyai_agent_background_running(struct fyai_ctx *ctx, const char *name);
 const char *fyai_agent_background_original_name(struct fyai_ctx *ctx,
 						 const char *name);
 
+/* Serialize active background sub-agents into @gb for the pending store. */
+fy_generic fyai_agents_pending(struct fyai_ctx *ctx, struct fy_generic_builder *gb);
+/* Restart a background sub-agent from @record, reviving its branch. */
+int fyai_agent_restore(struct fyai_ctx *ctx, fy_generic record);
+
 /* Cancel and release the background sub-agents of this invocation. */
 void fyai_agent_background_close(struct fyai_ctx *ctx);
 

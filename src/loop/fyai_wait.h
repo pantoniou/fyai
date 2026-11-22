@@ -69,6 +69,19 @@ void fyai_waiters_abandon(struct fyai_ctx *ctx);
  */
 fy_generic fyai_waits_rows(struct fyai_waitq *q, struct fy_generic_builder *gb);
 
+/*
+ * Serialize pending named waits into @gb for branch persistence:
+ * [{kind: "wait", name, due (wall-clock ms), reason?}].
+ */
+fy_generic fyai_waits_pending(struct fyai_waitq *q, struct fy_generic_builder *gb);
+/*
+ * Recreate a persisted named wait firing at wall-clock deadline @due (ms),
+ * or immediately if already elapsed. Returns a heap-allocated status string
+ * (caller frees), or NULL on error.
+ */
+char *fyai_wait_restore(struct fyai_waitq *q, const char *name,
+			const char *reason, long long due);
+
 /* Drop every wait. They live for one invocation, as a session does. */
 void fyai_waits_release(struct fyai_waitq *q);
 

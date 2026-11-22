@@ -68,6 +68,7 @@ void fyai_branch_state_init(struct fyai_branch_state *bs,
 	bs->agent = fy_invalid;
 	bs->store = fy_invalid;
 	bs->project_state = fy_invalid;
+	bs->pending = fy_invalid;
 	bs->tool_changes = fy_seq_empty;
 }
 
@@ -195,6 +196,11 @@ void fyai_turnstate_abandon(struct fyai_turnstate *turn)
 {
 	/* A request, a stop, a budget, a gate and a relay belong to one turn. */
 	turn->end_requested = false;
+	turn->background = NULL;
+	turn->background_data = NULL;
+	turn->background_next = NULL;
+	turn->working = NULL;
+	turn->continue_requested = false;
 	turn->stop = FYAI_TURN_STOP_NONE;
 	turn->cost_limit = 0;
 	turn->compacting = false;

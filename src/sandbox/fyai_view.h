@@ -138,6 +138,14 @@ bool fyai_view_isolation_available(struct fyai_ctx *ctx);
 const char *fyai_view_session_name(const struct fyai_ctx *ctx);
 
 /*
+ * Request a filesystem view snapshot from the session supervisor and return it
+ * (interned in ctx->arena->gb) in @state for pairing with a branch checkpoint.
+ * Returns 0 on success, 1 if not running inside a view (@state = fy_invalid),
+ * or -1 on error with diagnostic reported.
+ */
+int fyai_view_session_checkpoint(struct fyai_ctx *ctx, fy_generic *state);
+
+/*
  * Whether the main session can run in a view here (view/isolate_session): not in
  * a view, with the arena in the project, the scratch directory outside it, and
  * user namespaces that a probe could make. Nothing changes.

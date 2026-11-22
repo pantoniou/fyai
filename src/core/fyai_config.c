@@ -406,6 +406,9 @@ static void config_apply_api_key(struct fyai_cfg *cfg, fy_generic root)
 {
 	fy_generic secret_ref, rtype, rname;
 
+	/* CLI-provided API key overrides any configured key. */
+	if (cfg->api_key_ref && !strcmp(cfg->api_key_ref, "mem:cli"))
+		return;
 	secret_ref = fy_get(root, "api_key");
 	if (fy_is_mapping(secret_ref)) {
 		if (fy_equal(fy_get(secret_ref, "type"), "auto")) {
@@ -479,6 +482,7 @@ static void config_apply_request(struct fyai_cfg *cfg, fy_generic root)
 				cfg->max_tool_iterations);
 	cfg->max_tokens = fy_get(root, "max_tokens",
 				cfg->max_tokens);
+	cfg->durable = fy_get(root, "durable", cfg->durable);
 }
 
 
@@ -3204,6 +3208,7 @@ void fyai_config_set_defaults(struct fyai_cfg *cfg)
 	cfg->parallel_tool_calls_prompt =
 		DEFAULT_PARALLEL_TOOL_CALLS_PROMPT;
 	cfg->max_tool_iterations = MAX_TOOL_LOOP_ITERATIONS;
+	cfg->durable = true;
 	cfg->max_tokens = DEFAULT_MAX_TOKENS;
 	cfg->temperature = DEFAULT_TEMPERATURE;
 	cfg->top_logprobs = -1;
@@ -3384,6 +3389,7 @@ enum {
 	OPT_REMOTE,
 	OPT_SINK_FRAMES,
 	OPT_SPLIT,
+	OPT_BOOTSTRAP,
 };
 
 static const struct option long_options[] = {
@@ -3402,6 +3408,7 @@ static const struct option long_options[] = {
 	{ "remote", required_argument, NULL, OPT_REMOTE },
 	{ "sink-frames", no_argument, NULL, OPT_SINK_FRAMES },
 	{ "split", no_argument, NULL, OPT_SPLIT },
+	{ "bootstrap", no_argument, NULL, OPT_BOOTSTRAP },
 	{ "sandbox", required_argument, NULL, OPT_SANDBOX },
 	{ "color", required_argument, NULL, OPT_COLOR },
 	{ "theme", required_argument, NULL, OPT_THEME },
@@ -4101,6 +4108,9 @@ static int config_parse_cli_options(struct fyai_cfg *cfg, int argc, char *argv[]
 		case OPT_TRANSIENT:
 			cfg->transient = true;
 			break;
+		case OPT_BOOTSTRAP:
+			cfg->bootstrap_confirmed = true;
+			break;
 		case OPT_PROJECT:
 		case OPT_REMOTE:
 		case OPT_SPLIT:
@@ -4230,6 +4240,29 @@ err_out:
 	return -1;
 }
 
+/*
+ * Return true when this TTY invocation should default to --split mode
+ * (terminal client + child worker, enabling /background). Applies to bare
+ * interactive invocations, explicit -i prompts, and the resume/switch verbs;
+ * excludes non-TTY runs, --remote, --sink-frames, -h, one-shot prompts, and
+ * other verbs.
+ */
+static bool config_split_default(const struct config_setup *s)
+{
+	const struct fyai_cfg *cfg = s->cfg;
+	const char *word;
+
+	if (cfg->remote || cfg->sink_frames || s->cli.help ||
+	    !isatty(STDIN_FILENO) || !isatty(STDOUT_FILENO))
+		return false;
+	if (s->arg_index >= s->argc)
+		return true;
+	word = s->argv[s->arg_index];
+	if (!strcmp(word, "resume") || !strcmp(word, "switch"))
+		return true;
+	return cfg->interactive && !fyai_cmd_is_verb(word);
+}
+
 /* Parse the global options, and the arguments of --remote and -h. */
 static int config_setup_args(struct config_setup *s)
 {
@@ -4244,6 +4277,8 @@ static int config_setup_args(struct config_setup *s)
 	if (rc < 0)
 		goto err_out;
 	s->arg_index = s->cli.arg_index;
+	if (config_split_default(s))
+		cfg->remote = cfg->split = true;
 
 	/*
 	 * --remote keeps its own options and gives every other word to the

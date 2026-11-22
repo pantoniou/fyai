@@ -41,6 +41,13 @@ bool fyai_host_process_reads_stdin(pid_t pid)
 	return backend->process_reads_stdin && backend->process_reads_stdin(pid);
 }
 
+int fyai_host_process_start(pid_t pid, uint64_t *start)
+{
+	if (!backend->process_start)
+		return -ENOTSUP;
+	return backend->process_start(pid, start);
+}
+
 size_t fyai_host_process_children(pid_t pid, pid_t *out, size_t max)
 {
 	return backend->process_children ? backend->process_children(pid, out, max) : 0;

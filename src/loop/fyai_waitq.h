@@ -10,6 +10,8 @@
 #include <stdarg.h>
 #include <stdbool.h>
 
+#include <libfyaml/libfyaml-generic.h>
+
 struct fyai_diag;
 struct fyai_event_source;
 struct fyai_loop;
@@ -109,6 +111,12 @@ void fyai_events_purge_seen(struct fyai_waitq *q);
 /* Take the oldest event with a live owner, dropping stale waits first. */
 char *fyai_event_take_live(struct fyai_waitq *q);
 void fyai_events_release(struct fyai_waitq *q);
+/*
+ * Serialize up to FYAI_EVENTS_PENDING_MAX unowned pending events into @gb
+ * for branch persistence: [{kind: "event", text}].
+ */
+#define FYAI_EVENTS_PENDING_MAX 64
+fy_generic fyai_events_pending(struct fyai_waitq *q, struct fy_generic_builder *gb);
 /* Drop the queued wait events of one settled owner. */
 void fyai_events_drop_agent(struct fyai_waitq *q, const char *branch);
 void fyai_events_drop_session(struct fyai_waitq *q, const char *name);

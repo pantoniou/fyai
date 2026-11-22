@@ -17,6 +17,10 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "fyai_pending.h"
+#include "fyai_remote.h"
+#include "fyai_turn.h"
+#include "fyai_uimodel.h"
 #include "fyai_host.h"
 #include "fyai.h"
 #include "fyai_cmd.h"
@@ -122,6 +126,9 @@ int fyai_cmd_session_new(struct fyai_cmd_call *call, fy_generic *result)
 	char name[FYAI_BRANCH_NAME_MAX + 1];
 	int rc;
 
+	/* Hand off active work to server; idle sessions reset in place. */
+	if (fyai_session_working(ctx))
+		return fyai_session_leave(ctx, "");
 	rc = fyai_branches_refresh(ctx);
 	fyai_error_check(ctx, !rc, err, "session: could not refresh the branches");
 	rc = fyai_branch_session_name(ctx->bstate->branches, name, sizeof(name));
@@ -133,6 +140,76 @@ int fyai_cmd_session_new(struct fyai_cmd_call *call, fy_generic *result)
 	fyai_error_check(ctx, !rc, err,
 			 "session: could not empty the new session '%s'", name);
 	*result = fy_mapping(call->gb, "branch", fyai_ctx_branch(ctx));
+	return 0;
+err:
+	return -1;
+}
+
+/* Schedule the interactive loop to continue a model turn from current head. */
+int fyai_cmd_continue(struct fyai_cmd_call *call, fy_generic *result)
+{
+	struct fyai_ctx *ctx = fyai_cmd_call_ctx(call);
+
+	(void)result;
+	fyai_error_check(ctx, fyai_turn_continuable(ctx->turn->last_message), err,
+			 "continue: the conversation does not end with a tool result "
+			 "or a message to answer");
+	ctx->turn->continue_requested = true;
+	/* Restore any pending work persisted by an interrupted process. */
+	(void)fyai_pending_restore(ctx);
+	return 0;
+err:
+	return -1;
+}
+
+/* List live sessions currently hosted by this project's server. */
+int fyai_cmd_session_list(struct fyai_cmd_call *call, fy_generic *result)
+{
+	fy_generic live, session, rows = fy_seq_empty;
+
+	live = fyai_remote_live_sessions(fyai_cmd_call_ctx(call), call->gb);
+	fy_foreach(session, live)
+		rows = fy_append(call->gb, rows, fy_mapping(call->gb,
+			"branch", fy_get(session, "branch", ""),
+			"state", fyai_remote_live_state(session),
+			"attached", fy_get(session, "attached", false),
+			"pid", fy_get(session, "pid", 0LL)));
+	*result = rows;
+	return 0;
+}
+
+/* Terminate a single live session hosted on the server. */
+int fyai_cmd_session_kill(struct fyai_cmd_call *call, fy_generic *result)
+{
+	struct fyai_ctx *ctx = fyai_cmd_call_ctx(call);
+	const char *branch = fyai_cmd_arg_str(call, "branch");
+	bool busy = false;
+
+	if (fyai_remote_session_close(ctx, branch, fyai_cmd_arg_bool(call, "force"),
+				      &busy))
+		return -1;
+	*result = fy_mapping(call->gb, "branch", branch, "busy", busy);
+	return 0;
+}
+
+/*
+ * Hand off this split-worker session (including any in-flight turn) to the
+ * project server and detach the terminal client.
+ */
+int fyai_cmd_background(struct fyai_cmd_call *call, fy_generic *result)
+{
+	struct fyai_ctx *ctx = fyai_cmd_call_ctx(call);
+
+	fyai_error_check(ctx, ctx->turn->background, err,
+			 "background: this session does not run at a worker; a session "
+			 "on a terminal does");
+	fyai_error_check(ctx, !ctx->cfg->transient && !ctx->cfg->root_pinned, err,
+			 "background: a server cannot read a transient or pinned session");
+	fyai_error_check(ctx, !ctx->bstate->session_unstored, err,
+			 "background: the session has no stored exchange yet");
+	if (ctx->turn->background(ctx, ctx->turn->background_data))
+		return -1;
+	(void)result;
 	return 0;
 err:
 	return -1;

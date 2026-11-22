@@ -76,6 +76,12 @@ fy_generic fyai_turn_set_response_id(struct fyai_ctx *ctx, fy_generic turn,
  */
 bool fyai_turn_has_user_message(fy_generic turn);
 
+/*
+ * Return true if the conversation ending at @head can be continued directly
+ * (last message is a tool result, user message, or agent message).
+ */
+bool fyai_turn_continuable(fy_generic head);
+
 /* True when a turn carries only system messages (and at least one). */
 bool fyai_turn_is_system_only(fy_generic turn);
 

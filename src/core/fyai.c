@@ -28,6 +28,7 @@
 #include "fyai_cmd.h"
 #include "fyai_agent.h"
 #include "fyai_monitor.h"
+#include "fyai_pending.h"
 #include "fyai_tool_registry.h"
 #include "fyai_catalog.h"
 #include "fyai_config.h"
@@ -68,6 +69,7 @@
 #include "fyai_tool_spec.h"
 #include "fyai_turn.h"
 #include "fyai_branch.h"
+#include "fyai_remote.h"
 #include "fyai_skill.h"
 #include "fyai_settings.h"
 #include "fyai_app.h"
@@ -1596,6 +1598,38 @@ err:
 	return -1;
 }
 
+/*
+ * Persist a mid-turn checkpoint under `durable` mode before each model request
+ * (once all tool results are settled) so `/continue` can resume after a crash.
+ * Internalizes run->turn into the arena as the branch head; errors are
+ * reported without aborting the turn.
+ */
+static void fyai_turn_run_checkpoint(struct fyai_turn_run *run)
+{
+	struct fyai_ctx *ctx = fyai_turn_run_ctx(run);
+	fy_generic head, state;
+	int rc;
+
+	/* Skip compaction: its synthetic prompt must not overwrite head. */
+	if (!ctx->cfg->durable || ctx->turn->compacting || !fy_is_valid(run->turn))
+		return;
+	head = fy_gb_internalize(ctx->arena->gb, run->turn);
+	fyai_error_check(ctx, fy_is_valid(head), err,
+			 "durable: cannot keep the turn in flight");
+	ctx->turn->last_message = head;
+	/* Pair the view snapshot with the conversation checkpoint. */
+	rc = fyai_view_session_checkpoint(ctx, &state);
+	fyai_error_check(ctx, rc >= 0, err, "durable: cannot keep the view in flight");
+	if (!rc)
+		ctx->bstate->project_state = state;
+	fyai_branch_op_set(ctx, FYAI_BRANCH_OP_CHECKPOINT, NULL);
+	fyai_error_check(ctx, !fyai_publish_state(ctx), err,
+			 "durable: cannot store the turn in flight");
+	return;
+err:
+	fyai_ui_diag_drain(ctx, "durable");
+}
+
 static int fyai_turn_run_submit_model(struct fyai_turn_run *run)
 {
 	struct fyai_ctx *ctx;
@@ -1610,6 +1644,7 @@ static int fyai_turn_run_submit_model(struct fyai_turn_run *run)
 	/* Every call of the turn so far has its result. */
 	if (fy_is_valid(run->turn))
 		run->settled = run->turn;
+	fyai_turn_run_checkpoint(run);
 	/* Test hook for the failure of a turn after a round of tools. */
 	test_abort = getenv("FYAI_TEST_TURN_ABORT");
 	if (test_abort && run->iteration == atoi(test_abort)) {
@@ -2590,8 +2625,10 @@ void fyai_cleanup(struct fyai_ctx *ctx)
 	fyai_tool_gate_relays_drop(ctx);
 	fyai_agent_background_close(ctx);
 	fyai_monitor_close(ctx);
-	fyai_tool_diff_cleanup(ctx);
+	/* Drop undelivered events and clear persisted pending records. */
 	fyai_events_release(ctx->waitq);
+	fyai_pending_clear(ctx);
+	fyai_tool_diff_cleanup(ctx);
 	fyai_terminal_winch_close(ctx);
 	fyai_event_interrupt_close(ctx->loop);
 	fyai_output_cleanup(ctx);
@@ -3099,37 +3136,6 @@ err_out:
 
 static void fyai_interactive_finish_output(struct fyai_ctx *ctx);
 
-static int
-fyai_interactive_finish_turn(struct fyai_ctx *ctx,
-			     struct fyai_turn_run **runp)
-{
-	struct fyai_turn_run *run;
-	fy_generic result, diag;
-	int rc;
-
-	run = *runp;
-	result = fyai_turn_run_collect(run);
-	fyai_turn_run_destroy(run);
-	*runp = NULL;
-	fyai_session_turn_set(ctx, false);
-	/* add a cause if neither the result nor the sink has one */
-	diag = fy_generic_get_diag(result);
-	if (fy_is_invalid(result) && (!fy_is_valid(diag) || fy_is_null(diag)) &&
-	    !fyai_diag_got_error(fyai_ctx_diag(ctx)))
-		fyai_error(ctx, "the turn did not complete");
-	result = fyai_report_diag(ctx, result);
-	rc = 0;
-	if (fy_is_valid(result)) {
-		ctx->turn->last_message = result;
-		rc = fyai_publish_state(ctx);
-		fyai_error_check(ctx, !rc, out,
-				 "could not publish the completed turn");
-	}
-out:
-	fyai_interactive_finish_output(ctx);
-	return rc;
-}
-
 /* Common display/session work done after an interactive turn completes. */
 static void fyai_interactive_finish_output(struct fyai_ctx *ctx)
 {
@@ -3375,61 +3381,6 @@ static fy_generic fyai_interactive_append_user_turn(struct fyai_ctx *ctx,
 	return turn;
 }
 
-static int
-fyai_interactive_start_line(struct fyai_ctx *ctx, const char *histfile,
-			    char *line, struct fyai_turn_run **runp)
-{
-	struct fyai_turn_run *run;
-	fy_generic turn;
-	int rc;
-
-	rc = fyai_interactive_handle_slash(ctx, histfile, line, true);
-	if (rc >= 0)
-		return rc;
-	if (!fyai_credential_available(ctx)) {
-		fyai_error(ctx, "no API key or ChatGPT login is available");
-		fyai_ui_diag_drain(ctx, "error");
-		return 0;
-	}
-	if (fyai_interactive_prepare_user_line(ctx, histfile, line))
-		return 0;
-	rc = fyai_setup_transient_builder(ctx);
-	fyai_error_check(ctx, !rc, err,
-			 "could not create transient turn storage");
-	turn = fyai_interactive_append_user_turn(ctx, line);
-	fyai_error_check(ctx, fy_is_valid(turn), err_cleanup,
-			 "could not append the user turn");
-	run = fyai_turn_run_submit(ctx, turn);
-	fyai_error_check(ctx, run, err_cleanup,
-			 "could not submit interactive turn");
-	run->accept_pending_user = true;
-	run->histfile = histfile;
-	*runp = run;
-	fyai_session_turn_set(ctx, true);
-	return 0;
-
-err_cleanup:
-	fyai_cleanup_transient_builder(ctx);
-err:
-	return -1;
-}
-
-/* Add discovered MCP tools before the first model step. */
-static int fyai_interactive_mcp_gate(struct fyai_ctx *ctx)
-{
-	int rc;
-
-	if (!ctx->cfg->mcp_enabled)
-		return 0;
-	fyai_mcp_publish_tools(ctx);
-	rc = fyai_setup_transient_builder(ctx);
-	if (rc)
-		return rc;
-	rc = fyai_request_state_apply(ctx);
-	fyai_cleanup_transient_builder(ctx);
-	return rc;
-}
-
 /* Interactive application states around the event pump. */
 enum fyai_app_state {
 	FYAIAS_STARTING,
@@ -3485,397 +3436,6 @@ err:
 	return rc;
 }
 
-static int fyai_interactive_finish_run(struct fyai_ctx *ctx,
-					struct fyai_turn_run **runp, bool *initial,
-					bool *done)
-{
-	int rc;
-
-	*done = false;
-	rc = fyai_interactive_finish_turn(ctx, runp);
-	if (rc)
-		return rc;
-	if (*initial) {
-		*initial = false;
-		if (fy_is_invalid(ctx->turn->last_message))
-			*done = true;
-	}
-	return 0;
-}
-
-static void fyai_interactive_process_interrupt(struct fyai_ctx *ctx,
-						struct fyai_turn_run *run)
-{
-	bool delivered;
-
-	if (!ctx->loop->interrupt_pending)
-		return;
-	/* Acknowledge SIGINT while the event loop is responsive. */
-	fyai_event_interrupt_ack(ctx->loop);
-	delivered = false;
-	/* Process each delivered SIGINT one time. */
-	if (ctx->loop->interrupt_seq != ctx->loop->interrupt_seen) {
-		ctx->loop->interrupt_seen = ctx->loop->interrupt_seq;
-		/* A tile with the keys was given it: the user was typing into
-		 * a program, not stopping the turn. */
-		delivered = fyai_ui_interrupt(ctx);
-	}
-	if (run && !delivered)
-		fyai_turn_run_cancel(run);
-	/* A command that waits, such as a login, is stopped the same way. */
-	if (!delivered)
-		fyai_cmd_session_interrupt(ctx);
-	/* Keep a signal that arrived while this interrupt was handled. */
-	ctx->loop->interrupt_pending =
-		ctx->loop->interrupt_seq != ctx->loop->interrupt_seen;
-}
-
-static int fyai_interactive_submit_initial(struct fyai_ctx *ctx,
-					   const char *histfile,
-					   struct fyai_turn_run **runp)
-{
-	struct fyai_turn_run *run;
-	int rc;
-
-	rc = fyai_setup_transient_builder(ctx);
-	fyai_error_check(ctx, !rc, err,
-			 "could not create transient initial storage");
-	run = fyai_turn_run_submit(ctx, ctx->turn->last_message);
-	fyai_error_check(ctx, run, err_cleanup,
-			 "could not submit the initial turn");
-	run->accept_pending_user = true;
-	run->histfile = histfile;
-	*runp = run;
-	fyai_session_turn_set(ctx, true);
-	return 0;
-err_cleanup:
-	fyai_cleanup_transient_builder(ctx);
-err:
-	return -1;
-}
-
-/* Submit a queued event with its source. */
-static int fyai_interactive_submit_event(struct fyai_ctx *ctx,
-					 const struct fyai_event_input *input,
-					 const char *histfile,
-					 struct fyai_turn_run **runp)
-{
-	struct fyai_turn_run *run;
-	fy_generic turn;
-	int rc;
-
-	if (!input->from)
-		fyai_echo_user_turn(ctx, input->text);
-	fyai_ui_drain_output(ctx);
-	rc = fyai_setup_transient_builder(ctx);
-	fyai_error_check(ctx, !rc, err,
-			 "could not create transient event storage");
-	turn = fyai_turn_append_event(ctx, ctx->turn->last_message, input);
-	fyai_error_check(ctx, fy_is_valid(turn), err_cleanup,
-			 "could not append the event turn");
-	run = fyai_turn_run_submit(ctx, turn);
-	fyai_error_check(ctx, run, err_cleanup,
-			 "could not submit the event turn");
-	run->accept_pending_user = true;
-	run->histfile = histfile;
-	*runp = run;
-	fyai_session_turn_set(ctx, true);
-	return 0;
-
-err_cleanup:
-	fyai_cleanup_transient_builder(ctx);
-err:
-	return -1;
-}
-
-/*
- * Whether a line may run while a turn is in flight. A bang shell may: it
- * runs on scratch storage and is not part of the turn. A slash may when it
- * only reads stored state.
- */
-static bool fyai_interactive_line_runs_beside(struct fyai_ctx *ctx,
-					      const char *line)
-{
-	if (line[0] == '!')
-		return true;
-	if (line[0] != '/' || line[1] == '/')
-		return false;
-	/* A skill is a turn: it waits for the turn in flight. */
-	if (fyai_skill_user_line(ctx, line))
-		return false;
-	return fyai_session_slash_immediate(ctx, line, true);
-}
-
-/* Run a line beside a live turn. FYAILR_QUIT if it asked to leave. */
-static enum fyai_line_result fyai_interactive_read_busy(struct fyai_ctx *ctx,
-						const char *histfile,
-						char *line)
-{
-	struct fyai_scratch_state st;
-	int rc;
-
-	if (line[0] == '!') {
-		rc = fyai_interactive_handle_bang(ctx, histfile, line);
-		if (rc)
-			return FYAILR_ERROR;
-		return FYAILR_HANDLED;
-	}
-	rc = fyai_scratch_enter(ctx, &st);
-	if (rc) {
-		fyai_error(ctx, "could not create transient command storage");
-		fyai_ui_diag_drain(ctx, "error");
-		return FYAILR_ERROR;
-	}
-	rc = fyai_interactive_handle_slash(ctx, histfile, line, false);
-	fyai_scratch_leave(ctx, &st);
-	if (rc > 0)
-		return FYAILR_QUIT;
-	if (rc < 0)
-		return FYAILR_ERROR;
-	return FYAILR_HANDLED;
-}
-
-static enum fyai_line_result fyai_interactive_read_line(struct fyai_ctx *ctx,
-					      const char *histfile,
-					      struct fyai_turn_run **runp)
-{
-	enum fyai_line_result busy;
-	const char *head;
-	char *line;
-	size_t n;
-	int rc;
-
-	/*
-	 * A line typed during a turn runs now only if it cannot disturb the
-	 * turn. Anything else stays in the queue until the turn ends.
-	 */
-	if (*runp) {
-		/* A message that waits for the turn does not hold a command
-		 * behind it: the command that can run beside the turn runs. */
-		for (n = 0; (head = fyai_ui_peek_line_nth(ctx, n)); n++)
-			if (fyai_interactive_line_runs_beside(ctx, head))
-				break;
-		if (!head)
-			return FYAILR_NONE;
-		line = fyai_ui_take_line_nth(ctx, n);
-		if (!line)
-			return FYAILR_NONE;
-		busy = fyai_interactive_read_busy(ctx, histfile, line);
-		free(line);
-		return busy;
-	}
-	line = fyai_ui_take_line(ctx);
-	if (!line)
-		return FYAILR_NONE;
-	rc = line[0] == '!' ?
-		fyai_interactive_handle_bang(ctx, histfile, line) : -1;
-	if (line[0] == '!') {
-		free(line);
-		return rc ? FYAILR_ERROR : FYAILR_HANDLED;
-	}
-	rc = fyai_interactive_start_line(ctx, histfile, line, runp);
-	free(line);
-	if (rc > 0)
-		return FYAILR_QUIT;
-	if (rc < 0) {
-		fyai_ui_diag_drain(ctx, "error");
-		return FYAILR_ERROR;
-	}
-	return FYAILR_HANDLED;
-}
-
-static int fyai_prompt_interactive_async(struct fyai_ctx *ctx)
-{
-	struct fyai_cfg *cfg;
-	struct fyai_event_loop *el;
-	struct fyai_turn_run *run;
-	enum fyai_app_state state;
-	enum fyai_line_result line_result;
-	char *histfile;
-	char *line;
-	bool initial;
-	bool gated;
-	bool quit;
-	bool done;
-	int rc;
-	int step_rc;
-
-	cfg = ctx->cfg;
-	el = fyai_ctx_loop(ctx);
-	run = NULL;
-	state = FYAIAS_STARTING;
-	histfile = fyai_history_path();
-	line = NULL;
-	initial = cfg->prompt && *cfg->prompt;
-	gated = false;
-	quit = false;
-	done = false;
-	rc = -1;
-	fyai_error_check(ctx, el, out,
-			 "interactive UI requires an event loop");
-
-	/* Start all MCP servers after the UI opens. */
-	fyai_interactive_prepare(ctx, histfile, true);
-	if (fyai_resume_picker(cfg) &&
-	    fyai_browser_open_resume(ctx, cfg->cmd.args.resume.all)) {
-		fyai_error(ctx, "could not open the session picker");
-		goto out;
-	}
-	if (cfg->mcp_enabled) {
-		rc = fyai_mcp_start(ctx->mcp);
-		fyai_error_check(ctx, !rc, out, "could not start MCP servers");
-	} else {
-		fyai_mcp_cleanup(ctx->mcp);
-		ctx->mcp->tools = fy_invalid;
-	}
-	state = FYAIAS_RUNNING;
-
-	/* No operation below this loop can start a nested event pump. */
-	for (;;) {
-		/* Release scratch storage that an idle operation created. */
-		if (ctx->transient->autorelease)
-			fyai_cleanup_transient_builder(ctx);
-		fyai_browser_step(ctx);
-
-		rc = fyai_interactive_config_edit_step(ctx);
-		fyai_error_check(ctx, !rc, out,
-				 "could not finish the configuration edit");
-		if (!run)
-			fyai_interactive_catalog_update_step(ctx);
-
-		if (run && fyai_turn_run_done(run)) {
-			rc = fyai_interactive_finish_run(ctx, &run, &initial,
-						 &done);
-			/* The finish path reports and drains its own cause. */
-			if (rc)
-				goto out;
-			if (done)
-				goto out;
-		}
-		fyai_interactive_process_interrupt(ctx, run);
-		if (ctx->loop->terminate_pending || fyai_ui_quit_requested(ctx))
-			quit = true;
-		if (!run && quit) {
-			rc = 0;
-			break;
-		}
-
-		/* Apply MCP tools before the first turn when startup_wait is set. */
-		if (!run && !gated &&
-		    (!cfg->mcp_enabled || !cfg->mcp_startup_wait ||
-		     fyai_mcp_settled(ctx->mcp))) {
-			rc = fyai_interactive_mcp_gate(ctx);
-			fyai_error_check(ctx, !rc, out,
-					 "could not apply MCP tools");
-			gated = true;
-		}
-
-		if (!run && gated && initial) {
-			rc = fyai_interactive_submit_initial(ctx, histfile, &run);
-			fyai_error_check(ctx, !rc, out,
-					 "could not submit initial turn");
-		}
-
-		/* Submit events only between turns. */
-		if (!run && gated && !ctx->screen->config_edit && !ctx->screen->cmd_call &&
-		    fyai_event_queued(ctx->waitq)) {
-			/*
-			 * A wait whose owner settled since the poll is
-			 * dropped, not submitted: answering it would ask
-			 * the model about a program that has ended.
-			 */
-			struct fyai_event_input event;
-
-			if (!fyai_event_take_live_input(ctx->waitq, &event))
-				continue;
-
-			rc = fyai_interactive_submit_event(ctx, &event,
-						   histfile, &run);
-			fyai_event_input_clear(&event);
-			fyai_error_check(ctx, !rc, out,
-					 "could not submit an event turn");
-			continue;
-		}
-
-		/*
-		 * Read while idle, and while a turn runs when a line waits:
-		 * an immediate slash runs beside the turn while a mutation
-		 * stays queued behind it. Without a waiting line the read
-		 * would only block the pump.
-		 */
-		/* A finished async command presents between turns. */
-		if (!run)
-			(void)fyai_cmd_session_step(ctx);
-		if ((!run || fyai_ui_has_line(ctx)) && gated &&
-		    !ctx->screen->config_edit && !ctx->screen->cmd_call) {
-			line_result = fyai_interactive_read_line(ctx, histfile, &run);
-			if (line_result == FYAILR_QUIT) {
-				quit = true;
-				continue;
-			}
-			fyai_error_check(ctx, line_result != FYAILR_ERROR, out,
-					 "could not process the input line");
-			if (line_result == FYAILR_HANDLED)
-				continue;
-		}
-		/* A side question may complete after its parent turn releases scratch. */
-		if ((ctx->jobs->btw || ctx->jobs->agent_bg || ctx->jobs->monitors) &&
-		    !ctx->transient->gb) {
-			rc = fyai_setup_transient_builder(ctx);
-			fyai_error_check(ctx, !rc, out,
-					 "could not retain side question storage");
-		}
-		rc = fyai_event_loop_step(el, -1);
-		fyai_error_check(ctx, rc >= 0, out,
-				 "interactive event loop failed");
-	}
-	rc = 0;
-out:
-	/* Cancel active work and drain MCP shutdown on every exit path. */
-	state = FYAIAS_STOPPING;
-	fyai_session_btw_close(ctx);
-	fyai_agent_background_close(ctx);
-	fyai_monitor_close(ctx);
-	if (run) {
-		fyai_turn_run_cancel(run);
-		fyai_turn_run_destroy(run);
-		fyai_session_turn_set(ctx, false);
-	}
-	if (ctx->screen->config_edit) {
-		fyai_config_edit_cancel(ctx->screen->config_edit);
-		fyai_config_edit_destroy(ctx->screen->config_edit);
-		ctx->screen->config_edit = NULL;
-	}
-	fyai_catalog_update_destroy(ctx->screen->catalog_update);
-	ctx->screen->catalog_update = NULL;
-	fyai_cmd_session_cancel(ctx);
-	/* Reclaim the active turn's builder or a lingering idle scratch one. */
-	fyai_cleanup_transient_builder(ctx);
-	if (!fyai_mcp_stop(ctx->mcp)) {
-		while (!fyai_mcp_stop_done(ctx->mcp)) {
-			step_rc = fyai_event_loop_step(el, -1);
-			if (step_rc < 0) {
-				rc = step_rc;
-				break;
-			}
-		}
-		fyai_mcp_stop_finish(ctx->mcp);
-	}
-	/* A fullscreen session gives the terminal its screen back as it was,
-	 * and prints nothing there: the conversation is stored. A live session
-	 * commits its tile when it goes, so it goes before the UI that holds
-	 * the tile. */
-	if (fyai_ui_fullscreen(ctx)) {
-		fyai_shell_sessions_release(ctx, false);
-		fyai_ui_close(ctx);
-	}
-	state = FYAIAS_DONE;
-	(void)state;
-	free(line);
-	free(histfile);
-	return rc;
-}
-
 int fyai_prompt_interactive(struct fyai_ctx *ctx)
 {
 	struct fyai_cfg *cfg = ctx->cfg;
@@ -3888,13 +3448,6 @@ int fyai_prompt_interactive(struct fyai_ctx *ctx)
 
 	(void)args;
 	assert(ctx);
-
-	if (fyai_ui_open(ctx)) {
-		fyai_error(ctx, "could not initialize the interactive terminal UI");
-		goto err_out;
-	}
-	if (fyai_ui_active(ctx))
-		return fyai_prompt_interactive_async(ctx);
 
 	/* The picker is a screen the user chooses on; without a terminal there
 	 * is nothing to choose with, and a session must be named instead. */

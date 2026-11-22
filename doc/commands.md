@@ -2860,7 +2860,9 @@ Continue a stored session, selected for this invocation: HEAD does
 not move, and the working directory does not change. SESSION names
 it; with none, the picker selects. `--last` resumes the session
 updated last. The sessions that started in this directory are
-offered; `--all` offers every one.
+offered; `--all` offers every one. A session that a server runs is
+joined. The session that this command leaves goes on at a server when it
+does work, and ends when it is idle.
 
 
 ### Arguments
@@ -3437,6 +3439,77 @@ attach the text of notes.txt to the next message
 attach the image in shot.png in the home directory
 
 
+## fyai session
+
+set the isolation of this session and move work between it and the project
+
+**Usage:** `fyai session {kill|list} ...`
+
+The isolation of the session. With no subcommand, show the state.
+`lockdown` takes the strongest isolation that this host can enforce, and
+`yolo` takes it all off. A session that runs in a view moves work between
+its view and the project: `push` writes its changes into the project, and
+`pull` replaces the view with the project as it is now.
+
+
+### Commands
+
+| Command | Description |
+| --- | --- |
+| `kill` | end a live session |
+| `list`, `ps` | list the live sessions of the project |
+
+With no command, `status` runs.
+
+**See also:** `fyai help view`, `fyai help reload`
+
+## fyai session list
+
+list the live sessions of the project
+
+**Usage:** `fyai session list`
+
+**Aliases:** `ps`
+
+List the sessions that a server of this project runs: the branch,
+what it does (`idle`, `running` or `waiting` for an answer), whether a
+client is attached, and the process of its worker. A session that no
+server runs is not live; `resume` lists the stored ones.
+
+
+### Options
+
+| Option | Description |
+| --- | --- |
+| `--output FORMAT` | write the result as markdown, json, or yaml; see `help output` |
+| `-h`, `--help` | show this help |
+
+## fyai session kill
+
+end a live session
+
+**Usage:** `fyai session kill [--force] BRANCH`
+
+End the live session BRANCH at its server: its worker gets SIGTERM, and
+its clients see the session end. The branch keeps the turns that were
+stored; a turn in flight is lost. With `--force` the worker gets
+SIGKILL at once.
+
+
+### Arguments
+
+| Argument | Description |
+| --- | --- |
+| `BRANCH` | the branch of the live session |
+
+### Options
+
+| Option | Description |
+| --- | --- |
+| `--force` | send SIGKILL, with no grace |
+| `--output FORMAT` | write the result as markdown, json, or yaml; see `help output` |
+| `-h`, `--help` | show this help |
+
 ## fyai agent
 
 run one sub-agent on a task
@@ -3515,7 +3588,7 @@ With no command, `start` runs.
 
 start the server
 
-**Usage:** `fyai serve start [--socket PATH] [--projects DIR] [--daemon] [--log FILE] [--token-fd VALUE] [--listen ADDRESS] [--token-file FILE] [--tls-cert FILE] [--tls-key FILE] [--tls-name NAME]`
+**Usage:** `fyai serve start [--socket PATH] [--projects DIR] [--once] [--daemon] [--log FILE] [--token-fd VALUE] [--listen ADDRESS] [--token-file FILE] [--tls-cert FILE] [--tls-key FILE] [--tls-name NAME]`
 
 Serve until interrupted, or until `fyai serve stop`.
 
@@ -3525,6 +3598,7 @@ Serve until interrupted, or until `fyai serve stop`.
 | --- | --- |
 | `--socket PATH` | override the endpoint; only a socket that nobody serves is replaced |
 | `--projects DIR` | serve the projects under DIR, not the project of the current directory |
+| `--once` | stop when the sessions that ran have no turn and no client, as `/background` starts a server |
 | `--daemon` | run in the background; the log goes to the file that --log names |
 | `--log FILE` | the log file of a daemon (default: .fyai/logs/serve.log of the project, or ~/.fyai/logs/serve.log with --projects) |
 | `--token-fd VALUE` | require token admission and write the generated launch token to this descriptor |
@@ -6028,7 +6102,9 @@ Continue a stored session, selected for this invocation: HEAD does
 not move, and the working directory does not change. SESSION names
 it; with none, the picker selects. `--last` resumes the session
 updated last. The sessions that started in this directory are
-offered; `--all` offers every one.
+offered; `--all` offers every one. A session that a server runs is
+joined. The session that this command leaves goes on at a server when it
+does work, and ends when it is idle.
 
 
 ### Arguments
@@ -6042,6 +6118,46 @@ offered; `--all` offers every one.
 | Option | Description |
 | --- | --- |
 | `--all` | offer the sessions of every directory |
+| `-h`, `--help` | show this help |
+
+## /background
+
+leave the terminal and let a server keep the session
+
+**Usage:** `/background`
+
+**Aliases:** `detach`
+
+Give the session to a server of this project and leave the terminal, at
+any time: a turn and its tools go on as they are. In a session that a
+server holds already, it only closes this client. With no turn running,
+the server parks the session until `fyai serve stop`. The server stops
+when no turn runs, no client is attached and no session is parked.
+`fyai resume` lists the session and joins it. A session that runs in the
+terminal process (`FYAI_NO_SPLIT`) cannot do this.
+
+
+### Options
+
+| Option | Description |
+| --- | --- |
+| `-h`, `--help` | show this help |
+
+## /continue
+
+continue the conversation without a message
+
+**Usage:** `/continue`
+
+Run the model on the conversation as it stands, with no new message.
+It continues a turn that stopped after a round of tools, such as one
+that `/background` or the tool limit ended.
+
+
+### Options
+
+| Option | Description |
+| --- | --- |
 | `-h`, `--help` | show this help |
 
 ## /zoom
@@ -6785,7 +6901,7 @@ Commit the current branch and restart fyai on it. Live shells and sub-agents mus
 
 set the isolation of this session and move work between it and the project
 
-**Usage:** `/session {dev|lockdown|new|profile|pull|push|status|yolo} ...`
+**Usage:** `/session {dev|kill|list|lockdown|new|profile|pull|push|status|yolo} ...`
 
 The isolation of the session. With no subcommand, show the state.
 `lockdown` takes the strongest isolation that this host can enforce, and
@@ -6799,6 +6915,8 @@ its view and the project: `push` writes its changes into the project, and
 | Command | Description |
 | --- | --- |
 | `dev` | confine the tools to project work |
+| `kill` | end a live session |
+| `list`, `ps` | list the live sessions of the project |
 | `lockdown` | take the strongest isolation that this host can enforce |
 | `new` | start a new session with an empty conversation |
 | `profile` | select the sandbox profile of the tools, or list the profiles |
@@ -6811,6 +6929,51 @@ With no command, `status` runs.
 
 **See also:** `/help view`, `/help reload`
 
+## /session list
+
+list the live sessions of the project
+
+**Usage:** `/session list`
+
+**Aliases:** `ps`
+
+List the sessions that a server of this project runs: the branch,
+what it does (`idle`, `running` or `waiting` for an answer), whether a
+client is attached, and the process of its worker. A session that no
+server runs is not live; `resume` lists the stored ones.
+
+
+### Options
+
+| Option | Description |
+| --- | --- |
+| `-h`, `--help` | show this help |
+
+## /session kill
+
+end a live session
+
+**Usage:** `/session kill [--force] BRANCH`
+
+End the live session BRANCH at its server: its worker gets SIGTERM, and
+its clients see the session end. The branch keeps the turns that were
+stored; a turn in flight is lost. With `--force` the worker gets
+SIGKILL at once.
+
+
+### Arguments
+
+| Argument | Description |
+| --- | --- |
+| `BRANCH` | the branch of the live session |
+
+### Options
+
+| Option | Description |
+| --- | --- |
+| `--force` | send SIGKILL, with no grace |
+| `-h`, `--help` | show this help |
+
 ## /session new
 
 start a new session with an empty conversation
@@ -6820,7 +6983,9 @@ start a new session with an empty conversation
 Start a new `session/` branch with the configuration of the current
 branch and no conversation, and continue on it. The branch that the
 session leaves is not changed: `resume` returns to it. `clear` empties
-the current branch instead. The background work of the session ends.
+the current branch instead. A session that does work (a turn, a tool
+session, an agent, a question) goes on at a server, and `session list`
+shows it; an idle one ends.
 
 
 ### Options

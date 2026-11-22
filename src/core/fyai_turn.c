@@ -119,6 +119,22 @@ bool fyai_turn_has_user_message(fy_generic turn)
 	return false;
 }
 
+bool fyai_turn_continuable(fy_generic head)
+{
+	fy_generic cur, msgs, last;
+
+	fyai_turn_foreach(cur, head) {
+		msgs = fy_get(cur, "messages", fy_seq_empty);
+		if (fy_empty(msgs))
+			continue;
+		last = fy_get_at(msgs, fy_len(msgs) - 1);
+		return fy_any_equal(fy_get(last, "type"), "function_call_output",
+				    "shell_call_output") ||
+		       fy_any_equal(fy_get(last, "role"), "user", "agent");
+	}
+	return false;
+}
+
 bool fyai_turn_is_system_only(fy_generic turn)
 {
 	fy_generic msgs, m;

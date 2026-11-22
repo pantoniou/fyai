@@ -19,6 +19,12 @@ int fyai_host_close_range(unsigned int from, unsigned int to);
 /* The process blocked reading descriptor 0, or the children of a process. Else false and 0. */
 bool fyai_host_process_reads_stdin(pid_t pid);
 size_t fyai_host_process_children(pid_t pid, pid_t *out, size_t max);
+/*
+ * Read an opaque start timestamp for @pid that distinguishes PID reuse within
+ * the same boot. Stores result in @start and returns 0, -ESRCH if @pid does
+ * not exist, or -ENOTSUP if unsupported.
+ */
+int fyai_host_process_start(pid_t pid, uint64_t *start);
 
 /* Make a pipe whose ends close on exec. */
 int fyai_host_pipe(int fd[2]);

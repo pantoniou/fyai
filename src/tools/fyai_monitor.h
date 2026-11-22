@@ -34,6 +34,20 @@ bool fyai_monitor_cancel(struct fyai_ctx *ctx, const char *name);
 fy_generic fyai_monitors_rows(struct fyai_ctx *ctx,
 			      struct fy_generic_builder *gb);
 
+/*
+ * Serialize active monitors and background commands into @gb for the pending
+ * store (kind, name, command, options, limit, and epoch-ms `until` deadline).
+ */
+fy_generic fyai_monitors_pending(struct fyai_ctx *ctx,
+				 struct fy_generic_builder *gb);
+
+/*
+ * Restart a monitor or background command from a pending @record with its
+ * remaining timeout, queueing a restart event (or a timeout event if the
+ * deadline already elapsed). Returns 0 on success, -1 on error with diag.
+ */
+int fyai_monitor_restore(struct fyai_ctx *ctx, fy_generic record);
+
 /* Cancel and release every monitor of this invocation. */
 void fyai_monitor_close(struct fyai_ctx *ctx);
 

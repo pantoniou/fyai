@@ -69,6 +69,41 @@ static bool linux_process_reads_stdin(pid_t pid)
 	return (nr == SYS_read || nr == SYS_readv) && fd == 0;
 }
 
+/* Read /proc/@pid/stat field 22 (start time in clock ticks since boot). */
+static int linux_process_start(pid_t pid, uint64_t *start)
+{
+	char path[64], buf[1024];
+	const char *p;
+	ssize_t n;
+	int f, i;
+
+	snprintf(path, sizeof(path), "/proc/%ld/stat", (long)pid);
+	f = open(path, O_RDONLY | O_CLOEXEC);
+	if (f < 0)
+		return errno == ENOENT ? -ESRCH : -errno;
+	n = read(f, buf, sizeof(buf) - 1);
+	close(f);
+	if (n <= 0)
+		return -EIO;
+	buf[n] = 0;
+	/* comm field in (...) may contain spaces/parens; scan from last ')'. */
+	p = strrchr(buf, ')');
+	if (!p)
+		return -EIO;
+	for (i = 0, p++; i < 20 && *p; i++) {
+		while (*p == ' ')
+			p++;
+		if (i == 19)
+			break;
+		while (*p && *p != ' ')
+			p++;
+	}
+	if (i != 19)
+		return -EIO;
+	*start = strtoull(p, NULL, 10);
+	return 0;
+}
+
 /* The children of @pid, into @out. Returns how many were read. */
 static size_t linux_process_children(pid_t pid, pid_t *out, size_t max)
 {
@@ -351,6 +386,7 @@ const struct fyai_host_backend fyai_host_backend_linux = {
 	.close_range = linux_close_range,
 	.process_reads_stdin = linux_process_reads_stdin,
 	.process_children = linux_process_children,
+	.process_start = linux_process_start,
 	.pipe = linux_pipe,
 	.exec_self = linux_exec_self,
 	.executable = linux_executable,

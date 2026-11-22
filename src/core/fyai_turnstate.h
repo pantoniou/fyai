@@ -95,6 +95,24 @@ struct fyai_turnstate {
 	 * stopped, and the two do not describe the same event.
 	 */
 	bool end_requested;
+	/*
+	 * Optional handoff hook for /background (NULL if unsupported). Moves
+	 * the session and any in-flight turn to the project server. Returns 0
+	 * on success, -1 with diagnostic on error.
+	 */
+	int (*background)(struct fyai_ctx *ctx, void *data);
+	void *background_data;
+	/*
+	 * Optional follow-up action passed to @background by its caller:
+	 * NULL (exit), "" (new session), or target branch/command string.
+	 */
+	const char *background_next;
+	/*
+	 * Optional front-end busy probe (NULL to rely on local UI state).
+	 */
+	bool (*working)(struct fyai_ctx *ctx, void *data);
+	/* Set by /continue to trigger a model turn on the existing head. */
+	bool continue_requested;
 	/* The tool gate of the turns of this context, and its open round. */
 	const struct fyai_tool_gate_ops *gate;
 	void *gate_data;

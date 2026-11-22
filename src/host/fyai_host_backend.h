@@ -41,6 +41,7 @@ struct fyai_host_backend {
 	int (*close_range)(unsigned int from, unsigned int to);
 	bool (*process_reads_stdin)(pid_t pid);
 	size_t (*process_children)(pid_t pid, pid_t *out, size_t max);
+	int (*process_start)(pid_t pid, uint64_t *start);
 	int (*pipe)(int fd[2]);
 	int (*exec_self)(const char *const argv[]);
 	ssize_t (*executable)(char *path, size_t capacity);

@@ -25,6 +25,7 @@
 #include "fyai_uimodel.h"
 #include "fyai_query.h"
 #include "fyai_workpane.h"
+#include "fyai_remote.h"
 
 struct browser_row {
 	char *name;
@@ -39,6 +40,7 @@ struct browser_row {
 	char *import_source, *import_id;	/* import provenance */
 	char *state;		/* the state of a live agent, or "" */
 	bool agent;		/* a sub-agent branch, stored or live */
+	bool live;		/* hosted on server: attach, do not load */
 	uint64_t updated;	/* the time of its last entry */
 	long long turns;
 	long long tokens;
@@ -395,7 +397,7 @@ static void browser_refresh_sessions(struct fyai_browser *b, char **newest)
 	};
 	struct fy_generic_builder *gb;
 	struct fyai_branch branch;
-	fy_generic rows, row, name, stored, description;
+	fy_generic rows, row, name, stored, description, live, session;
 	char cwd[PATH_MAX];
 	const char *dir, *current_dir, *title_text;
 	size_t n;
@@ -406,6 +408,8 @@ static void browser_refresh_sessions(struct fyai_browser *b, char **newest)
 	current_dir = getcwd(cwd, sizeof(cwd)) ? cwd : NULL;
 	rows = fyai_branch_select_rows(fyai_browser_ctx(b), gb, b->branches, current_dir,
 				       b->resume_all);
+	live = b->resume ? fyai_remote_live_sessions(fyai_browser_ctx(b), gb) :
+	       fy_seq_empty;
 	/* Each string is read through its own stored generic: a by-value cast
 	 * of a short string has no storage outside this frame to point at. */
 	fy_foreach(row, rows) {
@@ -419,6 +423,15 @@ static void browser_refresh_sessions(struct fyai_browser *b, char **newest)
 		if (fyai_branch_lookup(b->branches, b->rows[n].name, &branch)) {
 			b->rows[n].tokens = browser_session_tokens(branch.head);
 			browser_row_entry(&b->rows[n], &branch);
+		}
+		/* Annotate sessions currently hosted by the project server. */
+		fy_foreach(session, live) {
+			if (!fy_equal(fy_get(session, "branch", ""), name))
+				continue;
+			free(b->rows[n].state);
+			b->rows[n].state = strdup(fy_sprintfa(" [live · %s]",
+				fyai_remote_live_state(session)));
+			b->rows[n].live = true;
 		}
 		stored = fy_get(row, "cwd", fy_invalid);
 		dir = fy_castp(&stored, "");
@@ -658,6 +671,13 @@ static void browser_sessions_answer(void *arg, fy_generic answer)
 		v = fy_get(row, "cwd", fy_invalid);
 		text = fy_castp(&v, "");
 		b->rows[n].cwd = *text ? strdup(text) : NULL;
+		v = fy_get(row, "live", fy_invalid);
+		b->rows[n].live = fy_is_string(v);
+		if (b->rows[n].live) {
+			free(b->rows[n].state);
+			b->rows[n].state = strdup(fy_sprintfa(" [live · %s]",
+							      fy_castp(&v, "")));
+		}
 		v = fy_get(row, "import_title", fy_invalid);
 		b->rows[n].import_title = fy_is_string(v) ?
 			strdup(fy_castp(&v, "")) : NULL;
@@ -2150,8 +2170,10 @@ fy_generic fyai_browser_sessions_answer(struct fyai_ctx *ctx,
 	fy_generic params = fy_get(request, "params", fy_map_empty), root, table;
 	fy_generic rows, row, name, out = fy_seq_empty, title;
 	struct fyai_branch branch;
+	fy_generic live, session;
 	char cwd[PATH_MAX];
 
+	live = fyai_remote_live_sessions(ctx, gb);
 	root = fyai_branches_snapshot(ctx);
 	table = fy_is_valid(root) && !ctx->cfg->transient ?
 		fy_get(root, "branches", fy_invalid) : ctx->bstate->branches;
@@ -2168,6 +2190,10 @@ fy_generic fyai_browser_sessions_answer(struct fyai_ctx *ctx,
 				       "model", fy_value(gb, fy_get(branch.config,
 							"model", "")),
 				       "agent", fy_is_valid(branch.agent));
+			fy_foreach(session, live)
+				if (fy_equal(fy_get(session, "branch", ""), name))
+					row = fy_assoc(gb, row, "live",
+						fy_value(gb, fyai_remote_live_state(session)));
 			if (fy_is_string(title))
 				row = fy_assoc(gb, row, "import_title", title);
 			if (fy_is_mapping(branch.import))
@@ -2665,6 +2691,28 @@ static void browser_remote_action(struct fyai_browser *b, char action)
 			}
 			fy_generic_builder_destroy(gb);
 		}
+		/*
+		 * Live server sessions are attached by replacing this client
+		 * process after UI exit instead of switching branches in place.
+		 */
+		if (b->resume && b->selected < b->count &&
+		    b->rows[b->selected].live) {
+			/* Startup picker (quit_on_cancel) has not attached to a
+			 * real session yet; its worker is merely on HEAD. */
+			if (!b->quit_on_cancel &&
+			    !strcmp(b->target, fyai_ctx_branch(fyai_browser_ctx(b)))) {
+				browser_message(b, "This client is on that session.");
+				goto out;
+			}
+			fyai_browser_ctx(b)->cfg->attach_branch = strdup(b->target);
+			if (!fyai_browser_ctx(b)->cfg->attach_branch) {
+				browser_message(b, "The session could not be joined.");
+				goto out;
+			}
+			b->picked = true;
+			fyai_ui_quit_request(fyai_browser_ctx(b));
+			goto out;
+		}
 		/* The picker selects a session for this invocation: HEAD
 		 * stays where it is. */
 		(void)fyai_buf_append_data(&line, b->resume ? "/resume" :
@@ -2686,7 +2734,11 @@ static void browser_remote_action(struct fyai_browser *b, char action)
 		browser_word(&line, b->reference);
 		break;
 	case 'K':
-		(void)fyai_buf_append_data(&line, "/kill", 5);
+		/* Route kill to /session kill for server-hosted sessions. */
+		if (b->selected < b->count && b->rows[b->selected].live)
+			(void)fyai_buf_append_data(&line, "/session kill", 13);
+		else
+			(void)fyai_buf_append_data(&line, "/kill", 5);
 		browser_word(&line, b->target);
 		break;
 	case 'd':
@@ -2746,7 +2798,13 @@ void fyai_browser_step(struct fyai_ctx *ctx)
 		goto out;
 	}
 	if (action == 'K') {
-		if (fyai_agents_kill(ctx, b->target))
+		/* Close server sessions via RPC instead of local agent kill. */
+		if (b->selected < b->count && b->rows[b->selected].live) {
+			if (fyai_remote_session_close(ctx, b->target, false, NULL))
+				browser_message(b, "The session could not be ended.");
+			else
+				browser_refresh(b);
+		} else if (fyai_agents_kill(ctx, b->target))
 			browser_message(b, "This branch has no reachable live owner.");
 		goto out;
 	}

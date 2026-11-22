@@ -62,6 +62,12 @@ parallel_tool_calls_prompt: >-
   in separate responses.
 temperature: 0
 max_tool_iterations: 1000
+# Store the turn in flight before each model request, so that a worker that
+# is lost keeps its rounds and /continue runs them. It also records the named
+# waits, monitors, background commands, sub-agents and the events that wait
+# for the model, and a restart opens them again. A session in a view also stores
+# the state of its view each round. It adds a publish a round.
+durable: true
 # Output-token limit per request. Messages requests require this value;
 # other grammars can derive it from the catalogue.
 max_tokens: 8192

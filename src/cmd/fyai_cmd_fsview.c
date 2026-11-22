@@ -17,6 +17,7 @@
 #define FYAI_MODULE FYAIEM_UNKNOWN
 
 #include <errno.h>
+#include <poll.h>
 
 #include "fyai_view.h"
 #include "fyai_fsview_backend.h"
@@ -1651,6 +1652,7 @@ struct view_session_transport {
 #define VIEW_SESSION_CTL_FD 6
 #define VIEW_SESSION_ANNOUNCE_FD 7
 #define VIEW_SESSION_LINK_FD 8
+#define VIEW_SESSION_OBJECTS_FD 9
 
 struct fyai_view_run;
 
@@ -1666,6 +1668,15 @@ struct view_session_link {
 	struct fyai_event_source *source;
 	bool restart;			/* the session asked for a fresh view */
 	bool leave;			/* the restart is outside any view */
+	/*
+	 * Pending rollback state for an unrecovered view: apply diff from
+	 * @held (current view state) to @kept (last checkpoint) inside the
+	 * child before exec. @objects is an open fd to the project's CAS
+	 * objects directory, which is unreachable from inside the view.
+	 */
+	bool restore;
+	struct fyai_manifest held, kept;
+	int objects;
 };
 
 /* The context that this object stands on. */
@@ -1742,6 +1753,46 @@ static void view_exec_self(struct fyai_ctx *ctx, char *const argv[])
  * With @confine the command runs under the tool sandbox of this invocation,
  * applied in the view, as a tool call of a session in the view would.
  */
+/*
+ * Roll back the view's project tree from link->held to link->kept before the
+ * session execs. Runs in the view_exec() child (no parent loop or builder);
+ * closes VIEW_SESSION_OBJECTS_FD. Any conflict or skipped path is treated as
+ * an internal error (EBUSY) since the view is private.
+ */
+static int view_session_restore_apply(const struct fyai_fsview *view,
+				      const struct view_session_link *link)
+{
+	struct fy_generic_builder *gb;
+	struct fyai_apply_summary summary;
+	fy_generic rows;
+	int project, rc, saved;
+
+	gb = fy_generic_builder_create(NULL);
+	if (!gb) {
+		errno = ENOMEM;
+		return -1;
+	}
+	project = open(view->project, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+	if (project < 0) {
+		saved = errno;
+		fy_generic_builder_destroy(gb);
+		errno = saved;
+		return -1;
+	}
+	rc = fyai_view_apply(gb, project, VIEW_SESSION_OBJECTS_FD, &link->held, &link->kept,
+			     NULL, 0, false, &rows, &summary);
+	if (!rc && (summary.conflicts || summary.skipped)) {
+		errno = EBUSY;
+		rc = -1;
+	}
+	saved = errno;
+	close(project);
+	close(VIEW_SESSION_OBJECTS_FD);
+	fy_generic_builder_destroy(gb);
+	errno = saved;
+	return rc;
+}
+
 static int view_exec(struct fyai_ctx *ctx, struct fyai_fsview *view, char *const argv[],
 		     bool self, bool confine, int in_fd, int out_fd, struct view_session_transport *tp,
 		     struct view_session_link *link, struct shell_command_result *result)
@@ -1806,6 +1857,10 @@ static int view_exec(struct fyai_ctx *ctx, struct fyai_fsview *view, char *const
 			spec.pass_as[spec.pass_n++] = VIEW_SESSION_LINK_FD;
 			if (setenv("FYAI_SESSION_FD", "8", 1))
 				_exit(FYAI_SHELL_EXIT_EXEC);
+			if (link->restore) {
+				spec.pass_fd[spec.pass_n] = link->objects;
+				spec.pass_as[spec.pass_n++] = VIEW_SESSION_OBJECTS_FD;
+			}
 		}
 		if (tp) {
 			close(tp->announce[0]);
@@ -1837,6 +1892,10 @@ static int view_exec(struct fyai_ctx *ctx, struct fyai_fsview *view, char *const
 		if (confine && fyai_tools_confine(ctx)) {
 			fyai_child_status_report(3, FYAI_CHILD_STAGE_SANDBOX, errno);
 			_exit(FYAI_SHELL_EXIT_SANDBOX);
+		}
+		if (link && link->restore && view_session_restore_apply(view, link)) {
+			fyai_child_status_report(3, FYAI_CHILD_STAGE_EXEC, errno);
+			_exit(FYAI_SHELL_EXIT_EXEC);
 		}
 		if (self) {
 			view_exec_self(ctx, argv);
@@ -3275,24 +3334,13 @@ out:
 	return out;
 }
 
-int fyai_view_run_begin(struct fyai_ctx *ctx, const char *name, struct fyai_view_run **out)
+/* Open an already-stored view @name for execution without re-capturing. */
+static int view_run_open_stored(struct fyai_ctx *ctx, const char *name, struct fyai_view_run **out)
 {
-	struct fyai_view_request request = { .ctx = ctx, .name = name, .progress = false };
 	struct fyai_view_run *run;
-	fy_generic record;
-	char error[PATH_MAX] = "", *root = NULL;
+	char error[PATH_MAX] = "";
 	int rc, saved;
 
-	request.replace = fy_is_mapping(view_find(ctx, name));
-	if (!request.replace) {
-		root = ctx->cfg->view_project ? strdup(ctx->cfg->view_project) :
-		       fyai_discover_project_root();
-		request.project = root ? root : ".";
-	}
-	rc = fyai_view_capture(&request, &record);
-	free(root);
-	if (rc)
-		return -1;
 	run = calloc(1, sizeof(*run));
 	if (!run) {
 		fyai_error_check(ctx, run, err, "could not allocate the view run of '%s'", name);
@@ -3319,6 +3367,26 @@ fail:
 	view_run_release(run);
 	free(run);
 	return -1;
+}
+
+int fyai_view_run_begin(struct fyai_ctx *ctx, const char *name, struct fyai_view_run **out)
+{
+	struct fyai_view_request request = { .ctx = ctx, .name = name, .progress = false };
+	fy_generic record;
+	char *root = NULL;
+	int rc;
+
+	request.replace = fy_is_mapping(view_find(ctx, name));
+	if (!request.replace) {
+		root = ctx->cfg->view_project ? strdup(ctx->cfg->view_project) :
+		       fyai_discover_project_root();
+		request.project = root ? root : ".";
+	}
+	rc = fyai_view_capture(&request, &record);
+	free(root);
+	if (rc)
+		return -1;
+	return view_run_open_stored(ctx, name, out);
 }
 
 const struct fyai_fsview *fyai_view_run_spec(const struct fyai_view_run *run)
@@ -3516,6 +3584,26 @@ static fy_generic view_session_restart(struct view_session_link *link, struct fy
 	return fy_assoc(gb, fyai_ctl_reply_ok(gb, seq), "result", fy_mapping(gb, "restart", true));
 }
 
+/*
+ * Handle supervisor "checkpoint" request: snapshot the view and return its
+ * manifest result, storage path, and runtime id ("view") so the branch
+ * checkpoint pairs files with conversation state and detects view mismatch.
+ */
+static fy_generic view_session_checkpoint(struct view_session_link *link,
+					  struct fy_generic_builder *gb, fy_generic m)
+{
+	struct fyai_ctx *ctx = view_session_link_ctx(link);
+	long long seq = fy_get(m, "seq", 0LL);
+	fy_generic state;
+
+	if (view_run_checkpoint(ctx, link->run))
+		return view_session_failure(ctx, gb, seq, "cannot capture the view");
+	state = fy_get(link->run->view, "result", fy_invalid);
+	state = fy_assoc(gb, state, "storage", fy_get(link->run->view, "storage", ""));
+	state = fy_assoc(gb, state, "view", fy_get(link->run->view, "runtime", ""));
+	return fy_assoc(gb, fyai_ctl_reply_ok(gb, seq), "result", state);
+}
+
 static enum fyai_event_action view_session_request(const struct fyai_event *ev)
 {
 	struct view_session_link *link = ev->userdata;
@@ -3551,6 +3639,8 @@ static enum fyai_event_action view_session_request(const struct fyai_event *ev)
 		reply = view_session_pull(link, gb, m);
 	else if (!strcmp(op, "restart"))
 		reply = view_session_restart(link, gb, m);
+	else if (!strcmp(op, "checkpoint"))
+		reply = view_session_checkpoint(link, gb, m);
 	else
 		reply = fyai_ctl_reply_error(gb, fy_get(m, "seq", 0LL), "the supervisor has no such request");
 	(void)fyai_ctl_send(link->fd[0], reply, -1, 0);
@@ -3646,13 +3736,115 @@ err:
 	return -1;
 }
 
+/* Release manifests and objects fd held for a pending view rollback. */
+static void view_session_restore_release(struct view_session_link *link)
+{
+	if (!link->restore)
+		return;
+	fyai_manifest_close(&link->held);
+	fyai_manifest_close(&link->kept);
+	if (link->objects >= 0)
+		close(link->objects);
+	link->objects = -1;
+	link->restore = false;
+}
+
+/*
+ * Return true if no live session holds @view's runtime flock. The lock is
+ * acquired when the view opens (before the first checkpoint), so an
+ * uncheckpointed view may still be active.
+ */
+static bool view_runtime_idle(fy_generic view)
+{
+	fy_generic runtime = fy_get(view, "runtime", fy_invalid);
+	int lock, rc;
+
+	if (!fy_is_string(runtime))
+		return true;
+	lock = open(fy_sprintfa("%s/lock", fy_castp(&runtime, "")),
+		    O_RDWR | O_NOFOLLOW | O_CLOEXEC);
+	if (lock < 0)
+		return errno == ENOENT;
+	rc = flock(lock, LOCK_EX | LOCK_NB);
+	close(lock);
+	return !rc;
+}
+
+/*
+ * Recover a dirty session view under `durable` mode. If the branch's last
+ * checkpoint matches this view's runtime, open the view and stage a rollback
+ * in @link to restore files to that checkpoint. Otherwise drop the view (if
+ * its lock is idle) so the session starts fresh from the project.
+ *
+ * Returns 1 with @runp populated to resume the view, 0 to proceed with a
+ * normal start, or -1 on error (diagnostic reported).
+ */
+static int view_session_resume(struct fyai_ctx *ctx, struct fyai_view_run **runp,
+			       struct view_session_link *link)
+{
+	fy_generic view = view_find(ctx, "session"), recorded = fy_invalid, held;
+	struct fyai_branch b;
+	struct fyai_view_run *run;
+	const char *storage;
+	char *objects = NULL;
+	int rc;
+
+	if (!ctx->cfg->durable || !fy_is_mapping(view) ||
+	    fy_equal(fy_get(view, "state", "ready"), "ready"))
+		return 0;
+	if (fy_is_valid(ctx->bstate->prev) && fyai_branch_decode(ctx->bstate->prev, &b))
+		recorded = b.project;
+	if (!fy_is_mapping(recorded) ||
+	    !fy_equal(fy_get(recorded, "view", ""), fy_get(view, "runtime", ""))) {
+		fyai_error_check(ctx, view_runtime_idle(view), err_busy,
+				 "view 'session' is in use by a session of branch '%s': it "
+				 "has no checkpoint yet, and is not dropped", fyai_ctx_branch(ctx));
+		fyai_warning(ctx, "view 'session' was lost before its first checkpoint: it is "
+				  "dropped, and the session starts on the project");
+		return view_save(ctx, "session", fy_invalid) ? -1 : 0;
+	}
+	if (view_run_open_stored(ctx, "session", &run))
+		return -1;
+	/* Snapshot current view state as the base for the rollback diff. */
+	if (view_run_checkpoint(ctx, run))
+		goto err_run;
+	held = fy_get(run->view, "result", fy_invalid);
+	*runp = run;
+	if (fy_equal(fy_get(held, "root", ""), fy_get(recorded, "root", "")))
+		return 1;
+	storage = run->spec.storage;
+	rc = fyai_fsview_manifest_open(storage, held, &link->held);
+	fyai_error_check(ctx, !rc, err_run, "view 'session': cannot open the state that it holds: %s",
+			 strerror(errno));
+	rc = fyai_fsview_manifest_open(storage, recorded, &link->kept);
+	fyai_error_check(ctx, !rc, err_held, "view 'session': cannot open the state of its last "
+			 "checkpoint: %s", strerror(errno));
+	rc = asprintf(&objects, "%s/objects/blake3", storage);
+	fyai_error_check(ctx, rc >= 0, err_kept, "view 'session': out of memory");
+	link->objects = open(objects, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+	free(objects);
+	fyai_error_check(ctx, link->objects >= 0, err_kept,
+			 "view 'session': cannot open its objects: %s", strerror(errno));
+	link->restore = true;
+	return 1;
+err_kept:
+	fyai_manifest_close(&link->kept);
+err_held:
+	fyai_manifest_close(&link->held);
+err_run:
+	fyai_view_run_free(run);
+	*runp = NULL;
+err_busy:
+	return -1;
+}
+
 int fyai_view_session_bootstrap(struct fyai_ctx *ctx)
 {
 	struct fyai_cfg *cfg = ctx->cfg;
 	fy_generic section = fy_get(cfg->config_doc, "view", fy_invalid);
 	struct shell_command_result output = { 0 };
 	struct view_session_transport tp = { -1, -1, { -1, -1 } }, *tpp = NULL;
-	struct view_session_link link = { .fd = { -1, -1 } };
+	struct view_session_link link = { .fd = { -1, -1 }, .objects = -1 };
 	struct fyai_view_run *run = NULL;
 	int agent[2] = { -1, -1 };
 	char **argv = NULL, startup[FYAI_CHILD_START_TEXT_MAX];
@@ -3680,13 +3872,16 @@ int fyai_view_session_bootstrap(struct fyai_ctx *ctx)
 	argv[5] = "--branch";
 	for (i = 1; i < argc; i++)
 		argv[i + 6] = cfg->argv[i];
-	if (view_session_stale(ctx)) {
+	rc = view_session_resume(ctx, &run, &link);
+	if (rc < 0)
+		goto out;
+	if (!rc && view_session_stale(ctx)) {
 		rc = -1;
 		goto out;
 	}
 restart:
 	tpp = NULL;
-	if (fyai_view_run_begin(ctx, "session", &run))
+	if (!run && fyai_view_run_begin(ctx, "session", &run))
 		goto out;
 	argv[2] = (char *)run->spec.project;
 	argv[4] = (char *)run->spec.scratch;
@@ -3731,6 +3926,8 @@ restart:
 		goto out;
 	}
 	rc = view_exec(ctx, &run->spec, argv, true, false, -1, -1, tpp, &link, &output);
+	/* Restore runs at most once; clear state before any restart. */
+	view_session_restore_release(&link);
 	if (link.fd[0] >= 0)
 		close(link.fd[0]);
 	link.fd[0] = link.fd[1] = -1;
@@ -3815,6 +4012,7 @@ restart:
 		    fyai_ctx_branch(ctx), fyai_ctx_branch(ctx));
 	rc = 1;
 out:
+	view_session_restore_release(&link);
 	free(summary);
 	free(argv);
 	shell_command_result_cleanup(&output);
@@ -3898,6 +4096,58 @@ const char *fyai_view_session_name(const struct fyai_ctx *ctx)
 	/* The session restarts with explicit paths to the view named session. */
 	return ctx->cfg->view_project && !ctx->cfg->agent_child && !ctx->cfg->tool_child ?
 	       "session" : NULL;
+}
+
+int fyai_view_session_checkpoint(struct fyai_ctx *ctx, fy_generic *state)
+{
+	const char *env = getenv("FYAI_SESSION_FD");
+	struct fy_generic_builder *gb;
+	struct pollfd pfd;
+	fy_generic request, m, op, why, result;
+	int fd = env ? atoi(env) : -1, rc;
+
+	*state = fy_invalid;
+	if (!fyai_view_session_name(ctx) || fd <= 2 || fcntl(fd, F_GETFD) < 0)
+		return 1;
+	gb = fy_generic_builder_create(NULL);
+	fyai_error_check(ctx, gb, err, "view 'session': cannot ask for a checkpoint");
+	/* Fixed seq outside normal command range; no concurrent requests. */
+	request = fy_mapping(gb, "op", "checkpoint", "seq", 1000000LL);
+	rc = fyai_ctl_send(fd, request, -1, 0);
+	fyai_error_check(ctx, !rc, err_gb, "view 'session': cannot reach the supervisor: %s",
+			 strerror(-rc));
+	pfd.fd = fd;
+	pfd.events = POLLIN;
+	/* Block until supervisor replies or closes the control socket. */
+	do {
+		do {
+			rc = poll(&pfd, 1, -1);
+		} while (rc < 0 && errno == EINTR);
+		fyai_error_check(ctx, rc > 0, err_gb, "view 'session': cannot wait for the "
+				 "supervisor: %s", strerror(errno));
+		rc = fyai_ctl_recv(fd, gb, &m, NULL);
+	} while (rc == -EAGAIN);
+	fyai_error_check(ctx, !rc, err_gb, "view 'session': the supervisor did not answer");
+	op = fy_get(m, "op", fy_invalid);
+	if (!fy_equal(op, "ok")) {
+		why = fy_get(m, "message", fy_invalid);
+		fyai_error(ctx, "view 'session': %s", fy_is_string(why) ? fy_castp(&why, "") :
+			   "the checkpoint was refused");
+		goto err_gb;
+	}
+	result = fy_get(m, "result", fy_invalid);
+	fyai_error_check(ctx, fy_is_mapping(result), err_gb,
+			 "view 'session': the checkpoint has no state");
+	*state = fy_gb_internalize(ctx->arena->gb, result);
+	fyai_error_check(ctx, fy_is_mapping(*state), err_gb,
+			 "view 'session': cannot keep the state of the checkpoint");
+	fy_generic_builder_destroy(gb);
+	return 0;
+err_gb:
+	fy_generic_builder_destroy(gb);
+err:
+	*state = fy_invalid;
+	return -1;
 }
 
 bool fyai_view_isolation_available(struct fyai_ctx *ctx)
@@ -4564,6 +4814,13 @@ const char *fyai_view_session_name(const struct fyai_ctx *ctx)
 {
 	(void)ctx;
 	return NULL;
+}
+
+int fyai_view_session_checkpoint(struct fyai_ctx *ctx, fy_generic *state)
+{
+	(void)ctx;
+	*state = fy_invalid;
+	return 1;
 }
 
 bool fyai_view_session_available(struct fyai_ctx *ctx)

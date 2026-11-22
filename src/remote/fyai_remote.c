@@ -216,6 +216,7 @@ struct remote_client {
 	int fd;
 	pid_t ssh;			/* the ssh child of an ssh:// target, or -1 */
 	bool split;			/* worker is a direct child */
+	bool released;			/* handed off to server; skip waitpid */
 	int worker_err;			/* the standard error of that worker */
 	off_t worker_err_off;		/* stderr offset already reported */
 	bool failed;
@@ -717,7 +718,7 @@ static int remote_split_open(struct remote_client *client)
 	fyai_error_check(ctx, self || !strchr(cfg->argv[0], '/'), out,
 			 "cannot resolve the executable '%s': %s", cfg->argv[0],
 			 strerror(errno));
-	args = calloc(cfg->remote_globals + 9, sizeof(*args));
+	args = calloc(cfg->remote_globals + 10, sizeof(*args));
 	fyai_error_check(ctx, args, out, "cannot allocate the arguments of a worker");
 	args[n++] = self ? self : (char *)cfg->argv[0];
 	fy_foreach(word, cfg->remote_args) {
@@ -725,6 +726,8 @@ static int remote_split_open(struct remote_client *client)
 			break;
 		args[n++] = (char *)word;
 	}
+	if (cfg->bootstrap_confirmed)
+		args[n++] = "--bootstrap";
 	if (client->resume_branch) {
 		args[n++] = "-b";
 		args[n++] = (char *)client->resume_branch;
@@ -830,7 +833,7 @@ static void remote_split_reap(struct remote_client *client)
 	int status = 0, rc;
 	ssize_t got = 0;
 
-	if (client->ssh > 0) {
+	if (client->ssh > 0 && !client->released) {
 		do {
 			rc = waitpid(client->ssh, &status, 0);
 		} while (rc < 0 && errno == EINTR);
@@ -838,6 +841,13 @@ static void remote_split_reap(struct remote_client *client)
 			status = 0;
 	}
 	client->ssh = -1;
+	if (client->released) {
+		/* Worker continues under the server; drop our stderr handle. */
+		if (client->worker_err >= 0)
+			close(client->worker_err);
+		client->worker_err = -1;
+		return;
+	}
 	if (client->worker_err >= 0) {
 		got = pread(client->worker_err, text, REMOTE_SPLIT_ERR_MAX,
 			    client->worker_err_off);
@@ -892,10 +902,72 @@ int fyai_cmd_remote_connect_prepare(struct fyai_cfg *cfg, fy_generic args)
 	return 0;
 }
 
+/* Send fyai_quit to the split worker and flush outbound bytes (up to 2s). */
+static void remote_quit_send(struct remote_client *client)
+{
+	struct fyai_ctx *ctx = remote_client_ctx(client);
+	fyai_event_ms_t deadline = fyai_event_now_ms() + 2000;
+
+	if (fyai_remote_send(client->peer, fy_mapping(client->gb, "type",
+			"control_request", "request_id", "quit", "request",
+			fy_mapping(client->gb, "subtype", "fyai_quit"))))
+		return;
+	while (jsonrpc_conn_has_output(client->peer) &&
+	       !jsonrpc_conn_closed(client->peer) && fyai_event_now_ms() < deadline)
+		if (fyai_event_loop_step(fyai_ctx_loop(ctx), 100) < 0)
+			break;
+}
+
+/*
+ * Say what keeps running when the client leaves: the session that went to the
+ * server, and the sessions that the server of the project holds. The display
+ * is closed, so the text stays on the terminal.
+ */
+static void remote_kept_report(struct fyai_ctx *ctx, const char *left,
+			       bool parked)
+{
+	struct fy_generic_builder *gb;
+	fy_generic sessions, session, branch, list = fy_string("");
+	size_t n = 0;
+
+	if (left)
+		(void)fyai_result(ctx, parked ?
+				  "%s is parked at a server: fyai resume joins it; "
+				  "fyai serve stop ends it\n" :
+				  "%s continues in the background: fyai resume shows "
+				  "it while it runs\n", left);
+	gb = fy_generic_builder_create(NULL);
+	if (!gb)
+		return;
+	sessions = fyai_remote_live_sessions(ctx, gb);
+	fy_foreach(session, sessions) {
+		branch = fy_get(session, "branch", fy_invalid);
+		if (!fy_is_string(branch) ||
+		    (left && fy_equal(branch, left)))
+			continue;
+		if (n++ < 4)
+			list = fy_stringf(gb, "%s%s%s (%s)", fy_castp(&list, ""),
+					  n > 1 ? ", " : "", fy_castp(&branch, ""),
+					  fyai_remote_live_state(session));
+	}
+	if (n > 4)
+		list = fy_stringf(gb, "%s and %zu more", fy_castp(&list, ""),
+				  n - 4);
+	if (n)
+		(void)fyai_result(ctx, "%s%zu session%s keep%s running at the "
+				  "server: %s\nfyai resume joins one; fyai session "
+				  "list shows them; fyai serve stop ends them\n",
+				  left ? "also " : "", n, n == 1 ? "" : "s",
+				  n == 1 ? "s" : "", fy_castp(&list, ""));
+	fy_generic_builder_destroy(gb);
+}
+
 /* Run the full-screen client until the user detaches or the worker goes. */
 static int remote_view_run(struct remote_client *client, bool watch)
 {
 	struct fyai_ctx *ctx = remote_client_ctx(client);
+	char *left;
+	bool parked;
 	int rc = 0;
 
 	client->view = fyai_remote_ui_open(ctx, client->peer);
@@ -914,8 +986,19 @@ static int remote_view_run(struct remote_client *client, bool watch)
 		if (rc < 0)
 			break;
 	}
+	client->released = fyai_remote_ui_released(client->view);
+	/*
+	 * Explicit quit terminates our split worker; terminal hangup leaves it
+	 * to hand itself off to a server.
+	 */
+	if (rc == 1 && !client->released && client->split)
+		remote_quit_send(client);
+	left = fyai_remote_ui_take_left(client->view, &parked);
 	fyai_remote_ui_close(client->view);
 	client->view = NULL;
+	if (rc >= 0 && !client->failed && (left || rc == 1))
+		remote_kept_report(ctx, left, parked);
+	free(left);
 	if (rc < 0 || client->failed)
 		return -1;
 	fyai_error_check(ctx, rc == 1 || ctx->loop->terminate_pending, err,
@@ -1264,7 +1347,22 @@ static int remote_split_run(struct fyai_cmd_call *call)
 		}
 		client.picker = !client.resume_branch;
 		client.picker_all = fy_get(cfg->remote_resume, "all", false);
+		/*
+		 * Attach to an existing live session instead of spawning a
+		 * duplicate worker; main() execs the client for attach_branch.
+		 */
+		if (client.resume_branch &&
+		    fyai_remote_session_live(ctx, client.resume_branch)) {
+			cfg->attach_branch = strdup(client.resume_branch);
+			fyai_error_check(ctx, cfg->attach_branch, out,
+					 "cannot keep the name of the session");
+			rc = 0;
+			goto out;
+		}
 	}
+	/* Confirm storage bootstrap before spawning a headless worker. */
+	if (fyai_storage_bootstrap_confirm(ctx))
+		goto out;
 	if (remote_split_open(&client))
 		goto out;
 	rc = remote_view_run(&client, false);
@@ -1428,4 +1526,269 @@ out:
 		close(fd);
 	free(path);
 	return rc;
+}
+
+/* ---- background sessions ----------------------------------------------- */
+
+/* Path to the `.live` session record for @socket, or NULL on OOM. */
+char *fyai_remote_record_path(const char *socket)
+{
+	char *path;
+
+	return asprintf(&path, "%s.live", socket) < 0 ? NULL : path;
+}
+
+/*
+ * The sessions that the server of this project has live: a sequence of
+ * {branch, busy, attached} in @gb, empty when no server runs. The record is
+ * read, not asked for: a picker must not wait on a server. A record of a
+ * process that is gone is removed.
+ */
+fy_generic fyai_remote_live_sessions(struct fyai_ctx *ctx,
+				     struct fy_generic_builder *gb)
+{
+	fy_generic doc, pid;
+	char *socket, *path = NULL, *text = NULL;
+	struct stat st;
+	ssize_t n;
+	int fd = -1;
+
+	socket = fyai_remote_socket_path(ctx, NULL, false, false);
+	if (socket)
+		path = fyai_remote_record_path(socket);
+	if (!path)
+		goto none;
+	fd = open(path, O_RDONLY | O_CLOEXEC);
+	if (fd < 0 || fstat(fd, &st) || st.st_size <= 0 || st.st_size > (1 << 20))
+		goto none;
+	text = calloc(1, (size_t)st.st_size + 1);
+	if (!text)
+		goto none;
+	n = read(fd, text, (size_t)st.st_size);
+	if (n != st.st_size)
+		goto none;
+	doc = parse_json_string_size(gb, text, (size_t)n);
+	pid = fy_get(doc, "pid", fy_invalid);
+	if (!fy_is_mapping(doc) || !fy_is_int(pid))
+		goto none;
+	if (kill((pid_t)fy_get(doc, "pid", 0LL), 0) && errno == ESRCH) {
+		unlink(path);
+		goto none;
+	}
+	close(fd);
+	free(text);
+	free(path);
+	free(socket);
+	return fy_get(doc, "sessions", fy_seq_empty);
+none:
+	if (fd >= 0)
+		close(fd);
+	free(text);
+	free(path);
+	free(socket);
+	return fy_seq_empty;
+}
+
+/* What a live session of the record is doing: "waiting", "running" or "idle". */
+const char *fyai_remote_live_state(fy_generic session)
+{
+	return fy_get(session, "waiting", false) ? "waiting" :
+	       fy_get(session, "busy", false) ? "running" : "idle";
+}
+
+/* True when @branch is a session that the server of this project has live. */
+bool fyai_remote_session_live(struct fyai_ctx *ctx, const char *branch)
+{
+	struct fy_generic_builder *gb = fy_generic_builder_create(NULL);
+	fy_generic sessions, session;
+	bool live = false;
+
+	if (!gb)
+		return false;
+	sessions = fyai_remote_live_sessions(ctx, gb);
+	fy_foreach(session, sessions)
+		if (fy_equal(fy_get(session, "branch", ""), branch))
+			live = true;
+	fy_generic_builder_destroy(gb);
+	return live;
+}
+
+/* Probe whether a Unix stream socket at @path accepts connections. */
+static bool remote_server_up(const char *path)
+{
+	struct sockaddr_un address = { .sun_family = AF_UNIX };
+	bool up;
+	int fd;
+
+	if (strlen(path) >= sizeof(address.sun_path))
+		return false;
+	memcpy(address.sun_path, path, strlen(path) + 1);
+	fd = socket(AF_UNIX, SOCK_STREAM, 0);
+	if (fd < 0)
+		return false;
+	up = !connect(fd, (struct sockaddr *)&address, sizeof(address));
+	close(fd);
+	return up;
+}
+
+/*
+ * Start `fyai serve --daemon --once` for this project and wait until it
+ * serves. It ends by itself when its sessions have no turn and no client.
+ */
+static int remote_serve_once_start(struct fyai_ctx *ctx)
+{
+	char *self, *args[5];
+	int status = -1, null;
+	pid_t pid;
+
+	self = realpath(ctx->cfg->argv[0], NULL);
+	fyai_error_check(ctx, self || !strchr(ctx->cfg->argv[0], '/'), err,
+			 "cannot resolve the executable '%s': %s",
+			 ctx->cfg->argv[0], strerror(errno));
+	args[0] = self ? self : (char *)ctx->cfg->argv[0];
+	args[1] = "serve";
+	args[2] = "--daemon";
+	args[3] = "--once";
+	args[4] = NULL;
+	null = open("/dev/null", O_RDWR | O_CLOEXEC);
+	fyai_error_check(ctx, null >= 0, err_self, "open '/dev/null': %s",
+			 strerror(errno));
+	pid = fork();
+	fyai_error_check(ctx, pid >= 0, err_null, "cannot fork the server: %s",
+			 strerror(errno));
+	if (!pid) {
+		if (dup2(null, STDIN_FILENO) < 0 || dup2(null, STDOUT_FILENO) < 0 ||
+		    dup2(null, STDERR_FILENO) < 0)
+			_exit(126);
+		fyai_close_fds_from(STDERR_FILENO + 1);
+		fyai_loop_restore_signal_mask(ctx->loop);
+		signal(SIGPIPE, SIG_DFL);
+		execvp(args[0], args);
+		_exit(127);
+	}
+	close(null);
+	while (waitpid(pid, &status, 0) < 0 && errno == EINTR)
+		;
+	free(self);
+	fyai_error_check(ctx, WIFEXITED(status) && !WEXITSTATUS(status), err,
+			 "the server did not start; see the log in .fyai/logs");
+	return 0;
+err_null:
+	close(null);
+err_self:
+	free(self);
+err:
+	return -1;
+}
+
+int fyai_remote_adopt(struct fyai_ctx *ctx, const char *branch, bool busy,
+		      bool keep, int *fdp, bool *imagep)
+{
+	struct fy_generic_builder *gb = fy_generic_builder_create(NULL);
+	struct remote_client client = { .ctx = ctx, .gb = gb, .fd = -1, .ssh = -1 };
+	char *path = NULL;
+	int rc = -1;
+
+	fyai_error_check(ctx, gb, out, "cannot allocate a request builder");
+	path = fyai_remote_socket_path(ctx, NULL, false, true);
+	if (!path)
+		goto out;
+	if (!remote_server_up(path) && remote_serve_once_start(ctx))
+		goto out;
+	rc = remote_client_open(&client, path, -1);
+	if (!rc)
+		rc = remote_hello(&client);
+	if (!rc)
+		rc = remote_request(&client, "adopt", fy_mapping(gb,
+			"subtype", "fyai_session_adopt", "branch", branch,
+			"pid", (long long)getpid(), "busy", busy, "keep", keep));
+	fyai_error_check(ctx, !rc, out, "cannot give '%s' to the server", branch);
+	*imagep = jsonrpc_conn_image(client.peer);
+	/* Transfer socket fd ownership to caller before closing client. */
+	jsonrpc_conn_destroy(client.peer);
+	client.peer = NULL;
+	*fdp = client.fd;
+	client.fd = -1;
+out:
+	remote_client_close(&client);
+	free(path);
+	if (gb)
+		fy_generic_builder_destroy(gb);
+	return rc ? -1 : 0;
+}
+
+/*
+ * End the live session on @branch at the server of this project. *@busyp says
+ * whether it ran a turn. The server says why when it refuses.
+ */
+int fyai_remote_session_close(struct fyai_ctx *ctx, const char *branch,
+			      bool force, bool *busyp)
+{
+	struct fy_generic_builder *gb = fy_generic_builder_create(NULL);
+	struct remote_client client = { .ctx = ctx, .gb = gb, .fd = -1, .ssh = -1 };
+	char *path = NULL;
+	int rc = -1;
+
+	fyai_error_check(ctx, gb, out, "cannot allocate a request builder");
+	path = fyai_remote_socket_path(ctx, NULL, false, false);
+	if (!path)
+		goto out;
+	fyai_error_check(ctx, remote_server_up(path), out,
+			 "no server runs sessions of this project");
+	rc = remote_client_open(&client, path, -1);
+	if (!rc)
+		rc = remote_hello(&client);
+	if (!rc)
+		rc = remote_request(&client, "close", fy_mapping(gb,
+			"subtype", "fyai_session_close", "branch", branch,
+			"force", force));
+	if (!rc && busyp)
+		*busyp = fy_get(client.answer, "busy", false);
+out:
+	remote_client_close(&client);
+	free(path);
+	if (gb)
+		fy_generic_builder_destroy(gb);
+	return rc ? -1 : 0;
+}
+
+/*
+ * Replace this process with the next session of the terminal: `fyai` for a new
+ * one, `fyai resume BRANCH` for @branch. It returns only on failure.
+ */
+int fyai_remote_next_exec(const char *argv0, const char *branch)
+{
+	char *self = realpath(argv0, NULL);
+	char *args[4];
+	int n = 0;
+
+	args[n++] = self ? self : (char *)argv0;
+	if (branch && *branch) {
+		args[n++] = "resume";
+		args[n++] = (char *)branch;
+	}
+	args[n] = NULL;
+	execvp(args[0], args);
+	free(self);
+	return -1;
+}
+
+/*
+ * Replace this process with the client of the live session @branch:
+ * `fyai -b BRANCH remote connect`. It returns only on failure.
+ */
+int fyai_remote_attach_exec(const char *argv0, const char *branch)
+{
+	char *self = realpath(argv0, NULL);
+	char *args[6];
+
+	args[0] = self ? self : (char *)argv0;
+	args[1] = "-b";
+	args[2] = (char *)branch;
+	args[3] = "remote";
+	args[4] = "connect";
+	args[5] = NULL;
+	execvp(args[0], args);
+	free(self);
+	return -1;
 }

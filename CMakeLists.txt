@@ -655,6 +655,7 @@ set(FYAI_SOURCES
     src/tools/fyai_tool_spec.c
     src/tools/fyai_tool_registry.c
     src/tools/fyai_monitor.c
+    src/tools/fyai_pending.c
     src/provider/fyai_mock.c
     src/front/fyai_cast.c
     src/front/fyai_ptydrv.c

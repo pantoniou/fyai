@@ -65,6 +65,11 @@ struct fyai_branch_state {
 	/* The project state that the next entry records, or fy_invalid. */
 	fy_generic project_state;
 	/*
+	 * Staged pending-work sequence for the next publish (fy_null to clear,
+	 * fy_invalid to keep stored). Consumed on publish.
+	 */
+	fy_generic pending;
+	/*
 	 * The groups of tool calls of this session that changed the project and
 	 * showed it: a sequence of {before, after} project states, the newest
 	 * last. `undo` takes it back.

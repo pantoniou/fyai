@@ -29,6 +29,7 @@
 #include <openssl/rand.h>
 
 #include "fyai.h"
+#include "fyai_pending.h"
 #include "fyai_display.h"
 #include "fyai_ui.h"
 #include "fyai_host.h"
@@ -58,6 +59,7 @@
 #include "fyai_tool_registry.h"
 #include "fyai_tool_spec.h"
 #include "fyai_tools.h"
+#include "fyai_remote.h"
 #include "fyai_turn.h"
 #include "fyai_xfer.h"
 #include "utils.h"
@@ -99,6 +101,7 @@ struct sdk_input {
 	bool composed;			/* the text goes as written */
 	bool queued;			/* queued on the client during a turn */
 	bool event;			/* a queued event, in @ev */
+	bool resume;			/* resume from head without new input */
 	struct fyai_event_input ev;
 };
 
@@ -206,6 +209,17 @@ struct sdk_server {
 					 * worker channel, separate from stdio
 					 */
 	char *reported_branch;		/* the branch the serving process knows */
+	int adopt_fd;			/* the connection to the server, or -1 */
+	/* The channel of the client that left: freed outside its own frame. */
+	struct jsonrpc_conn *retired;
+	int retired_in, retired_out;
+	bool adopt_image;		/* adopt_fd supports image framing */
+	bool quit_asked;		/* client sent fyai_quit (not hangup) */
+	bool at_server;			/* primary channel is server-owned */
+	bool release_client;		/* /background: detach client only */
+	char *next;			/* next target ("" = new, or branch) */
+	bool has_next;
+	bool reported_waiting;		/* and whether a question waits for the user */
 	/* The client reads the UI model: its stores and texts go as frames. */
 	bool model_wanted, model_stream;
 	unsigned long long epoch;	/* the incarnation of the model stream */
@@ -812,19 +826,27 @@ int fyai_cmd_claude_sdk_prepare(struct fyai_cfg *cfg, fy_generic args)
 static void sdk_report_branch(struct sdk_server *srv)
 {
 	const char *branch = fyai_ctx_branch(sdk_server_ctx(srv));
+	bool waiting;
 	char *copy;
 	int rc;
 
-	if (!srv->remote_worker || (srv->reported_branch &&
-				    !strcmp(srv->reported_branch, branch)))
+	if (!srv->remote_worker)
+		return;
+	waiting = !fy_empty(fy_get(fyai_uimodel_get(sdk_server_ctx(srv),
+						    FYAI_UI_QUESTIONS), "open",
+				   fy_seq_empty));
+	if (srv->reported_branch && !strcmp(srv->reported_branch, branch) &&
+	    srv->reported_waiting == waiting)
 		return;
 	copy = strdup(branch);
 	fyai_error_check(sdk_server_ctx(srv), copy, err,
 			 "claude-sdk: cannot keep the worker branch");
 	rc = jsonrpc_conn_send_frame(srv->conn,
-		fy_mapping("type", "fyai_worker", "branch", branch));
+		fy_mapping("type", "fyai_worker", "branch", branch,
+			   "waiting", waiting));
 	free(srv->reported_branch);
 	srv->reported_branch = copy;
+	srv->reported_waiting = waiting;
 	fyai_error_check(sdk_server_ctx(srv), !rc, err,
 			 "claude-sdk: cannot report the worker branch");
 	return;
@@ -2079,6 +2101,9 @@ static void sdk_record_take(struct sdk_server *srv, const char *id,
 }
 
 static void sdk_model_command_run(struct sdk_server *srv, struct sdk_input *in);
+static void sdk_adopt_finish(struct sdk_server *srv);
+static void sdk_adopt_swap(struct sdk_server *srv);
+static void sdk_turn(struct sdk_server *srv, const struct sdk_input *in);
 
 /* A line of the client waits for its turn: the turn is as good as running. */
 static bool sdk_turn_queued(const struct sdk_server *srv)
@@ -2168,6 +2193,16 @@ static void sdk_model_command_run(struct sdk_server *srv, struct sdk_input *in)
 	sdk_respond(srv, fy_value(gb, in->command_id), fy_invalid,
 		    rc == 1 ? "the command ends the session of the client" :
 		    rc ? "the command failed" : NULL);
+	/* Complete pending /background handoff after queueing response. */
+	if (!rc)
+		sdk_adopt_finish(srv);
+	/* Execute /continue after acknowledging the command. */
+	if (!rc && ctx->turn->continue_requested) {
+		struct sdk_input run = { .resume = true };
+
+		ctx->turn->continue_requested = false;
+		sdk_turn(srv, &run);
+	}
 }
 
 static void sdk_respond_init(struct sdk_server *srv, fy_generic id);
@@ -2457,6 +2492,8 @@ static void sdk_model_start(struct sdk_server *srv, fy_generic id)
 	struct fyai_ctx *ctx = sdk_server_ctx(srv);
 	enum fyai_ui_store store;
 	fy_generic root;
+	/* Preserve an existing transient builder owned by an in-flight turn. */
+	bool own = !ctx->transient->gb;
 
 	if (!srv->model_wanted) {
 		srv->model_stream = false;
@@ -2475,7 +2512,8 @@ static void sdk_model_start(struct sdk_server *srv, fy_generic id)
 		ctx->toolspec->spec = fy_invalid;
 		(void)fyai_request_state_apply(ctx);
 	}
-	fyai_cleanup_transient_builder(ctx);
+	if (own)
+		fyai_cleanup_transient_builder(ctx);
 	srv->model_stream = true;
 	/* The server of a session sends the snapshot to the client that asked
 	 * for it alone: it ends at the second marker. */
@@ -2767,6 +2805,11 @@ static void sdk_control(struct sdk_server *srv, fy_generic frame)
 						  (const char *)NULL));
 		return;
 	}
+		if (!strcmp(subtype, "fyai_quit") && srv->model_stream) {
+		/* Explicit user quit; distinguishes clean exit from hangup. */
+		srv->quit_asked = true;
+		return;
+	}
 		if (!strcmp(subtype, "fyai_sync") && srv->model_stream) {
 		model = sdk_model_sync(srv, req);
 		sdk_respond(srv, id, model, fy_is_valid(model) ? NULL :
@@ -3047,6 +3090,16 @@ static void sdk_user(struct sdk_server *srv, fy_generic frame)
 	 * a message of the conversation. */
 	if (srv->remote_worker && !in->images &&
 	    fyai_agents_input(sdk_server_ctx(srv), in->text)) {
+		if (in->queued)
+			fyai_session_queued_set(sdk_server_ctx(srv),
+						++srv->queued_taken);
+		free(in->text);
+		free(in);
+		return;
+	}
+	/* Deliver line to a running command waiting for stdin (e.g., login). */
+	if (srv->remote_worker && !in->images &&
+	    fyai_cmd_session_input(sdk_server_ctx(srv), in->text)) {
 		if (in->queued)
 			fyai_session_queued_set(sdk_server_ctx(srv),
 						++srv->queued_taken);
@@ -3547,6 +3600,12 @@ static void sdk_turn(struct sdk_server *srv, const struct sdk_input *in)
 	gb = fyai_ctx_transient_gb(ctx);
 	sdk_send_init(srv);
 
+	if (in->resume) {
+		fyai_error_check(ctx, fyai_turn_continuable(ctx->turn->last_message), done,
+				 "claude-sdk: the conversation does not end with a tool "
+				 "result or a message to answer");
+		goto run;
+	}
 	if (in->event) {
 		rc = sdk_add_event(srv, &in->ev);
 		if (rc)		/* sdk_add_event() says why */
@@ -3852,6 +3911,8 @@ static int sdk_cmd_setup(struct fyai_cmd_call *call, struct sdk_server *srv)
 	}
 	ctx->cfg->reload_worker = srv->remote_worker &&
 				  fyai_cmd_arg_bool(call, "local_session");
+	/* Server-spawned workers already communicate through a server. */
+	srv->at_server = srv->remote_worker && !ctx->cfg->reload_worker;
 	/*
 	 * A worker presents nothing: its sink gives the client Markdown and
 	 * bands, which the client renders at its own width. The invocation
@@ -3928,12 +3989,169 @@ static void sdk_channel_closed(void *data)
 	struct sdk_server *srv = data;
 	struct fyai_ctx *ctx = sdk_server_ctx(srv);
 
+	/*
+	 * On unexpected client hangup while work is active, hand off the local
+	 * worker to the project server (as in /background) instead of exiting.
+	 * Idle workers terminate with their client.
+	 */
+	if (srv->remote_worker && !srv->at_server && srv->adopt_fd < 0 &&
+	    !srv->quit_asked && fyai_session_working(ctx) &&
+	    !fyai_remote_adopt(ctx, fyai_ctx_branch(ctx), srv->busy, !srv->busy,
+			       &srv->adopt_fd, &srv->adopt_image)) {
+		sdk_adopt_swap(srv);
+		return;
+	}
 	srv->channel_lost = true;
 	ctx->loop->interrupt_pending = true;
 	ctx->loop->terminate_pending = true;
 	fyai_ask_settle_all(ctx);
 	/* A wait of the model sees the interrupt when it is asked to look. */
 	fyai_waiters_kick(ctx);
+}
+
+/* Callback reporting whether a turn is currently in flight. */
+static bool sdk_working(struct fyai_ctx *ctx, void *data)
+{
+	const struct sdk_server *srv = data;
+
+	(void)ctx;
+	return srv->busy;
+}
+
+/*
+ * Stage a /background handoff to the project server. The actual channel swap
+ * runs in sdk_adopt_finish() after the command response is flushed to the
+ * client.
+ */
+static int sdk_background_request(struct fyai_ctx *ctx, void *data)
+{
+	struct sdk_server *srv = data;
+	int rc;
+
+	fyai_error_check(ctx, srv->adopt_fd < 0 && !srv->release_client, err,
+			 "background: the session is moving already");
+	free(srv->next);
+	srv->next = ctx->turn->background_next ?
+		    strdup(ctx->turn->background_next) : NULL;
+	srv->has_next = ctx->turn->background_next != NULL;
+	fyai_error_check(ctx, !srv->has_next || srv->next, err,
+			 "background: cannot keep the next session");
+	/* Already server-backed: just detach the current client. */
+	if (srv->at_server) {
+		srv->release_client = true;
+		return 0;
+	}
+	rc = fyai_remote_adopt(ctx, fyai_ctx_branch(ctx), srv->busy, !srv->busy,
+			       &srv->adopt_fd, &srv->adopt_image);
+	fyai_error_check(ctx, !rc, err,
+			 "background: the server did not take the session");
+	return 0;
+err:
+	return -1;
+}
+
+/* No-op frame handler for a retired client channel awaiting teardown. */
+static void sdk_retired_frame(struct jsonrpc_conn *conn, fy_generic frame,
+			      void *data)
+{
+	(void)conn;
+	(void)frame;
+	(void)data;
+}
+
+/* Destroy the retired client channel outside frame dispatch. */
+static void sdk_retired_free(struct sdk_server *srv)
+{
+	if (!srv->retired)
+		return;
+	jsonrpc_conn_destroy(srv->retired);
+	srv->retired = NULL;
+	close(srv->retired_in);
+	close(srv->retired_out);
+}
+
+/*
+ * Notify the client via `backgrounded`, flush the outbound buffer, and switch
+ * the primary channel to the server connection (retiring the client channel).
+ */
+static void sdk_adopt_finish(struct sdk_server *srv)
+{
+	struct fyai_ctx *ctx = sdk_server_ctx(srv);
+	struct fyai_event_loop *el = fyai_ctx_loop(ctx);
+	fy_generic frame;
+
+	if (srv->adopt_fd < 0 && !srv->release_client)
+		return;
+	frame = fy_mapping(fyai_ctx_transient_gb(ctx), "type", "fyai",
+			   "subtype", "backgrounded",
+			   "branch", fyai_ctx_branch(ctx),
+			   "parked", (_Bool)!srv->busy);
+	/* Optional next session target for client exec ("" = new session). */
+	if (srv->has_next)
+		frame = fy_assoc(fyai_ctx_transient_gb(ctx), frame, "next",
+				 srv->next);
+	srv->has_next = false;
+	sdk_send(srv, frame);
+	while (jsonrpc_conn_has_output(srv->conn) &&
+	       !jsonrpc_conn_closed(srv->conn))
+		if (fyai_event_loop_step(el, 1000) <= 0)
+			break;
+	if (srv->release_client) {
+		srv->release_client = false;
+		return;
+	}
+	sdk_adopt_swap(srv);
+}
+
+/*
+ * Make the connection to the server the channel of the session. The channel
+ * of the client closes; its end is no loss of the session.
+ */
+static void sdk_adopt_swap(struct sdk_server *srv)
+{
+	struct fyai_ctx *ctx = sdk_server_ctx(srv);
+	struct jsonrpc_conn *conn, *old;
+	int in = -1, out = -1, rc;
+
+	in = fcntl(srv->adopt_fd, F_DUPFD_CLOEXEC, 10);
+	out = fcntl(srv->adopt_fd, F_DUPFD_CLOEXEC, 10);
+	close(srv->adopt_fd);
+	srv->adopt_fd = -1;
+	fyai_error_check(ctx, in >= 0 && out >= 0, err,
+			 "claude-sdk: cannot keep the channel to the server: %s",
+			 strerror(errno));
+	conn = jsonrpc_conn_stdio(ctx, out, in, 0, "claude-sdk", NULL);
+	fyai_error_check(ctx, conn, err,
+			 "claude-sdk: cannot open the channel to the server");
+	if (srv->adopt_image)
+		(void)jsonrpc_conn_set_image(conn);
+	jsonrpc_conn_on_close(conn, sdk_channel_closed, srv);
+	rc = jsonrpc_conn_frames(conn, sdk_frame, srv);
+	fyai_error_check(ctx, !rc, err_conn,
+			 "claude-sdk: cannot read the channel to the server");
+	old = srv->conn;
+	jsonrpc_conn_on_close(old, NULL, NULL);
+	(void)jsonrpc_conn_frames(old, sdk_retired_frame, srv);
+	srv->conn = conn;
+	srv->retired = old;
+	srv->retired_in = srv->chan_in;
+	srv->retired_out = srv->chan_out;
+	srv->chan_in = in;
+	srv->chan_out = out;
+	srv->at_server = true;
+	/* Force state re-announcement so server learns waiting/busy state. */
+	free(srv->reported_branch);
+	srv->reported_branch = NULL;
+	sdk_report_branch(srv);
+	return;
+err_conn:
+	jsonrpc_conn_destroy(conn);
+err:
+	if (in >= 0)
+		close(in);
+	if (out >= 0)
+		close(out);
+	srv->failed = true;
 }
 
 /* Open the channel of the session and the observers of the turns. */
@@ -3975,6 +4193,9 @@ static int sdk_cmd_channel(struct sdk_server *srv)
 	if (srv->remote_worker) {
 		(void)jsonrpc_conn_set_image(srv->conn);
 		jsonrpc_conn_on_close(srv->conn, sdk_channel_closed, srv);
+		ctx->turn->background = sdk_background_request;
+		ctx->turn->background_data = srv;
+		ctx->turn->working = sdk_working;
 	}
 	rc = jsonrpc_conn_frames(srv->conn, sdk_frame, srv);
 	fyai_error_check(ctx, !rc, out,
@@ -4073,6 +4294,9 @@ static int sdk_cmd_serve(struct sdk_server *srv)
 		unsetenv("FYAI_SESSION_RESTART");
 		sdk_send(srv, fy_mapping("type", "fyai", "subtype", "restarted"));
 	}
+	/* Work that a lost process left on the branch goes on here. */
+	if (srv->remote_worker && fyai_pending_restore(ctx))
+		fyai_warning(ctx, "durable: the pending work was not restored");
 	while (!srv->failed && !srv->session_failed && !srv->channel_lost &&
 	       !ctx->screen->quit &&
 	       !ctx->cfg->reload_branch) {
@@ -4104,6 +4328,7 @@ static int sdk_cmd_serve(struct sdk_server *srv)
 					 "claude-sdk: the event loop stopped");
 			continue;
 		}
+		sdk_retired_free(srv);
 		if (srv->head) {
 			in = srv->head;
 			srv->head = in->next;
@@ -4112,7 +4337,9 @@ static int sdk_cmd_serve(struct sdk_server *srv)
 			if (in->queued)
 				fyai_session_queued_set(ctx,
 							++srv->queued_taken);
-			if (in->command_id && fyai_skill_user_line(ctx, in->text)) {
+			if (in->resume) {
+				sdk_turn(srv, in);
+			} else if (in->command_id && fyai_skill_user_line(ctx, in->text)) {
 				/* A skill that the user runs is a turn. */
 				sdk_respond(srv, fy_value(
 					fyai_ctx_transient_gb(ctx),
@@ -4179,6 +4406,7 @@ static void sdk_cmd_cleanup(struct fyai_ctx *ctx, struct sdk_server *srv)
 	struct sdk_decision *d;
 	struct sdk_tunnel *t;
 
+	sdk_retired_free(srv);
 	if (ctx->screen->config_edit) {
 		fyai_config_edit_cancel(ctx->screen->config_edit);
 		fyai_config_edit_destroy(ctx->screen->config_edit);
@@ -4215,6 +4443,7 @@ static void sdk_cmd_cleanup(struct fyai_ctx *ctx, struct sdk_server *srv)
 	}
 	fyai_uimodel_unsubscribe(ctx, sdk_model_store, srv);
 	fyai_uimodel_text_unsubscribe(ctx, sdk_model_text, srv);
+	free(srv->next);
 	free(srv->reported_branch);
 	free(srv->session_id);
 	while ((d = srv->decisions)) {
@@ -4241,6 +4470,7 @@ int fyai_cmd_claude_sdk(struct fyai_cmd_call *call, fy_generic *result)
 
 	(void)result;
 	memset(&srv, 0, sizeof(srv));
+	srv.adopt_fd = -1;
 	rc = sdk_cmd_setup(call, &srv) || sdk_cmd_channel(&srv) ||
 	     sdk_cmd_tools(call, &srv) || sdk_cmd_serve(&srv);
 	sdk_cmd_cleanup(ctx, &srv);

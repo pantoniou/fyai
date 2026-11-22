@@ -8,6 +8,13 @@ char *fyai_default_arena_dir(void);
 char *fyai_history_path(void);
 void fyai_reserve_arena_ranges(void);
 int fyai_setup_storage(struct fyai_ctx *ctx);
+
+/*
+ * Prompt on the local terminal to confirm creating a missing project before
+ * spawning a headless worker (which receives --bootstrap on approval).
+ * Returns 0 if the project exists or the user confirmed, else -1 with diag.
+ */
+int fyai_storage_bootstrap_confirm(struct fyai_ctx *ctx);
 int fyai_publish_state(struct fyai_ctx *ctx);
 int fyai_close_storage(struct fyai_ctx *ctx);
 /* Re-read the branch table, which a sub-agent may have added to. */

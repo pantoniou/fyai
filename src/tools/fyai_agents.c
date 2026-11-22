@@ -1252,6 +1252,13 @@ static char *agents_history(struct fyai_ctx *ctx, const char *name)
 	root = fyai_branches_snapshot(ctx);
 	if (!fyai_branch_lookup(fy_get(root, "branches", fy_invalid), name, &branch))
 		return NULL;
+	/*
+	 * Skip checkpoint entries from an active run; live output already
+	 * displays them, so prepending stored history would duplicate them.
+	 */
+	if (fy_is_string(branch.op) &&
+	    !strcmp(fy_castp(&branch.op, ""), FYAI_BRANCH_OP_CHECKPOINT))
+		return NULL;
 	gb = fy_generic_builder_create(&gbcfg);
 	if (!gb)
 		return NULL;
