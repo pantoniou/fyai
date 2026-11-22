@@ -33,6 +33,26 @@ int fyai_session_clear(struct fyai_ctx *ctx);
  * summary; @hint optionally focuses the summary. Needs request credentials. */
 int fyai_session_compact(struct fyai_ctx *ctx, const char *hint);
 
+/*
+ * Set the branch description to a title. Uses @text if non-empty; otherwise
+ * generates one via a model call (`title/prompt`, capped at `title/max_chars`)
+ * and, when @summary is true, makes a second unpersisted call for a summary
+ * (`title/summary_prompt`). Interns outputs in @gb into @titlep and @summaryp
+ * (NULL if omitted). Returns 0, or -1 on error.
+ */
+int fyai_session_title(struct fyai_ctx *ctx, struct fy_generic_builder *gb,
+		       const char *text, bool summary, const char **titlep,
+		       const char **summaryp);
+
+/*
+ * If `title/auto` is enabled, spawn `fyai title` to auto-title an untitled
+ * `session/` branch after an exchange is published. Runs at most once per
+ * process; skipped for user-titled branches, sub-agents, and transient runs.
+ * Detached for interactive sessions, synchronous for non-interactive runs
+ * under credential isolation. Errors are logged via trace only.
+ */
+void fyai_session_title_auto(struct fyai_ctx *ctx);
+
 /* Return true when compaction uses a Responses input trigger. */
 bool fyai_session_compact_v2(const struct fyai_cfg *cfg);
 

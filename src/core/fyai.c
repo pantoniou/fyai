@@ -3129,6 +3129,7 @@ int fyai_prompt_batch(struct fyai_ctx *ctx)
 	rc = fyai_publish_state(ctx);
 	if (rc)
 		goto err_out;
+	fyai_session_title_auto(ctx);
 
 	rc = 0;
 out:
@@ -3487,6 +3488,7 @@ int fyai_prompt_interactive(struct fyai_ctx *ctx)
 		rc = fyai_publish_state(ctx);
 		if (rc)
 			goto err_out;
+		fyai_session_title_auto(ctx);
 	}
 
 	histfile = fyai_history_path();
@@ -3594,6 +3596,7 @@ int fyai_prompt_interactive(struct fyai_ctx *ctx)
 		ctx->turn->last_message = v;
 		if (fyai_publish_state(ctx))
 			goto err_out;
+		fyai_session_title_auto(ctx);
 
 		/*
 		 * The turn is over and the render is done: report now, before

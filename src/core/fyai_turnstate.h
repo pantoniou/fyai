@@ -47,6 +47,8 @@ struct fyai_turnstate {
 	fy_generic last_message;
 	/* Do not apply the context guard to a compaction request. */
 	bool compacting;
+	/* Auto-titling already attempted in this process; do not re-trigger. */
+	bool title_tried;
 	/* Output allowance after the context check. Zero uses the configuration. */
 	long long context_max_tokens;
 	/*
