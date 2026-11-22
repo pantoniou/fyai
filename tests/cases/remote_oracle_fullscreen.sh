@@ -16,6 +16,8 @@ oracle_setup remote_terminal.json
 	--set display/command_output=transcript --set shell/input_poll_ms=0 \
 	>/dev/null 2>&1
 "$FYAI_BIN" branch create oracle/fullscreen >/dev/null 2>&1
+# Wait for the final post-layout tile header row before checkpointing; the
+# initial pre-layout header is one column narrower.
 oracle_compare --branch oracle/fullscreen <<'PTY'
 rows: 30
 cols: 100
@@ -34,6 +36,7 @@ steps:
   - type: "!printf 'bang-row\\nbang-done'"
   - wait-screen: bang-done
   - wait-screen: Esc closes
+  - wait-row: "▌ ●  shell [bang-1]                                                                           ▁ □ ×"
   - checkpoint: bang
   - write: "\e"
   - wait-gone: Esc closes

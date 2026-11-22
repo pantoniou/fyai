@@ -9,6 +9,7 @@ The wait is on the kernel: a pidfd is readable when the process has exited
 failure and paces nothing. Exit status: 0 when the process has exited or
 never existed, 1 when the deadline passed.
 """
+import errno
 import os
 import select
 import sys
@@ -19,6 +20,12 @@ def wait_pidfd(pid, deadline):
         fd = os.pidfd_open(pid)
     except ProcessLookupError:
         return True
+    except OSError as e:
+        # A reaped process whose PID is still pinned returns EINVAL instead of
+        # ESRCH; treat it as exited.
+        if e.errno == errno.EINVAL and pid > 0:
+            return True
+        raise
     try:
         return bool(select.select([fd], [], [], deadline)[0])
     finally:

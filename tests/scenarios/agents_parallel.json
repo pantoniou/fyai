@@ -1,8 +1,11 @@
 {
   "steps": [
     {
-      "match": {"http": "POST", "path": "/v1/chat/completions",
-                "body_contains": "delegate both halves"},
+      "match": {
+        "http": "POST",
+        "path": "/v1/chat/completions",
+        "body_contains": "delegate both halves"
+      },
       "response": {
         "id": "chatcmpl-agents-parallel-1",
         "object": "chat.completion",
@@ -38,9 +41,11 @@
       }
     },
     {
-      "match": {"http": "POST", "path": "/v1/chat/completions",
-                "body_contains": "TASK-ALPHA"},
-      "delay": 1.0,
+      "match": {
+        "http": "POST",
+        "path": "/v1/chat/completions",
+        "body_contains": "TASK-ALPHA"
+      },
       "response": {
         "id": "chatcmpl-agents-parallel-alpha",
         "object": "chat.completion",
@@ -55,12 +60,15 @@
             }
           }
         ]
-      }
+      },
+      "wait_for": "release-alpha"
     },
     {
-      "match": {"http": "POST", "path": "/v1/chat/completions",
-                "body_contains": "TASK-BETA"},
-      "delay": 2.0,
+      "match": {
+        "http": "POST",
+        "path": "/v1/chat/completions",
+        "body_contains": "TASK-BETA"
+      },
       "response": {
         "id": "chatcmpl-agents-parallel-beta",
         "object": "chat.completion",
@@ -75,11 +83,15 @@
             }
           }
         ]
-      }
+      },
+      "wait_for": "release-beta"
     },
     {
-      "match": {"http": "POST", "path": "/v1/chat/completions",
-                "body_contains": "REPORT-ALPHA"},
+      "match": {
+        "http": "POST",
+        "path": "/v1/chat/completions",
+        "body_contains": "REPORT-ALPHA"
+      },
       "response": {
         "id": "chatcmpl-agents-parallel-2",
         "object": "chat.completion",

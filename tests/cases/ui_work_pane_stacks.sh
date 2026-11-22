@@ -15,8 +15,14 @@ pty_run "$TEST_DIR/pty.out" \
     --set "api_url=$MOCK_URL/v1/chat/completions" -m mock-model -i <<'PTY'
 steps:
   - type: delegate both halves
-  - wait: second half
-    timeout: 3
+  - wait-screen: "[alpha] first half"
+    timeout: session
+  - wait-screen: "[beta] second half"
+    timeout: session
+  - frame: 2
+  - touch: "${TEST_DIR}/release-alpha"
+  - wait-screen: "REPORT-ALPHA"
+  - touch: "${TEST_DIR}/release-beta"
   - wait: Both sub-agents reported.
     timeout: session
 PTY
@@ -31,7 +37,8 @@ from tile_assert import frames_with_both
 
 data = open(sys.argv[1], "rb").read()
 
-frames = frames_with_both(data, "REPORT-ALPHA", "REPORT-BETA", 30, 100)
+# Check stacking while both tiles are live and held on screen.
+frames = frames_with_both(data, "[alpha]", "[beta]", 30, 100)
 if not frames:
     raise SystemExit("the two sub-agent screens were never both on screen")
 for row_a, row_b, row in frames:

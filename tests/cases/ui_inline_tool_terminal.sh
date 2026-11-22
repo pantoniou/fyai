@@ -23,7 +23,7 @@ pty_run "$TEST_DIR/pty.out" \
 timeout: 30
 steps:
   - type: drive the shell
-  - wait: done.
+  - wait-screen: "done."
     timeout: session
   - wait-row: PIPE-B
   - wait-screen: "● shell [lines]"
@@ -37,16 +37,18 @@ import sys
 sys.path.insert(0, sys.argv[2])
 from screen import Screen
 
-# A frame paints only the cells that changed, so a capture cut inside one does
-# not show the screen: read the last whole frame that shows the live output.
+# Sync-update frames are incremental, so inspect the last complete frame
+# containing both the live output and the preceding answer (later frames may
+# scroll the answer off-screen).
 data = open(sys.argv[1], "rb").read()
 rows = []
 end = data.find(b"\x1b[?2026l")
 while end >= 0:
     s = Screen(30, 100)
     s.feed(data[:end + 8])
-    shown = [r.rstrip() for r in s.display() if r.strip()]
-    if any(r.strip() == "PIPE-B" for r in shown):
+    shown = [r.rstrip() for r in s.lines() if r.strip()]
+    if (any(r.strip() == "PIPE-B" for r in shown) and
+            any(r.strip() == "done." for r in shown)):
         rows = shown
     end = data.find(b"\x1b[?2026l", end + 1)
 

@@ -15,9 +15,21 @@ pty_run "$TEST_DIR/pty.out" \
 snapshot: "${TEST_DIR}/snapshot.out"
 steps:
   - type: delegate both halves
-  - wait: second half
-    timeout: 3
-  - wait: Both sub-agents reported.
+  - wait-screen: "[alpha] first half"
+    timeout: session
+  - wait-screen: "[beta] second half"
+    timeout: session
+  # Verify activity indicator blinks off and back on while both run.
+  - wait-screen: "  agent [alpha] first half"
+  - wait-screen: "● agent [alpha] first half"
+  - touch: "${TEST_DIR}/release-alpha"
+  # Release alpha and confirm it retires while beta remains active.
+  - wait-screen: "REPORT-ALPHA"
+  # Vertical pane divider disappears once only beta's tile remains.
+  - wait-gone: "\u2503"
+  - frame: 3
+  - touch: "${TEST_DIR}/release-beta"
+  - wait-screen: "Both sub-agents reported."
     timeout: session
   - type: "/status"
   - wait-screen: Usage / total
@@ -115,13 +127,19 @@ from tile_assert import frames
 
 data = open(sys.argv[1], "rb").read()
 retired = False
+
+def live(disp, name):
+    """A tile that runs: its title has the model, a committed card has not."""
+    return any(name in line and "mock-model" in line for line in disp)
+
+both = False
 for disp in frames(data, 30, 100):
-    shown = "\n".join(disp)
-    # Alpha's report has been committed while beta is still live. The work
-    # pane must now contain beta alone, not alpha's completed surface too.
-    if "REPORT-ALPHA" not in shown or "[beta]" not in shown:
-        continue
-    if sum(line.count("● agent") for line in disp) <= 1:
+    # After both tiles have been live, retiring alpha while beta is still live
+    # must leave only beta in the work pane. Check live tile headers directly
+    # since alpha's report and tile retirement can land in the same frame.
+    if live(disp, "[alpha]") and live(disp, "[beta]"):
+        both = True
+    elif both and live(disp, "[beta]") and not live(disp, "[alpha]"):
         retired = True
 if not retired:
     raise SystemExit("no frame retired alpha while beta was still displayed")
