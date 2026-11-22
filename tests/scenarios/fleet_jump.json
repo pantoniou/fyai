@@ -1,0 +1,112 @@
+{
+  "steps": [
+    {
+      "match": {
+        "http": "POST",
+        "path": "/v1/chat/completions",
+        "body_contains": "Do the work"
+      },
+      "response": {
+        "id": "c-62603",
+        "object": "chat.completion",
+        "model": "mock-model",
+        "choices": [
+          {
+            "index": 0,
+            "finish_reason": "stop",
+            "message": {
+              "role": "assistant",
+              "content": "Work done."
+            }
+          }
+        ],
+        "usage": {
+          "prompt_tokens": 10,
+          "completion_tokens": 4,
+          "total_tokens": 14
+        }
+      }
+    },
+    {
+      "match": {
+        "http": "POST",
+        "path": "/v1/chat/completions",
+        "body_contains": "Say done"
+      },
+      "response": {
+        "id": "c-55449",
+        "object": "chat.completion",
+        "model": "mock-model",
+        "choices": [
+          {
+            "index": 0,
+            "finish_reason": "stop",
+            "message": {
+              "role": "assistant",
+              "content": "All done."
+            }
+          }
+        ],
+        "usage": {
+          "prompt_tokens": 10,
+          "completion_tokens": 4,
+          "total_tokens": 14
+        }
+      }
+    },
+    {
+      "match": {
+        "http": "POST",
+        "path": "/v1/chat/completions",
+        "body_contains": "Member line"
+      },
+      "response": {
+        "id": "c-91761",
+        "object": "chat.completion",
+        "model": "mock-model",
+        "choices": [
+          {
+            "index": 0,
+            "finish_reason": "stop",
+            "message": {
+              "role": "assistant",
+              "content": "Member reply."
+            }
+          }
+        ],
+        "usage": {
+          "prompt_tokens": 10,
+          "completion_tokens": 4,
+          "total_tokens": 14
+        }
+      }
+    },
+    {
+      "match": {
+        "http": "POST",
+        "path": "/v1/chat/completions",
+        "body_contains": "Root again"
+      },
+      "response": {
+        "id": "c-89097",
+        "object": "chat.completion",
+        "model": "mock-model",
+        "choices": [
+          {
+            "index": 0,
+            "finish_reason": "stop",
+            "message": {
+              "role": "assistant",
+              "content": "Root reply."
+            }
+          }
+        ],
+        "usage": {
+          "prompt_tokens": 10,
+          "completion_tokens": 4,
+          "total_tokens": 14
+        }
+      }
+    }
+  ]
+}
