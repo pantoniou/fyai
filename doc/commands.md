@@ -3594,7 +3594,7 @@ questions is answered in the session.
 
 the projects and sessions under the root project
 
-**Usage:** `fyai fleet {list|read|scan|search|start|tasks} ...`
+**Usage:** `fyai fleet {attach|list|read|scan|search|start|tasks} ...`
 
 The fleet of the root project: the topmost project above this one, and
 every project below it. A project is a directory whose `.fyai` holds an
@@ -3608,6 +3608,7 @@ sets the scan: `fyai config set fleet/scan/depth 2` there.
 
 | Command | Description |
 | --- | --- |
+| `attach` | join a session of the fleet in this terminal |
 | `list` | list every session under the root |
 | `read` | read the last turns of a session of the fleet |
 | `scan` | list the projects under the root |
@@ -3668,6 +3669,33 @@ the root keeps the task in its branch (`fleet tasks`).
 | Option | Description |
 | --- | --- |
 | `--branch BRANCH` | the branch of the session |
+| `--output FORMAT` | write the result as markdown, json, or yaml; see `help output` |
+| `-h`, `--help` | show this help |
+
+## fyai fleet attach
+
+join a session of the fleet in this terminal
+
+**Usage:** `fyai fleet attach [--return NAME] NAME`
+
+Join the session NAME of the fleet (PROJECT:BRANCH, or BRANCH of this
+project) in this terminal, from the directory of its project. A
+session that no process runs starts at the server of its project; a
+session that another client drives is watched. With `--return`,
+`/root` in the session goes back to that session. `/jump` runs it.
+
+
+### Arguments
+
+| Argument | Description |
+| --- | --- |
+| `NAME` | the session, as PROJECT:BRANCH or BRANCH |
+
+### Options
+
+| Option | Description |
+| --- | --- |
+| `--return NAME` | the session that /root goes back to |
 | `--output FORMAT` | write the result as markdown, json, or yaml; see `help output` |
 | `-h`, `--help` | show this help |
 
@@ -6385,6 +6413,48 @@ the server parks the session until `fyai serve stop`. The server stops
 when no turn runs, no client is attached and no session is parked.
 `fyai resume` lists the session and joins it. A session that runs in the
 terminal process (`FYAI_NO_SPLIT`) cannot do this.
+
+
+### Options
+
+| Option | Description |
+| --- | --- |
+| `-h`, `--help` | show this help |
+
+## /jump
+
+go into a session of the fleet
+
+**Usage:** `/jump NAME`
+
+Go into the session NAME of the fleet (PROJECT:BRANCH, or BRANCH of this
+project) and control it in this terminal; `/root` comes back. This
+session goes to a server as `/background` leaves it, and goes on there.
+A session that no process runs starts; one that another client drives
+is watched. `fleet list` names the sessions.
+
+
+### Arguments
+
+| Argument | Description |
+| --- | --- |
+| `NAME` | the session, as PROJECT:BRANCH or BRANCH |
+
+### Options
+
+| Option | Description |
+| --- | --- |
+| `-h`, `--help` | show this help |
+
+## /root
+
+go back to the session that the jump came from
+
+**Usage:** `/root`
+
+Leave this session as it was and go back to the session that `/jump`
+came from (`$FYAI_FLEET_RETURN` of this client). In a session that no
+jump reached, the client says so and ends; the session stays.
 
 
 ### Options

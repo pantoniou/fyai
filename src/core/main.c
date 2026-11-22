@@ -51,7 +51,8 @@ int main(int argc, char **argv)
 {
 	struct fyai_app app;
 	struct fyai_cfg *cfg = &app.cfg;
-	char **sdk_argv, *attach, *next;
+	char **sdk_argv, *attach, *next, *attach_dir, *attach_return;
+	bool attach_watch;
 	int rc, ret = EXIT_FAILURE;
 
 	fyai_prof_init();
@@ -122,8 +123,12 @@ int main(int argc, char **argv)
 	}
 
 	attach = cfg->attach_branch;
+	attach_dir = cfg->attach_dir;
+	attach_return = cfg->attach_return;
+	attach_watch = cfg->attach_watch;
 	next = cfg->next_session;
 	cfg->attach_branch = cfg->next_session = NULL;
+	cfg->attach_dir = cfg->attach_return = NULL;
 	if (rc) {
 		free(attach);
 		free(next);
@@ -134,11 +139,14 @@ int main(int argc, char **argv)
 	fyai_prof_report();
 	/* Exec-attach to a live server session; returns only on failure. */
 	if (attach) {
-		(void)fyai_remote_attach_exec(argv[0], attach);
+		(void)fyai_remote_attach_exec(argv[0], attach_dir, attach, attach_watch,
+					      attach_return);
 		perror("fyai: cannot start the client of the live session");
 		free(attach);
 		ret = EXIT_FAILURE;
 	}
+	free(attach_dir);
+	free(attach_return);
 	/* Exec follow-up session after handoff; returns only on error. */
 	if (next) {
 		(void)fyai_remote_next_exec(argv[0], next);

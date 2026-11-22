@@ -72,6 +72,21 @@ fy_generic fyai_fleet_tasks_open(struct fyai_ctx *ctx);
 /* Restart session @name (PROJECT:BRANCH) on its branch with no new message. */
 int fyai_fleet_revive(struct fyai_ctx *ctx, const char *name);
 
+/*
+ * Normalize @name (local BRANCH or PROJECT:BRANCH) to root-relative
+ * PROJECT:BRANCH in @gb, or return NULL on error.
+ */
+const char *fyai_fleet_name_full(struct fyai_ctx *ctx, struct fy_generic_builder *gb,
+				 const char *name);
+
+/*
+ * Exec this process into a client for session @name (starting it if not live),
+ * using watch mode when another client is already attached. @ret sets the
+ * `/root` return target (doc/fyai-fleet-sdd.md, section 11). Sets *@watchp.
+ */
+int fyai_fleet_attach(struct fyai_ctx *ctx, const char *name, const char *ret,
+		      bool *watchp);
+
 /* Forward a supervisor control request to live session @name. */
 int fyai_fleet_supervise(struct fyai_ctx *ctx, const char *name,
 			 const char *subtype, fy_generic fields);

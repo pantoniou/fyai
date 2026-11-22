@@ -531,8 +531,20 @@ struct fyai_cfg {
 	 * Owned live session branch to exec-attach to after cleanup.
 	 */
 	char *attach_branch;
-	/* After the session closes: a new session ("") or the branch to resume,
-	 * which this process runs in its place, or NULL. */
+	/*
+	 * Optional `fleet attach` parameters paired with attach_branch:
+	 * owned target project dir (NULL = current project), read-only watch
+	 * flag, and owned return session name for `/root` (or NULL).
+	 */
+	char *attach_dir;
+	bool attach_watch;
+	char *attach_return;
+	/*
+	 * Owned follow-up target to exec after cleanup, or NULL: "" starts a
+	 * new session, "<branch>" resumes a branch, "jump:NAME RETURN" jumps
+	 * to fleet session NAME with return target, and "root:" returns to
+	 * $FYAI_FLEET_RETURN.
+	 */
 	char *next_session;
 	bool reload_worker;	/* the restart runs the worker of a split client */
 	char *reload_config;

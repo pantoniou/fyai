@@ -1391,6 +1391,13 @@ static int remote_ui_frame(struct fyai_remote_ui *view, fy_generic frame)
 		/* Worker moved to server; exit without waiting on it. */
 		view->released = true;
 		next = fy_get(frame, "next", (const char *)NULL);
+		/* `/root` is valid only when entered via `/jump`. */
+		if (next && !strcmp(next, "root:") &&
+		    fy_str_empty(getenv(FYAI_FLEET_RETURN_ENV))) {
+			(void)fyai_report(ctx, "root: no /jump reached this "
+					  "session; it stays as it is\n");
+			next = NULL;
+		}
 		if (next) {
 			free(ctx->cfg->next_session);
 			ctx->cfg->next_session = strdup(next);
