@@ -2,6 +2,11 @@
 #ifndef FYAI_PENDING_H
 #define FYAI_PENDING_H
 
+#include <stdbool.h>
+
+#include <libfyaml.h>
+#include <libfyaml/libfyaml-generic.h>
+
 struct fyai_ctx;
 
 /*
@@ -25,6 +30,9 @@ void fyai_pending_stage(struct fyai_ctx *ctx);
  * Returns 0 on success, or -1 if any item failed to restore (with diag).
  */
 int fyai_pending_restore(struct fyai_ctx *ctx);
+
+/* Returns true if @row's owner ({pid, start}) is alive, checking PID reuse. */
+bool fyai_pending_owner_alive(fy_generic row);
 
 /* Clear our owned pending table at shutdown; call after releasing work. */
 void fyai_pending_clear(struct fyai_ctx *ctx);

@@ -519,6 +519,39 @@ properties:
           Limit the time that the clipboard helper may run. A helper that
           waits for a clipboard no program fills would otherwise hold the
           scene. 0 removes the limit.
+  fleet:
+    x-fyai-model: read
+    type: object
+    additionalProperties: false
+    description: >-
+      The fleet of sessions under a root project: the topmost project above
+      the current one (doc/fyai-fleet-sdd.md).
+    properties:
+      scan:
+        type: object
+        additionalProperties: false
+        description: >-
+          The scan that finds the projects under the root: each directory
+          whose .fyai holds an arena. It does not go into .fyai, .git, a
+          symbolic link or another file system.
+        properties:
+          depth:
+            type: integer
+            minimum: 0
+            maximum: 32
+            default: 4
+            description: >-
+              The number of directory levels below the root that the scan
+              goes into.
+          exclude:
+            type: array
+            items:
+              type: string
+              minLength: 1
+            default: [node_modules, "build*", .cache]
+            description: >-
+              The names of the directories that the scan does not go into, as
+              shell patterns.
   agent:
     x-fyai-model: read
     type: object

@@ -4574,8 +4574,9 @@ static int sdk_cmd_serve(struct sdk_server *srv)
 	/* Work that a lost process left on the branch goes on here. */
 	if (srv->remote_worker && fyai_pending_restore(ctx))
 		fyai_warning(ctx, "durable: the pending work was not restored");
+	/* SIGTERM ends client-driven sessions (used by `session kill`). */
 	while (!srv->failed && !srv->session_failed && !srv->channel_lost &&
-	       !ctx->screen->quit &&
+	       !ctx->screen->quit && !ctx->loop->terminate_pending &&
 	       !ctx->cfg->reload_branch) {
 		/* An edit that the user finished in a tile applies between
 		 * turns, as it does in a local session. */
@@ -4676,6 +4677,8 @@ static int sdk_cmd_serve(struct sdk_server *srv)
 		srv->failed = true;
 	}
 	ctx->cfg->exit_status = srv->session_failed ? FYAI_WORKER_EXIT_SESSION :
+				ctx->loop->terminate_pending && !srv->channel_lost ?
+				FYAI_WORKER_EXIT_ENDED :
 				srv->last_error || srv->failed ? 1 : 0;
 	return 0;
 out:

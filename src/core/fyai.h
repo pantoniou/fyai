@@ -97,6 +97,7 @@ static inline fy_generic fyai_generic_or_null(fy_generic v)
 #define DEFAULT_SHELL_TIMEOUT_MS 120000
 #define DEFAULT_CATALOG_UPDATE_COMMAND "scrape-providers"
 #define DEFAULT_CATALOG_UPDATE_TIMEOUT_MS 600000
+#define DEFAULT_FLEET_SCAN_DEPTH 4
 #define DEFAULT_SHELL_MAX_TIMEOUT_MS 600000
 /* Default and maximum read_file result sizes. Zero disables each limit. */
 #define DEFAULT_READ_MAX_BYTES (256 * 1024)

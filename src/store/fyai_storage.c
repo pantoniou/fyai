@@ -1372,6 +1372,50 @@ char *fyai_peek_branch_pick(const char *arena_dir_opt, const char *root_spec,
 	return name;
 }
 
+int fyai_peek_sessions(const char *arena_dir, struct fy_generic_builder *gb,
+		       fy_generic *rowsp)
+{
+	struct fy_allocator *allocator;
+	struct fyai_branch b;
+	struct fyai_root r;
+	fy_generic root, rows, row, first, out = fy_seq_empty;
+	uint64_t refs;
+	int rc = -1;
+
+	*rowsp = fy_seq_empty;
+	if (peek_arena_open(arena_dir, NULL, &allocator, &refs, NULL, NULL) ||
+	    !allocator)
+		return -1;
+	if (!refs) {
+		rc = 0;
+		goto out;
+	}
+	root = (fy_generic){ .v = refs };
+	/* Validate the root before following the branch table. */
+	if (!fyai_root_validate(allocator, root) || fyai_root_decode(root, &r) < 0)
+		goto out;
+	rows = fyai_branch_select_rows(NULL, gb, r.branches, NULL, true);
+	fy_foreach(row, rows) {
+		/* Internalize into @gb before closing the arena below. */
+		row = fy_gb_internalize(gb, row);
+		if (!fy_is_valid(row))
+			goto out;
+		fyai_branch_lookup(r.branches, fy_get(row, "branch", ""), &b);
+		if (fy_is_sequence(b.pending) && !fy_empty(b.pending)) {
+			first = fy_get_at(b.pending, 0);
+			row = fy_assoc(gb, row, "owner", fy_mapping(gb,
+				"pid", fy_get(first, "pid", 0LL),
+				"start", fy_get(first, "start", 0LL)));
+		}
+		out = fy_append(gb, out, row);
+	}
+	*rowsp = out;
+	rc = fy_is_valid(out) ? 0 : -1;
+out:
+	fy_allocator_destroy(allocator);
+	return rc;
+}
+
 int fyai_peek_arena_config(const char *arena_dir_opt, const char *branch_opt,
 			   const char *root_spec, struct fy_generic_builder *gb,
 			   fy_generic *configp, fy_generic *catalogp,

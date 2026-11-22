@@ -7,6 +7,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <dirent.h>
+#include <fnmatch.h>
 #include <sys/stat.h>
 #include <unistd.h>
 
@@ -142,4 +144,87 @@ char *fyai_fleet_parent(const char *root)
 	parent = fyai_fleet_parent_at(root, home, getenv(FYAI_CEILING_ENV));
 	free(home);
 	return parent;
+}
+
+char *fyai_fleet_root_of(const char *dir)
+{
+	char *root, *parent;
+
+	root = fyai_fleet_project_of(dir);
+	while (root && (parent = fyai_fleet_parent(root))) {
+		free(root);
+		root = parent;
+	}
+	return root;
+}
+
+struct fleet_scan {
+	fy_generic exclude;
+	int depth;
+	dev_t dev;
+	int (*found)(const char *dir, void *data);
+	void *data;
+};
+
+static bool fleet_scan_enters(const struct fleet_scan *scan, const char *name)
+{
+	const char *pattern;
+
+	if (!strcmp(name, ".") || !strcmp(name, "..") || !strcmp(name, ".fyai") ||
+	    !strcmp(name, ".git"))
+		return false;
+	fy_foreach(pattern, scan->exclude)
+		if (pattern && !fnmatch(pattern, name, 0))
+			return false;
+	return true;
+}
+
+static int fleet_scan_dir(const struct fleet_scan *scan, const char *dir, int level)
+{
+	struct dirent **names = NULL;
+	char path[PATH_MAX];
+	struct stat st;
+	int n, i, rc = 0;
+
+	if (fleet_is_project(dir)) {
+		rc = scan->found(dir, scan->data);
+		if (rc)
+			return rc;
+	}
+	if (level >= scan->depth)
+		return 0;
+	n = scandir(dir, &names, NULL, alphasort);
+	if (n < 0)
+		return level ? 0 : -1;
+	for (i = 0; i < n; i++) {
+		if (!rc && fleet_scan_enters(scan, names[i]->d_name) &&
+		    snprintf(path, sizeof(path), "%s/%s", strcmp(dir, "/") ? dir : "",
+			     names[i]->d_name) < (int)sizeof(path) &&
+		    !lstat(path, &st) && S_ISDIR(st.st_mode) && st.st_dev == scan->dev)
+			rc = fleet_scan_dir(scan, path, level + 1);
+		free(names[i]);
+	}
+	free(names);
+	return rc;
+}
+
+int fyai_fleet_scan(const char *root, int depth, fy_generic exclude,
+		    int (*found)(const char *dir, void *data), void *data)
+{
+	struct fleet_scan scan = {
+		.exclude = exclude, .depth = depth, .found = found, .data = data,
+	};
+	struct stat st;
+	char *real;
+	int rc;
+
+	real = realpath(root, NULL);
+	if (!real || stat(real, &st)) {
+		free(real);
+		return -1;
+	}
+	scan.dev = st.st_dev;
+	rc = fleet_scan_dir(&scan, real, 0);
+	free(real);
+	return rc;
 }

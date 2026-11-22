@@ -145,6 +145,11 @@ media:
 # timeout_kill stops an agent after hang_timeout_ms additional time, or after
 # hang_timeout_ms from submission when no advisory limit is set.
 # Set timeout_kill to false or hang_timeout_ms to 0 to disable termination.
+# The scan of the projects under the root project (fyai session list --all).
+fleet:
+  scan:
+    depth: 4
+    exclude: [node_modules, "build*", .cache]
 agent:
   timeout_ms: 0
   max_timeout_ms: 3600000

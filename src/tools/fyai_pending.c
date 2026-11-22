@@ -41,8 +41,7 @@ static bool pending_owner_ours(fy_generic row)
 	return fy_get(row, "pid", 0LL) == pid && fy_get(row, "start", 0LL) == start;
 }
 
-/* Whether the process that wrote @row still runs. */
-static bool pending_owner_alive(fy_generic row)
+bool fyai_pending_owner_alive(fy_generic row)
 {
 	long long pid = fy_get(row, "pid", 0LL), start = fy_get(row, "start", 0LL);
 	uint64_t now;
@@ -162,7 +161,7 @@ int fyai_pending_restore(struct fyai_ctx *ctx)
 	if (!ctx->cfg->durable)
 		return 0;
 	stored = pending_stored(ctx);
-	if (fy_is_invalid(stored) || pending_owner_alive(fy_get_at(stored, 0)))
+	if (fy_is_invalid(stored) || fyai_pending_owner_alive(fy_get_at(stored, 0)))
 		return 0;
 	/* Restore helpers construct call args in the transient builder. */
 	if (fyai_setup_transient_builder(ctx)) {

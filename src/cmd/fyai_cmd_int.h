@@ -180,6 +180,8 @@ int fyai_cmd_branches(struct fyai_cmd_call *call, fy_generic *result);
 int fyai_cmd_resume(struct fyai_cmd_call *call, fy_generic *result);
 int fyai_cmd_session_list(struct fyai_cmd_call *call, fy_generic *result);
 int fyai_cmd_session_kill(struct fyai_cmd_call *call, fy_generic *result);
+int fyai_cmd_fleet_list(struct fyai_cmd_call *call, fy_generic *result);
+int fyai_cmd_fleet_scan(struct fyai_cmd_call *call, fy_generic *result);
 int fyai_cmd_continue(struct fyai_cmd_call *call, fy_generic *result);
 int fyai_cmd_background(struct fyai_cmd_call *call, fy_generic *result);
 int fyai_cmd_zoom(struct fyai_cmd_call *call, fy_generic *result);

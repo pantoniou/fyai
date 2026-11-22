@@ -2,6 +2,9 @@
 #ifndef FYAI_FLEET_H
 #define FYAI_FLEET_H
 
+#include <libfyaml.h>
+#include <libfyaml/libfyaml-generic.h>
+
 /*
  * Project tree discovery and fleet lineage (doc/fyai-fleet-sdd.md, s5.1).
  * A project is a directory containing .fyai/arena; its parent is the nearest
@@ -27,5 +30,19 @@ char *fyai_fleet_parent_at(const char *root, const char *home,
 /* Variants using $HOME and $FYAI_CEILING_DIRECTORIES as ceilings. */
 char *fyai_fleet_project_of(const char *dir);
 char *fyai_fleet_parent(const char *root);
+
+/* Returns the topmost project enclosing @dir, or NULL. */
+char *fyai_fleet_root_of(const char *dir);
+
+/*
+ * Recursively invoke @found with the realpath of each project at or under
+ * @root (@root first if it is a project) in lexicographical order, including
+ * nested projects. Skips .fyai, .git, symlinks, mount crossings, names
+ * matching @exclude (fnmatch), and entries beyond @depth levels below @root.
+ * Returns 0, the first nonzero return value from @found, or -1 if @root
+ * cannot be read.
+ */
+int fyai_fleet_scan(const char *root, int depth, fy_generic exclude,
+		    int (*found)(const char *dir, void *data), void *data);
 
 #endif

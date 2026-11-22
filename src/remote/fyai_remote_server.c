@@ -150,6 +150,11 @@ struct fyai_remote_server {
 	 * each: the builder of the context lives as long as the server. */
 	struct fy_generic_builder *frame_gb;
 	char *path;			/* the endpoint, or NULL behind a front */
+	/*
+	 * Path to `.live` session record (populated even behind a front server
+	 * unless the project already has a standalone server socket).
+	 */
+	char *record;
 	char *base;			/* a server of projects: their directory */
 	char *root;			/* a project server: the project */
 	int fd, front_fd;
@@ -1482,7 +1487,7 @@ static void remote_record(struct fyai_remote_server *server)
 	int fd = -1;
 
 	server->dirty = false;
-	if (!server->path)
+	if (!server->record)
 		return;
 	gb = fyai_ctx_transient_gb(fyai_cmd_call_ctx(server->call));
 	for (session = server->sessions; session; session = session->next)
@@ -1495,7 +1500,7 @@ static void remote_record(struct fyai_remote_server *server)
 				"attached", (_Bool)(session->peer || session->driven)));
 	text = emit_json_string(gb, fy_mapping(gb, "pid", (long long)getpid(),
 					       "sessions", sessions));
-	path = fyai_remote_record_path(server->path);
+	path = strdup(server->record);
 	if (!text || !path || asprintf(&tmp, "%s.%ld", path, (long)getpid()) < 0) {
 		tmp = NULL;
 		goto err;
@@ -2652,6 +2657,29 @@ err:
 	return -1;
 }
 
+/*
+ * Publish the `.live` record at the project's default socket path when running
+ * behind a front server, unless a standalone project server already owns that
+ * socket.
+ */
+static void remote_front_record(struct fyai_remote_server *server)
+{
+	struct fyai_ctx *ctx = fyai_cmd_call_ctx(server->call);
+	struct stat st;
+	char *socket;
+
+	socket = fyai_remote_socket_path(ctx, NULL, false, true);
+	if (!socket) {
+		fyai_diag_reset(fyai_ctx_diag(ctx));
+		remote_log(server, "cannot make the directory of the record");
+		return;
+	}
+	if (stat(socket, &st) || !S_ISSOCK(st.st_mode))
+		server->record = fyai_remote_record_path(socket);
+	free(socket);
+	remote_record(server);
+}
+
 int fyai_cmd_remote_serve(struct fyai_cmd_call *call, fy_generic *result)
 {
 	struct fyai_remote_server server = { .call = call, .fd = -1, .front_fd = -1 };
@@ -2665,7 +2693,6 @@ int fyai_cmd_remote_serve(struct fyai_cmd_call *call, fy_generic *result)
 	struct fyai_remote_peer *peer;
 	int rc = -1, token_fd, ready_fd = -1;
 	fyai_event_ms_t deadline;
-	char *record;
 	bool success = false;
 
 	if (ctx->cfg->serve_daemon)
@@ -2702,6 +2729,7 @@ int fyai_cmd_remote_serve(struct fyai_cmd_call *call, fy_generic *result)
 		fyai_error_check(ctx, !rc, out, "cannot watch the server of projects");
 		remote_log(&server, "serving the project '%s' for the server of "
 			   "projects", server.root);
+		remote_front_record(&server);
 	} else {
 		server.path = fyai_remote_socket_path(ctx, fyai_cmd_arg_str(call, "socket"),
 						 projects, true);
@@ -2732,6 +2760,7 @@ int fyai_cmd_remote_serve(struct fyai_cmd_call *call, fy_generic *result)
 		remote_ready(&server, ready_fd);
 		ready_fd = -1;
 		/* Creating `.live` wakes dir-watching workers (SDD 6.2). */
+		server.record = fyai_remote_record_path(server.path);
 		remote_record(&server);
 	}
 	rc = 0;
@@ -2782,13 +2811,11 @@ out:
 	}
 	if (server.fd >= 0)
 		close(server.fd);
-	if (server.path && server.fd >= 0) {
+	if (server.path && server.fd >= 0)
 		unlink(server.path);
-		record = fyai_remote_record_path(server.path);
-		if (record)
-			unlink(record);
-		free(record);
-	}
+	if (server.record)
+		unlink(server.record);
+	free(server.record);
 	if (server.front_fd >= 0)
 		close(server.front_fd);
 	if (token_fd >= 0)
