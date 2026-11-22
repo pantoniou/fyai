@@ -4,6 +4,8 @@
 # Every case script sources this file. Contract (set by CMake/add_test env or
 # by the caller):
 #   FYAI_BIN   - path to the fyai binary under test        (or argv[1])
+#   FYAI_TEST_BIN - runs the cases against this binary instead of FYAI_BIN,
+#                that is the one CMake names: a static or Fil-C build
 #   PYTHON     - python3 interpreter                        (default python3)
 #   TESTS_DIR  - the source tests/ directory                (or derived)
 #
@@ -12,7 +14,7 @@
 
 set -u
 
-FYAI_BIN="${FYAI_BIN:-${1:-}}"
+FYAI_BIN="${FYAI_TEST_BIN:-${FYAI_BIN:-${1:-}}}"
 PYTHON="${PYTHON:-python3}"
 TESTS_DIR="${TESTS_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
 SCENARIOS_DIR="$TESTS_DIR/scenarios"

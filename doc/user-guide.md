@@ -52,6 +52,17 @@ address and undefined-behavior sanitizers, and links the sanitizer runtime in.
 The build type is `RelWithDebInfo`. The C library stays dynamic, because a
 sanitizer cannot run in a fully static glibc executable.
 
+The targets `check-static-asan` and `check-filc` build the executable, then run
+the functional cases of the build directory against it. They set `FYAI_TEST_BIN`,
+which the cases read in place of `FYAI_BIN`. The unit tests are not run, because
+they link the sources of fyai. `FYAI_CHECK_TIMEOUT_SCALE` (default 3) lengthens
+the waits of the cases. A run of `check-filc` leaves out the cases that do not
+apply under Fil-C. To run the cases by hand against one executable:
+
+```sh
+FYAI_TEST_BIN=$PWD/out/static-asan/fyai ctest -R '^fyai/case_' -j$(nproc)
+```
+
 A self-contained musl binary can be built with:
 
 ```sh
