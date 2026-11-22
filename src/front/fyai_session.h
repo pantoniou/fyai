@@ -159,6 +159,8 @@ void fyai_session_turn_set(struct fyai_ctx *ctx, bool busy);
  * taken: the client keeps the others in its queue, which shows them.
  */
 void fyai_session_queued_set(struct fyai_ctx *ctx, long long taken);
+/* Notify remote clients whether an active command is reading stdin lines. */
+void fyai_session_input_set(struct fyai_ctx *ctx, bool input);
 /*
  * Write the member "head" of the session store from the branch entry that
  * the context adopted: {updated, op}, or null for none. A renderer that has

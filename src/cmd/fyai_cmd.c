@@ -28,6 +28,7 @@
 #include "fyai_config.h"
 #include "fyai_sink.h"
 #include "fyai_render.h"
+#include "fyai_session.h"
 #include "fyai_ui.h"
 #include "commands.h"
 #include "utils.h"
@@ -2277,6 +2278,8 @@ int fyai_cmd_session_run(struct fyai_ctx *ctx, const char *line, bool *viewp)
 	if (rc == FYAI_CMD_PENDING) {
 		call->finish = session_call_finish;
 		ctx->screen->cmd_call = call;
+		if (call->input)
+			fyai_session_input_set(ctx, true);
 		return 0;
 	}
 	if (!rc)
@@ -2307,6 +2310,8 @@ bool fyai_cmd_session_step(struct fyai_ctx *ctx)
 	if (!call || !call->done)
 		return false;
 	ctx->screen->cmd_call = NULL;
+	if (call->input)
+		fyai_session_input_set(ctx, false);
 	fyai_ui_pane_begin(ctx);
 	rc = call_present(call);
 	error = rc || fyai_diag_got_error(fyai_ctx_diag(ctx));
@@ -2336,6 +2341,8 @@ void fyai_cmd_session_cancel(struct fyai_ctx *ctx)
 	if (!call)
 		return;
 	ctx->screen->cmd_call = NULL;
+	if (call->input)
+		fyai_session_input_set(ctx, false);
 	call->finish = NULL;
 	if (!call->done && call->cancel)
 		call->cancel(call);
