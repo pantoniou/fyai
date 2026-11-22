@@ -579,8 +579,14 @@ register, focus, zoom, resize - and sizes nothing itself.
   records one line per pass and one per tile.
 - A shell reads the same whether or not it has a screen. The head of a tile
   is the title row of the call and, under it, the command the call was given.
-  A chrome slot draws a row for each of its lines, and a tile too short for
-  the whole head sheds its last row first.
+  A command shows its first `display/tool_command_lines` rows (default 1)
+  and a row that counts the rest, live and in the transcript: models write
+  long scripts as one call, and the description says what the call does. A
+  tool marks a body that is a command with `FYAI_TOOL_COMMAND_BODY`; the
+  measuring walk caps that body as the render does. The model and the stored
+  exchange keep the whole command. A chrome slot draws a row for each line
+  of the head, and a tile too short for the whole head sheds its last row
+  first.
 - The head is chrome, not content. Held in the content the output of the call
   would scroll it off the top, which is when a reader most needs to know
   whose output this is, and the row cap would have to reserve rows for it.
