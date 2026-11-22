@@ -135,6 +135,25 @@ bool fyai_transcript_view_has_block(const struct fyai_transcript_view *v,
 size_t fyai_transcript_view_rows(const struct fyai_transcript_view *v);
 
 /*
+ * The rows from the first that no longer change: the stored exchanges and the
+ * presented rows, without the live blocks and the streaming tail.
+ */
+size_t fyai_transcript_view_final_rows(const struct fyai_transcript_view *v);
+
+/*
+ * The mark of the rows that the owner took out of the view, from the first.
+ * A render of the stored exchanges moves it with the rows it stands in, and
+ * the stored rows that replace the live rows take it to their end.
+ */
+size_t fyai_transcript_view_sent(const struct fyai_transcript_view *v);
+void fyai_transcript_view_set_sent(struct fyai_transcript_view *v, size_t rows);
+
+/* The text of row @index, borrowed until the view changes; "" for a row of an
+ * exchange that is only measured, or past the end. */
+const char *fyai_transcript_view_row(const struct fyai_transcript_view *v,
+				     size_t index);
+
+/*
  * Scroll the view by @delta rows for a region of @height rows: back through
  * the transcript when positive, toward its end when negative. The view stops
  * at either end. A view at the end follows the rows that arrive; a view

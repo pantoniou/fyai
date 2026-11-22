@@ -62,6 +62,12 @@ struct fyai_transcript_view {
 	struct view_rows tail;
 	bool live_open;		/* the last live row did not end yet */
 	int offset;		/* rows back from the end of the transcript */
+	/*
+	 * The rows from the first that the owner took out (the scrollback of a
+	 * primary page). A render of the exchanges moves the mark with the
+	 * rows it stands in.
+	 */
+	size_t sent;
 	int height;		/* the rows of the last window */
 	const char **window;
 	size_t window_alloc;
@@ -454,6 +460,34 @@ bool fyai_transcript_view_needs_render(const struct fyai_transcript_view *v,
 	return false;
 }
 
+/*
+ * Where the sent mark of @v stands among the @count exchanges @next of
+ * @stored rows that replace those of @v: in the same exchange, as many rows
+ * into it as it can hold, or past the stored rows by as much as before.
+ */
+static size_t view_sent_moved(const struct fyai_transcript_view *v,
+			      const struct view_exchange *next, size_t count,
+			      size_t stored)
+{
+	size_t e, j, at, in, before;
+
+	if (v->sent >= v->stored)
+		return stored + (v->sent - v->stored);
+	for (e = 0, in = v->sent; e < v->nexchanges &&
+	     in >= v->exchange[e].count; e++)
+		in -= v->exchange[e].count;
+	if (e >= v->nexchanges)
+		return v->sent < stored ? v->sent : stored;
+	for (j = 0, before = 0; j < count; j++) {
+		if (next[j].key == v->exchange[e].key) {
+			at = in < next[j].count ? in : next[j].count;
+			return before + at;
+		}
+		before += next[j].count;
+	}
+	return v->sent < stored ? v->sent : stored;
+}
+
 int fyai_transcript_view_update(struct fyai_transcript_view *v, int width,
 				int height, const uintptr_t *keys,
 				size_t count,
@@ -566,6 +600,7 @@ int fyai_transcript_view_update(struct fyai_transcript_view *v, int width,
 	v->width = width;
 	v->height = height;
 	v->offset = offset;
+	v->sent = view_sent_moved(v, next, count, stored);
 	return 0;
 
 fail:
@@ -592,13 +627,25 @@ int fyai_transcript_view_replace_live(struct fyai_transcript_view *v,
 				      fyai_transcript_view_measure_fn measure,
 				      void *user)
 {
+	size_t unsent = 0;
+	bool live_sent;
+	int rc;
+
 	if (!v)
 		return -1;
+	/* The stored exchanges end with the rows that the live rows were: the
+	 * rows not sent are counted back from that end. */
+	live_sent = v->sent > v->stored;
+	if (live_sent)
+		unsent = v->stored + v->live.count - v->sent;
 	fyai_transcript_view_clear_live(v);
-	if (!fyai_transcript_view_needs_render(v, height))
-		return 0;
-	return fyai_transcript_view_update(v, width, height, keys, count,
-					   render, measure, user);
+	rc = 0;
+	if (fyai_transcript_view_needs_render(v, height))
+		rc = fyai_transcript_view_update(v, width, height, keys, count,
+						 render, measure, user);
+	if (!rc && live_sent)
+		v->sent = v->stored > unsent ? v->stored - unsent : 0;
+	return rc;
 }
 
 int fyai_transcript_view_append_live(struct fyai_transcript_view *v,
@@ -624,6 +671,8 @@ void fyai_transcript_view_clear_live(struct fyai_transcript_view *v)
 		return;
 	view_rows_clear(&v->live);
 	v->live_open = false;
+	if (v->sent > v->stored)
+		v->sent = v->stored;
 }
 
 int fyai_transcript_view_set_tail(struct fyai_transcript_view *v,
@@ -789,6 +838,34 @@ void fyai_transcript_view_show_block(struct fyai_transcript_view *v,
 	offset = (long long)total - height - (long long)start;
 	v->offset = offset < 0 ? 0 : offset > INT_MAX ? INT_MAX : (int)offset;
 	fyai_transcript_view_scroll(v, 0, height);
+}
+
+size_t fyai_transcript_view_sent(const struct fyai_transcript_view *v)
+{
+	return v ? v->sent : 0;
+}
+
+void fyai_transcript_view_set_sent(struct fyai_transcript_view *v, size_t rows)
+{
+	if (v)
+		v->sent = rows;
+}
+
+size_t fyai_transcript_view_final_rows(const struct fyai_transcript_view *v)
+{
+	return v ? v->stored + v->live.count : 0;
+}
+
+const char *fyai_transcript_view_row(const struct fyai_transcript_view *v,
+				     size_t index)
+{
+	if (!v)
+		return "";
+	if (index >= v->stored + v->live.count)
+		return view_after_row(v, index - v->stored - v->live.count);
+	if (index >= v->stored)
+		return v->live.row[index - v->stored];
+	return view_stored_row(v->exchange, v->nexchanges, index);
 }
 
 const char *const *fyai_transcript_view_window(struct fyai_transcript_view *v,
