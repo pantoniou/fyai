@@ -43,6 +43,7 @@ FYAI_TEST_ENTRY(page, status_drops_first, page_status_drops_first)
 FYAI_TEST_ENTRY(page, blank_activity_is_not_code, page_blank_activity_is_not_code)
 FYAI_TEST_ENTRY(page, cap_stands_over_the_pane, page_cap_stands_over_the_pane)
 FYAI_TEST_ENTRY(page, todo_stands_over_the_prompt, page_todo_stands_over_the_prompt)
+FYAI_TEST_ENTRY(page, fleet_stands_under_the_todos, page_fleet_stands_under_the_todos)
 FYAI_TEST_ENTRY(page, pending_stands_over_the_input, page_pending_stands_over_the_input)
 FYAI_TEST_ENTRY(page, pending_is_bounded, page_pending_is_bounded)
 FYAI_TEST_ENTRY(page, prompt_card_takes_the_rules, page_prompt_card_takes_the_rules)
@@ -156,6 +157,9 @@ static void page_golden_state(unsigned i, struct fyai_page_state *st)
 	static const char *const todos[] = {
 		NULL, "- [>] First <b>task</b>\n- [ ] Second task\n",
 	};
+	static const char *const fleets[] = {
+		NULL, "- a:fleet/x \u00b7 idle \u2014 Work done.\n",
+	};
 	static const char *const pendings[] = {
 		NULL, "<fy-role name=\"chrome\">\xe2\x97\x8f</fy-role> **pending** (2)\\\n"
 		"<fy-space n=\"2\"/>\xe2\x80\xba one\\\n"
@@ -190,6 +194,9 @@ static void page_golden_state(unsigned i, struct fyai_page_state *st)
 	st->todo_source = todos[page_golden_pick(i, 29, 2)];
 	st->todo_rows = st->todo_source ? 2 : 0;
 	st->todo_shown = st->todo_source != NULL;
+	st->fleet_source = fleets[page_golden_pick(i, 32, 2)];
+	st->fleet_rows = st->fleet_source ? 1 : 0;
+	st->fleet_shown = st->fleet_source != NULL;
 	st->pending_source = pendings[page_golden_pick(i, 31, 2)];
 	st->pending_rows = st->pending_source ? 3 : 0;
 	st->input_mode = modes[page_golden_pick(i, 17, 3)];
@@ -745,6 +752,46 @@ static int page_todo_stands_over_the_prompt_run(void)
 	return 0;
 }
 
+/* Fleet panel renders below todos and hides when vertical space is short. */
+static int page_fleet_stands_under_the_todos_run(void)
+{
+	struct fyai_buf out = {0};
+	struct fyai_page_state st = page_state();
+	const char *p;
+	int rc;
+
+	st.todo_source = "- [>] First task\n";
+	st.todo_rows = 1;
+	st.todo_shown = true;
+	st.fleet_source = "- a:fleet/x \u00b7 running\n";
+	st.fleet_rows = 1;
+	st.fleet_shown = true;
+	rc = fyai_page_source(&st, &out);
+	FYAI_TCHECK(!rc);
+	p = after(out.data, "<fy-role name=\"chrome\">Todos</fy-role>");
+	p = after(p, "<fy-role name=\"chrome\">Fleet</fy-role>");
+	p = after(p, "a:fleet/x");
+	FYAI_TCHECK(p != NULL);
+	free(out.data);
+
+	/* Fleet panel counts toward chrome rows and is hidden if it overflows. */
+	st = page_state();
+	st.fleet_source = "- a:fleet/x \u00b7 running\n";
+	st.fleet_rows = 1;
+	st.fleet_shown = true;
+	{
+		struct fyai_page_state plain = page_state();
+		FYAI_TCHECK(fyai_page_chrome_rows(&st) ==
+			    fyai_page_chrome_rows(&plain) + 3);
+	}
+	fyai_page_fit(&st, 20);
+	FYAI_TCHECK(st.fleet_shown);
+	st.fleet_rows = 20;
+	fyai_page_fit(&st, 20);
+	FYAI_TCHECK(!st.fleet_shown);
+	return 0;
+}
+
 /* The waiting lines stand under a blank row, right above the header. */
 static int page_pending_stands_over_the_input_run(void)
 {
@@ -1069,6 +1116,11 @@ int page_view_follows_the_presentation(void)
 int page_todo_stands_over_the_prompt(void)
 {
 	return page_todo_stands_over_the_prompt_run();
+}
+
+int page_fleet_stands_under_the_todos(void)
+{
+	return page_fleet_stands_under_the_todos_run();
 }
 
 int page_pending_stands_over_the_input(void)
