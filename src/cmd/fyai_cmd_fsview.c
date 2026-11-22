@@ -378,7 +378,7 @@ static int view_capture_prepare(struct view_capture *c)
 		c->durability = replace ?
 				     fy_get(c->previous, "durability", "durable") :
 				     fy_get(fy_get(ctx->cfg->config_doc, "view", fy_invalid),
-					    "durability", "lazy");
+					    "durability", "durable");
 	rc = fyai_host_boot_id(c->boot);
 	if (rc)
 		return -1;
@@ -4168,7 +4168,7 @@ bool fyai_project_state_enabled(struct fyai_ctx *ctx)
 {
 	fy_generic section = fy_get(ctx->cfg->config_doc, "view", fy_invalid);
 
-	return fy_get(section, "track_project", false) && !ctx->cfg->transient &&
+	return fy_get(section, "track_project", true) && !ctx->cfg->transient &&
 	       !ctx->cfg->root_spec && !ctx->cfg->tool_child && !ctx->cfg->view_project;
 }
 
@@ -4263,7 +4263,7 @@ bool fyai_tool_diff_enabled(struct fyai_ctx *ctx)
 {
 	fy_generic section = fy_get(ctx->cfg->config_doc, "view", fy_invalid);
 
-	return fy_get(section, "tool_diff", false) && !ctx->cfg->transient && !ctx->cfg->root_spec &&
+	return fy_get(section, "tool_diff", true) && !ctx->cfg->transient && !ctx->cfg->root_spec &&
 	       !ctx->cfg->tool_child && !ctx->cfg->agent_child;
 }
 
@@ -4403,7 +4403,7 @@ int fyai_project_state_capture(struct fyai_ctx *ctx, fy_generic *ref)
 	char manifest_name[FYAI_MANIFEST_NAME_SIZE], error[PATH_MAX] = "";
 	char *root, *storage = NULL, *objects = NULL, *views = NULL;
 	fy_generic section = fy_get(ctx->cfg->config_doc, "view", fy_invalid);
-	bool durable = fy_equal(fy_get(section, "durability", "lazy"), "durable");
+	bool durable = fy_equal(fy_get(section, "durability", "durable"), "durable");
 	unsigned int attempt;
 	int rc = -1, saved, gc_lock = -1;
 

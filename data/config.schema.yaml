@@ -23,7 +23,7 @@ properties:
       durability:
         type: string
         enum: [lazy, durable]
-        default: lazy
+        default: durable
         description: >-
           Set the default persistence policy for new views. lazy skips backing
           filesystem flushes and may lose snapshots after power loss; durable
@@ -38,7 +38,7 @@ properties:
           and must not lie inside the project.
       track_project:
         type: boolean
-        default: false
+        default: true
         description: >-
           Record the state of the project with each ref-log entry that moves
           the head of a branch, when the arena is in the .fyai directory of the
@@ -48,7 +48,7 @@ properties:
           shared with the entry before it. Linux only.
       tool_diff:
         type: boolean
-        default: false
+        default: true
         x-fyai-scope: session
         description: >-
           Show what each group of tool calls changed in the project, as a diff
