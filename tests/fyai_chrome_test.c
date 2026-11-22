@@ -207,5 +207,11 @@ int chrome_cut(void)
 	expect_cut("**shell** [x_y]", 9, "**shell** [x_");
 	expect_cut("ab\xff" "cd", 3, "ab\xff");
 	expect_cut("<fy-act id=\"a\">label</fy-act>", 3, "<fy-act id=\"a\">lab");
+	/* A cut closes what it leaves open, and drops a bare opener. */
+	expect_cut("**agent** [t1] `mock-model` #1", 15, "**agent** [t1] `mock`");
+	expect_cut("**agent** [t1] `mock-model` #1", 11, "**agent** [t1] ");
+	expect_cut("a `b` c `d`", 6, "a `b` c ");
+	expect_cut("x **strong text**", 6, "x **stro**");
+	expect_cut("x **strong**", 2, "x ");
 	return failures;
 }
