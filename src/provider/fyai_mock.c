@@ -109,6 +109,8 @@ struct mock_fields {
 	const char *auth;
 	const char *session;
 	const char *body;
+	fy_generic last;	/* the last conversation item, or fy_invalid */
+	const char *last_role;
 };
 
 static void conn_pump(struct mock_conn *c);
@@ -415,6 +417,45 @@ static const char *field_value(const struct mock_fields *f, const char *key)
 	return "";
 }
 
+/* Whether a string of @v, at any depth, holds @needle. */
+static bool generic_contains(fy_generic v, const char *needle)
+{
+	fy_generic item, key, value;
+
+	if (fy_is_string(v))
+		return strstr(fy_castp(&v, ""), needle) != NULL;
+	if (fy_is_sequence(v)) {
+		fy_foreach(item, v)
+			if (generic_contains(item, needle))
+				return true;
+		return false;
+	}
+	if (fy_is_mapping(v)) {
+		fy_foreach_key_value(key, value, v)
+			if (generic_contains(value, needle))
+				return true;
+	}
+	return false;
+}
+
+/*
+ * The last conversation item of a model request: the last of `messages`
+ * (Chat Completions, Anthropic Messages) or of `input` (Responses).
+ */
+static fy_generic request_last_item(fy_generic body)
+{
+	fy_generic items;
+	size_t n;
+
+	items = fy_get(body, "messages", fy_invalid);
+	if (!fy_is_sequence(items))
+		items = fy_get(body, "input", fy_invalid);
+	if (!fy_is_sequence(items))
+		return fy_invalid;
+	n = fy_len(items);
+	return n ? fy_get_at(items, n - 1) : fy_invalid;
+}
+
 static bool step_matches(fy_generic step, const struct mock_fields *f)
 {
 	fy_generic match, key, value;
@@ -433,6 +474,11 @@ static bool step_matches(fy_generic step, const struct mock_fields *f)
 		 * differ only in content. */
 		if (!strcmp(k, "body_contains"))
 			ok = ok && strstr(f->body, v);
+		else if (!strcmp(k, "last_contains"))
+			ok = ok && fy_is_valid(f->last) &&
+			     generic_contains(f->last, v);
+		else if (!strcmp(k, "last_role"))
+			ok = ok && !strcmp(f->last_role, v);
 		else
 			ok = ok && !strcmp(field_value(f, k), v);
 	}
@@ -443,7 +489,7 @@ static bool step_matches(fy_generic step, const struct mock_fields *f)
 static fy_generic mock_pick(struct mock *m, const struct mock_fields *f)
 {
 	fy_generic step;
-	size_t i, j, used;
+	size_t i;
 
 	if (!m->matched) {
 		i = m->served++;
@@ -455,10 +501,10 @@ static fy_generic mock_pick(struct mock *m, const struct mock_fields *f)
 		step = fy_get_at(m->steps, i);
 		if (!step_matches(step, f))
 			continue;
-		m->consumed[i] = true;
-		for (used = 0, j = 0; j < m->nsteps; j++)
-			used += m->consumed[j];
-		m->served = used;
+		/* A repeated step answers each request that it fits. */
+		if (!fy_get(step, "repeat", false))
+			m->consumed[i] = true;
+		m->served++;
 		return step;
 	}
 	return fy_invalid;
@@ -644,6 +690,24 @@ static int reply_sse(struct mock_conn *c, fy_generic step, int status)
 				rc = op_add(c, MOCK_MARKER, marker,
 					    strlen(marker), MOCK_STREAM_HOLD_MS);
 		}
+		goto out;
+	}
+
+	/* A paced stream writes one event at a time, for a person to watch. */
+	delay_ms = secs_to_ms(fy_number(fy_get(step, "event_delay", fy_invalid),
+					0.0));
+	if (delay_ms) {
+		for (i = 0, pos = 0; i < n && !rc; pos = ends[i++]) {
+			rc = op_add(c, MOCK_WRITE, payload.data + pos,
+				    ends[i] - pos, 0);
+			if (!rc)
+				rc = op_add(c, MOCK_SLEEP, NULL, 0, delay_ms);
+		}
+		if (!rc && payload.len > pos)
+			rc = op_add(c, MOCK_WRITE, payload.data + pos,
+				    payload.len - pos, 0);
+		if (!rc && truncated)
+			rc = op_add(c, MOCK_CLOSE, NULL, 0, 0);
 		goto out;
 	}
 
@@ -840,6 +904,13 @@ static int mock_handle(struct mock_conn *c, const struct fyai_http_request *r)
 	f.auth = auth;
 	f.session = post || del ? session : "";
 	f.body = post ? r->body : "";
+	f.last = post ? request_last_item(parsed) : fy_invalid;
+	/* A Responses item without a role names itself by its type. */
+	v = fy_get(f.last, "role", fy_invalid);
+	if (!fy_is_string(v))
+		v = fy_get(f.last, "type", fy_invalid);
+	f.last_role = fy_is_string(v) ?
+		fy_gb_intern_string(m->gb, fy_castp(&v, "")) : "";
 	step = mock_pick(m, &f);
 	if (m->log)
 		fyai_report(mock_ctx(m), "mock: %s %s -> %s\n", r->method, r->target,
