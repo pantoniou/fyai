@@ -16,7 +16,9 @@ set_common=(--set api=chat-completions --set display/stream=false
 mkdir -p a/.git
 (cd a && "$FYAI_BIN" init >/dev/null 2>&1 &&
 	"$FYAI_BIN" "${set_common[@]}" >/dev/null 2>&1) || fail "cannot make the project"
-printf "serve:\n  idle_ms: 300\n" >"$TEST_DIR/serve.yaml"
+# Long enough that a slow `fleet list` does not find the worker gone already.
+idle_ms=1500
+printf "serve:\n  idle_ms: %s\n" "$idle_ms" >"$TEST_DIR/serve.yaml"
 "$FYAI_BIN" --config "$TEST_DIR/serve.yaml" serve --daemon >"$TEST_DIR/serve.out" 2>&1 ||
 	fail "the root server did not start: $(cat "$TEST_DIR/serve.out")"
 fyai_test_on_exit '"$FYAI_BIN" serve stop >/dev/null 2>&1 || true'
@@ -58,7 +60,7 @@ first="$(member_pid)"
 # Idle member exits automatically after serve/idle_ms and remains stored.
 "$PYTHON" "$TESTS_DIR/wait_exit.py" "$first" "$((30 * FYAI_TIMEOUT_SCALE))" ||
 	fail "the idle worker did not end"
-grep -q "idle for 300 ms, ends" "$log" || fail "the server did not end it: $(cat "$log")"
+grep -q "idle for $idle_ms ms, ends" "$log" || fail "the server did not end it: $(cat "$log")"
 [ -z "$(member_pid)" ] || fail "the ended worker is still listed"
 
 # Waking the stored member spawns a new worker PID.
@@ -81,7 +83,7 @@ wait "$sender" || fail "the message was not sent: $(cat "$TEST_DIR/send.out")"
 wait_requests 3
 "$PYTHON" "$TESTS_DIR/wait_exit.py" "$second" "$((30 * FYAI_TIMEOUT_SCALE))" ||
 	fail "the worker did not end after the message"
-grep -q "worker $second (branch 'fleet/work'): idle for 300 ms, ends" "$log" ||
+grep -q "worker $second (branch 'fleet/work'): idle for $idle_ms ms, ends" "$log" ||
 	fail "the second worker did not end by the server"
 
 # With no server running, `session send` wakes the stored member on demand.
