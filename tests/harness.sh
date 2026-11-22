@@ -275,7 +275,7 @@ fyai_test_setup() {
 	export FYAI_TEST_NO_HOST_WARNINGS=1
 
 	# The arena states the display a case runs under. The shipped defaults
-	# are the page on the alternate screen with the mouse taken; a case
+	# are the page on the whole normal screen with the mouse taken; a case
 	# that tests them selects them, and every other case reads its output
 	# from the scrollback of the terminal. Slash-command output and the live
 	# output of a call go to the pane, which most cases read; a case of the

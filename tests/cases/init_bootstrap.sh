@@ -30,13 +30,15 @@ if [ -e "$TEST_DIR/.fyai" ]; then fail "a refused verb created $TEST_DIR/.fyai";
 
 # On a terminal, an answer of no also leaves nothing behind.
 "$PYTHON" - "$FYAI_BIN" "$TEST_DIR" n <<'PY' || fail "the prompt did not appear"
-import os, pty, select, signal, sys, time
+import fcntl, os, pty, select, signal, struct, sys, termios, time
 from term_reply import answer_da1
 
 BIN, DIR, ANSWER = sys.argv[1], sys.argv[2], sys.argv[3]
 
 pid, fd = pty.fork()
 if pid == 0:
+    # A terminal has a size; a new pty reports none.
+    fcntl.ioctl(0, termios.TIOCSWINSZ, struct.pack("HHHH", 24, 80, 0, 0))
     os.chdir(DIR)
     os.environ["TERM"] = "xterm-256color"
     os.execv(BIN, [BIN, "-k", "test-key", "--color", "off",
@@ -84,13 +86,15 @@ if [ -e "$TEST_DIR/.fyai" ]; then fail "an answer of no created $TEST_DIR/.fyai"
 # Answering yes initializes the project and starts an interactive session;
 # wait for the first painted frame before sending EOF to exit.
 "$PYTHON" - "$FYAI_BIN" "$TEST_DIR" y <<'PY' || fail "the prompt did not appear"
-import os, pty, select, signal, sys, time
+import fcntl, os, pty, select, signal, struct, sys, termios, time
 from term_reply import answer_da1
 
 BIN, DIR, ANSWER = sys.argv[1], sys.argv[2], sys.argv[3]
 
 pid, fd = pty.fork()
 if pid == 0:
+    # A terminal has a size; a new pty reports none.
+    fcntl.ioctl(0, termios.TIOCSWINSZ, struct.pack("HHHH", 24, 80, 0, 0))
     os.chdir(DIR)
     os.environ["TERM"] = "xterm-256color"
     os.execv(BIN, [BIN, "-k", "test-key", "--color", "off",
