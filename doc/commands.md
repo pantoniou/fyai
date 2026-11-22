@@ -8197,6 +8197,55 @@ key is stored.
 | --- | --- |
 | `-h`, `--help` | show this help |
 
+## /work-height
+
+the height of the work pane
+
+**Usage:** `/work-height [VALUE]`
+
+With no value, show the height of the work pane. With a value, change
+it: `full`, `half`, `quarter` or a number of rows. `display/work_zoom_rows`
+is the key; a session-scoped key changes for this session only, any
+other key is stored. Ctrl-Shift-T cycles full, half and quarter on a
+terminal with the kitty keyboard protocol.
+
+
+### Arguments
+
+| Argument | Description |
+| --- | --- |
+| `VALUE` | the new value |
+
+### Options
+
+| Option | Description |
+| --- | --- |
+| `-h`, `--help` | show this help |
+
+## /tool-display
+
+where the work of a call is shown
+
+**Usage:** `/tool-display [VALUE]`
+
+With no value, show where the live work of a call is shown. With a
+value, change it: `inline` draws it in the transcript, `pane` in a tile
+of the work pane. `display/tool_display` is the key; a session-scoped
+key changes for this session only, any other key is stored.
+
+
+### Arguments
+
+| Argument | Description |
+| --- | --- |
+| `VALUE` | the new value |
+
+### Options
+
+| Option | Description |
+| --- | --- |
+| `-h`, `--help` | show this help |
+
 ## /transcript-system
 
 show the system messages in transcripts
