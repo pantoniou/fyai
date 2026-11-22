@@ -152,6 +152,17 @@ display makes them again.
 The page states the live screen as one UI Markdown page. `src/front/fyai_page.c` owns
 the page source; the terminal library draws its slots.
 
+- `display/screen` selects where the page stands. `fullscreen` takes the
+  alternate screen. `primary`, the default, is the same page on the normal
+  screen: the band of the terminal library is as tall as the terminal, and
+  `ui_scroll_out()` sends each final row of the transcript view that leaves
+  the top of the page to the scrollback with `fytim_commit()`, once and in
+  order. The view keeps the mark of the rows sent and moves it when it
+  renders its exchanges again. A primary page does not apply the tail to the
+  library, which would commit its frozen rows out of order. At the end the
+  page becomes one row and the rest of the transcript goes to the
+  scrollback, so the last screen stays. `inline` keeps the transcript in the
+  scrollback under a small live region.
 - The page is rendered again for each frame, from the state of the session.
   libfytimui decision 0007 measured it: the Markdown is at most 0.16 ms of a
   frame. Do not cache a rendered page.
