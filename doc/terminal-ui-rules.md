@@ -672,7 +672,7 @@ register, focus, zoom, resize - and sizes nothing itself.
   gives the pane the rows that the chrome leaves (`fyai_workpane_set_room()`).
   The tiles then take the highest level of detail that fits them all: the
   size each asks for; else their head over `display/tile_live_rows` of live
-  output; else one line each in the Agents or the Shells panel, where only
+  output; else one line each in the live panel, where only
   the tile with the focus stays a tile. Do not squeeze each tile to fewer
   rows to keep it in the grid: a row of output says less than a line in a
   panel.
@@ -686,10 +686,13 @@ register, focus, zoom, resize - and sizes nothing itself.
   the first line of the title of its head
   (`fyai_workpane_tile_set_summary()`, called by `fyai_chrome_update()`),
   and the last line of its program (`last_line` of its tile operations), cut
-  to one row. The panels stand after todo and fleet, take at most a quarter
-  of the page, and count the lines they leave out. The cap counts only the
-  tiles that the user hid.
-- The mark of a panel line, in the agents, shells and fleet panels, is the
+  to one row.
+- The live panel holds the live work: the fleet members, then the agents,
+  then the shells, under one blank row and with no heading, since each line
+  says what it is. It stands after the todos. The work lines take at most a
+  quarter of the page, and the last counts the lines left out. The cap
+  counts only the tiles that the user hid.
+- The mark of a line of the live panel is the
   theme's: the indicator of a call (`tool.pending`, `tool.ok`, `tool.fail`)
   or the glyphs `fleet.waiting`, `fleet.idle` and `fleet.ended`, each in
   its palette role. Do not write a mark glyph in C. The mark stands in the

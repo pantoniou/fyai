@@ -2082,9 +2082,9 @@ fyai config set display/screen inline
 When several sub-agents and shells run at once, in the work pane or in the transcript, each one keeps its
 head and `display/tile_live_rows` (default 5) rows of live output. When they
 cannot all have that, they leave their place and show one line each in the
-Agents and Shells panels above the prompt: the state, the title and the last
+live panel above the prompt, under the fleet members: the state, the title and the last
 line of output. The tile that has the focus stays a tile. When the work
-ends, the panels go.
+ends, its lines go.
 
 For an Ember fullscreen page with the theme background, run:
 
@@ -2256,10 +2256,10 @@ queued as tasks and launched as active members exit. Configure both in the
 fleet root:
 `fyai config set fleet/approve always`.
 
-Root sessions display supervised members in a `Fleet` panel below the todo
-list, showing each member's name, state, and a preview of its last answer (or
-`no members` when empty). Use `fleet panel off` and `fleet panel on` to toggle
-the panel for the session.
+Root sessions display supervised members at the top of the live panel below
+the todo list, one line each: the state mark, the member's title and name, its
+state, and a preview of its last answer (or `no members` when empty). Use
+`fleet panel off` and `fleet panel on` to toggle the members for the session.
 
 Root sessions receive events from their supervised members:
 `[session 'PROJECT:BRANCH' idle]` with the member's reply, `waiting` when a
