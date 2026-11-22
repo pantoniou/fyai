@@ -24,6 +24,21 @@
 
 #include "fyai_crash.h"
 
+/*
+ * The handlers run on the alternate stack and end in a call that does not
+ * return. An instrumented function calls __asan_handle_no_return() before
+ * such a call, and the runtime warns about a stack it does not know. The
+ * handlers touch no heap or stack object that the sanitizer tracks.
+ */
+#if defined(__has_attribute)
+#if __has_attribute(no_sanitize)
+#define FYAI_CRASH_NO_ASAN __attribute__((no_sanitize("address")))
+#endif
+#endif
+#ifndef FYAI_CRASH_NO_ASAN
+#define FYAI_CRASH_NO_ASAN
+#endif
+
 /* Frames held for the symbolizer, which writes them itself. */
 #define FYAI_CRASH_FRAMES 64
 /* Alternate stack so a stack overflow still reaches the handler. */
@@ -150,7 +165,7 @@ static int crash_index(int signo)
 
 /* Restore the default disposition and die of @signo, keeping the exit status
  * and any core dump the signal carries. */
-static void crash_reraise(int signo)
+FYAI_CRASH_NO_ASAN static void crash_reraise(int signo)
 {
 	struct sigaction dfl;
 	sigset_t unblock;
@@ -205,7 +220,7 @@ static void crash_term_restore(int fd)
  * reporting, so anything the report calls that allocates waits for ever. The
  * watchdog ends the process of the original signal instead of hanging it.
  */
-static void crash_watchdog(int signo)
+FYAI_CRASH_NO_ASAN static void crash_watchdog(int signo)
 {
 	(void)signo;
 	crash_reraise((int)crash_signo);
@@ -228,7 +243,7 @@ static void crash_watchdog_arm(void)
 	(void)alarm(FYAI_CRASH_WATCHDOG_S);
 }
 
-static void crash_handler(int signo)
+FYAI_CRASH_NO_ASAN static void crash_handler(int signo)
 {
 	int fd, flags;
 #ifdef HAVE_EXECINFO

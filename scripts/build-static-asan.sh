@@ -192,7 +192,9 @@ cmake -S "$here" -B "$build/fyai" \
 cmake --build "$build/fyai" -j"$jobs"
 
 mkdir -p "$(dirname -- "$out")"
-cp "$build/fyai/fyai" "$out"
+# Replace the file by a rename: a running copy of the old one stays valid.
+cp "$build/fyai/fyai" "$out.new.$$"
+mv -f "$out.new.$$" "$out"
 
 # The result may use only system libraries, and no sanitizer runtime.
 case "$(uname -s)" in
