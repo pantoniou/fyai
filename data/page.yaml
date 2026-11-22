@@ -118,6 +118,14 @@ pages:
       drop: 0
       body:
         - page: fleet
+    - if: agents.shown
+      drop: 0
+      body:
+        - page: agents
+    - if: shells.shown
+      drop: 0
+      body:
+        - page: shells
     - if: pane.above
       page: pane
 
@@ -177,6 +185,14 @@ pages:
       drop: 0
       body:
         - page: fleet
+    - if: agents.below
+      drop: 0
+      body:
+        - page: agents
+    - if: shells.below
+      drop: 0
+      body:
+        - page: shells
   # The input area, in one mode at a time.
   input:
     - switch: input.mode
@@ -463,6 +479,26 @@ pages:
             items:
               - text: "Fleet"
     - markup: fleet.source
+
+  # The sub-agents that the work pane has no room for, one line each.
+  agents:
+    - blank: true
+    - row:
+        - role:
+            name: chrome
+            items:
+              - text: "Agents"
+    - markup: agents.source
+
+  # The shells and other work that the pane has no room for, one line each.
+  shells:
+    - blank: true
+    - row:
+        - role:
+            name: chrome
+            items:
+              - text: "Shells"
+    - markup: shells.source
 
   # The compact log: its heading, then the newest results.
   log_panel:

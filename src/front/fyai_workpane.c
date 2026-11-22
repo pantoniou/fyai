@@ -47,6 +47,11 @@ struct fyai_workpane_tile {
 	bool minimized;			/* show only the header below screens */
 	/* The last page had no room for the tile: it is outside the grid. */
 	bool overflow;
+	/* What the panel line of an overflowed tile says: its title (UI
+	 * Markdown, first line) and its state. */
+	char *title;
+	enum fyai_ui_mark mark;
+	bool agent;		/* listed with the agents, any kind */
 
 	/* The clickable regions of the head. */
 	struct markdown_region *regions;
@@ -201,6 +206,7 @@ static void workpane_tile_free(struct fyai_workpane_tile *t)
 {
 	markdown_regions_free(t->regions, t->nregions);
 	free(t->head);
+	free(t->title);
 	free(t);
 }
 
@@ -318,7 +324,8 @@ int fyai_workpane_cap_source(const struct fyai_workpane_manager *wm,
 		return snprintf(buf, size, "%s", "");
 	for_each_tile(t, wm) {
 		cap.tiles++;
-		if (t->present == FYAI_WORKPANE_PRESENT_HIDDEN)
+		/* A tile that overflowed has its line in a panel. */
+		if (t->present == FYAI_WORKPANE_PRESENT_HIDDEN && !t->overflow)
 			cap.hidden++;
 	}
 	if (wm->disposition == FYAI_WORKPANE_FIXED)
@@ -815,6 +822,141 @@ int fyai_workpane_page_grid(struct fyai_workpane_manager *wm, int height,
 
 err_out:
 	return -1;
+}
+
+int fyai_workpane_tile_set_summary(struct fyai_workpane_manager *wm,
+				   const struct fytim_surface *sf,
+				   const char *title, enum fyai_ui_mark mark)
+{
+	struct fyai_workpane_tile *t = workpane_tile(wm, sf);
+	char *copy;
+
+	if (!t)
+		return -1;
+	copy = strndup(title ? title : "", title ? strcspn(title, "\n") : 0);
+	fyai_error_check(fyai_workpane_manager_ctx(wm), copy, err_out,
+			 "cannot keep the title of a tile");
+	free(t->title);
+	t->title = copy;
+	t->mark = mark;
+	return 0;
+
+err_out:
+	return -1;
+}
+
+/* The longest last line of a panel row, in bytes of UTF-8. */
+#define WORKPANE_PANEL_LAST 120
+
+void fyai_workpane_tile_set_agent(struct fyai_workpane_manager *wm,
+				  const struct fytim_surface *sf, bool agent)
+{
+	struct fyai_workpane_tile *t = workpane_tile(wm, sf);
+
+	if (t)
+		t->agent = agent;
+}
+
+/* Whether @t stands in the agents panel, else in the shells one. */
+static bool workpane_tile_agent(const struct fyai_workpane_tile *t)
+{
+	return t->agent || t->kind == FYAI_WORKPANE_TILE_AGENT ||
+	       t->kind == FYAI_WORKPANE_TILE_AGENT_VIEW;
+}
+
+/* One panel row for @t: its mark, its title and its last line, cut to
+ * @cols columns. */
+static int workpane_panel_row(const struct fyai_workpane_tile *t,
+			      const char *running, int cols,
+			      struct fyai_buf *out)
+{
+	struct fyai_buf line = { 0 };
+	char *last = NULL, *esc = NULL, *dst;
+	const char *mark, *src;
+	size_t len;
+	int rc;
+
+	mark = t->mark == FYAI_UI_MARK_RUNNING ? running :
+	       t->mark == FYAI_UI_MARK_OK ? "\u2713" : "\u2716";
+	if (t->ops && t->ops->last_line)
+		last = t->ops->last_line(t->owner);
+	if (last) {
+		/* The blanks of a screen row are not text: one blank separates
+		 * words, and none stands at the ends. */
+		for (src = last, dst = last; *src; src++)
+			if (*src != ' ' || (dst > last && dst[-1] != ' '))
+				*dst++ = *src;
+		while (dst > last && dst[-1] == ' ')
+			dst--;
+		*dst = '\0';
+		len = strlen(last);
+		if (len > WORKPANE_PANEL_LAST) {
+			len = WORKPANE_PANEL_LAST;
+			while (len && ((unsigned char)last[len] & 0xc0) == 0x80)
+				len--;
+			last[len] = '\0';
+		}
+		esc = *last ? markdown_ui_escape(last) : NULL;
+	}
+	rc = fyai_buf_append(&line, mark) ||
+	     fyai_buf_append(&line, " ") ||
+	     fyai_buf_append(&line, fy_str_empty(t->title) ? "**work**" :
+			     t->title) ||
+	     (esc && (fyai_buf_append(&line, " \u2014 ") ||
+		      fyai_buf_append(&line, esc)));
+	/* A list item takes two columns before its text; a row never wraps. */
+	if (!rc)
+		rc = fyai_buf_append(out, "- ");
+	if (!rc && cols > 3 &&
+	    fyai_chrome_markup_cols(line.data, NULL, 0) > cols - 3) {
+		(void)fyai_chrome_markup_cols(line.data, out, cols - 4);
+		rc = fyai_buf_append(out, "\u2026");
+	} else if (!rc) {
+		rc = fyai_buf_append(out, line.data);
+	}
+	if (!rc)
+		rc = fyai_buf_append(out, "\n");
+	free(line.data);
+	free(esc);
+	free(last);
+	return rc ? -1 : 0;
+}
+
+char *fyai_workpane_panel_source(const struct fyai_workpane_manager *wm,
+				 bool agents, const char *running, int cols,
+				 int max, bool *blinks)
+{
+	const struct fyai_workpane_tile *t;
+	struct fyai_buf out = { 0 };
+	char more[64];
+	int n = 0, shown = 0;
+
+	if (blinks)
+		*blinks = false;
+	if (!wm)
+		return NULL;
+	for_each_tile(t, wm) {
+		if (!t->overflow || workpane_tile_agent(t) != agents)
+			continue;
+		n++;
+		if (blinks && t->mark == FYAI_UI_MARK_RUNNING)
+			*blinks = true;
+		if (max > 0 && shown >= max - 1 && n > 1)
+			continue;
+		if (workpane_panel_row(t, running, cols, &out))
+			goto err_out;
+		shown++;
+	}
+	if (n > shown) {
+		snprintf(more, sizeof(more), "- \u2026 %d more\n", n - shown);
+		if (fyai_buf_append(&out, more))
+			goto err_out;
+	}
+	return out.data;
+
+err_out:
+	free(out.data);
+	return NULL;
 }
 
 void fyai_workpane_set_room(struct fyai_workpane_manager *wm, int rows)

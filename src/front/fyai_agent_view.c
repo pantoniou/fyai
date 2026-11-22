@@ -163,11 +163,19 @@ static void fyai_agent_present(void *owner, enum fyai_workpane_present p)
 	fyai_ui_wake(fyai_tool_job_ctx(job));
 }
 
+static char *fyai_agent_last_line(void *owner)
+{
+	struct fyai_tool_job *job = owner;
+
+	return fyai_terminal_view_last_line(job->view);
+}
+
 static const struct fyai_workpane_tile_ops fyai_agent_tile_ops = {
 	.apply_grant = fyai_agent_apply_grant,
 	.focus_changed = fyai_agent_focus_changed,
 	.set_presentation = fyai_agent_present,
 	.repaint_head = fyai_agent_head_repaint,
+	.last_line = fyai_agent_last_line,
 };
 
 /* Draw the screen of an inline sub-agent in its block of the transcript, or

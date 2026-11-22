@@ -215,8 +215,16 @@ static void remote_ui_term_grant(void *owner, int rows, int cols)
 	(void)cols;
 }
 
+static char *remote_ui_term_last_line(void *owner)
+{
+	struct remote_ui_term *t = owner;
+
+	return fyai_terminal_view_last_line(t->view);
+}
+
 static const struct fyai_workpane_tile_ops remote_ui_term_ops = {
 	.apply_grant = remote_ui_term_grant,
+	.last_line = remote_ui_term_last_line,
 };
 
 static void remote_ui_term_free(struct fyai_ctx *ctx, struct remote_ui_term *t)
@@ -363,6 +371,9 @@ static int remote_ui_term_open(struct fyai_remote_ui *view,
 				    &remote_ui_term_ops, t->rows, 0);
 	fyai_error_check(ctx, !rc, err, "cannot place the terminal %s",
 			 t->name);
+	/* The terminal of a sub-agent of the worker is listed with agents. */
+	fyai_workpane_tile_set_agent(ctx->screen->workpane, t->surface,
+				     t->agent);
 	title = remote_ui_term_title(t, item) ? :
 		fy_sprintfa("**%s** %s", t->agent ? "agent" : "shell", t->name);
 	if (t->agent) {

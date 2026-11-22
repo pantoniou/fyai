@@ -149,6 +149,9 @@ struct fyai_workpane_tile_ops {
 	void (*set_presentation)(void *owner, enum fyai_workpane_present p);
 	/* Re-render the header after a width change so button regions align. */
 	void (*repaint_head)(void *owner);
+	/* The last line that the program wrote, for the panel line of a tile
+	 * that overflowed, or NULL. The caller frees it. */
+	char *(*last_line)(void *owner);
 };
 
 struct fyai_workpane_manager *fyai_workpane_create(struct fyai_ctx *ctx,
@@ -179,6 +182,24 @@ int fyai_workpane_page_grid(struct fyai_workpane_manager *wm, int height,
 			    const struct fyai_page_layout *lay,
 			    const char *lead,
 			    struct fyai_buf *out, int *rowsp);
+/* Keep what the panel line of the tile of @sf says: the first line of the
+ * UI Markdown @title and the state @mark. */
+int fyai_workpane_tile_set_summary(struct fyai_workpane_manager *wm,
+				   const struct fytim_surface *sf,
+				   const char *title, enum fyai_ui_mark mark);
+/* List the tile of @sf with the agents, whatever its kind. */
+void fyai_workpane_tile_set_agent(struct fyai_workpane_manager *wm,
+				  const struct fytim_surface *sf, bool agent);
+/*
+ * The UI Markdown of the agents panel (@agents) or the shells panel: a list
+ * with one line for each tile that overflowed, or NULL with none. A line is
+ * cut to the @cols columns of the page. Running tiles take the mark
+ * @running. With @max above zero, at most @max lines, the last of which
+ * counts those left out. *@blinks says whether a tile runs.
+ */
+char *fyai_workpane_panel_source(const struct fyai_workpane_manager *wm,
+				 bool agents, const char *running, int cols,
+				 int max, bool *blinks);
 /* The rows that the page can give the pane at most, for the sizing of
  * fyai_workpane_page_grid() at height zero; 0 for the pane ceiling only. */
 void fyai_workpane_set_room(struct fyai_workpane_manager *wm, int rows);

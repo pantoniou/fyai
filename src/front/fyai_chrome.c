@@ -261,6 +261,10 @@ int fyai_chrome_update(struct fyai_ctx *ctx, struct fytim_surface *sf,
 	if (!ctx || !ctx->screen->ui || !sf || !spec || !spec->title)
 		return -1;
 	(void)fyai_workpane_tile_owner(ctx->screen->workpane, sf, &kind);
+	rc = fyai_workpane_tile_set_summary(ctx->screen->workpane, sf,
+					    spec->title, spec->mark);
+	if (rc)
+		return -1;
 	items = fyai_chrome_items(ctx, kind,
 				  chrome_phase(ctx, sf, spec->mark));
 	/* fyai writes @right and the buttons, so they take the right edge as

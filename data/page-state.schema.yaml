@@ -3,7 +3,7 @@
 # binding names any value. fyai decides every flag.
 type: object
 additionalProperties: false
-required: [input, ask, screen, tail, transcript, popup, note, pending, log, glyphs, todo, fleet, layout, pane, header, prompt, status]
+required: [input, ask, screen, tail, transcript, popup, note, pending, log, glyphs, todo, fleet, agents, shells, layout, pane, header, prompt, status]
 properties:
   layout:
     type: object
@@ -158,6 +158,24 @@ properties:
       below: { description: The fleet panel stands below the prompt., type: boolean }
       source: { description: UI Markdown of the members that fyai wrote., type: string }
       rows: { description: Rows of the fleet panel., type: integer }
+  agents:
+    type: object
+    additionalProperties: false
+    required: [shown, below, source, rows]
+    properties:
+      shown: { description: Sub-agents overflowed the work pane above the prompt., type: boolean }
+      below: { description: The agents panel stands below the prompt., type: boolean }
+      source: { description: UI Markdown of the overflowed sub-agents., type: string }
+      rows: { description: Rows of the agents panel., type: integer }
+  shells:
+    type: object
+    additionalProperties: false
+    required: [shown, below, source, rows]
+    properties:
+      shown: { description: Shells overflowed the work pane above the prompt., type: boolean }
+      below: { description: The shells panel stands below the prompt., type: boolean }
+      source: { description: UI Markdown of the overflowed shells., type: string }
+      rows: { description: Rows of the shells panel., type: integer }
   tail:
     type: object
     additionalProperties: false

@@ -681,11 +681,19 @@ static void fyai_shell_session_present(void *owner,
 	fyai_ui_wake(fyai_shell_session_ctx(sess));
 }
 
+static char *fyai_shell_session_last_line(void *owner)
+{
+	struct fyai_shell_session *sess = owner;
+
+	return fyai_terminal_view_last_line(sess->view);
+}
+
 static const struct fyai_workpane_tile_ops fyai_shell_session_tile_ops = {
 	.apply_grant = fyai_shell_session_apply_grant,
 	.focus_changed = fyai_shell_session_focus_changed,
 	.set_presentation = fyai_shell_session_present,
 	.repaint_head = fyai_shell_session_head_paint,
+	.last_line = fyai_shell_session_last_line,
 };
 
 void fyai_shell_session_resized(struct fyai_shell_session *sess,

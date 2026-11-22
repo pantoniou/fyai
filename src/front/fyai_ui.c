@@ -245,6 +245,11 @@ struct fyai_ui {
 	bool fleet_blink;
 	int fleet_rows;
 	int fleet_cols;
+	/* The panels of the tiles that overflowed the work pane, made for
+	 * each frame, and whether one of those tiles runs. */
+	char *agents_source;
+	char *shells_source;
+	bool work_blink;
 	/*
 	 * The lines typed while a turn runs, as UI Markdown on top of the
 	 * input area of the page, or NULL; the rows they take at @pending_cols.
@@ -553,7 +558,8 @@ static int ui_activity_refresh(struct fyai_ui *ui)
 	int rc = -1;
 
 	if (ui->activity_paused ||
-	    (!ui->busy && ui->tool_mode == UI_TOOL_IDLE && !ui->fleet_blink))
+	    (!ui->busy && ui->tool_mode == UI_TOOL_IDLE && !ui->fleet_blink &&
+	     !ui->work_blink))
 		return 0;
 	if (clock_gettime(CLOCK_MONOTONIC, &ts))
 		return -1;
@@ -581,7 +587,8 @@ static int ui_activity_refresh(struct fyai_ui *ui)
 		ui_fleet_rebuild(ui);
 		ui->frame_pending = true;
 	}
-
+	if (ui->work_blink)
+		ui->frame_pending = true;
 	/*
 	 * Host-side blinking is intentional. SGR blink is inconsistently
 	 * implemented by terminals. The invocation itself is the work-band
@@ -2846,6 +2853,46 @@ err_page:
 	return -1;
 }
 
+/* The most lines of an agents or shells panel: a quarter of the page. */
+static int ui_work_panel_max(int rows)
+{
+	return rows / 4 > 2 ? rows / 4 : 2;
+}
+
+/*
+ * The agents and the shells panels of @st: one line for each tile that the
+ * sizing of the pane let overflow. A popup or a delegated agent shows none.
+ */
+static int ui_work_panels(struct fyai_ui *ui, struct fyai_page_state *st,
+			  int cols, int rows)
+{
+	struct fyai_ctx *ctx = fyai_ui_ctx(ui);
+	struct fyai_workpane_manager *wm = ctx->screen->workpane;
+	const char *running;
+	bool blinks = false, more = false;
+
+	free(ui->agents_source);
+	free(ui->shells_source);
+	ui->agents_source = ui->shells_source = NULL;
+	ui->work_blink = false;
+	if (fyai_agent_delegated(ctx) || (st->fullscreen && st->popup_title))
+		return 0;
+	running = ui_indicator_glyph(ui, (size_t)(ui->activity_phase < 0 ? 0 :
+						  ui->activity_phase));
+	ui->agents_source = fyai_workpane_panel_source(wm, true, running, cols,
+		ui_work_panel_max(rows), &blinks);
+	ui->shells_source = fyai_workpane_panel_source(wm, false, running, cols,
+		ui_work_panel_max(rows), &more);
+	ui->work_blink = blinks || more;
+	st->agents.source = ui->agents_source;
+	st->agents.rows = ui_markup_rows(ui->agents_source, cols);
+	st->agents.shown = ui->agents_source != NULL;
+	st->shells.source = ui->shells_source;
+	st->shells.rows = ui_markup_rows(ui->shells_source, cols);
+	st->shells.shown = ui->shells_source != NULL;
+	return 0;
+}
+
 /* The tiles, the panels and the fit of the page. */
 static int ui_page_frame_fit(struct fyai_ui *ui, struct ui_page_frame *f)
 {
@@ -2921,6 +2968,9 @@ static int ui_page_frame_fit(struct fyai_ui *ui, struct ui_page_frame *f)
 			st->log_rows = 1;
 	}
 	st->fullscreen = ui->fullscreen;
+	rc = ui_work_panels(ui, st, cols, rows);
+	fyai_error_check(ctx, !rc, err_page,
+			 "cannot make the agents and shells panels");
 	ui_pending_fit(ui, st, cols, rows);
 	fyai_page_fit(st, rows);
 	rc = fyai_page_fit_document(ui->page, st, cols, rows);
@@ -3837,6 +3887,8 @@ void fyai_ui_close(struct fyai_ctx *ctx)
 	ui_popup_close(ui);
 	ui_note_clear(ui);
 	free(ui->todo_source);
+	free(ui->agents_source);
+	free(ui->shells_source);
 	free(ui->fleet_source);
 	free(ui->pending_source);
 	free(ui->pending_fit);
