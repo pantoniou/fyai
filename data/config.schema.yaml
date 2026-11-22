@@ -1583,14 +1583,17 @@ properties:
           use and the state, source and regions of the last frame.
       screen:
         type: string
-        enum: [inline, fullscreen]
+        enum: [inline, primary, fullscreen]
         default: fullscreen
         description: >-
           Select where the page renderer draws. inline keeps the transcript in the
-          scrollback of the terminal. fullscreen takes the alternate screen: the
-          transcript is a view of the page that the wheel, PageUp and PageDown
-          scroll, and the terminal shows what it showed before when the session
-          ends. It takes effect when the session starts.
+          scrollback of the terminal under it. primary takes the whole normal
+          screen: the transcript is a view of the page that the wheel, PageUp
+          and PageDown scroll, a row that leaves the top of the page goes to the
+          scrollback of the terminal, and the last screen stays when the session
+          ends. fullscreen takes the alternate screen: the transcript is a view
+          of the page, and the terminal shows what it showed before when the
+          session ends. It takes effect when the session starts.
       work_controls:
         type: string
         enum: [none, zoom, full]

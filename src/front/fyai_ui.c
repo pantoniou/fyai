@@ -199,6 +199,14 @@ struct fyai_ui {
 	/* A fullscreen page: the transcript is a view on the alternate screen,
 	 * and presented rows go to it instead of the scrollback. */
 	bool fullscreen;
+	/*
+	 * The page of @fullscreen on the normal screen: the band is as tall as
+	 * the terminal. A final row of @view that leaves the top of the page
+	 * goes to the terminal scrollback; the sent mark of @view counts them.
+	 * @scrolled_init is set once the mark is placed.
+	 */
+	bool primary;
+	bool scrolled_init;
 	struct fyai_transcript_view *view;
 	/* The live blocks of an inline page, which draws them under the tail;
 	 * a fullscreen page keeps them in @view. */
@@ -3104,6 +3112,43 @@ err_page:
 	return -1;
 }
 
+/*
+ * Send the final rows of the view that stand above a region of @height rows
+ * at its end to the scrollback of the terminal, once each and in order; a
+ * region of zero rows sends them all. The first frame places the mark: what
+ * stood on the screen before is the terminal's already.
+ */
+static int ui_scroll_out(struct fyai_ui *ui, int height)
+{
+	struct fyai_buf out = { 0 };
+	size_t total, off, final, sent, i;
+	int rc = 0;
+
+	if (height < 0)
+		return 0;
+	total = fyai_transcript_view_rows(ui->view);
+	final = fyai_transcript_view_final_rows(ui->view);
+	off = total > (size_t)height ? total - (size_t)height : 0;
+	if (off > final)
+		off = final;
+	if (!ui->scrolled_init) {
+		ui->scrolled_init = true;
+		fyai_transcript_view_set_sent(ui->view, off);
+		return 0;
+	}
+	sent = fyai_transcript_view_sent(ui->view);
+	for (i = sent; i < off && !rc; i++)
+		rc = fyai_buf_append(&out, fyai_transcript_view_row(ui->view,
+								    i)) ||
+		     fyai_buf_append(&out, "\n");
+	if (!rc && out.len)
+		rc = fytim_commit(ui->ft, out.data, out.len) != FYTIM_OK;
+	if (!rc && off > sent)
+		fyai_transcript_view_set_sent(ui->view, off);
+	free(out.data);
+	return rc ? -1 : 0;
+}
+
 /* The transcript and the pane grids at the fitted rows. */
 static int ui_page_frame_content(struct fyai_ui *ui, struct ui_page_frame *f)
 {
@@ -3133,6 +3178,13 @@ static int ui_page_frame_content(struct fyai_ui *ui, struct ui_page_frame *f)
 		ui->view_rows = st->transcript_rows;
 		st->transcript_lines = fyai_transcript_view_window(ui->view,
 			st->transcript_rows, &st->transcript_nlines);
+		/* A popup or a maximized tile leaves the transcript no rows:
+		 * nothing leaves the top then. */
+		if (ui->primary && st->transcript_rows > 0) {
+			rc = ui_scroll_out(ui, st->transcript_rows);
+			fyai_error_check(ctx, !rc, err_page,
+					 "cannot send rows to the scrollback");
+		}
 	}
 	/* Then written at the rows the chrome leaves it. */
 	ui->pane_grid.len = 0;
@@ -3852,11 +3904,16 @@ int fyai_ui_open(struct fyai_ctx *ctx)
 	/* Grab the mouse only when work-pane controls require it. */
 	cfg.mouse = fyai_workpane_wants_mouse(ctx);
 	/* A fullscreen page takes the alternate screen, where its text is
-	 * selected and copied. */
+	 * selected and copied. A primary page stands on the normal screen
+	 * as a band as tall as the terminal, and the terminal keeps its
+	 * scrollback and its selection. */
 	if (ctx->cfg->screen &&
-	    !strcmp(ctx->cfg->screen, "fullscreen")) {
-		cfg.screen = FYTIM_SCREEN_ALT;
-		cfg.clipboard = true;
+	    fy_any_equal(ctx->cfg->screen, "fullscreen", "primary")) {
+		ui->primary = !strcmp(ctx->cfg->screen, "primary");
+		if (!ui->primary) {
+			cfg.screen = FYTIM_SCREEN_ALT;
+			cfg.clipboard = true;
+		}
 		ui->fullscreen = true;
 		ui->view = fyai_transcript_view_create();
 		if (!ui->view) goto fail;
@@ -3971,6 +4028,14 @@ void fyai_ui_close(struct fyai_ctx *ctx)
 	/* A result drawn just before the exit is still a pending frame. */
 	if (ui->ft && ui->page && ui->frame_pending)
 		ui_page_update(ui);
+	/* A primary page leaves its transcript on the screen: the band gives
+	 * up the page and the rows still on it go to the scrollback above. */
+	if (ui->ft && ui->primary && ui->view) {
+		/* One blank row is the band that the close erases. */
+		if (fytim_page_set(ui->ft, "\n", 1, NULL, 0) != FYTIM_OK ||
+		    ui_scroll_out(ui, 0))
+			fyai_warning(ctx, "cannot leave the transcript on the screen");
+	}
 	if (ui->ft)
 		(void)fytim_pump(ui->ft);
 	fyai_event_source_remove(ui->timer_src);
@@ -5012,10 +5077,15 @@ int fyai_ui_tail_apply(struct fyai_ctx *ctx, const struct markdown_update *u)
 		fyai_error_check(ctx, !rc, err_out,
 				 "could not fence resumed prose");
 	}
-	rc = fytim_tail_apply(ui->ft, u->backtrack, u->content,
-			      u->content_len, u->freeze);
-	fyai_error_check(ctx, rc == FYTIM_OK, err_out,
-			 "could not apply the transcript tail");
+	/* A primary page draws the tail in its view and sends the rows that
+	 * leave the top to the scrollback itself, in order: the library would
+	 * commit the frozen rows of its own tail ahead of them. */
+	if (!ui->primary) {
+		rc = fytim_tail_apply(ui->ft, u->backtrack, u->content,
+				      u->content_len, u->freeze);
+		fyai_error_check(ctx, rc == FYTIM_OK, err_out,
+				 "could not apply the transcript tail");
+	}
 	if (ui->fullscreen) {
 		rc = ui_stream_apply(ui, u);
 		fyai_error_check(ctx, !rc, err_out,
