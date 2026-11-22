@@ -3984,7 +3984,7 @@ Serve until interrupted, or until `fyai serve stop`.
 | --- | --- |
 | `--socket PATH` | override the endpoint; only a socket that nobody serves is replaced |
 | `--projects DIR` | serve the projects under DIR, not the project of the current directory |
-| `--once` | stop when the sessions that ran have no turn and no client, as `/background` starts a server |
+| `--once` | stop when the sessions that ran have no turn and no client, or when no session came in the time a client waits to be admitted, as `/background` starts a server |
 | `--daemon` | run in the background; the log goes to the file that --log names |
 | `--log FILE` | the log file of a daemon (default: .fyai/logs/serve.log of the project, or ~/.fyai/logs/serve.log with --projects) |
 | `--token-fd VALUE` | require token admission and write the generated launch token to this descriptor |

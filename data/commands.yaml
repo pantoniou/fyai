@@ -4846,7 +4846,7 @@ commands:
               x-fyai-complete: dir
             once:
               type: boolean
-              description: stop when the sessions that ran have no turn and no client, as `/background` starts a server
+              description: stop when the sessions that ran have no turn and no client, or when no session came in the time a client waits to be admitted, as `/background` starts a server
               x-fyai-long: once
             daemon:
               type: boolean
