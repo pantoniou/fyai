@@ -1252,6 +1252,15 @@ properties:
         minimum: 0
         default: 5
         description: Set the number of tool-result preview rows.
+      tool_command_lines:
+        x-fyai-model: review
+        type: integer
+        minimum: 0
+        default: 1
+        description: >-
+          Set how many rows of a shell command its call shows under its
+          title. A row then counts the rows left out. 0 shows the whole
+          command. The model and the stored exchange keep the whole command.
       tile_live_rows:
         x-fyai-model: review
         type: integer

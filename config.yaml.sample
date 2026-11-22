@@ -397,6 +397,8 @@ display:
   tool_preview_lines: 5
   # Rows of a running tool call that its tile keeps to scroll back through.
   tool_history_lines: 40
+  # Rows of a shell command under its call; 0 shows all of it.
+  tool_command_lines: 1
   # Live rows under the head of each tile when tiles share the work pane;
   # tiles that cannot all have them collapse to a line in a panel.
   tile_live_rows: 5

@@ -856,6 +856,8 @@ static void config_apply_display_text(struct fyai_cfg *cfg, fy_generic v)
 	cfg->tool_history_lines = fy_get(v, "tool_history_lines",
 					 cfg->tool_history_lines);
 	cfg->tile_live_rows = fy_get(v, "tile_live_rows", cfg->tile_live_rows);
+	cfg->tool_command_lines = fy_get(v, "tool_command_lines",
+					 cfg->tool_command_lines);
 }
 
 /* Overlay the work pane of the display group @v. */
@@ -3249,6 +3251,7 @@ void fyai_config_set_defaults(struct fyai_cfg *cfg)
 		DEFAULT_SHELL_HARD_MAX_OUTPUT_TOKENS;
 	cfg->tool_preview_lines = DEFAULT_TOOL_PREVIEW_LINES;
 	cfg->tile_live_rows = DEFAULT_TILE_LIVE_ROWS;
+	cfg->tool_command_lines = DEFAULT_TOOL_COMMAND_LINES;
 	cfg->tool_history_lines = DEFAULT_TOOL_HISTORY_LINES;
 	cfg->session_margin = FYAI_SESSION_MARGIN;
 	cfg->work_layout = DEFAULT_WORK_LAYOUT;
