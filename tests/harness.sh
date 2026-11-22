@@ -279,8 +279,10 @@ fyai_test_setup() {
 	# that tests them selects them, and every other case reads its output
 	# from the scrollback of the terminal. Slash-command output and the live
 	# output of a call go to the pane, which most cases read; a case of the
-	# transcript selects it.
-	printf 'sandbox_profile: none\ndisplay:\n  markdown: false\n  screen: inline\n  work_controls: none\n  work_zoom_rows: full\n  command_output: pane\n  tool_display: pane\n  idle_poll_ms: 100\n' > config.yaml
+	# transcript selects it. The project state of each turn and the diff
+	# of each group of tool calls are on by default; a case of them selects
+	# them, and every other case runs without their scans and diffs.
+	printf 'sandbox_profile: none\ndisplay:\n  markdown: false\n  screen: inline\n  work_controls: none\n  work_zoom_rows: full\n  command_output: pane\n  tool_display: pane\n  idle_poll_ms: 100\nview:\n  track_project: false\n  tool_diff: false\n' > config.yaml
 	${FYAI_VALGRIND} "$FYAI_BIN" init >/dev/null 2>&1 || fail "fyai init"
 	rm -f config.yaml
 }

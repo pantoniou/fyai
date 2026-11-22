@@ -11,14 +11,16 @@ mock_start display_parity.json
 
 printf 'int main(void)\n{\n\tputs("old");\n\treturn 0;\n}\n' > hello.c
 
-# An imported exchange carries messages only, so it has nothing to replay.
+# An imported exchange carries messages only, so it has nothing to replay. The
+# imported branch has the shipped configuration: the case turns the diff of
+# its calls off, which would show the output files of the case.
 # The rows are read as a theme without a palette draws them.
 "$FYAI_BIN" --color off --theme dark import -i "$TESTS_DIR/data/imported_conversation.md" \
 	>/dev/null 2>&1 || fail "import failed"
 
 run_fyai --theme dark --set display/markdown=true --set api=chat-completions \
 	 --set display/stream=false --set tools=true \
-	 --set display/tool_detail=full \
+	 --set display/tool_detail=full --set view/tool_diff=false \
 	 --set api_url="$MOCK_URL/v1/chat/completions" -m mock-model "do things again"
 assert_status 0
 

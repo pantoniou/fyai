@@ -24,7 +24,7 @@ run_with() {
 		 --set "$IGNORE" --set api_url="$MOCK_URL/v1/chat/completions" -m mock-model "$@"
 }
 
-# Off by default: the calls run, and nothing is compared.
+# Off (the harness turns it off): the calls run, and nothing is compared.
 reset_project
 mock_start tool_diff.json
 run_with "edit the files"

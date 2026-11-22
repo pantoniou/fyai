@@ -17,7 +17,8 @@ mkdir project/.fyai
 printf 'reserved\n' > project/.fyai/private
 ln -s file project/link
 
-run_fyai view create demo "$TEST_DIR/project" --debug --verify --output json
+run_fyai view create demo "$TEST_DIR/project" --durability lazy --debug --verify \
+	--output json
 assert_status 0
 "$PYTHON" - "$TEST_DIR/stdout" <<'PY'
 import json, sys
@@ -52,7 +53,8 @@ import json, sys
 v = json.load(open(sys.argv[1]))
 assert v['durability'] == 'lazy' and v['synchronized']
 PYSYNC
-run_fyai view create durable "$TEST_DIR/project" --durability durable --quiet --output json
+# A view is durable by default.
+run_fyai view create durable "$TEST_DIR/project" --quiet --output json
 assert_status 0
 "$PYTHON" - "$TEST_DIR/stdout" <<'PYDURABLE'
 import json, sys
