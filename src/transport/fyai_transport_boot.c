@@ -1249,6 +1249,19 @@ static void transport_env_clear(void)
 		unsetenv(names[i]);
 }
 
+void fyai_transport_env_unchannel(void)
+{
+	static const char *const names[] = {
+		FYAI_TRANSPORT_FD_ENV, FYAI_TRANSPORT_CTL_ENV,
+		FYAI_TRANSPORT_EXEC_ENV, FYAI_TRANSPORT_PID_ENV,
+		FYAI_TRANSPORT_OWNER_ENV,
+	};
+	size_t i;
+
+	for (i = 0; i < sizeof(names) / sizeof(names[0]); i++)
+		unsetenv(names[i]);
+}
+
 void fyai_transport_detach(struct fyai_transport_state *tp)
 {
 	enum fyai_transport_level level;

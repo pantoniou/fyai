@@ -728,7 +728,8 @@ int fyai_fleet_task_dispatch(struct fyai_ctx *ctx, fy_generic id, fy_generic tas
 				   home + strlen(root) + 1 : ".",
 				   fyai_ctx_branch(ctx)),
 			"--fleet-task", fy_value(tgb, fy_castp(&id, "")));
-		rc = fyai_remote_start(ctx, dir, fy_get(task, "branch", ""),
+		rc = fyai_remote_serve_ensure(ctx, dir) ? -1 :
+		     fyai_remote_start(ctx, dir, fy_get(task, "branch", ""),
 				       fy_get(task, "text", ""), args);
 	}
 	free(dir);
@@ -867,7 +868,7 @@ int fyai_fleet_start(struct fyai_ctx *ctx, struct fy_generic_builder *gb,
 	fy_generic args = fy_invalid, tasks = fy_invalid;
 	char *cwd = NULL, *root = NULL, *dir = NULL, *home = NULL;
 	long long id = 0;
-	bool queued = false;
+	bool queued = false, session;
 	int rc = -1;
 
 	cwd = getcwd(NULL, 0);
@@ -887,7 +888,8 @@ int fyai_fleet_start(struct fyai_ctx *ctx, struct fy_generic_builder *gb,
 	 * when invoked from a root session (doc/fyai-fleet-sdd.md, section 9).
 	 * Standalone CLI invocations have no session context.
 	 */
-	if (fleet_arena_open(ctx) && !ctx->cfg->transient) {
+	session = fleet_arena_open(ctx) && !ctx->cfg->transient;
+	if (session) {
 		home = fyai_fleet_project_of(cwd);
 		args = fy_sequence(gb, "--fleet-parent",
 			fy_stringf(gb, "%s:%s", home && strcmp(home, root) ?
@@ -913,7 +915,19 @@ int fyai_fleet_start(struct fyai_ctx *ctx, struct fy_generic_builder *gb,
 		goto out;
 	if (id && !queued)
 		fleet_test_lose_root();
-	rc = queued ? 0 : fyai_remote_start(ctx, dir, branch, task, args);
+	/*
+	 * A session worker may have no server, and the server of a session
+	 * serves once and only its own project. So from a session a member gets
+	 * a server of its own when none serves it. From the command line a
+	 * server must already run; a start with none fails with a message.
+	 */
+	if (queued)
+		rc = 0;
+	else if (session ? fyai_remote_serve_ensure(ctx, dir) :
+			   fyai_remote_serve_beside(ctx, dir))
+		rc = -1;
+	else
+		rc = fyai_remote_start(ctx, dir, branch, task, args);
 	/* Mark the task dropped if member launch failed. */
 	if (rc && id) {
 		fy_generic key = fy_stringf(ctx->arena->gb, "%lld", id);

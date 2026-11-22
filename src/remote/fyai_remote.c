@@ -1809,6 +1809,7 @@ static int remote_serve_once_start(struct fyai_ctx *ctx, const char *dir)
 		if (dir && chdir(dir))
 			_exit(126);
 		fyai_close_fds_from(STDERR_FILENO + 1);
+		fyai_transport_env_unchannel();
 		fyai_loop_restore_signal_mask(ctx->loop);
 		signal(SIGPIPE, SIG_DFL);
 		execvp(args[0], args);
@@ -1973,6 +1974,19 @@ out:
 	if (gb)
 		fy_generic_builder_destroy(gb);
 	return rc ? -1 : 0;
+}
+
+int fyai_remote_serve_beside(struct fyai_ctx *ctx, const char *dir)
+{
+	char *path;
+
+	path = remote_session_endpoint_at(ctx, dir);
+	fyai_error_check(ctx, path, err, "no server runs the sessions of '%s'",
+			 dir);
+	free(path);
+	return fyai_remote_serve_ensure(ctx, dir);
+err:
+	return -1;
 }
 
 int fyai_remote_supervise(struct fyai_ctx *ctx, const char *dir,

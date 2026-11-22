@@ -104,6 +104,12 @@ int fyai_remote_supervisor_open(struct fyai_ctx *ctx, const char *dir,
  */
 int fyai_remote_serve_ensure(struct fyai_ctx *ctx, const char *dir);
 /*
+ * When a server runs at or above @dir and does not serve it, as a server
+ * that serves once does not serve another project, start a server for @dir.
+ * Fails, as it starts nothing, when no server runs there at all.
+ */
+int fyai_remote_serve_beside(struct fyai_ctx *ctx, const char *dir);
+/*
  * Start a persistent session on @branch in @dir via its server with initial
  * message @task and global CLI options @args (string sequence or fy_invalid).
  * If @task is NULL, starts the worker without sending a message to resume

@@ -192,6 +192,14 @@ void fyai_transport_env_take(struct fyai_transport_state *tp);
 /* Close the read end of the grant. */
 void fyai_transport_env_release(struct fyai_transport_state *tp);
 
+/*
+ * In a forked child that executes a new program tree, such as a server, drop
+ * the names of the channels of this transport. The descriptors are closed
+ * before the exec, so the new image must start its own transport and not
+ * attach to numbers that mean nothing to it. The requested level stays.
+ */
+void fyai_transport_env_unchannel(void);
+
 /* Tell the transport which logs are on, after `log start` or `log stop`. */
 void fyai_transport_sync_logging(struct fyai_transport_state *tp);
 
