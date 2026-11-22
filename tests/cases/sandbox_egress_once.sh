@@ -10,6 +10,7 @@ set -eu
 # The sandbox grants the system scratch trees whole: keep the project out of them.
 FYAI_TMPDIR_BASE="$(dirname "$FYAI_BIN")"
 fyai_test_setup
+unset FYAI_TEST_NO_HOST_WARNINGS
 printf baseline > file
 
 # count_reports: the lines of the last run that say that egress stays open.

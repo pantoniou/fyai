@@ -9,6 +9,7 @@ set -eu
 
 FYAI_TMPDIR_BASE="$(dirname "$FYAI_BIN")"
 fyai_test_setup
+unset FYAI_TEST_NO_HOST_WARNINGS
 
 # A run that starts tools reports, on a kernel that cannot restrict egress. On a
 # kernel that can, there is nothing to compare with.

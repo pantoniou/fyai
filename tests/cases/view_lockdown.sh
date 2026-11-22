@@ -10,6 +10,7 @@ set -eu
 . "$(dirname "$0")/../harness.sh"
 FYAI_TMPDIR_BASE="$(dirname "$FYAI_BIN")"
 fyai_test_setup
+unset FYAI_TEST_NO_HOST_WARNINGS
 unshare -Urnm true 2>/dev/null || exit 77
 # The scratch directory of a view lies outside the project and does not cover HOME.
 mkdir -p tmp project/src "$HOME/.ssh"

@@ -9,6 +9,7 @@ set -eu
 . "$(dirname "$0")/../harness.sh"
 
 fyai_test_setup
+unset FYAI_TEST_NO_HOST_WARNINGS
 mock_start tool_diff.json
 PORT="${MOCK_URL##*:}"
 PORT="${PORT%%/*}"

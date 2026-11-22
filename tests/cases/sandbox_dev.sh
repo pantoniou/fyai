@@ -12,6 +12,7 @@ set -eu
 # host without namespaces cannot protect the arena.
 FYAI_TMPDIR_BASE="$(dirname "$FYAI_BIN")"
 fyai_test_setup
+unset FYAI_TEST_NO_HOST_WARNINGS
 mock_start tool_diff.json
 PORT="${MOCK_URL##*:}"
 PORT="${PORT%%/*}"

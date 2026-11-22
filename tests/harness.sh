@@ -267,6 +267,11 @@ fyai_test_setup_bare() {
 fyai_test_setup() {
 	fyai_test_setup_bare
 
+	# Suppress host-dependent sandbox capability warnings (e.g. Landlock
+	# net/cover) that would vary output across environments; sandbox report
+	# tests unset this.
+	export FYAI_TEST_NO_HOST_WARNINGS=1
+
 	# The arena states the display a case runs under. The shipped defaults
 	# are the page on the alternate screen with the mouse taken; a case
 	# that tests them selects them, and every other case reads its output

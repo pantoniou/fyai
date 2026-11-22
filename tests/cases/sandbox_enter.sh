@@ -68,6 +68,7 @@ fi
 # applies until the configuration names a profile.
 UDP='bash -c "exec 3<>/dev/udp/127.0.0.1/9" 2>/dev/null && echo udp-open || echo udp-denied'
 fyai_test_setup
+unset FYAI_TEST_NO_HOST_WARNINGS
 run_fyai sandbox enter -- sh -c "$UDP"
 assert_status 0
 assert_stdout_contains udp-open

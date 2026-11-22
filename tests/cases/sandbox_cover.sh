@@ -11,6 +11,7 @@ set -eu
 # The sandbox grants the system scratch trees whole: keep the project out of them.
 FYAI_TMPDIR_BASE="$(dirname "$FYAI_BIN")"
 fyai_test_setup
+unset FYAI_TEST_NO_HOST_WARNINGS
 mkdir -p "$HOME/.ssh"
 printf 'classified\n' >"$HOME/.ssh/id_test"
 

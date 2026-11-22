@@ -2777,6 +2777,9 @@ void fyai_config_sandbox_report(struct fyai_ctx *ctx)
 
 	if (cfg->tool_child || cfg->agent_child)
 		return;
+	/* Test hook: suppress host sandbox limit warnings in screen tests. */
+	if (getenv("FYAI_TEST_NO_HOST_WARNINGS"))
+		return;
 	/* Only a run that starts sandboxed tools has anything to report: not a
 	 * completion script, a listing or a configuration command. */
 	if (!fyai_cfg_makes_requests(cfg) &&
