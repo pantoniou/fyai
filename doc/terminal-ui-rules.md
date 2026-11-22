@@ -651,6 +651,27 @@ register, focus, zoom, resize - and sizes nothing itself.
   an activity mark, or nothing. A screen too small to read is worth less than
   the one row that says whose call it is, so a collapsed tile blanks its grid
   rather than showing a corner of a screen.
+- The pane never makes the page taller than the terminal. The page first
+  gives the pane the rows that the chrome leaves (`fyai_workpane_set_room()`).
+  The tiles then take the highest level of detail that fits them all: the
+  size each asks for; else their head over `display/tile_live_rows` of live
+  output; else one line each in the Agents or the Shells panel, where only
+  the tile with the focus stays a tile. Do not squeeze each tile to fewer
+  rows to keep it in the grid: a row of output says less than a line in a
+  panel.
+- The calls that `display/tool_display: inline` draws in blocks of the
+  transcript follow the same levels. `ui_live_level()` keeps a record of
+  each running block and sizes it to the rows the chrome of the last frame
+  leaves the transcript: its whole output, else its head over
+  `display/tile_live_rows`, else the block leaves the transcript and takes a
+  line in the panel. A block that ends is presented whole.
+- A tile that leaves the grid overflows. Its panel line is its state mark,
+  the first line of the title of its head
+  (`fyai_workpane_tile_set_summary()`, called by `fyai_chrome_update()`),
+  and the last line of its program (`last_line` of its tile operations), cut
+  to one row. The panels stand after todo and fleet, take at most a quarter
+  of the page, and count the lines they leave out. The cap counts only the
+  tiles that the user hid.
 - `display/focus_bg` is the ground of what holds the keys - the prompt, a
   picker and a focused tile - and the one place focus is said. `theme`, the
   default, is the focus wash of the palette theme: the `pane.focus` role of

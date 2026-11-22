@@ -2079,6 +2079,13 @@ session, which keeps the transcript in the scrollback of the terminal, run:
 fyai config set display/screen inline
 ```
 
+When several sub-agents and shells run at once, in the work pane or in the transcript, each one keeps its
+head and `display/tile_live_rows` (default 5) rows of live output. When they
+cannot all have that, they leave their place and show one line each in the
+Agents and Shells panels above the prompt: the state, the title and the last
+line of output. The tile that has the focus stays a tile. When the work
+ends, the panels go.
+
 For an Ember fullscreen page with the theme background, run:
 
 ```sh
