@@ -1,0 +1,58 @@
+{
+  "steps": [
+    {
+      "match": {
+        "http": "POST",
+        "path": "/v1/chat/completions",
+        "body_contains": "Say done"
+      },
+      "response": {
+        "id": "c-Say-do",
+        "object": "chat.completion",
+        "model": "mock-model",
+        "choices": [
+          {
+            "index": 0,
+            "finish_reason": "stop",
+            "message": {
+              "role": "assistant",
+              "content": "All done."
+            }
+          }
+        ],
+        "usage": {
+          "prompt_tokens": 10,
+          "completion_tokens": 4,
+          "total_tokens": 14
+        }
+      }
+    },
+    {
+      "match": {
+        "http": "POST",
+        "path": "/v1/chat/completions",
+        "body_contains": "Fix the build"
+      },
+      "response": {
+        "id": "c-Fix-th",
+        "object": "chat.completion",
+        "model": "mock-model",
+        "choices": [
+          {
+            "index": 0,
+            "finish_reason": "stop",
+            "message": {
+              "role": "assistant",
+              "content": "Build fixed."
+            }
+          }
+        ],
+        "usage": {
+          "prompt_tokens": 10,
+          "completion_tokens": 4,
+          "total_tokens": 14
+        }
+      }
+    }
+  ]
+}
