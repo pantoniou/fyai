@@ -216,6 +216,12 @@ int fyai_output_reasoning_append(struct fyai_ctx *ctx, const char *text)
 	return 0;
 }
 
+bool fyai_output_reasoning_open(const struct fyai_ctx *ctx)
+{
+	return ctx && ctx->out->display_output &&
+	       ctx->out->display_output->reasoning;
+}
+
 int fyai_output_reasoning_finish(struct fyai_ctx *ctx)
 {
 	struct fyai_display_output *output;

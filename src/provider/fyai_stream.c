@@ -481,11 +481,23 @@ int fyai_stream_tool_slot(struct fyai_stream_parse *p, size_t index)
 int fyai_stream_content(struct fyai_stream_parse *p, const char *text)
 {
 	struct stream_response *stream = parse_stream(p);
+	struct fyai_ctx *ctx = stream_response_ctx(stream);
+	bool blank;
 
-	stream_finish_reasoning(stream);
+	/*
+	 * Some models send blank content between the chunks of their
+	 * reasoning. The answer keeps it, but it does not end the reasoning:
+	 * a reasoning section that opened again would stand apart from the
+	 * first, with a row without its gutter between them.
+	 */
+	blank = !text[strspn(text, " \t\r\n")];
 	p->content_chunks = fy_append(p->gb, p->content_chunks, text);
 	if (fy_is_invalid(p->content_chunks))
 		return -1;
+	if (blank && (stream->printed_reasoning ||
+		      fyai_output_reasoning_open(ctx)))
+		return 0;
+	stream_finish_reasoning(stream);
 	stream_write_content(stream, text);
 	return 0;
 }
