@@ -32,6 +32,7 @@ struct fyai_fleet_watcher {
 	char *name;			/* PROJECT:BRANCH */
 	const char *state;		/* the last state that the server said */
 	char *last;			/* the first line of the last answer, or NULL */
+	char *title;			/* the description of the branch, or NULL */
 	bool ended;			/* free it outside its frame */
 };
 
@@ -61,6 +62,8 @@ static void fleet_watch_panel(struct fyai_ctx *ctx)
 	rows = fy_seq_empty;
 	for (w = ctx->fleet->watchers; w; w = w->next) {
 		row = fy_mapping(gb, "name", w->name, "state", w->state);
+		if (w->title)
+			row = fy_assoc(gb, row, "title", fy_value(gb, w->title));
 		if (w->last)
 			row = fy_assoc(gb, row, "last", fy_value(gb, w->last));
 		rows = fy_append(gb, rows, row);
@@ -100,9 +103,9 @@ static const char *fleet_panel_mark(const char *state, int phase)
 char *fyai_fleet_panel_source(fy_generic rows, int phase, bool *blinks)
 {
 	struct fyai_buf out = { 0 };
-	const char *name, *last, *state;
-	fy_generic row, gn, gl, gs;
-	char *esc_name, *esc_last;
+	const char *name, *last, *state, *title;
+	fy_generic row, gn, gl, gs, gt;
+	char *esc_name, *esc_last, *esc_title;
 	int rc = 0;
 
 	if (blinks)
@@ -118,21 +121,29 @@ char *fyai_fleet_panel_source(fy_generic rows, int phase, bool *blinks)
 		name = fy_castp(&gn, "");
 		gl = fy_get(row, "last", fy_invalid);
 		last = fy_castp(&gl, "");
+		gt = fy_get(row, "title", fy_invalid);
+		title = fy_castp(&gt, "");
 		esc_name = markdown_ui_escape(name);
 		esc_last = *last ? markdown_ui_escape(last) : NULL;
-		if (!esc_name || (*last && !esc_last))
+		esc_title = *title ? markdown_ui_escape(title) : NULL;
+		if (!esc_name || (*last && !esc_last) || (*title && !esc_title))
 			rc = -1;
 		if (!rc)
 			rc = fyai_buf_append(&out, out.data ? "\n- " : "- ") ||
 			     fyai_buf_append(&out, fleet_panel_mark(state, phase)) ||
 			     fyai_buf_append(&out, " ") ||
-			     fyai_buf_append(&out, esc_name) ||
+			     (esc_title ? fyai_buf_append(&out, esc_title) ||
+					  fyai_buf_append(&out, " (") ||
+					  fyai_buf_append(&out, esc_name) ||
+					  fyai_buf_append(&out, ")") :
+					  fyai_buf_append(&out, esc_name)) ||
 			     fyai_buf_append(&out, " \u00b7 ") ||
 			     fyai_buf_append(&out, state) ||
 			     (esc_last && (fyai_buf_append(&out, " \u2014 ") ||
 					   fyai_buf_append(&out, esc_last)));
 		free(esc_name);
 		free(esc_last);
+		free(esc_title);
 		if (rc)
 			break;
 	}
@@ -141,6 +152,39 @@ char *fyai_fleet_panel_source(fy_generic rows, int phase, bool *blinks)
 		return NULL;
 	}
 	return out.data;
+}
+
+static void fleet_watch_trace_failure(struct fyai_ctx *ctx, const char *name);
+
+/*
+ * Refresh branch titles for watched members via fyai_fleet_rows_list().
+ * Titles are written asynchronously after a turn, so this is re-queried on
+ * each turn completion. Errors are traced and existing titles are retained.
+ */
+static void fleet_watch_titles(struct fyai_ctx *ctx)
+{
+	struct fy_generic_builder *gb = fyai_ctx_transient_gb(ctx);
+	struct fyai_fleet_watcher *w;
+	fy_generic rows, row, title;
+	const char *name;
+
+	if (!gb || fyai_fleet_rows_list(ctx, gb, &rows)) {
+		fleet_watch_trace_failure(ctx, "the titles");
+		return;
+	}
+	fy_foreach(row, rows) {
+		title = fy_get(row, "title", fy_invalid);
+		if (!fy_is_string(title))
+			continue;
+		name = fy_sprintfa("%s:%s", fy_get(row, "project", "."),
+				   fy_get(row, "branch", ""));
+		for (w = ctx->fleet->watchers; w; w = w->next) {
+			if (w->ended || strcmp(w->name, name))
+				continue;
+			free(w->title);
+			w->title = strdup(fy_castp(&title, ""));
+		}
+	}
 }
 
 /* Handle a session_state frame and inject a model event when actionable. */
@@ -160,8 +204,10 @@ static void fleet_watch_frame(struct jsonrpc_conn *conn, fy_generic frame,
 	w->state = fy_equal(state, "running") ? "running" :
 		   fy_equal(state, "waiting") ? "waiting" :
 		   fy_equal(state, "ended") ? "ended" : "idle";
-	if (fy_is_string(last))
+	if (fy_is_string(last)) {
 		fleet_watch_last(w, fy_castp(&last, ""));
+		fleet_watch_titles(ctx);
+	}
 	fleet_watch_panel(ctx);
 	/* Suppress idle transitions without a reply payload. */
 	if (fy_equal(state, "idle") && fy_is_string(last))
@@ -193,6 +239,7 @@ static void fleet_watch_closed(void *data)
 static void fleet_watcher_free(struct fyai_fleet_watcher *w)
 {
 	free(w->last);
+	free(w->title);
 	jsonrpc_conn_destroy(w->conn);
 	if (w->in >= 0)
 		close(w->in);
@@ -248,6 +295,7 @@ int fyai_fleet_watch_add(struct fyai_ctx *ctx, const char *name)
 	w->next = fw->watchers;
 	fw->watchers = w;
 	w = NULL;
+	fleet_watch_titles(ctx);
 	fleet_watch_panel(ctx);
 	/* Emit waiting event immediately if already blocked on input. */
 	if (!strcmp(state, "waiting") &&
