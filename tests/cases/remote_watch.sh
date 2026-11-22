@@ -1,8 +1,8 @@
 #!/bin/bash
 # SPDX-License-Identifier: MIT
-# A client that watches a session sees what the client that drives it sees, as
-# it happens and from the start, and sends the session nothing: the server
-# refuses a request of a watcher that changes the session.
+# Verify watcher clients receive initial snapshot and live updates, cannot
+# send mutating control requests, and have typed input forwarded as watcher
+# messages.
 set -eu
 . "$(dirname "$0")/../remote-harness.sh"
 
@@ -98,8 +98,8 @@ try:
     assert seen == ['begin', 'end'], seen
     s.close()
 
-    # The full-screen watcher: it opens on the conversation so far, follows the
-    # next turn of the driver, and its typed line goes nowhere.
+    # Full-screen watcher opens on the existing conversation, follows the
+    # driver's next turn, and forwards typed input as a watcher message.
     script = cwd + '/watch.yaml'
     open(script, 'w').write('''rows: 30
 cols: 100
@@ -126,6 +126,6 @@ finally:
     driver.communicate(timeout=10)
 PY
 remote_test_stop
-mock_stop 2
-assert_no_request 'any("typed by the watcher" in str(m.get("content", "")) for m in r["body"]["messages"])'
+mock_stop 3
+assert_request 2 'any("[message '"'"'a watcher'"'"']\ntyped by the watcher" in str(m.get("content", "")) for m in r["body"]["messages"])'
 pass
