@@ -4495,6 +4495,9 @@ static void sdk_register(struct sdk_server *srv)
 
 	if (!srv->remote_worker || srv->at_server)
 		return;
+	/* Skip registration when branch_on_conflict=fork: branch may change. */
+	if (!strcmp(ctx->cfg->branch_on_conflict, "fork"))
+		return;
 	rc = fyai_remote_register(ctx, fyai_ctx_branch(ctx), srv->busy, &fd, &image);
 	if (!rc) {
 		conn = sdk_server_conn(srv, fd, image, sdk_reg_closed, &in, &out);

@@ -200,6 +200,14 @@ void fyai_tools_keys_to_prompt(struct fyai_ctx *ctx);
 int fyai_tools_bang(struct fyai_ctx *ctx, const char *command, int rows,
 		    int cols);
 /*
+ * Start a nested fyai @command in a work-pane tile like fyai_tools_bang(),
+ * but unconfined so the client can reach the server socket blocked by the
+ * shell sandbox. Preserves only this session's API key env var and displays
+ * @title instead of the command line.
+ */
+int fyai_tools_split(struct fyai_ctx *ctx, const char *command,
+		     const char *title);
+/*
  * The size that the tile of a bang of @command gets now, in *@rowsp and
  * *@colsp, or 0 when the display has no layout: the client of a remote
  * session starts the program of the worker at that size, as a local tile

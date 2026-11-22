@@ -6558,14 +6558,16 @@ terminal process (`FYAI_NO_SPLIT`) cannot do this.
 
 go into a session of the fleet
 
-**Usage:** `/jump NAME`
+**Usage:** `/jump [--split] NAME`
 
 Go into the session NAME of the fleet (PROJECT:BRANCH, BRANCH of this
 project, or PROJECT alone, which takes its `main` session, else its
 first) and control it in this terminal; `/root` comes back. This
 session goes to a server as `/background` leaves it, and goes on there.
 A session that no process runs starts; one that another client drives
-is watched. `fleet list` names the sessions.
+is watched. `fleet list` names the sessions. With `--split` this
+session stays, and the client of NAME is a tile of the work pane beside
+it (see `/split`).
 
 
 ### Arguments
@@ -6573,6 +6575,34 @@ is watched. `fleet list` names the sessions.
 | Argument | Description |
 | --- | --- |
 | `NAME` | the session, as PROJECT:BRANCH, BRANCH or PROJECT |
+
+### Options
+
+| Option | Description |
+| --- | --- |
+| `--split` | open the session in a tile and keep this one |
+| `-h`, `--help` | show this help |
+
+## /split
+
+open a second session of this branch in a tile
+
+**Usage:** `/split [NAME]`
+
+Open a session of its own in a tile of the work pane, on the branch of
+this session. Both sessions are whole and take every command. The branch
+stays one while only one of them commits. The one that commits second
+moves to a new `session/` branch that starts where it started, as
+`/btw` does at once. With NAME (PROJECT:BRANCH, BRANCH of this project,
+or PROJECT alone) the tile watches that session of the fleet, as
+`/jump --split` does; that needs a session that runs at a worker.
+
+
+### Arguments
+
+| Argument | Description |
+| --- | --- |
+| `NAME` | the session to show, as PROJECT:BRANCH, BRANCH or PROJECT |
 
 ### Options
 

@@ -681,6 +681,14 @@ static void markdown_probe_reverse(struct fyai_cfg *cfg, int index,
  * of the other variant is left alone: a dark ramp over a light ground would
  * lift its text past white.
  */
+/* Return FYAI_TERMINAL_VARIANT ("dark" or "light") from parent PTY, or NULL. */
+static const char *markdown_emulated_variant(void)
+{
+	const char *v = getenv("FYAI_TERMINAL_VARIANT");
+
+	return v && (!strcmp(v, "dark") || !strcmp(v, "light")) ? v : NULL;
+}
+
 const struct fypal_term *fyai_terminal_probe(struct fyai_cfg *cfg)
 {
 	struct fypal_probe *probe;
@@ -691,8 +699,9 @@ const struct fypal_term *fyai_terminal_probe(struct fyai_cfg *cfg)
 		return &cfg->terminal;
 	cfg->terminal_probed = true;
 	memset(&cfg->terminal, 0, sizeof(cfg->terminal));
-	/* A sub-agent draws on a terminal that the parent emulates. */
-	if (cfg->agent_pty)
+	/* Skip OSC probing inside parent-emulated PTYs (sub-agents and /split
+	 * tiles, which inherit the theme variant via FYAI_TERMINAL_VARIANT). */
+	if (cfg->agent_pty || markdown_emulated_variant())
 		return &cfg->terminal;
 	/*
 	 * Ask the terminal that this run draws on and reads from. A process can
@@ -871,6 +880,8 @@ static void markdown_load_style(struct fyai_cfg *cfg, const char *auto_variant)
 				  cfg->theme_variant : "dark";
 		else if (!markdown_color_enabled(cfg->color))
 			variant = "dark";
+		else if (markdown_emulated_variant())
+			variant = markdown_emulated_variant();
 		else {
 			/* The measured background wins over stale environment hints.
 			 * The probe runs once for the lifetime of the session. */

@@ -280,7 +280,7 @@ void fyai_print_tool_view(struct fyai_ctx *ctx, const char *title,
 
 char *fyai_format_shell_label(fy_generic args)
 {
-	fy_generic desc, name;
+	fy_generic desc, name, title;
 	const char *description, *session;
 	char *label;
 
@@ -288,6 +288,13 @@ char *fyai_format_shell_label(fy_generic args)
 	name = fy_get(args, "name");
 	description = fy_castp(&desc, "");
 	session = fy_castp(&name, "");
+	/* Use explicit title instead of shell label for nested fyai. */
+	title = fy_get(args, "_fyai_title");
+	if (fy_is_string(title)) {
+		if (asprintf(&label, "**%s**\n", fy_castp(&title, "")) < 0)
+			return NULL;
+		return label;
+	}
 	if (*session) {
 		if (asprintf(&label, "**shell** [%s]%s%s\n", session,
 			     *description ? " " : "", description) < 0)

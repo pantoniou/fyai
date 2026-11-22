@@ -113,6 +113,7 @@ struct fyai_remote_ui {
 	struct fy_generic_builder *held_gb;
 	fy_generic held;
 	bool opened;			/* the display is open */
+	bool terms_seen;		/* initial terminal list received */
 	size_t syncs;			/* the syncs in flight */
 	bool idle_held;			/* keep UI busy until turns arrive */
 	struct remote_ui_command *commands;	/*
@@ -653,8 +654,12 @@ static int remote_ui_terms(struct fyai_remote_ui *view, fy_generic root)
 	fy_generic items = fy_get(root, "items", fy_seq_empty), item, term;
 	const char *name, *title;
 	size_t i;
-	bool found;
+	bool found, first;
 
+	/* Skip user-shell tiles already exited before this client attached. */
+	first = !view->terms_seen && fy_len(items);
+	if (fy_len(items))
+		view->terms_seen = true;
 	tp = &view->terms;
 	while ((t = *tp)) {
 		found = false;
@@ -703,6 +708,16 @@ static int remote_ui_terms(struct fyai_remote_ui *view, fy_generic root)
 			remote_ui_term_free(ctx, t);
 			t = NULL;
 		}
+		if (!t && first && fy_get(item, "exited", false) &&
+		    !strcmp(fy_get(item, "kind", ""), "user-shell"))
+			continue;
+		/*
+		 * User-shell tiles are local to the driving client; watchers
+		 * omit them (e.g., `/split` runs a watcher inside one).
+		 */
+		if (!t && view->watch && !strcmp(fy_get(item, "kind", ""),
+						 "user-shell"))
+			continue;
 		/* The tiles of agents open in the order they started: the
 		 * worker lists the newest first, and an older agent that has
 		 * no terminal yet comes first. */
@@ -1777,6 +1792,14 @@ int fyai_remote_ui_step(struct fyai_remote_ui *view)
 		if (line[0] == '/' && fyai_cmd_session_ends(line + 1)) {
 			free(line);
 			return 1;
+		}
+		/* Reject `/root` locally if not entered via `/jump`. */
+		if (!strcmp(line, "/root") &&
+		    fy_str_empty(getenv(FYAI_FLEET_RETURN_ENV))) {
+			(void)fyai_report(ctx, "root: no /jump reached this "
+					  "session; it stays as it is\n");
+			free(line);
+			continue;
 		}
 		/* "//" sends a line that starts with a slash. */
 		if (!strncmp(line, "//", 2)) {

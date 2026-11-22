@@ -13,11 +13,14 @@
 #include "config.h"
 #endif
 
+#include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
+#include "fyai_buf.h"
 #include "fyai_fleet_ops.h"
+#include "fyai_config.h"
 #include "fyai_fleet_watch.h"
 #include "fyai_pending.h"
 #include "fyai_remote.h"
@@ -332,15 +335,79 @@ int fyai_cmd_session_adopt(struct fyai_cmd_call *call, fy_generic *result)
 }
 
 /*
- * Go into a session of the fleet (doc/fyai-fleet-sdd.md, section 11): this
- * session goes to a server as /background leaves it, and the client of this
- * terminal joins NAME, with the way back to this session for `/root`.
+ * Launch fyai with @args in a work-pane split tile titled @title. Runs
+ * unsandboxed because the shell sandbox blocks access to the server socket.
+ * Propagates the current terminal theme variant via FYAI_TERMINAL_VARIANT.
+ */
+static int fleet_tile(struct fyai_cmd_call *call, const char *cmd,
+		      const char *args, const char *title)
+{
+	struct fyai_ctx *ctx = fyai_cmd_call_ctx(call);
+	struct fyai_buf line = { 0 };
+	char exe[PATH_MAX];
+	ssize_t n;
+	int rc = -1;
+
+	n = fyai_host_executable(exe, sizeof(exe) - 1);
+	fyai_error_check(ctx, n > 0, out,
+			 "%s: cannot find the program of fyai", cmd);
+	exe[n] = '\0';
+	/* Pass theme variant so the nested client skips terminal probing. */
+	rc = fyai_buf_append(&line, ctx->cfg->theme_variant &&
+			     !strcmp(ctx->cfg->theme_variant, "light") ?
+			     "FYAI_TERMINAL_VARIANT=light " :
+			     "FYAI_TERMINAL_VARIANT=dark ") ||
+	     fyai_shell_quote(&line, exe) ||
+	     fyai_buf_append(&line, " ") || fyai_buf_append(&line, args);
+	fyai_error_check(ctx, !rc, out, "%s: cannot make the command", cmd);
+	rc = fyai_tools_split(ctx, line.data, title);
+	fyai_error_check(ctx, !rc, out, "%s: the tile could not start", cmd);
+out:
+	free(line.data);
+	return rc ? -1 : 0;
+}
+
+/* Open a work-pane split tile running `fleet attach` for session @name. */
+static int fleet_tile_attach(struct fyai_cmd_call *call, const char *cmd,
+			     const char *name, fy_generic *result)
+{
+	struct fyai_ctx *ctx = fyai_cmd_call_ctx(call);
+	struct fyai_buf args = { 0 };
+	const char *full;
+	int rc = -1;
+
+	/* Split-worker mode is required so a server exists to attach to. */
+	fyai_error_check(ctx, ctx->turn->background, out,
+			 "%s: this session does not run at a worker; a session "
+			 "on a terminal does", cmd);
+	full = fyai_fleet_jump_name(ctx, call->gb, name);
+	if (!full)
+		return -1;
+	rc = fyai_buf_append(&args, "fleet attach ") ||
+	     fyai_shell_quote(&args, full);
+	fyai_error_check(ctx, !rc, out, "%s: cannot make the command", cmd);
+	rc = fleet_tile(call, cmd, args.data,
+			fy_sprintfa("split %s", full));
+	if (!rc)
+		*result = fy_mapping(call->gb, "name", full);
+out:
+	free(args.data);
+	return rc ? -1 : 0;
+}
+
+/*
+ * Jump to a fleet session (doc/fyai-fleet-sdd.md, section 11). Backgrounds
+ * this session on its server and attaches the terminal to the target with a
+ * return target for `/root`. With `split`, attaches in a work-pane tile.
  */
 int fyai_cmd_fleet_jump(struct fyai_cmd_call *call, fy_generic *result)
 {
 	struct fyai_ctx *ctx = fyai_cmd_call_ctx(call);
 	const char *name, *self;
 
+	if (fyai_cmd_arg_bool(call, "split"))
+		return fleet_tile_attach(call, "jump",
+					 fyai_cmd_arg_str(call, "name"), result);
 	name = fyai_fleet_jump_name(ctx, call->gb,
 				    fyai_cmd_arg_str(call, "name"));
 	self = name ? fyai_fleet_name_full(ctx, call->gb, fyai_ctx_branch(ctx)) : NULL;
@@ -355,6 +422,42 @@ int fyai_cmd_fleet_jump(struct fyai_cmd_call *call, fy_generic *result)
 	return 0;
 err:
 	return -1;
+}
+
+/*
+ * Open a split work-pane tile. With `name`, attach to that fleet session.
+ * Without `name`, launch a second full session on the current branch with
+ * `branch/on_conflict=fork` so concurrent commits automatically diverge to a
+ * forked branch.
+ */
+int fyai_cmd_tile_split(struct fyai_cmd_call *call, fy_generic *result)
+{
+	struct fyai_ctx *ctx = fyai_cmd_call_ctx(call);
+	const char *name = fyai_cmd_arg_str(call, "name");
+	struct fyai_buf args = { 0 };
+	int rc = -1;
+
+	if (name)
+		return fleet_tile_attach(call, "split", name, result);
+	fyai_error_check(ctx, !ctx->bstate->session_unstored ||
+			 strcmp(ctx->bstate->session_unstored,
+				fyai_ctx_branch(ctx)),
+			 out, "split: this session has no exchange yet, so there "
+			 "is nothing to share");
+	rc = fyai_config_session_set(ctx, "branch/on_conflict",
+				     fy_value(call->gb, "fork"));
+	if (rc)
+		return -1;
+	rc = fyai_buf_append(&args, "--set branch/on_conflict=fork -b ") ||
+	     fyai_shell_quote(&args, fyai_ctx_branch(ctx));
+	fyai_error_check(ctx, !rc, out, "split: cannot make the command");
+	rc = fleet_tile(call, "split", args.data,
+			fy_sprintfa("split %s", fyai_ctx_branch(ctx)));
+	if (!rc)
+		*result = fy_mapping(call->gb, "name", fyai_ctx_branch(ctx));
+out:
+	free(args.data);
+	return rc ? -1 : 0;
 }
 
 /* Return from a `/jump` session to the originating root session. */

@@ -99,6 +99,7 @@ void fyai_tools_work_update(struct fyai_ctx *ctx)
 					  "title", sess->title ? sess->title : "",
 					  "command", sess->command ? sess->command : "",
 					  "keep", sess->keep_tile,
+					  "close_ok", sess->close_on_ok,
 					  "pane", sess->takes_pane);
 			if (sess->exited)
 				item = fy_assoc(gb, item, "exited", true, "ok",
@@ -1049,7 +1050,7 @@ static void fyai_shell_session_display_finish(struct fyai_shell_session *sess)
 	/* A full-screen program leaves nothing to read, and a tile the user
 	 * closed is not wanted: its tile goes. */
 	if (sess->keep_tile &&
-	    (sess->close_on_exit ||
+	    (sess->close_on_exit || (sess->close_on_ok && (ok || sess->signal)) ||
 	     fyai_terminal_view_used_alt_screen(sess->view))) {
 		fyai_surface_retire_zoom(fyai_shell_session_ctx(sess), sess->surface);
 		fyai_ui_surface_close(fyai_shell_session_ctx(sess), sess->surface);
@@ -1739,11 +1740,13 @@ int fyai_tools_kill(struct fyai_ctx *ctx, const char *name,
 /*
  * Start @command as a user-owned terminal session in the work pane, named
  * @prefix-N. @what names the program in a diagnostic. *@sessp is the session
- * of the job, or NULL when the job has none.
+ * of the job, or NULL when the job has none. Non-NULL @title labels a nested
+ * fyai instance (hiding the raw command line on the tile).
  */
 static int fyai_tools_user_start(struct fyai_ctx *ctx, const char *command,
 				 const char *prefix, const char *what,
-				 fy_generic env_keep, int rows, int cols,
+				 fy_generic env_keep, const char *title,
+				 int rows, int cols,
 				 struct fyai_shell_session **sessp)
 {
 	struct fyai_tool_job *job = NULL;
@@ -1778,6 +1781,8 @@ static int fyai_tools_user_start(struct fyai_ctx *ctx, const char *command,
 			  "tty", true,
 			  "name", name,
 			  "_fyai_user_owned", true);
+	if (fy_is_valid(args) && title)
+		args = fy_assoc(gb, args, "_fyai_title", title);
 	/* A client of a remote session gives the size of the tile that shows
 	 * the program, as a local tile gives it. */
 	if (fy_is_valid(args) && rows > 0 && cols > 0)
@@ -1807,19 +1812,45 @@ err:
 	return -1;
 }
 
-int fyai_tools_bang(struct fyai_ctx *ctx, const char *command, int rows,
-		    int cols)
+static int fyai_tools_bang_start(struct fyai_ctx *ctx, const char *command,
+				 const char *prefix, const char *what,
+				 fy_generic env_keep, const char *title,
+				 int rows, int cols)
 {
 	struct fyai_shell_session *sess;
 
-	if (fyai_tools_user_start(ctx, command, "bang", "bang shell",
-				  fy_invalid, rows, cols, &sess))
+	if (fyai_tools_user_start(ctx, command, prefix, what, env_keep, title,
+				  rows, cols, &sess))
 		return -1;
 	if (sess)
 		sess->keep_tile = true;
+	/* Titled tiles host nested fyai instances; auto-close on clean exit. */
+	if (sess && title)
+		sess->close_on_ok = true;
 	if (sess && sess->surface)
 		(void)fyai_tools_focus(ctx, sess->surface);
 	return 0;
+}
+
+int fyai_tools_bang(struct fyai_ctx *ctx, const char *command, int rows,
+		    int cols)
+{
+	return fyai_tools_bang_start(ctx, command, "bang", "bang shell",
+				     fy_invalid, NULL, rows, cols);
+}
+
+int fyai_tools_split(struct fyai_ctx *ctx, const char *command,
+		     const char *title)
+{
+	struct fy_generic_builder *gb = fyai_ctx_transient_gb(ctx);
+	const char *ref = ctx->cfg->api_key_ref;
+	fy_generic keep = fy_seq_empty;
+
+	/* Unconfined: pass through only this session's API key env var. */
+	if (gb && ref && !strncmp(ref, "env:", 4) && ref[4])
+		keep = fy_sequence(gb, ref + 4);
+	return fyai_tools_bang_start(ctx, command, "split", "split",
+				     keep, title, 0, 0);
 }
 
 static void fyai_tools_probe_input(void *data, const char *name,
@@ -1959,6 +1990,7 @@ bool fyai_tools_mirror_update(struct fyai_shell_session *sess, fy_generic item)
 
 	if (!sess)
 		return false;
+	sess->close_on_ok = fy_get(item, "close_ok", false);
 	/* A command of the user is kept to read, and takes the keys, as a
 	 * typed bang takes them. */
 	if (!sess->keep_tile && fy_get(item, "keep", false)) {
@@ -2027,8 +2059,8 @@ fyai_tools_program_start(struct fyai_ctx *ctx, const char *command,
 {
 	struct fyai_shell_session *sess;
 
-	if (fyai_tools_user_start(ctx, command, prefix, what, env_keep, 0, 0,
-				  &sess))
+	if (fyai_tools_user_start(ctx, command, prefix, what, env_keep, NULL,
+				  0, 0, &sess))
 		return NULL;
 	fyai_error_check(ctx, sess, err,
 			 "the %s was given no terminal session", what);

@@ -189,6 +189,8 @@ struct fyai_shell_session {
 	bool keep_tile;
 	/* The user closed the tile: it goes when the program ends. */
 	bool close_on_exit;
+	/* Auto-close tile on clean exit or signal (nested fyai tiles). */
+	bool close_on_ok;
 	pid_t pid;			/* the program, watched for a read */
 	bool pipes;			/* it was given no terminal */
 	struct fyai_event_source *waiter;

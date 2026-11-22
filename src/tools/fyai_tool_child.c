@@ -536,7 +536,12 @@ static void fyai_tool_child_dispatch(struct fyai_ctx *ctx, struct fyai_tool_chil
 	agent_call = fy_equal(fyai_tool_call_name(ctx, tc->args), "agent");
 	if (!agent_call)
 		fyai_orphan_subreaper();
+	/*
+	 * Skip sandboxing for unconfined user programs (e.g. `/split` tiles,
+	 * editors) so child restrictions are not inherited by them.
+	 */
 	unconfined = !fy_equal(fyai_tool_call_name(ctx, tc->args), "agent") &&
+		     !fyai_tool_unconfined(fyai_tool_call_args(ctx, tc->args)) &&
 		     fyai_tool_apply_sandbox(ctx);
 	/* A joined scope forked the program: it is the parent that counts. */
 	if (!agent_call)
