@@ -392,7 +392,7 @@ an existing object only after checking its expected size and digest. Publication
 of the arena reference follows complete capture; a failed capture can leave
 unreachable objects for GC.
 
-New views default to `view/durability: lazy`. `view create` and `view update`
+New views default to `view/durability: durable`. `view create` and `view update`
 accept `--durability lazy|durable`; update inherits the existing view policy.
 Lazy capture omits backing-file and directory synchronization. Atomic naming
 prevents live readers from observing a partially written object, but does not

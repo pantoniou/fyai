@@ -1667,7 +1667,7 @@ The parent reviews and applies the results with the `project_view` tool. You can
 
 ### Diffs of tool calls and `/undo`
 
-A model changes files with shell commands as often as with the edit tools, and a command can change anything. `view/tool_diff` (default off) records the state of the project before a turn and after each group of tool calls that can change files. It shows the difference as a diff under the calls.
+A model changes files with shell commands as often as with the edit tools, and a command can change anything. `view/tool_diff` (default on) records the state of the project before a turn and after each group of tool calls that can change files. It shows the difference as a diff under the calls.
 
 - A patch then names its files and leaves the change to that diff, so the change shows once.
 - The diff is stored with the exchange, so history shows it again.
@@ -1678,7 +1678,7 @@ A model changes files with shell commands as often as with the edit tools, and a
 
 ### Project state in the reflog
 
-With `view/track_project`, each reflog entry that moves a head also records the state of the project files. A state that did not change is shared with the entry before it. A reference then names files and conversation, and rewinding a branch rewinds both.
+With `view/track_project` (default on), each reflog entry that moves a head also records the state of the project files. A state that did not change is shared with the entry before it. A reference then names files and conversation, and rewinding a branch rewinds both. Each turn then scans the project before it starts, after each group of calls that can change files, and when it is recorded: on a tree of 2,500 files a scan takes about 0.2 s. An arena made before these defaults keeps the values it stored; set them with `fyai config set view/track_project=true` and `fyai config set view/tool_diff=true`.
 
 ```sh
 fyai view diff HEAD~2              # what the files did over the last exchange
