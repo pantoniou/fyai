@@ -193,6 +193,7 @@ int fyai_cmd_fleet_read(struct fyai_cmd_call *call, fy_generic *result);
 int fyai_cmd_session_send(struct fyai_cmd_call *call, fy_generic *result);
 int fyai_cmd_session_halt(struct fyai_cmd_call *call, fy_generic *result);
 int fyai_cmd_session_answer(struct fyai_cmd_call *call, fy_generic *result);
+int fyai_cmd_session_adopt(struct fyai_cmd_call *call, fy_generic *result);
 int fyai_cmd_fleet_scan(struct fyai_cmd_call *call, fy_generic *result);
 int fyai_cmd_continue(struct fyai_cmd_call *call, fy_generic *result);
 int fyai_cmd_background(struct fyai_cmd_call *call, fy_generic *result);

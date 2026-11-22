@@ -2697,9 +2697,36 @@ static const char *sdk_supervise_message(struct sdk_server *srv, fy_generic req)
 	if (fyai_event_injectf(sdk_server_ctx(srv)->waitq, "[message '%s']\n%s",
 			       fy_str_empty(from) ? "supervisor" : from, text))
 		return "cannot queue the message";
-	/* A wait of the model sees the message at once. */
 	fyai_waiters_kick(sdk_server_ctx(srv));
 	return NULL;
+}
+
+/*
+ * Record fleet lineage {parent, task} on adoption by a root session
+ * (doc/fyai-fleet-sdd.md, section 9). Defers persistence to the next publish
+ * while busy or unstored; publishes immediately when idle.
+ */
+static const char *sdk_supervise_lineage(struct sdk_server *srv, fy_generic req)
+{
+	struct fyai_ctx *ctx = sdk_server_ctx(srv);
+	const char *parent = fy_get(req, "parent", "");
+	long long task = fy_get(req, "task", 0LL);
+	fy_generic lineage;
+	char *cwd;
+
+	if (fy_str_empty(parent) || task <= 0)
+		return "the lineage needs a parent and a task";
+	cwd = getcwd(NULL, 0);
+	lineage = cwd ? fyai_fleet_lineage(ctx->arena->gb, cwd, parent, task) :
+			fy_invalid;
+	free(cwd);
+	if (fy_is_invalid(lineage))
+		return "cannot make the lineage";
+	ctx->bstate->fleet = lineage;
+	if (srv->busy || ctx->bstate->session_unstored)
+		return NULL;
+	fyai_branch_op_set(ctx, FYAI_BRANCH_OP_CONFIG, NULL);
+	return fyai_publish_state(ctx) ? "cannot store the lineage" : NULL;
 }
 
 /*
@@ -2970,6 +2997,10 @@ static void sdk_control(struct sdk_server *srv, fy_generic frame)
 	}
 	if (!strcmp(subtype, "fyai_message")) {
 		sdk_respond(srv, id, fy_invalid, sdk_supervise_message(srv, req));
+		return;
+	}
+	if (!strcmp(subtype, "fyai_fleet_lineage")) {
+		sdk_respond(srv, id, fy_invalid, sdk_supervise_lineage(srv, req));
 		return;
 	}
 	if (!strcmp(subtype, "fyai_supervise_answer")) {

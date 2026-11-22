@@ -568,7 +568,8 @@ properties:
         default: 8
         description: >-
           The most members that a root session supervises at one time; a
-          start above it is refused until one ends. 0 sets no limit.
+          start above it waits as a queued task and starts when a member
+          ends. 0 sets no limit.
   title:
     x-fyai-model: read
     type: object

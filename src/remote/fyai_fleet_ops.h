@@ -48,8 +48,31 @@ int fyai_fleet_rows_read(struct fyai_ctx *ctx, struct fy_generic_builder *gb,
 /* Default fleet/max_live cap on concurrent members per root session. */
 #define FYAI_FLEET_MAX_LIVE	8
 
-/* 0 when this root session may start one more member, else -1 with the cause. */
-int fyai_fleet_room(struct fyai_ctx *ctx);
+/*
+ * Adopt a user-started live session @name (PROJECT:BRANCH or local BRANCH)
+ * into this root session: assign lineage, record a task with @text (published
+ * immediately if @publish, else staged), and start supervision. Sets *@idp if
+ * non-NULL. Returns 0, or -1 if not a root, not live, or at fleet/max_live.
+ */
+int fyai_fleet_adopt(struct fyai_ctx *ctx, struct fy_generic_builder *gb,
+		     const char *name, const char *text, bool publish,
+		     long long *idp);
+
+/* True if this root session is below fleet/max_live. */
+bool fyai_fleet_has_room(struct fyai_ctx *ctx);
+
+/*
+ * Dispatch queued tasks oldest-first while under fleet/max_live. Started
+ * members are supervised and reported via `[session 'NAME' started: ...]`;
+ * unstartable tasks are marked dropped. Task updates are staged for the next
+ * publish. Returns the count started.
+ */
+int fyai_fleet_dequeue(struct fyai_ctx *ctx);
+/*
+ * Start the member for task @id with record @task under this root. Persists
+ * the task record before launch so a root crash does not lose tracking.
+ */
+int fyai_fleet_task_dispatch(struct fyai_ctx *ctx, fy_generic id, fy_generic task);
 
 /*
  * Start a session in @project (relative to fleet root) on @branch (default:

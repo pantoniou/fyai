@@ -4121,6 +4121,37 @@ commands:
               x-fyai-positional: 1
               x-fyai-rest: true
               x-fyai-meta: ANSWER
+      - command: adopt
+        title: make a live session a member of this root session
+        description: |
+          Make the live session NAME (PROJECT:BRANCH, or BRANCH of this project)
+          that a person started a member of this root session: it gets this
+          session as its parent, and this session keeps a task for it with TEXT
+          and hears of it as of any member. NAME must run at a server. Only a
+          root session adopts, and not above `fleet/max_live` members.
+        surfaces: [session]
+        handler: session_adopt
+        while_busy: run
+        render:
+          message: "adopted {name} as task {task}"
+        arguments:
+          type: object
+          required: [name]
+          additionalProperties: false
+          properties:
+            name:
+              type: string
+              minLength: 1
+              description: the live session, as PROJECT:BRANCH or BRANCH
+              x-fyai-positional: 0
+              x-fyai-meta: NAME
+              x-fyai-complete: fleet-session
+            text:
+              type: string
+              description: what the session does, for the task
+              x-fyai-positional: 1
+              x-fyai-rest: true
+              x-fyai-meta: TEXT
       - command: new
         surfaces: [session]
         title: start a new session with an empty conversation
@@ -4494,7 +4525,7 @@ commands:
         description: |
           List the tasks that the sessions of the root keep: the id, the root
           session that keeps it, the session that runs it (PROJECT:BRANCH), its
-          state (`open`, `done` or `dropped`) and its text. A root session makes
+          state (`open`, `queued`, `done` or `dropped`) and its text. A root session makes
           a task when it starts a session with `fleet start`.
         surfaces: [cli, session]
         handler: fleet_tasks

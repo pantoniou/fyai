@@ -328,15 +328,13 @@ static void fleet_watch_trace_failure(struct fyai_ctx *ctx, const char *name)
 	free(why);
 }
 
-void fyai_fleet_watch_restore(struct fyai_ctx *ctx)
+/* Reattach to live members and restart missing/lost members for open tasks. */
+static void fleet_watch_restore_open(struct fyai_ctx *ctx)
 {
 	struct fy_generic_builder *gb;
 	fy_generic tasks, rows, row, key, task, state;
 	const char *name;
 
-	if (ctx->fleet->restored || !fyai_fleet_is_root(ctx))
-		return;
-	ctx->fleet->restored = true;
 	tasks = fyai_fleet_tasks_open(ctx);
 	if (fy_empty(tasks))
 		return;
@@ -346,7 +344,6 @@ void fyai_fleet_watch_restore(struct fyai_ctx *ctx)
 		return;
 	}
 	fy_foreach_key_value(key, task, tasks) {
-		(void)key;
 		name = fy_gb_intern_string(gb, fy_sprintfa("%s:%s",
 			fy_get(task, "project", "."), fy_get(task, "branch", "")));
 		state = fy_invalid;
@@ -354,6 +351,19 @@ void fyai_fleet_watch_restore(struct fyai_ctx *ctx)
 			if (!strcmp(fy_sprintfa("%s:%s", fy_get(row, "project", "."),
 						fy_get(row, "branch", "")), name))
 				state = fy_get(row, "state", fy_invalid);
+		/*
+		 * Tasks are persisted before launch; dispatch any task whose
+		 * root died before starting the member.
+		 */
+		if (fy_is_invalid(state)) {
+			if (fyai_fleet_task_dispatch(ctx, key, task)) {
+				fleet_watch_trace_failure(ctx, name);
+				continue;
+			}
+			(void)fyai_event_injectf(ctx->waitq, "[session '%s' started: "
+				"the root was lost before its task started it]", name);
+			state = fy_string("running");
+		}
 		/* Revive members whose worker died with work in flight. */
 		if (fy_equal(state, "lost")) {
 			if (fyai_fleet_revive(ctx, name)) {
@@ -369,6 +379,16 @@ void fyai_fleet_watch_restore(struct fyai_ctx *ctx)
 		    fyai_fleet_watch_add(ctx, name))
 			fleet_watch_trace_failure(ctx, name);
 	}
+}
+
+void fyai_fleet_watch_restore(struct fyai_ctx *ctx)
+{
+	if (ctx->fleet->restored || !fyai_fleet_is_root(ctx))
+		return;
+	ctx->fleet->restored = true;
+	fleet_watch_restore_open(ctx);
+	/* Dispatch any queued tasks left over from a prior root process. */
+	(void)fyai_fleet_dequeue(ctx);
 }
 
 size_t fyai_fleet_watch_live(struct fyai_ctx *ctx)
@@ -448,6 +468,9 @@ void fyai_fleet_watch_reap(struct fyai_ctx *ctx)
 		fleet_watch_restart(ctx, again, restarts);
 		free(again);
 	}
+	/* Ending a member may free a slot for queued tasks. */
+	if (changed && fyai_fleet_dequeue(ctx))
+		changed = true;
 	if (changed)
 		fleet_watch_panel(ctx);
 }

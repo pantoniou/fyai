@@ -1926,6 +1926,10 @@ static void remote_supervise(struct fyai_remote_peer *peer, fy_generic id,
 	else if (!strcmp(subtype, "fyai_session_answer"))
 		order = fy_mapping(gb, "subtype", "fyai_supervise_answer",
 				   "answer", fy_get(request, "answer", ""));
+	else if (!strcmp(subtype, "fyai_session_lineage"))
+		order = fy_mapping(gb, "subtype", "fyai_fleet_lineage",
+				   "parent", fy_get(request, "parent", ""),
+				   "task", fy_get(request, "task", 0LL));
 	else
 		order = fy_mapping(gb, "subtype", "interrupt");
 	peer->role = REMOTE_PEER_WATCHER;
@@ -2083,6 +2087,7 @@ static void remote_admit_frame(struct jsonrpc_conn *conn, fy_generic frame,
 	}
 	if (!strcmp(subtype, "fyai_session_send") ||
 	    !strcmp(subtype, "fyai_session_interrupt") ||
+	    !strcmp(subtype, "fyai_session_lineage") ||
 	    !strcmp(subtype, "fyai_session_answer")) {
 		if (!remote_needs_hello(peer, id, subtype))
 			remote_supervise(peer, id, subtype, request);

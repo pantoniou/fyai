@@ -641,6 +641,67 @@ static const char *fleet_task_branch(struct fy_generic_builder *gb, const char *
 	return fy_gb_intern_string(gb, fy_sprintfa("fleet/%s", n ? slug : "task"));
 }
 
+/*
+ * Resolve canonical path of @project under @root, returning NULL if it
+ * escapes @root. Caller frees.
+ */
+static char *fleet_project_dir(const char *root, const char *project)
+{
+	size_t len = strlen(root);
+	char *dir;
+
+	dir = realpath(strcmp(project, ".") ? fy_sprintfa("%s/%s", root, project) :
+		       root, NULL);
+	if (dir && !strncmp(dir, root, len) && (!dir[len] || dir[len] == '/'))
+		return dir;
+	free(dir);
+	return NULL;
+}
+
+/*
+ * Test hook: if $FYAI_TEST_FLEET_LOSE_ROOT is set to a FIFO path, signal it
+ * and _exit(9) to simulate a root crash between task persist and member launch.
+ */
+static void fleet_test_lose_root(void)
+{
+	const char *fifo = getenv("FYAI_TEST_FLEET_LOSE_ROOT");
+	int fd;
+
+	if (!fifo || !*fifo)
+		return;
+	fd = open(fifo, O_WRONLY);
+	if (fd >= 0)
+		close(fd);
+	_exit(9);
+}
+
+int fyai_fleet_task_dispatch(struct fyai_ctx *ctx, fy_generic id, fy_generic task)
+{
+	struct fy_generic_builder *tgb = fyai_ctx_transient_gb(ctx);
+	char *cwd, *root = NULL, *dir = NULL, *home = NULL;
+	fy_generic args;
+	int rc = -1;
+
+	cwd = getcwd(NULL, 0);
+	root = cwd ? fyai_fleet_root_of(cwd) : NULL;
+	home = cwd ? fyai_fleet_project_of(cwd) : NULL;
+	dir = root ? fleet_project_dir(root, fy_get(task, "project", ".")) : NULL;
+	if (dir && home) {
+		args = fy_sequence(tgb, "--fleet-parent",
+			fy_stringf(tgb, "%s:%s", strcmp(home, root) ?
+				   home + strlen(root) + 1 : ".",
+				   fyai_ctx_branch(ctx)),
+			"--fleet-task", fy_value(tgb, fy_castp(&id, "")));
+		rc = fyai_remote_start(ctx, dir, fy_get(task, "branch", ""),
+				       fy_get(task, "text", ""), args);
+	}
+	free(dir);
+	free(home);
+	free(root);
+	free(cwd);
+	return rc;
+}
+
 int fyai_fleet_start(struct fyai_ctx *ctx, struct fy_generic_builder *gb,
 		     const char *project, const char *task, const char *branch,
 		     bool publish, fy_generic *resultp)
@@ -648,16 +709,15 @@ int fyai_fleet_start(struct fyai_ctx *ctx, struct fy_generic_builder *gb,
 	fy_generic args = fy_invalid, tasks = fy_invalid;
 	char *cwd = NULL, *root = NULL, *dir = NULL, *home = NULL;
 	long long id = 0;
+	bool queued = false;
 	int rc = -1;
 
 	cwd = getcwd(NULL, 0);
 	fyai_error_check(ctx, cwd, out, "cannot read the current directory");
 	root = fyai_fleet_root_of(cwd);
 	fyai_error_check(ctx, root, out, "fleet: no project holds '%s'", cwd);
-	dir = realpath(strcmp(project, ".") ? fy_sprintfa("%s/%s", root, project) :
-		       root, NULL);
-	fyai_error_check(ctx, dir && !strncmp(dir, root, strlen(root)) &&
-			 (!dir[strlen(root)] || dir[strlen(root)] == '/'), out,
+	dir = fleet_project_dir(root, project);
+	fyai_error_check(ctx, dir, out,
 			 "fleet: '%s' is no directory under the root '%s'", project,
 			 root);
 	if (!branch)
@@ -675,8 +735,7 @@ int fyai_fleet_start(struct fyai_ctx *ctx, struct fy_generic_builder *gb,
 			fy_stringf(gb, "%s:%s", home && strcmp(home, root) ?
 				   home + strlen(root) + 1 : ".", fyai_ctx_branch(ctx)));
 		if (home && !strcmp(home, root)) {
-			if (fyai_fleet_room(ctx))
-				goto out;
+			queued = !fyai_fleet_has_room(ctx);
 			tasks = fleet_tasks_of(ctx);
 			id = fleet_task_next(tasks);
 			args = fy_append(gb, fy_append(gb, args, fy_string("--fleet-task")),
@@ -686,16 +745,29 @@ int fyai_fleet_start(struct fyai_ctx *ctx, struct fy_generic_builder *gb,
 				fy_mapping(ctx->arena->gb, "project", project,
 					   "branch", branch, "text", task,
 					   "created", (long long)fyai_branch_timestamp(),
-					   "state", "open"));
+					   "state", queued ? "queued" : "open"));
 			fyai_error_check(ctx, fy_is_mapping(tasks), out,
 					 "fleet: cannot keep the task");
 		}
 	}
-	rc = fyai_remote_start(ctx, dir, branch, task, args);
-	if (!rc && id && fleet_tasks_publish(ctx, tasks, publish))
-		rc = -1;
+	/* Persist task before launch so root recovery dispatches it. */
+	if (id && fleet_tasks_publish(ctx, tasks, publish || ctx->cfg->durable))
+		goto out;
+	if (id && !queued)
+		fleet_test_lose_root();
+	rc = queued ? 0 : fyai_remote_start(ctx, dir, branch, task, args);
+	/* Mark the task dropped if member launch failed. */
+	if (rc && id) {
+		fy_generic key = fy_stringf(ctx->arena->gb, "%lld", id);
+
+		tasks = fy_assoc(ctx->arena->gb, tasks, key,
+				 fy_assoc(ctx->arena->gb, fy_get(tasks, key),
+					  "state", "dropped"));
+		if (fy_is_mapping(tasks))
+			(void)fleet_tasks_publish(ctx, tasks, publish || ctx->cfg->durable);
+	}
 	/* Subscribe root supervision to the newly started member. */
-	if (!rc && id && fyai_fleet_watch_add(ctx, fy_sprintfa("%s:%s", project, branch)))
+	if (!rc && id && !queued && fyai_fleet_watch_add(ctx, fy_sprintfa("%s:%s", project, branch)))
 		fyai_warning(ctx, "fleet: '%s:%s' runs, but this session does not "
 			     "hear of it", project, branch);
 	if (!rc) {
@@ -703,6 +775,8 @@ int fyai_fleet_start(struct fyai_ctx *ctx, struct fy_generic_builder *gb,
 				      "name", fy_stringf(gb, "%s:%s", project, branch));
 		if (id)
 			*resultp = fy_assoc(gb, *resultp, "task", id);
+		if (queued)
+			*resultp = fy_assoc(gb, *resultp, "queued", true);
 	}
 out:
 	free(home);
@@ -710,6 +784,125 @@ out:
 	free(root);
 	free(cwd);
 	return rc ? -1 : 0;
+}
+
+int fyai_fleet_adopt(struct fyai_ctx *ctx, struct fy_generic_builder *gb,
+		     const char *name, const char *text, bool publish,
+		     long long *idp)
+{
+	fy_generic tasks;
+	const char *full, *colon, *project, *home_name;
+	char *cwd = NULL, *root = NULL, *home = NULL;
+	long long id;
+	int rc = -1;
+
+	fyai_error_check(ctx, fyai_fleet_is_root(ctx) && fleet_arena_open(ctx) &&
+			 !ctx->cfg->transient, out,
+			 "fleet: only a root session adopts a session");
+	fyai_error_check(ctx, fyai_fleet_has_room(ctx), out,
+			 "fleet: the most members that fleet/max_live allows run; "
+			 "wait for one to end");
+	full = fyai_fleet_name_full(ctx, gb, name);
+	if (!full)
+		goto out;
+	colon = strchr(full, ':');
+	project = fy_gb_intern_string(gb, fy_sprintfa("%.*s", (int)(colon - full), full));
+	cwd = getcwd(NULL, 0);
+	root = cwd ? fyai_fleet_root_of(cwd) : NULL;
+	home = cwd ? fyai_fleet_project_of(cwd) : NULL;
+	fyai_error_check(ctx, root && home, out, "fleet: no project holds this session");
+	home_name = fy_gb_intern_string(gb, fy_sprintfa("%s:%s", strcmp(home, root) ?
+			home + strlen(root) + 1 : ".", fyai_ctx_branch(ctx)));
+	tasks = fleet_tasks_of(ctx);
+	id = fleet_task_next(tasks);
+	/* Assign lineage first so adopting a non-live session fails cleanly. */
+	if (fyai_fleet_supervise(ctx, full, "fyai_session_lineage",
+				 fy_mapping(gb, "parent", home_name, "task", id)))
+		goto out;
+	tasks = fy_assoc(ctx->arena->gb, tasks, fy_stringf(ctx->arena->gb, "%lld", id),
+		fy_mapping(ctx->arena->gb, "project", project, "branch", colon + 1,
+			   "text", text && *text ? text : "Adopted session",
+			   "created", (long long)fyai_branch_timestamp(),
+			   "state", "open"));
+	fyai_error_check(ctx, fy_is_mapping(tasks), out, "fleet: cannot keep the task");
+	rc = fleet_tasks_publish(ctx, tasks, publish);
+	if (!rc && fyai_fleet_watch_add(ctx, full))
+		fyai_warning(ctx, "fleet: '%s' is adopted, but this session does not "
+			     "hear of it", full);
+	if (!rc && idp)
+		*idp = id;
+out:
+	free(home);
+	free(root);
+	free(cwd);
+	return rc ? -1 : 0;
+}
+
+int fyai_fleet_dequeue(struct fyai_ctx *ctx)
+{
+	struct fy_generic_builder *gb = ctx->arena->gb, *tgb = fyai_ctx_transient_gb(ctx);
+	fy_generic tasks, key, task, pick = fy_invalid, mark;
+	const char *project, *branch, *name, *id = NULL;
+	char *cause;
+	long long best = 0, n;
+	int started = 0, rc;
+
+	if (!fyai_fleet_is_root(ctx) || !fleet_arena_open(ctx) || ctx->cfg->transient)
+		return 0;
+	while (fyai_fleet_has_room(ctx)) {
+		tasks = fleet_tasks_of(ctx);
+		pick = fy_invalid;
+		best = 0;
+		/* Pick oldest queued task (lowest numeric ID). */
+		fy_foreach_key_value(key, task, tasks) {
+			if (!fy_equal(fy_get(task, "state", fy_invalid), "queued"))
+				continue;
+			n = strtoll(fy_castp(&key, "0"), NULL, 10);
+			if (!best || n < best) {
+				best = n;
+				pick = task;
+				id = fy_gb_intern_string(tgb, fy_castp(&key, ""));
+			}
+		}
+		if (!best)
+			break;
+		project = fy_get(pick, "project", ".");
+		branch = fy_get(pick, "branch", "");
+		name = fy_gb_intern_string(tgb, fy_sprintfa("%s:%s", project, branch));
+		/* Mark open before launch so crash recovery dispatches it. */
+		mark = fy_assoc(gb, pick, "state", fy_value(gb, "open"));
+		tasks = fy_assoc(gb, tasks, fy_value(gb, id), mark);
+		if (!fy_is_mapping(tasks) ||
+		    fleet_tasks_publish(ctx, tasks, ctx->cfg->durable))
+			break;
+		fleet_test_lose_root();
+		rc = fyai_fleet_task_dispatch(ctx, fy_value(tgb, id), pick);
+		/* Drop unstartable task so the dequeue loop makes progress. */
+		if (rc) {
+			mark = fy_assoc(gb, pick, "state", fy_value(gb, "dropped"));
+			tasks = fy_assoc(gb, tasks, fy_value(gb, id), mark);
+			if (!fy_is_mapping(tasks) ||
+			    fleet_tasks_publish(ctx, tasks, ctx->cfg->durable))
+				break;
+		}
+		if (rc) {
+			cause = fyai_diag_string(fyai_ctx_diag(ctx));
+			fyai_diag_tracef("fleet", "'%s' did not start from the queue: %s",
+					 name, cause && *cause ? cause : "no cause");
+			free(cause);
+			fyai_diag_reset(fyai_ctx_diag(ctx));
+			(void)fyai_event_injectf(ctx->fleet->waitq, "[session '%s' dropped: "
+				"its queued task could not start]", name);
+			continue;
+		}
+		if (fyai_fleet_watch_add(ctx, name))
+			fyai_warning(ctx, "fleet: '%s' runs, but this session does not "
+				     "hear of it", name);
+		(void)fyai_event_injectf(ctx->fleet->waitq, "[session '%s' started: a "
+			"place became free for its queued task]", name);
+		started++;
+	}
+	return started;
 }
 
 int fyai_fleet_task_mark(struct fyai_ctx *ctx, const char *id, const char *state,
@@ -735,18 +928,12 @@ err:
 	return -1;
 }
 
-int fyai_fleet_room(struct fyai_ctx *ctx)
+bool fyai_fleet_has_room(struct fyai_ctx *ctx)
 {
 	long long max = fy_get(fy_get(ctx->cfg->config_doc, "fleet", fy_invalid),
 			       "max_live", (long long)FYAI_FLEET_MAX_LIVE);
 
-	fyai_error_check(ctx, max <= 0 || (long long)fyai_fleet_watch_live(ctx) < max,
-			 err, "fleet: %zu members run, the most that fleet/max_live "
-			 "allows; wait for one to end, or stop one",
-			 fyai_fleet_watch_live(ctx));
-	return 0;
-err:
-	return -1;
+	return max <= 0 || (long long)fyai_fleet_watch_live(ctx) < max;
 }
 
 /* A scan stops at the second project: the root has one below it. */
