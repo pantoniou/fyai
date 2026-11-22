@@ -62,6 +62,8 @@ struct fyai_host_backend {
 	void (*sort)(void *base, size_t count, size_t size,
 		     int (*compare)(const void *a, const void *b, void *arg), void *arg);
 	int (*openpty)(int *master, int *slave);
+	int (*dir_watch_open)(void);
+	int (*dir_watch_add)(int fd, const char *dir);
 	/* The program for opening a URL in the browser of the user. */
 	const char *open_url;
 	/* The credential isolation of the transport can run: memfd, pidfd and peer credentials. */

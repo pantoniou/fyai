@@ -920,12 +920,12 @@ static void remote_quit_send(struct remote_client *client)
 }
 
 /*
- * Say what keeps running when the client leaves: the session that went to the
- * server, and the sessions that the server of the project holds. The display
- * is closed, so the text stays on the terminal.
+ * Print a post-exit summary of backgrounded/server-held sessions (excluding
+ * this client's own exiting worker @own). Called after the TUI closes so the
+ * output remains visible on the terminal.
  */
 static void remote_kept_report(struct fyai_ctx *ctx, const char *left,
-			       bool parked)
+			       bool parked, pid_t own)
 {
 	struct fy_generic_builder *gb;
 	fy_generic sessions, session, branch, list = fy_string("");
@@ -943,8 +943,10 @@ static void remote_kept_report(struct fyai_ctx *ctx, const char *left,
 	sessions = fyai_remote_live_sessions(ctx, gb);
 	fy_foreach(session, sessions) {
 		branch = fy_get(session, "branch", fy_invalid);
+		/* Exclude our exiting worker (listed until it exits). */
 		if (!fy_is_string(branch) ||
-		    (left && fy_equal(branch, left)))
+		    (left && fy_equal(branch, left)) ||
+		    (own > 0 && fy_get(session, "pid", 0LL) == (long long)own))
 			continue;
 		if (n++ < 4)
 			list = fy_stringf(gb, "%s%s%s (%s)", fy_castp(&list, ""),
@@ -998,7 +1000,8 @@ static int remote_view_run(struct remote_client *client, bool watch)
 	fyai_remote_ui_close(client->view);
 	client->view = NULL;
 	if (rc >= 0 && !client->failed && (left || rc == 1))
-		remote_kept_report(ctx, left, parked);
+		remote_kept_report(ctx, left, parked,
+				   client->split && !client->released ? client->ssh : 0);
 	free(left);
 	if (rc < 0 || client->failed)
 		return -1;
@@ -1747,6 +1750,78 @@ out:
 	if (gb)
 		fy_generic_builder_destroy(gb);
 	return rc ? -1 : 0;
+}
+
+/* True if string sequence @list contains @word. */
+static bool remote_answer_has(fy_generic list, const char *word)
+{
+	const char *item;
+
+	fy_foreach(item, list)
+		if (item && !strcmp(item, word))
+			return true;
+	return false;
+}
+
+int fyai_remote_register(struct fyai_ctx *ctx, const char *branch, bool busy,
+			 int *fdp, bool *imagep)
+{
+	struct fy_generic_builder *gb = NULL;
+	struct remote_client client = { .ctx = ctx, .fd = -1, .ssh = -1 };
+	char *path, *cwd = NULL;
+	int rc = -1;
+
+	path = fyai_remote_socket_path(ctx, NULL, false, false);
+	if (path && !remote_server_up(path)) {
+		free(path);
+		path = remote_parent_socket();
+		if (path && !remote_server_up(path)) {
+			free(path);
+			path = NULL;
+		}
+		if (!path)
+			return 1;
+	}
+	if (!path)
+		goto out;
+	gb = fy_generic_builder_create(NULL);
+	fyai_error_check(ctx, gb, out, "cannot allocate a request builder");
+	client.gb = gb;
+	cwd = getcwd(NULL, 0);
+	fyai_error_check(ctx, cwd, out, "cannot read the current directory: %s",
+			 strerror(errno));
+	rc = remote_client_open(&client, path, -1);
+	if (!rc)
+		rc = remote_hello(&client);
+	/* Treat servers lacking the "register" feature as unavailable. */
+	if (!rc && !remote_answer_has(fy_get(client.answer, "features", fy_seq_empty),
+				      "register")) {
+		rc = 1;
+		goto out;
+	}
+	/* The directory names the project: a server above gives the connection
+	 * to the server of the project. */
+	if (!rc)
+		rc = remote_request(&client, "project", fy_mapping(gb,
+			"subtype", "fyai_project", "path", cwd));
+	if (!rc)
+		rc = remote_request(&client, "register", fy_mapping(gb,
+			"subtype", "fyai_session_adopt", "branch", branch,
+			"pid", (long long)getpid(), "busy", busy, "keep", false,
+			"driven", true));
+	fyai_error_check(ctx, !rc, out, "cannot register '%s' with the server", branch);
+	*imagep = jsonrpc_conn_image(client.peer);
+	jsonrpc_conn_destroy(client.peer);
+	client.peer = NULL;
+	*fdp = client.fd;
+	client.fd = -1;
+out:
+	remote_client_close(&client);
+	free(path);
+	free(cwd);
+	if (gb)
+		fy_generic_builder_destroy(gb);
+	return rc < 0 ? -1 : rc;
 }
 
 /*

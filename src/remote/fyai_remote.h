@@ -60,6 +60,18 @@ bool fyai_remote_session_live(struct fyai_ctx *ctx, const char *branch);
  */
 int fyai_remote_adopt(struct fyai_ctx *ctx, const char *branch, bool busy,
 		      bool keep, int *fdp, bool *imagep);
+/*
+ * Register a client-driven local worker session on @branch with the project
+ * server or nearest ancestor server (doc/fyai-fleet-sdd.md, section 6.2).
+ * Watchers attach through *@fdp; *@imagep indicates image support.
+ * Returns 0 on registration, 1 if no server is running, or -1 on error.
+ */
+int fyai_remote_register(struct fyai_ctx *ctx, const char *branch, bool busy,
+			 int *fdp, bool *imagep);
+
+/* Request ID prefix assigned by the server to watcher-originated requests. */
+#define FYAI_REMOTE_WATCH_PREFIX	"fyai-watch-"
+
 /* End the live session on @branch; *@busyp: it ran a turn. */
 int fyai_remote_session_close(struct fyai_ctx *ctx, const char *branch,
 			      bool force, bool *busyp);

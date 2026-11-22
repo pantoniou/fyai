@@ -78,6 +78,17 @@ bool fyai_host_isolation_available(void);
  */
 int fyai_host_harden(const char **step);
 
+/*
+ * Directory entry-creation/move watcher (non-blocking, O_CLOEXEC fd readable
+ * when entries are created or moved into watched dirs).
+ * fyai_host_dir_watch_add() registers @dir (idempotent);
+ * fyai_host_dir_watch_drain() discards pending events.
+ * Returns fd/0 on success, or -1 with errno set (ENOTSUP if unavailable).
+ */
+int fyai_host_dir_watch_open(void);
+int fyai_host_dir_watch_add(int fd, const char *dir);
+void fyai_host_dir_watch_drain(int fd);
+
 /* An anonymous file in memory, close-on-exec. Whether there is one, and make it. */
 bool fyai_host_memfd_available(void);
 int fyai_host_memfd(const char *name, bool cloexec);

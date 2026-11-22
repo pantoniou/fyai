@@ -23,6 +23,7 @@
 #include <sys/resource.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
+#include <sys/inotify.h>
 #include <sys/syscall.h>
 #include <unistd.h>
 
@@ -381,6 +382,16 @@ static void linux_sort(void *base, size_t count, size_t size,
 	qsort_r(base, count, size, compare, arg);
 }
 
+static int linux_dir_watch_open(void)
+{
+	return inotify_init1(IN_NONBLOCK | IN_CLOEXEC);
+}
+
+static int linux_dir_watch_add(int fd, const char *dir)
+{
+	return inotify_add_watch(fd, dir, IN_CREATE | IN_MOVED_TO) < 0 ? -1 : 0;
+}
+
 const struct fyai_host_backend fyai_host_backend_linux = {
 	.name = "linux",
 	.close_range = linux_close_range,
@@ -404,6 +415,8 @@ const struct fyai_host_backend fyai_host_backend_linux = {
 	.memfd = linux_memfd,
 	.mount_root = linux_mount_root,
 	.openpty = linux_openpty,
+	.dir_watch_open = linux_dir_watch_open,
+	.dir_watch_add = linux_dir_watch_add,
 	.sort = linux_sort,
 	.open_url = "xdg-open",
 	.isolation = true,
