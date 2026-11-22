@@ -1,7 +1,7 @@
 #!/bin/bash
 # SPDX-License-Identifier: MIT
 # Verify that sub-agents with no room, as tiles of the work pane or as blocks
-# of the transcript, collapse to one line each in the Agents panel, and that
+# of the transcript, collapse to one line each in the live panel, and that
 # the input and the status keep the bottom rows of a short terminal.
 set -eu
 . "$(dirname "$0")/../harness.sh"
@@ -72,12 +72,13 @@ steps:
   - touch: "$TEST_DIR/release"
   - wait-screen: SESSION-DONE
     timeout: session
-  - wait-gone: Agents
+  - wait-gone: " more"
   - checkpoint: "$TEST_DIR/after.txt"
 PTY
 
 "$PYTHON" - "$TEST_DIR/panel.txt" "$TEST_DIR/after.txt" <<'EOF' || \
-    fail "the agents panel is wrong with $1 tool display"
+    fail "the live panel is wrong with $1 tool display"
+import re
 import sys
 
 def window(path):
@@ -88,22 +89,23 @@ def window(path):
 
 rows = window(sys.argv[1])
 text = "\n".join(rows)
-# One line for each agent that left the grid, under the heading; a quarter
-# of the rows of the page holds them, and the last counts the rest.
-head = [i for i, r in enumerate(rows) if r.strip() == "Agents"]
-if len(head) != 1:
-    raise SystemExit("no Agents heading:\n" + text)
-lines = rows[head[0] + 1:head[0] + 7]
-if sum("panel agent" in r for r in lines) != 5:
-    raise SystemExit("not five agent lines:\n" + text)
-if "… 3 more" not in lines[5]:
+# One line for each agent that left the grid, with no heading; a quarter
+# of the rows of the page holds them, and the last counts the rest. The
+# mark of a line stands in the gutter, and its title after it.
+more = [i for i, r in enumerate(rows) if "\u2026 3 more" in r]
+if len(more) != 1 or more[0] < 5:
     raise SystemExit("no count of the agents left out:\n" + text)
+lines = rows[more[0] - 5:more[0]]
+if not all(re.match(r"^\S?\s+agent \[p\d\] panel agent", r) for r in lines):
+    raise SystemExit("not five agent lines in the gutter:\n" + text)
+if any(r.strip() in ("Agents", "Shells") for r in rows):
+    raise SystemExit("the live panel has a heading:\n" + text)
 # The prompt and the status keep the bottom of the window.
 tail = [r for r in rows if r.strip()][-2:]
 if "mock-model" not in tail[-1]:
     raise SystemExit("the status is not the last row:\n" + text)
 after = "\n".join(window(sys.argv[2]))
-if "Agents" in after:
+if re.search(r"\u2026 \d+ more", after):
     raise SystemExit("the panel stayed after the agents ended:\n" + after)
 EOF
 

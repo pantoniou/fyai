@@ -769,12 +769,26 @@ static int page_fleet_stands_under_the_todos_run(void)
 	rc = fyai_page_source(&st, &out);
 	FYAI_TCHECK(!rc);
 	p = after(out.data, "<fy-role name=\"chrome\">Todos</fy-role>");
-	p = after(p, "<fy-role name=\"chrome\">Fleet</fy-role>");
 	p = after(p, "a:fleet/x");
+	FYAI_TCHECK(p != NULL);
+	/* The live panel has no heading. */
+	FYAI_TCHECK(!strstr(out.data, ">Fleet<"));
+	free(out.data);
+
+	/* The work stands under the fleet in the same panel. */
+	out = (struct fyai_buf){0};
+	st.work.source = "shell [slow]\n";
+	st.work.rows = 1;
+	st.work.shown = true;
+	rc = fyai_page_source(&st, &out);
+	FYAI_TCHECK(!rc);
+	p = after(out.data, "a:fleet/x");
+	p = after(p, "shell [slow]");
 	FYAI_TCHECK(p != NULL);
 	free(out.data);
 
-	/* Fleet panel counts toward chrome rows and is hidden if it overflows. */
+	/* The live panel counts its blank row and its lines toward the chrome
+	 * rows, and is hidden if it overflows. */
 	st = page_state();
 	st.fleet_source = "- a:fleet/x \u00b7 running\n";
 	st.fleet_rows = 1;
@@ -782,7 +796,12 @@ static int page_fleet_stands_under_the_todos_run(void)
 	{
 		struct fyai_page_state plain = page_state();
 		FYAI_TCHECK(fyai_page_chrome_rows(&st) ==
-			    fyai_page_chrome_rows(&plain) + 3);
+			    fyai_page_chrome_rows(&plain) + 2);
+		st.work.rows = 2;
+		st.work.shown = true;
+		FYAI_TCHECK(fyai_page_chrome_rows(&st) ==
+			    fyai_page_chrome_rows(&plain) + 4);
+		st.work.shown = false;
 	}
 	fyai_page_fit(&st, 20);
 	FYAI_TCHECK(st.fleet_shown);
