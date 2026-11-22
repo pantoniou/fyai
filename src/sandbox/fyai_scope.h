@@ -40,6 +40,7 @@ struct fyai_scope {
 	bool open;			/* an exchange runs */
 	struct fyai_orphan *orphans;	/* processes that a tool left, to end with the scope */
 	struct fyai_event_source *orphan_kill;
+	struct fyai_event_source *cover_reap;	/* cover holder reap timer */
 	struct fyai_home *home;		/* the home of the tools, when a profile gives them one */
 	/*
 	 * Set inside a forked tool sub-execution once the environment has been

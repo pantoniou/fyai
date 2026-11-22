@@ -84,6 +84,12 @@ void fyai_cover_release(struct fyai_cover *cover);
 void fyai_cover_drain(struct fyai_cover *cover);
 
 /*
+ * Non-blocking reap of exited cover holder processes. Returns true if any
+ * released holder is still running and requires a later reap call.
+ */
+bool fyai_cover_reap(struct fyai_cover *cover);
+
+/*
  * Choose the cover for the @n existing @paths. @mode is `sandbox_cover`: auto
  * (USERNS, else BWRAP, else NONE), userns, bwrap or none. A holder that an
  * ancestor started is used before a new one is started. With BWRAP, *@holder is

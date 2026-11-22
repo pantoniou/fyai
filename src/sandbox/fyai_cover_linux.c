@@ -63,15 +63,20 @@ void fyai_cover_abandon(struct fyai_cover *cover)
 }
 
 /* Reap the holders that ended; the others wait for a later call. */
-static void cover_reap(struct fyai_cover *cover)
+bool fyai_cover_reap(struct fyai_cover *cover)
 {
+	bool pending = false;
 	size_t i;
 
 	for (i = 0; i < FYAI_COVER_RETIRED_MAX; i++) {
-		if (cover->retired[i] > 0 &&
-		    waitpid(cover->retired[i], NULL, WNOHANG) != 0)
+		if (cover->retired[i] <= 0)
+			continue;
+		if (waitpid(cover->retired[i], NULL, WNOHANG) != 0)
 			cover->retired[i] = 0;
+		else
+			pending = true;
 	}
+	return pending;
 }
 
 /* Keep the child of an ended holder to reap: it ends after its grace time. */
@@ -124,7 +129,7 @@ void fyai_cover_release(struct fyai_cover *cover)
 	free(cover->paths);
 	cover->paths = NULL;
 	cover->holder = 0;
-	cover_reap(cover);
+	(void)fyai_cover_reap(cover);
 }
 
 static bool holder_alive(pid_t pid)
@@ -548,7 +553,7 @@ enum fyai_cover_method fyai_cover_select(struct fyai_cover *cover, const char *m
 	bool auto_mode = !mode || !strcmp(mode, "auto");
 
 	*holder = 0;
-	cover_reap(cover);
+	(void)fyai_cover_reap(cover);
 	if (mode && !strcmp(mode, "none"))
 		return FYAI_COVER_NONE;
 	/* The holder of this process or an ancestor serves each tool that it starts. */

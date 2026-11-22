@@ -253,6 +253,7 @@ void fyai_scope_abandon(struct fyai_scope *scope)
 {
 	fyai_cover_abandon(&scope->cover);
 	fyai_orphan_abandon(scope);	/* the processes that the scope keeps */
+	scope->cover_reap = NULL;
 	scope->pins = 0;
 	scope->open = false;
 }
