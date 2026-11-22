@@ -38,5 +38,8 @@ first="$(member_pid)"
 
 # Wait fires past serve/idle_ms; verify the original worker ran the turn.
 wait_requests 3
-[ "$(member_pid)" = "$first" ] || fail "the worker that set the wait did not run it"
+# The wait lives in the worker that set it: a second start would mean that the
+# first worker had ended, and the turn is of another one.
+[ "$(grep -c "started the worker .* on branch 'fleet/work'" .fyai/logs/serve.log)" -eq 1 ] ||
+	fail "the worker that set the wait did not run it: $(cat .fyai/logs/serve.log)"
 pass
