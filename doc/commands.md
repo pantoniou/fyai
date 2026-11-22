@@ -3722,8 +3722,11 @@ the root) at the server that runs its sessions, with TASK as its first
 message. The session runs with no client, and the server keeps it
 after its turn: `fleet list` shows it, `session send` gives it more,
 and `resume` joins it. Its branch is `--branch`, or `fleet/` and the
-first words of the task. A server must run for the project or above
-it: `fyai serve --daemon` in the root. In a session, the new session
+first words of the task. From a session, a project that no server
+serves gets a server of its own. From the command line a server must
+run for the project or above it: `fyai serve --daemon` in the root;
+a project under a server that serves once gets a server of its own.
+In a session, the new session
 records this one as the session that started it, and a session of
 the root keeps the task in its branch (`fleet tasks`).
 
@@ -7881,8 +7884,11 @@ the root) at the server that runs its sessions, with TASK as its first
 message. The session runs with no client, and the server keeps it
 after its turn: `fleet list` shows it, `session send` gives it more,
 and `resume` joins it. Its branch is `--branch`, or `fleet/` and the
-first words of the task. A server must run for the project or above
-it: `fyai serve --daemon` in the root. In a session, the new session
+first words of the task. From a session, a project that no server
+serves gets a server of its own. From the command line a server must
+run for the project or above it: `fyai serve --daemon` in the root;
+a project under a server that serves once gets a server of its own.
+In a session, the new session
 records this one as the session that started it, and a session of
 the root keeps the task in its branch (`fleet tasks`).
 
