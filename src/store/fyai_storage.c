@@ -38,6 +38,7 @@
 #include "fyai_merge.h"
 #include "fyai_catalog.h"
 #include "fyai_config.h"
+#include "fyai_fleet.h"
 #include "fyai_storage.h"
 #include "fyai_pending.h"
 #include "fyai_turn.h"
@@ -203,6 +204,8 @@ bool fyai_branch_entry_contained(struct fy_allocator *a, fy_generic entry,
 		    !root_ref_contained(a, b.description) ||
 		    !root_ref_contained(a, b.agent) ||
 		    !root_ref_contained(a, b.import) ||
+		    !root_ref_contained(a, b.fleet) ||
+		    !root_ref_contained(a, b.tasks) ||
 		    !root_ref_contained(a, b.op) ||
 		    !root_ref_contained(a, b.from) ||
 		    !root_ref_contained(a, b.project) ||
@@ -1085,6 +1088,22 @@ static bool storage_session_defer(struct fyai_ctx *ctx)
 	return true;
 }
 
+/* Build lineage for a fleet-spawned session from --fleet-parent/@task. */
+static fy_generic storage_fleet_lineage(struct fyai_ctx *ctx, const char *parent,
+					long long task)
+{
+	char *cwd = getcwd(NULL, 0);
+	fy_generic lineage;
+
+	lineage = cwd ? fyai_fleet_lineage(ctx->arena->gb, cwd, parent, task) :
+			fy_invalid;
+	free(cwd);
+	if (fy_is_invalid(lineage))
+		fyai_warning(ctx, "fleet: cannot record the lineage '%s'", parent);
+	return lineage;
+}
+
+
 /* Build and splice the active branch entry. */
 static fy_generic fyai_branches_commit(struct fyai_ctx *ctx)
 {
@@ -1141,6 +1160,17 @@ static fy_generic fyai_branches_commit(struct fyai_ctx *ctx)
 	nb.todos = fy_get(nb.store, "todos", fy_invalid);
 	if (!fy_is_sequence(nb.todos))
 		nb.todos = fy_invalid;
+	/*
+	 * Staged fleet lineage/tasks replace stored values; fleet-spawned
+	 * sessions record their lineage on first publish.
+	 */
+	if (fy_is_valid(ctx->bstate->fleet))
+		nb.fleet = ctx->bstate->fleet;
+	else if (fy_is_invalid(nb.fleet) && ctx->cfg->fleet_parent)
+		nb.fleet = storage_fleet_lineage(ctx, ctx->cfg->fleet_parent,
+						 ctx->cfg->fleet_task);
+	if (fy_is_valid(ctx->bstate->tasks))
+		nb.tasks = ctx->bstate->tasks;
 	/* Staged pending sequence replaces stored value; fy_null clears it. */
 	if (fy_is_valid(ctx->bstate->pending))
 		nb.pending = fy_is_sequence(ctx->bstate->pending) ?
@@ -1401,6 +1431,11 @@ int fyai_peek_sessions(const char *arena_dir, struct fy_generic_builder *gb,
 		if (!fy_is_valid(row))
 			goto out;
 		fyai_branch_lookup(r.branches, fy_get(row, "branch", ""), &b);
+		/* The lineage of a session of a fleet, and the tasks of a root. */
+		if (fy_is_mapping(b.fleet))
+			row = fy_assoc(gb, row, "fleet", fy_gb_internalize(gb, b.fleet));
+		if (fy_is_mapping(b.tasks))
+			row = fy_assoc(gb, row, "tasks", fy_gb_internalize(gb, b.tasks));
 		if (fy_is_sequence(b.pending) && !fy_empty(b.pending)) {
 			first = fy_get_at(b.pending, 0);
 			row = fy_assoc(gb, row, "owner", fy_mapping(gb,
@@ -1493,6 +1528,31 @@ static bool publish_conflict_replays(struct fyai_ctx *ctx)
 }
 
 /*
+ * Three-way merge staged tasks with @cur->tasks against bstate->prev by task
+ * id: entries unchanged locally take @cur's value; local edits/additions win.
+ */
+static void publish_tasks_merge(struct fyai_ctx *ctx, const struct fyai_branch *cur)
+{
+	struct fyai_branch base;
+	struct fy_generic_builder *gb = ctx->arena->gb;
+	fy_generic ours = ctx->bstate->tasks, merged, key, value, old;
+
+	if (!fy_is_mapping(ours) || !fy_is_mapping(cur->tasks))
+		return;
+	fyai_branch_decode(ctx->bstate->prev, &base);
+	merged = cur->tasks;
+	fy_foreach_key_value(key, value, ours) {
+		old = fy_is_mapping(base.tasks) ?
+		      fy_get(base.tasks, fy_castp(&key, ""), fy_invalid) : fy_invalid;
+		if (fy_is_valid(old) && fy_equal(value, old))
+			continue;
+		merged = fy_assoc(gb, merged, key, value);
+	}
+	if (fy_is_mapping(merged))
+		ctx->bstate->tasks = merged;
+}
+
+/*
  * Merge the store of this run with the store of @cur, the entry that a
  * concurrent publish made, three ways against the entry this run started
  * from. A member that this run did not change takes the value of @cur. A
@@ -1569,6 +1629,7 @@ static int publish_store_merge(struct fyai_ctx *ctx, const struct fyai_branch *c
 	ctx->bstate->agent = merged.agent;
 	/* The next publish builds on the merged store, unknown members too. */
 	ctx->bstate->store = store;
+	publish_tasks_merge(ctx, cur);
 	/* A catalogue that they changed is the catalogue of this run too. */
 	return fyai_config_adopt_catalog(ctx);
 
@@ -1705,6 +1766,8 @@ int fyai_publish_state(struct fyai_ctx *ctx)
 			ctx->bstate->store = fy_invalid;
 			ctx->bstate->project_state = fy_invalid;
 			ctx->bstate->pending = fy_invalid;
+			ctx->bstate->fleet = fy_invalid;
+			ctx->bstate->tasks = fy_invalid;
 			return 0;
 		}
 		if (rc < 0)
@@ -1715,6 +1778,8 @@ int fyai_publish_state(struct fyai_ctx *ctx)
 			ctx->bstate->store = fy_invalid;
 			ctx->bstate->project_state = fy_invalid;
 			ctx->bstate->pending = fy_invalid;
+			ctx->bstate->fleet = fy_invalid;
+			ctx->bstate->tasks = fy_invalid;
 			return -1;
 		}
 		fyai_prof_since("publish_reconcile", &t_reconcile);
@@ -1723,6 +1788,8 @@ int fyai_publish_state(struct fyai_ctx *ctx)
 	ctx->bstate->store = fy_invalid;
 	ctx->bstate->project_state = fy_invalid;
 	ctx->bstate->pending = fy_invalid;
+	ctx->bstate->fleet = fy_invalid;
+	ctx->bstate->tasks = fy_invalid;
 	/* Report the branch and the exhausted retry count. */
 	if (rc > 0)
 		fyai_error(ctx, "branch '%s' lost the state race %d times; "

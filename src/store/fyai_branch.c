@@ -355,6 +355,8 @@ bool fyai_branch_decode(fy_generic entry, struct fyai_branch *b)
 	b->description = fy_invalid;
 	b->agent = fy_invalid;
 	b->import = fy_invalid;
+	b->fleet = fy_invalid;
+	b->tasks = fy_invalid;
 
 	if (!fy_is_mapping(entry))
 		return false;
@@ -389,6 +391,8 @@ bool fyai_branch_decode_store(fy_generic store, struct fyai_branch *b)
 	b->description = fyai_branch_member(store, "description");
 	b->agent = fyai_branch_member(store, "agent");
 	b->import = fyai_branch_member(store, "import");
+	b->fleet = fyai_branch_member(store, "fleet");
+	b->tasks = fyai_branch_member(store, "tasks");
 	return true;
 }
 
@@ -452,6 +456,8 @@ fy_generic fyai_branch_store_build(struct fy_generic_builder *gb,
 	store = store_member_set(gb, store, "description", b->description);
 	store = store_member_set(gb, store, "agent", b->agent);
 	store = store_member_set(gb, store, "import", b->import);
+	store = store_member_set(gb, store, "fleet", b->fleet);
+	store = store_member_set(gb, store, "tasks", b->tasks);
 	return store;
 }
 

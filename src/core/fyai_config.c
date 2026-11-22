@@ -3390,6 +3390,8 @@ enum {
 	OPT_SINK_FRAMES,
 	OPT_SPLIT,
 	OPT_BOOTSTRAP,
+	OPT_FLEET_PARENT,
+	OPT_FLEET_TASK,
 };
 
 static const struct option long_options[] = {
@@ -3409,6 +3411,8 @@ static const struct option long_options[] = {
 	{ "sink-frames", no_argument, NULL, OPT_SINK_FRAMES },
 	{ "split", no_argument, NULL, OPT_SPLIT },
 	{ "bootstrap", no_argument, NULL, OPT_BOOTSTRAP },
+	{ "fleet-parent", required_argument, NULL, OPT_FLEET_PARENT },
+	{ "fleet-task", required_argument, NULL, OPT_FLEET_TASK },
 	{ "sandbox", required_argument, NULL, OPT_SANDBOX },
 	{ "color", required_argument, NULL, OPT_COLOR },
 	{ "theme", required_argument, NULL, OPT_THEME },
@@ -4110,6 +4114,16 @@ static int config_parse_cli_options(struct fyai_cfg *cfg, int argc, char *argv[]
 			break;
 		case OPT_BOOTSTRAP:
 			cfg->bootstrap_confirmed = true;
+			break;
+		case OPT_FLEET_PARENT:
+			cfg->fleet_parent = fy_gb_intern_string(cfg->gb, optarg);
+			break;
+		case OPT_FLEET_TASK:
+			cfg->fleet_task = strtoll(optarg, NULL, 10);
+			if (cfg->fleet_task <= 0) {
+				fyai_cfg_error(cfg, "--fleet-task '%s': not a task", optarg);
+				return -1;
+			}
 			break;
 		case OPT_PROJECT:
 		case OPT_REMOTE:

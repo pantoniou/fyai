@@ -4270,7 +4270,7 @@ commands:
           table:
             title: Sessions of the fleet
             empty: no sessions under the root
-            keys: [project, branch, state, attached, pid]
+            keys: [project, branch, state, attached, pid, task]
         arguments:
           type: object
           additionalProperties: false
@@ -4283,7 +4283,9 @@ commands:
           after its turn: `fleet list` shows it, `session send` gives it more,
           and `resume` joins it. Its branch is `--branch`, or `fleet/` and the
           first words of the task. A server must run for the project or above
-          it: `fyai serve --daemon` in the root.
+          it: `fyai serve --daemon` in the root. In a session, the new session
+          records this one as the session that started it, and a session of
+          the root keeps the task in its branch (`fleet tasks`).
         surfaces: [cli, session]
         handler: fleet_start
         flags: [no-storage]
@@ -4315,6 +4317,52 @@ commands:
               description: the branch of the session
               x-fyai-long: branch
               x-fyai-meta: BRANCH
+      - command: tasks
+        title: list the tasks of the root sessions
+        description: |
+          List the tasks that the sessions of the root keep: the id, the root
+          session that keeps it, the session that runs it (PROJECT:BRANCH), its
+          state (`open`, `done` or `dropped`) and its text. A root session makes
+          a task when it starts a session with `fleet start`.
+        surfaces: [cli, session]
+        handler: fleet_tasks
+        flags: [no-storage]
+        while_busy: run
+        render:
+          table:
+            title: Tasks of the fleet
+            empty: no tasks
+            keys: [id, session, name, state, text]
+        arguments:
+          type: object
+          additionalProperties: false
+      - command: task
+        title: mark a task of this root session
+        description: |
+          Mark the task ID of this root session `done` or `dropped`, or `open`
+          again. Only the root session that keeps a task changes it.
+        surfaces: [session]
+        handler: fleet_task
+        while_busy: run
+        render:
+          message: "task {id}: {state}"
+        arguments:
+          type: object
+          required: [id, state]
+          additionalProperties: false
+          properties:
+            id:
+              type: string
+              pattern: "^[1-9][0-9]*$"
+              description: the id of the task
+              x-fyai-positional: 0
+              x-fyai-meta: ID
+            state:
+              type: string
+              enum: [open, done, dropped]
+              description: the new state of the task
+              x-fyai-positional: 1
+              x-fyai-meta: STATE
       - command: scan
         title: list the projects under the root
         description: |

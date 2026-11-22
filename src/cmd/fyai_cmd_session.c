@@ -382,7 +382,8 @@ int fyai_cmd_fleet_list(struct fyai_cmd_call *call, fy_generic *result)
 {
 	struct fy_generic_builder *gb = call->gb;
 	struct fleet_walk w;
-	fy_generic project, name, row, live, owner, out = fy_seq_empty;
+	fy_generic project, name, row, live, owner, task, out = fy_seq_empty;
+	fy_generic row_fleet, parent;
 	const char *state;
 
 	if (fleet_arena_open(call))
@@ -398,21 +399,32 @@ int fyai_cmd_fleet_list(struct fyai_cmd_call *call, fy_generic *result)
 			live = fleet_live_row(fy_get(project, "live", fy_seq_empty),
 					      fy_get(row, "branch", fy_invalid));
 			owner = fy_get(row, "owner", fy_invalid);
+			row_fleet = fy_get(row, "fleet", fy_invalid);
+			task = fy_get(row_fleet, "task", fy_invalid);
 			if (fy_is_valid(live)) {
-				out = fy_append(gb, out, fy_mapping(gb, "project", name,
+				row = fy_mapping(gb, "project", name,
 					"branch", fy_get(row, "branch", ""),
 					"state", fyai_remote_live_state(live),
 					"attached", fy_get(live, "attached", false),
-					"pid", fy_get(live, "pid", 0LL)));
-				continue;
+					"pid", fy_get(live, "pid", 0LL));
+			} else {
+				state = !fy_is_valid(owner) ? "stored" :
+					fyai_pending_owner_alive(owner) ? "running" : "lost";
+				row = fy_mapping(gb, "project", name,
+						 "branch", fy_get(row, "branch", ""),
+						 "state", state, "attached", false);
+				if (!strcmp(state, "running"))
+					row = fy_assoc(gb, row, "pid",
+						       fy_get(owner, "pid", 0LL));
 			}
-			state = !fy_is_valid(owner) ? "stored" :
-				fyai_pending_owner_alive(owner) ? "running" : "lost";
-			row = fy_mapping(gb, "project", name,
-					 "branch", fy_get(row, "branch", ""),
-					 "state", state, "attached", false);
-			if (!strcmp(state, "running"))
-				row = fy_assoc(gb, row, "pid", fy_get(owner, "pid", 0LL));
+			if (fy_is_int(task))
+				row = fy_assoc(gb, row, "task", task);
+			parent = fy_get(fy_get(row_fleet, "parent", fy_invalid), "branch",
+					fy_invalid);
+			if (fy_is_string(parent))
+				row = fy_assoc(gb, row, "parent", fy_stringf(gb, "%s:%s",
+					fy_get(fy_get(row_fleet, "parent", fy_invalid),
+					       "project", "."), fy_castp(&parent, "")));
 			out = fy_append(gb, out, row);
 		}
 		/* A live session with no stored exchange yet. */
@@ -451,6 +463,108 @@ int fyai_cmd_fleet_scan(struct fyai_cmd_call *call, fy_generic *result)
 						       fy_seq_empty))));
 	*result = out;
 	return fy_is_valid(out) ? 0 : -1;
+}
+
+/* The tasks of this branch, a mapping by id: staged, else stored, else none. */
+static fy_generic fleet_tasks_of(struct fyai_ctx *ctx)
+{
+	struct fyai_branch b;
+
+	if (fy_is_mapping(ctx->bstate->tasks))
+		return ctx->bstate->tasks;
+	if (fy_is_valid(ctx->bstate->prev) && fyai_branch_decode(ctx->bstate->prev, &b) &&
+	    fy_is_mapping(b.tasks))
+		return b.tasks;
+	return fy_map_empty;
+}
+
+/* The id of the next task: one above the highest id of @tasks. */
+static long long fleet_task_next(fy_generic tasks)
+{
+	fy_generic key, value;
+	long long id, top = 0;
+
+	fy_foreach_key_value(key, value, tasks) {
+		(void)value;
+		id = strtoll(fy_castp(&key, "0"), NULL, 10);
+		if (id > top)
+			top = id;
+	}
+	return top + 1;
+}
+
+/*
+ * Record @tasks as the tasks of this branch, now when it is stored. A session
+ * with no stored exchange keeps them staged for its first publish.
+ */
+static int fleet_tasks_publish(struct fyai_ctx *ctx, fy_generic tasks)
+{
+	ctx->bstate->tasks = tasks;
+	if (ctx->bstate->session_unstored)
+		return 0;
+	fyai_branch_op_set(ctx, FYAI_BRANCH_OP_CONFIG, NULL);
+	return fyai_publish_state(ctx);
+}
+
+/* The tasks of the root sessions: each branch of the root and its tasks. */
+int fyai_cmd_fleet_tasks(struct fyai_cmd_call *call, fy_generic *result)
+{
+	struct fyai_ctx *ctx = fyai_cmd_call_ctx(call);
+	struct fy_generic_builder *gb = call->gb;
+	fy_generic rows, row, key, task, out = fy_seq_empty;
+	char *cwd, *root = NULL;
+	int rc = -1;
+
+	if (fleet_arena_open(call))
+		return fleet_child(call, "tasks", result);
+	cwd = getcwd(NULL, 0);
+	fyai_error_check(ctx, cwd, out, "fleet: cannot read the current directory");
+	root = fyai_fleet_root_of(cwd);
+	fyai_error_check(ctx, root, out, "fleet: no project holds '%s'", cwd);
+	rc = fyai_peek_sessions(fy_sprintfa("%s/.fyai/arena", root), gb, &rows);
+	fyai_error_check(ctx, !rc, out, "fleet: cannot read the root '%s'", root);
+	fy_foreach(row, rows)
+		fy_foreach_key_value(key, task, fy_get(row, "tasks", fy_map_empty))
+			out = fy_append(gb, out, fy_mapping(gb,
+				"id", strtoll(fy_castp(&key, "0"), NULL, 10),
+				"session", fy_get(row, "branch", ""),
+				"name", fy_stringf(gb, "%s:%s",
+						   fy_get(task, "project", "."),
+						   fy_get(task, "branch", "")),
+				"state", fy_get(task, "state", "open"),
+				"text", fy_get(task, "text", "")));
+	*result = out;
+	rc = fy_is_valid(out) ? 0 : -1;
+out:
+	free(root);
+	free(cwd);
+	return rc;
+}
+
+/* Update a fleet task state (open, done, or dropped) for this root session. */
+int fyai_cmd_fleet_task(struct fyai_cmd_call *call, fy_generic *result)
+{
+	struct fyai_ctx *ctx = fyai_cmd_call_ctx(call);
+	struct fy_generic_builder *gb = ctx->arena->gb;
+	const char *id = fyai_cmd_arg_str(call, "id");
+	const char *state = fyai_cmd_arg_str(call, "state");
+	fy_generic tasks, task;
+
+	fyai_error_check(ctx, fleet_arena_open(call), err,
+			 "fleet: a task changes in the root session that keeps it");
+	tasks = fleet_tasks_of(ctx);
+	task = fy_get(tasks, id, fy_invalid);
+	fyai_error_check(ctx, fy_is_mapping(task), err,
+			 "fleet: this session has no task %s", id);
+	tasks = fy_assoc(gb, tasks, fy_value(gb, id),
+			 fy_assoc(gb, task, "state", fy_value(gb, state)));
+	fyai_error_check(ctx, fy_is_mapping(tasks), err, "fleet: cannot keep the task");
+	if (fleet_tasks_publish(ctx, tasks))
+		return -1;
+	*result = fy_mapping(call->gb, "id", id, "state", state);
+	return 0;
+err:
+	return -1;
 }
 
 /*
@@ -575,7 +689,9 @@ int fyai_cmd_fleet_start(struct fyai_cmd_call *call, fy_generic *result)
 	const char *project = fyai_cmd_arg_str(call, "project");
 	const char *task = fyai_cmd_arg_str(call, "task");
 	const char *branch = fyai_cmd_arg_str(call, "branch");
-	char *cwd = NULL, *root = NULL, *dir = NULL;
+	fy_generic args = fy_invalid, tasks = fy_invalid;
+	char *cwd = NULL, *root = NULL, *dir = NULL, *home = NULL;
+	long long id = 0;
 	int rc = -1;
 
 	cwd = getcwd(NULL, 0);
@@ -592,12 +708,44 @@ int fyai_cmd_fleet_start(struct fyai_cmd_call *call, fy_generic *result)
 		branch = fleet_task_branch(call, task);
 	fyai_error_check(ctx, branch && fyai_branch_name_valid(branch), out,
 			 "fleet: '%s' is not a valid branch", branch ? branch : "");
-	rc = fyai_remote_start(ctx, dir, branch, task);
-	if (!rc)
+	/*
+	 * A session that starts one is its parent; a session of the root
+	 * keeps a task for it (doc/fyai-fleet-sdd.md, section 9). A command
+	 * line has no session: the new one has no parent and no task.
+	 */
+	if (fleet_arena_open(call) && !ctx->cfg->transient) {
+		home = fyai_fleet_project_of(cwd);
+		args = fy_sequence(call->gb, "--fleet-parent",
+			fy_stringf(call->gb, "%s:%s", home && strcmp(home, root) ?
+				   home + strlen(root) + 1 : ".", fyai_ctx_branch(ctx)));
+		if (home && !strcmp(home, root)) {
+			tasks = fleet_tasks_of(ctx);
+			id = fleet_task_next(tasks);
+			args = fy_append(call->gb, fy_append(call->gb, args,
+				fy_string("--fleet-task")),
+				fy_stringf(call->gb, "%lld", id));
+			tasks = fy_assoc(ctx->arena->gb, tasks,
+				fy_stringf(ctx->arena->gb, "%lld", id),
+				fy_mapping(ctx->arena->gb, "project", project,
+					   "branch", branch, "text", task,
+					   "created", (long long)fyai_branch_timestamp(),
+					   "state", "open"));
+			fyai_error_check(ctx, fy_is_mapping(tasks), out,
+					 "fleet: cannot keep the task");
+		}
+	}
+	rc = fyai_remote_start(ctx, dir, branch, task, args);
+	if (!rc && id && fleet_tasks_publish(ctx, tasks))
+		rc = -1;
+	if (!rc) {
 		*result = fy_mapping(call->gb, "project", project, "branch", branch,
 				     "name", fy_stringf(call->gb, "%s:%s", project,
 							branch));
+		if (id)
+			*result = fy_assoc(call->gb, *result, "task", id);
+	}
 out:
+	free(home);
 	free(dir);
 	free(root);
 	free(cwd);

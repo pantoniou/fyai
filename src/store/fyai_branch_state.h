@@ -70,6 +70,12 @@ struct fyai_branch_state {
 	 */
 	fy_generic pending;
 	/*
+	 * Staged fleet lineage and root-session tasks for the next publish
+	 * (fy_invalid to keep stored). Consumed on publish.
+	 */
+	fy_generic fleet;
+	fy_generic tasks;
+	/*
 	 * The groups of tool calls of this session that changed the project and
 	 * showed it: a sequence of {before, after} project states, the newest
 	 * last. `undo` takes it back.

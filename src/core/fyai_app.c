@@ -69,6 +69,8 @@ void fyai_branch_state_init(struct fyai_branch_state *bs,
 	bs->store = fy_invalid;
 	bs->project_state = fy_invalid;
 	bs->pending = fy_invalid;
+	bs->fleet = fy_invalid;
+	bs->tasks = fy_invalid;
 	bs->tool_changes = fy_seq_empty;
 }
 

@@ -569,6 +569,13 @@ struct fyai_cfg {
 	bool split;
 	/* --bootstrap: user confirmed creating a missing project directory. */
 	bool bootstrap_confirmed;
+	/*
+	 * --fleet-parent PROJECT:BRANCH and --fleet-task ID: originating fleet
+	 * session and task id persisted as branch lineage on first publish
+	 * (doc/fyai-fleet-sdd.md, section 9).
+	 */
+	const char *fleet_parent;
+	long long fleet_task;
 	const char *remote_socket;	/* the socket of --remote TARGET, or NULL */
 	/* The global options and the words to run there, without the above. */
 	fy_generic remote_args;

@@ -76,6 +76,8 @@ struct fyai_branch {
 	fy_generic description;	/* free-text purpose of the branch */
 	fy_generic agent;	/* sub-agent provenance, if any */
 	fy_generic import;	/* foreign-session provenance, if any */
+	fy_generic fleet;	/* fleet session lineage, if any */
+	fy_generic tasks;	/* root session tasks, mapped by id */
 };
 
 /* Decode the members of @store into @b. */
