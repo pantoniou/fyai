@@ -27,6 +27,8 @@ assert_request 0 'not any(t["function"]["name"] == "fleet" for t in r["body"].ge
 # Disable approval prompts since the root runs non-interactively here.
 "$FYAI_BIN" config set fleet/approve never >/dev/null 2>&1 ||
 	fail "cannot set fleet/approve"
+"$FYAI_BIN" config set fleet/root true >/dev/null 2>&1 ||
+	fail "cannot make the project a fleet root"
 "$FYAI_BIN" serve --daemon >"$TEST_DIR/serve.out" 2>&1 ||
 	fail "the root server did not start: $(cat "$TEST_DIR/serve.out")"
 fyai_test_on_exit '"$FYAI_BIN" serve stop >/dev/null 2>&1 || true'
