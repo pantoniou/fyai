@@ -14,10 +14,12 @@
 
 #include "fyai.h"
 #include "fyai_agent.h"
+#include "fyai_ask.h"
 #include "fyai_branch.h"
 #include "fyai_fleet.h"
 #include "fyai_fleet_ops.h"
 #include "fyai_tool_registry.h"
+#include "fyai_event.h"
 #include "utils.h"
 
 #define FYAI_MODULE FYAIEM_TOOLS
@@ -53,6 +55,106 @@ static fy_generic fleet_tool_failed(struct fyai_ctx *ctx, struct fy_generic_buil
 	return text;
 }
 
+/* State for a blocking user approval prompt. */
+struct fleet_tool_review {
+	bool done;
+	bool given;
+	unsigned int selected;
+	char *other;
+};
+
+static void fleet_tool_review_done(void *user, const struct fyai_ask_reply *replies,
+				   size_t n)
+{
+	struct fleet_tool_review *r = user;
+
+	r->done = true;
+	if (!replies || !n)
+		return;
+	r->given = true;
+	r->selected = replies[0].selected;
+	if (replies[0].other)
+		r->other = strdup(replies[0].other);
+}
+
+/*
+ * Returns true if @action requires user approval per fleet/approve:
+ * `start` (default) gates start/create, `always` gates all mutating actions,
+ * `never` disables prompts.
+ */
+static bool fleet_tool_asks(struct fyai_ctx *ctx, fy_generic action)
+{
+	fy_generic approve = fy_get(fy_get(ctx->cfg->config_doc, "fleet", fy_invalid),
+				    "approve", fy_invalid);
+
+	if (fy_equal(approve, "never"))
+		return false;
+	if (fy_equal(approve, "always"))
+		return fy_any_equal(action, "start", "send", "interrupt", "answer",
+				    "stop");
+	return fy_equal(action, "start");
+}
+
+/*
+ * Prompt the user to approve @what. Returns 1 on accept, 0 on reject (optional
+ * free-text reason in *@replyp, caller frees), or -1 if prompting fails.
+ * Reject is option 0 so an accidental Enter defaults to safe refusal.
+ */
+static int fleet_tool_review(struct fyai_ctx *ctx, struct fy_generic_builder *gb,
+			     const char *what, char **replyp)
+{
+	struct fleet_tool_review r = { 0 };
+	fy_generic reject, accept, question;
+
+	*replyp = NULL;
+	reject = fy_mapping(gb, "id", "reject", "label", "Reject",
+			    "description", "Do not run it; the model is told.",
+			    "preview", "");
+	accept = fy_mapping(gb, "id", "accept", "label", "Accept",
+			    "description", "Run it.", "preview", "");
+	question = fy_mapping(gb, "id", "fleet", "header", "Fleet",
+			      "question", fy_stringf(gb, "The model %s. Run it?", what),
+			      "multi_select", false,
+			      "options", fy_sequence(gb, reject, accept));
+	if (!fy_is_valid(question) ||
+	    fyai_ask_open(ctx, fy_sequence(gb, question), NULL,
+			  fleet_tool_review_done, &r))
+		return -1;
+	while (!r.done)
+		if (fyai_event_loop_step(fyai_ctx_loop(ctx), -1) < 0)
+			break;
+	if (!r.done) {
+		fyai_ask_close(ctx, &r);
+		return -1;
+	}
+	if (r.other && *r.other) {
+		*replyp = r.other;
+		return 0;
+	}
+	free(r.other);
+	return r.given && (r.selected & 2u) ? 1 : 0;
+}
+
+/* Build human-readable summary of a gated action for the approval prompt. */
+static const char *fleet_tool_what(struct fy_generic_builder *gb, fy_generic action,
+				   fy_generic args)
+{
+	const char *name = fy_get(args, "name", "");
+
+	if (fy_equal(action, "start"))
+		return fy_gb_intern_string(gb, fy_sprintfa("starts a session in %s "
+			"with the task: %s", fy_get(args, "project", "?"),
+			fy_get(args, "task", "")));
+	if (fy_equal(action, "send"))
+		return fy_gb_intern_string(gb, fy_sprintfa("sends %s: %s", name,
+			fy_get(args, "text", "")));
+	if (fy_equal(action, "answer"))
+		return fy_gb_intern_string(gb, fy_sprintfa("answers the question of "
+			"%s: %s", name, fy_get(args, "answer", "")));
+	return fy_gb_intern_string(gb, fy_sprintfa("%s %s", fy_equal(action, "stop") ?
+		"ends" : "interrupts the turn of", name));
+}
+
 /* Returns non-empty string argument @key from @args, or NULL. */
 static const char *fleet_tool_arg(fy_generic args, const char *key)
 {
@@ -67,6 +169,7 @@ static fy_generic fleet_tool_run_generic(struct fyai_ctx *ctx, fy_generic args,
 	struct fy_generic_builder *gb = fyai_ctx_transient_gb(ctx);
 	fy_generic action = fy_get(args, "action", fy_invalid), rows, out;
 	const char *name = fleet_tool_arg(args, "name"), *text, *state;
+	char *reply = NULL;
 	bool busy = false;
 	int rc;
 
@@ -76,6 +179,24 @@ static fy_generic fleet_tool_run_generic(struct fyai_ctx *ctx, fy_generic args,
 				"fleet tool");
 	if (fy_any_equal(action, "send", "interrupt", "answer", "stop", "read") && !name)
 		return fy_value(gb, "fleet: name the session, as PROJECT:BRANCH");
+	/* A start above fleet/max_live is refused before the person is asked. */
+	if (fy_equal(action, "start") && fyai_fleet_is_root(ctx) && fyai_fleet_room(ctx))
+		return fleet_tool_failed(ctx, gb, "start");
+	/* Enforce fleet/approve confirmation policy before executing. */
+	if (fleet_tool_asks(ctx, action)) {
+		rc = fleet_tool_review(ctx, gb, fleet_tool_what(gb, action, args), &reply);
+		if (rc < 0) {
+			fyai_diag_reset(fyai_ctx_diag(ctx));
+			return fy_value(gb, "fleet: the call needs the approval of the "
+					"person (fleet/approve), and nobody can answer now");
+		}
+		if (!rc) {
+			out = fy_stringf(gb, "fleet: the person rejected the call%s%s",
+					 reply ? ": " : "", reply ? reply : "");
+			free(reply);
+			return out;
+		}
+	}
 	if (fy_equal(action, "list")) {
 		rc = fyai_fleet_rows_list(ctx, gb, &rows);
 		out = fy_mapping(gb, "sessions", rows);

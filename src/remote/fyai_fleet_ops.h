@@ -45,6 +45,12 @@ int fyai_fleet_rows_search(struct fyai_ctx *ctx, struct fy_generic_builder *gb,
 int fyai_fleet_rows_read(struct fyai_ctx *ctx, struct fy_generic_builder *gb,
 			 const char *name, long long turns, fy_generic *rowsp);
 
+/* Default fleet/max_live cap on concurrent members per root session. */
+#define FYAI_FLEET_MAX_LIVE	8
+
+/* 0 when this root session may start one more member, else -1 with the cause. */
+int fyai_fleet_room(struct fyai_ctx *ctx);
+
 /*
  * Start a session in @project (relative to fleet root) on @branch (default:
  * `fleet/<slug-of-task>`) with initial message @task. Records parent lineage

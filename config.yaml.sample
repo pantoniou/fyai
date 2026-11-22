@@ -150,6 +150,10 @@ fleet:
   scan:
     depth: 4
     exclude: [node_modules, "build*", .cache]
+  # Which calls of the fleet tool ask you first: never, start or always.
+  approve: start
+  # The most members that a root session supervises at once (0: no limit).
+  max_live: 8
 agent:
   timeout_ms: 0
   max_timeout_ms: 3600000
