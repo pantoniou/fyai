@@ -581,6 +581,7 @@ static int ui_activity_refresh(struct fyai_ui *ui)
 		ui_fleet_rebuild(ui);
 		ui->frame_pending = true;
 	}
+
 	/*
 	 * Host-side blinking is intentional. SGR blink is inconsistently
 	 * implemented by terminals. The invocation itself is the work-band
@@ -2784,9 +2785,15 @@ static int ui_page_frame_pane(struct fyai_ui *ui, struct ui_page_frame *f)
 	/* Conversation content is made for the column it stands in, while
 	 * the column of tiles stands beside it. */
 	ui_side_width(ui, f->side ? cols - layout->pane_cols - f->sep_cols - 1 : 0);
+	st->prompt_rows = fytim_prompt_rows(ui->ft);
 	if (!pane || fyai_workpane_hidden(ctx->screen->workpane) || f->side) {
 		st->pane_rows = 0;
 	} else {
+		/* The tiles size to what the chrome leaves: the pane, its blank
+		 * row and its cap counted. */
+		st->pane_rows = 1;
+		fyai_workpane_set_room(ctx->screen->workpane,
+				       f->rows - fyai_page_chrome_rows(st));
 		rc = fyai_workpane_page_grid(ctx->screen->workpane, 0,
 					     ctx->cfg->tile_sep, f->sep_cols,
 					     NULL, NULL, NULL, &st->pane_rows);
@@ -2806,7 +2813,6 @@ static int ui_page_frame_pane(struct fyai_ui *ui, struct ui_page_frame *f)
 		(void)fytim_set_prompt_edge(ui->ft, focused ?
 			ui_edge(ui, edge, sizeof(edge)) : " ");
 	}
-	st->prompt_rows = fytim_prompt_rows(ui->ft);
 	st->prompt_card = fytim_prompt_card(ui->ft);
 	st->review = ui->page_review;
 	st->completion = fytim_completion_active(ui->ft);
@@ -2983,7 +2989,10 @@ static int ui_page_frame_content(struct fyai_ui *ui, struct ui_page_frame *f)
 					     NULL, NULL, &ui->pane_grid, NULL);
 		fyai_error_check(ctx, !rc, err_page,
 				 "cannot build the work pane page source");
-		st->pane_source = ui->pane_grid.data;
+		st->pane_source = ui->pane_grid.len ? ui->pane_grid.data : NULL;
+	} else if (!fyai_workpane_hidden(ctx->screen->workpane)) {
+		/* The chrome uses every row: no tile fits. */
+		fyai_workpane_overflow_all(ctx->screen->workpane);
 	}
 	return 0;
 err_page:

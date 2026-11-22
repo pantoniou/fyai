@@ -45,6 +45,8 @@ struct fyai_workpane_tile {
 
 	bool selectable;
 	bool minimized;			/* show only the header below screens */
+	/* The last page had no room for the tile: it is outside the grid. */
+	bool overflow;
 
 	/* The clickable regions of the head. */
 	struct markdown_region *regions;
@@ -90,6 +92,7 @@ struct fyai_workpane_manager {
 	int terminal_rows;
 	int terminal_cols;
 	int resolved_max_rows;		/* what the pane was last capped at */
+	int room;			/* rows the page gives the pane, or 0 */
 
 	struct fytim_surface *focused;
 	struct fytim_surface *zoomed;
@@ -646,6 +649,71 @@ fyai_workpane_slot_surface(const struct fyai_workpane_manager *wm,
 	return NULL;
 }
 
+/* The fewest rows that the tracks of @g take, @live rows under each head. */
+static int workpane_grid_floor(const struct fyai_workpane_grid *g, int live)
+{
+	int r, rows = 0;
+
+	for (r = 0; r < g->rows; r++) {
+		if (g->row_size[r] == FYAI_WORKPANE_TRACK_FIT)
+			rows += 1;
+		else if (g->row_size[r] > 0 && g->row_size[r] < 1 + live)
+			rows += g->row_size[r];
+		else
+			rows += 1 + live;
+	}
+	return rows;
+}
+
+/*
+ * Place the tiles of @info and @order in @g, in @height rows when it is
+ * positive. The tiles stay tiles while each can have its head and the live
+ * rows of the configuration; else they overflow to one line each in the
+ * panels, and only the tile with the focus stays. Returns the tiles placed,
+ * which stand first in both arrays.
+ */
+static int workpane_place_fitting(struct fyai_workpane_manager *wm,
+				  struct fyai_workpane_tile_info *info,
+				  struct fyai_workpane_tile **order, int n,
+				  int height, struct fyai_workpane_grid *g)
+{
+	const struct fyai_cfg *cfg = fyai_workpane_manager_ctx(wm)->cfg;
+	int i, live, kept;
+
+	live = cfg->tile_live_rows > 0 ? cfg->tile_live_rows : 1;
+	if (!fyai_workpane_place(wm, info, n, g) &&
+	    (height <= 0 || n <= 1 || workpane_grid_floor(g, live) <= height))
+		return n;
+	if (height > 0 && n > 1) {
+		for (i = 0, kept = 0; i < n; i++) {
+			if (!info[i].focused) {
+				order[i]->overflow = true;
+				continue;
+			}
+			info[kept] = info[i];
+			order[kept++] = order[i];
+		}
+		n = kept;
+		if (n < 1)
+			return 0;
+		if (!fyai_workpane_place(wm, info, n, g))
+			return n;
+	}
+	/* A layout that places nothing stacks the tiles. */
+	memset(g, 0, sizeof(*g));
+	for (i = FYAI_WORKPANE_GRID_MAX; height > 0 && i < n; i++)
+		order[i]->overflow = true;
+	if (n > FYAI_WORKPANE_GRID_MAX)
+		n = FYAI_WORKPANE_GRID_MAX;
+	g->rows = n;
+	g->cols = 1;
+	for (i = 0; i < n; i++) {
+		g->place[i].row = i;
+		g->place[i].row_span = g->place[i].col_span = 1;
+	}
+	return n;
+}
+
 int fyai_workpane_page_grid(struct fyai_workpane_manager *wm, int height,
 			    const char *sep, int sep_cols,
 			    const struct fyai_page_layout *lay,
@@ -656,7 +724,7 @@ int fyai_workpane_page_grid(struct fyai_workpane_manager *wm, int height,
 	struct fyai_workpane_tile *order[FYAI_WORKPANE_TILES_MAX];
 	struct fyai_page_cell cells[FYAI_WORKPANE_TILES_MAX];
 	struct fyai_workpane_grid g;
-	int n, i, rows = 0, rc;
+	int n, i, rows = 0, limit, rc;
 	bool side;
 
 	if (!wm)
@@ -667,6 +735,17 @@ int fyai_workpane_page_grid(struct fyai_workpane_manager *wm, int height,
 	n = workpane_tile_infos(wm, info, order);
 	if (n < 1)
 		return 1;
+	/* Each pass decides again which tiles overflow: the sizing pass within
+	 * the pane ceiling, the fitted pass within the rows it got. */
+	for (i = 0; i < n; i++)
+		order[i]->overflow = false;
+	limit = height;
+	if (limit <= 0) {
+		limit = wm->resolved_max_rows > 0 ? wm->resolved_max_rows :
+			wm->terminal_rows;
+		if (wm->room > 0 && wm->room < limit)
+			limit = wm->room;
+	}
 	memset(&g, 0, sizeof(g));
 	if (lay && lay->side) {
 		if (wm->zoomed) {
@@ -679,6 +758,8 @@ int fyai_workpane_page_grid(struct fyai_workpane_manager *wm, int height,
 				n = 1;
 		}
 		fyai_page_side_place(lay, n, wm->zoomed && n == 1, &g);
+		for (i = g.rows; i < n; i++)
+			order[i]->overflow = true;
 		if (n > g.rows)
 			n = g.rows;
 	} else if (wm->zoomed) {
@@ -691,14 +772,13 @@ int fyai_workpane_page_grid(struct fyai_workpane_manager *wm, int height,
 		n = 1;
 		g.rows = g.cols = 1;
 		g.row_size[0] = 0;
-	} else if (fyai_workpane_place(wm, info, n, &g)) {
-		/* A layout that places nothing stacks the tiles. */
-		memset(&g, 0, sizeof(g));
-		g.rows = n > FYAI_WORKPANE_GRID_MAX ? FYAI_WORKPANE_GRID_MAX : n;
-		g.cols = 1;
-		for (i = 0; i < n; i++) {
-			g.place[i].row = i;
-			g.place[i].row_span = g.place[i].col_span = 1;
+	} else {
+		n = workpane_place_fitting(wm, info, order, n, limit, &g);
+		/* No tile fits: all go to the panels. */
+		if (n < 1) {
+			if (rowsp)
+				*rowsp = 0;
+			return 0;
 		}
 	}
 	side = lay && lay->side;
@@ -735,6 +815,22 @@ int fyai_workpane_page_grid(struct fyai_workpane_manager *wm, int height,
 
 err_out:
 	return -1;
+}
+
+void fyai_workpane_set_room(struct fyai_workpane_manager *wm, int rows)
+{
+	if (wm)
+		wm->room = rows > 0 ? rows : 0;
+}
+
+void fyai_workpane_overflow_all(struct fyai_workpane_manager *wm)
+{
+	struct fyai_workpane_tile *t;
+
+	if (!wm)
+		return;
+	for_each_tile(t, wm)
+		t->overflow = t->surface || t->band;
 }
 
 struct fytim_workpane *fyai_workpane_pane(const struct fyai_workpane_manager *wm)

@@ -422,7 +422,7 @@ void fyai_page_fit(struct fyai_page_state *st, int height)
 	left = height - fyai_page_chrome_rows(st);
 	/* The work outranks the tail, which shows its last rows. */
 	if (st->pane_rows > left) {
-		st->pane_rows = left > 0 ? left : (st->pane_rows > 0);
+		st->pane_rows = left > 0 ? left : 0;
 		st->tail_rows = 0;
 		st->transcript_rows = 0;
 		return;

@@ -169,12 +169,22 @@ struct fyai_page_layout;
  * ceiling. With a side @lay the tiles stand in a column of its pane columns,
  * each a panel of its tile rows, beside a cell that holds the slot @lead.
  * *@rowsp receives the rows. Returns 0, or non-zero with no tile.
+ *
+ * At a positive @height the grid never takes more rows: a tile that cannot
+ * have its head and a row of content overflows, the oldest tile without the
+ * focus first, and stands outside the grid until a later grid has room.
  */
 int fyai_workpane_page_grid(struct fyai_workpane_manager *wm, int height,
 			    const char *sep, int sep_cols,
 			    const struct fyai_page_layout *lay,
 			    const char *lead,
 			    struct fyai_buf *out, int *rowsp);
+/* The rows that the page can give the pane at most, for the sizing of
+ * fyai_workpane_page_grid() at height zero; 0 for the pane ceiling only. */
+void fyai_workpane_set_room(struct fyai_workpane_manager *wm, int rows);
+/* The page gave the pane no rows: every tile overflows. */
+void fyai_workpane_overflow_all(struct fyai_workpane_manager *wm);
+
 /* The pane while a tile holds it, or NULL. Borrowed. */
 struct fytim_workpane *fyai_workpane_pane(const struct fyai_workpane_manager *wm);
 void fyai_workpane_release(struct fyai_workpane_manager *wm);
