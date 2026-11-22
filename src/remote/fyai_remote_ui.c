@@ -852,13 +852,12 @@ static int remote_ui_display_open(struct fyai_remote_ui *view)
 	fyai_error_check(ctx, !rc && fyai_ui_active(ctx), err,
 			 "the client of a session needs a terminal; use "
 			 "--protocol sdk for SDK frames");
-	/* Nobody types into a watching view: it has no prompt. */
+	/* Watchers forward typed lines as messages to the session. */
 	if (view->watch) {
-		fyai_ui_prompt_enabled(ctx, false);
 		fyai_ui_pane_begin(ctx);
 		(void)fyai_sink_printf(ctx->out->sink, FYAI_SINK_NOTICE,
-				       "watching: this client sends no input; "
-				       "^C leaves\n");
+				       "watching: what you type goes to the "
+				       "session as a message; ^C leaves\n");
 		fyai_ui_pane_end(ctx, "remote", true, true);
 	}
 	view->opened = true;
@@ -1546,6 +1545,30 @@ void fyai_remote_ui_receive(struct fyai_remote_ui *view, fy_generic frame)
 }
 
 /*
+ * Forward a line typed in watch mode as a fyai_session_send control request.
+ * The control_response is ignored; replies arrive through the session stream.
+ */
+static int remote_ui_watch_line(struct fyai_remote_ui *view, const char *line)
+{
+	struct fyai_ctx *ctx = fyai_remote_ui_ctx(view);
+	struct fy_generic_builder *gb = fyai_ctx_transient_gb(ctx);
+
+	/* Slash commands are disabled in watch mode; `//` escapes `/`. */
+	if (line[0] == '/' && line[1] != '/') {
+		fyai_warning(ctx, "watching: a command cannot run here; type a "
+			     "message, or ^C to leave");
+		return 0;
+	}
+	return jsonrpc_conn_send_frame(view->conn, fy_mapping(gb,
+		"type", "control_request",
+		"request_id", fy_stringf(gb, "watch-send-%llu", ++view->requests),
+		"request", fy_mapping(gb, "subtype", "fyai_session_send",
+				      "branch", fyai_ctx_branch(ctx),
+				      "text", line[0] == '/' ? line + 1 : line,
+				      "from", "a watcher")));
+}
+
+/*
  * Send a line the user typed: a message of the conversation. It is echoed
  * here, as a local session echoes it, and its card from the worker is not
  * drawn again.
@@ -1555,7 +1578,7 @@ static int remote_ui_line(struct fyai_remote_ui *view, const char *line)
 	struct fy_generic_builder *gb = fyai_ctx_transient_gb(fyai_remote_ui_ctx(view));
 
 	if (view->watch)
-		return 0;
+		return remote_ui_watch_line(view, line);
 	/* A line for an attached agent is not a message of the session. */
 	if (view->av_attached)
 		return jsonrpc_conn_send_frame(view->conn, fy_mapping(gb,

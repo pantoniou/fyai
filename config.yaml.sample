@@ -438,7 +438,7 @@ display:
   # prompt_busy is the glyph of the prompt marker while a line would wait.
   # Empty takes the prompt.busy glyph of the theme, else an ellipsis.
   prompt_busy: ""
-  prompt_top: " {location}{sandbox}"
+  prompt_top: " {fleet}{location}{sandbox}"
   # Initial /branches view: tree or gitgraph; g cycles the available views.
   branch_view: tree
   # Browser preview placement: auto, right, bottom, or off; p cycles it.

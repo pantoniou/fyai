@@ -186,7 +186,7 @@ static inline fy_generic fyai_generic_or_null(fy_generic v)
 #define DEFAULT_PROMPT_BOTTOM \
 	" {model} · {provider} · {api}{effort}{summary}{temp}" \
 	"{tokens}{cache}{cost}{isolation}{view}"
-#define DEFAULT_PROMPT_TOP " {location}{sandbox}"
+#define DEFAULT_PROMPT_TOP " {fleet}{location}{sandbox}"
 /* Streaming markdown render cadence / colour / theme defaults. */
 #define DEFAULT_MARKDOWN_MODE "line"	/* oneshot | line | stream */
 #define DEFAULT_MARKDOWN_UPDATE_INTERVAL_MS 50

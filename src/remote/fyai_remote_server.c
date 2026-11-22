@@ -34,6 +34,7 @@
 #include "fyai_remote.h"
 #include "fyai_remote_http.h"
 #include "fyai_remote_int.h"
+#include "fyai_claude_sdk.h"
 #include "fyai_remote_tls.h"
 #include "fyai_sink.h"
 #include "fyai_storage.h"
@@ -130,6 +131,8 @@ struct fyai_remote_session {
 	/* Worker-reported busy flag and last state broadcast to supervisors. */
 	bool busy;
 	const char *state_sent;
+	/* Worker exited via fatal signal or unexpected non-zero status. */
+	bool crashed;
 	/*
 	 * Registered client-driven worker: server advertises it and serves
 	 * watchers, while its local client remains primary.
@@ -326,6 +329,8 @@ static void remote_states(struct fyai_remote_session *session, const char *state
 			   "state", state);
 	if (fy_is_valid(last))
 		frame = fy_assoc(gb, frame, "last", last);
+	if (session->crashed && !strcmp(state, "ended"))
+		frame = fy_assoc(gb, frame, "crashed", true);
 	for (watcher = session->watchers; watcher; watcher = watcher->wnext)
 		if (watcher->states)
 			remote_peer_send(watcher, frame);
@@ -482,6 +487,24 @@ static void remote_worker_frame(struct jsonrpc_conn *conn, fy_generic frame,
 		jsonrpc_image_free(wire.image);
 }
 
+/*
+ * True if wait status @status indicates an abnormal crash (fatal fault signal
+ * or unexpected non-zero exit). Intentional termination (SIGTERM/SIGKILL or
+ * FYAI_WORKER_EXIT_ENDED) returns false.
+ */
+static bool remote_status_crashed(int status)
+{
+	int sig;
+
+	if (WIFSIGNALED(status)) {
+		sig = WTERMSIG(status);
+		return sig == SIGSEGV || sig == SIGABRT || sig == SIGBUS ||
+		       sig == SIGFPE || sig == SIGILL;
+	}
+	return WIFEXITED(status) && WEXITSTATUS(status) &&
+	       WEXITSTATUS(status) != FYAI_WORKER_EXIT_ENDED;
+}
+
 static enum fyai_event_action remote_worker_exit(const struct fyai_event *ev)
 {
 	struct fyai_remote_session *session = ev->userdata;
@@ -489,6 +512,7 @@ static enum fyai_event_action remote_worker_exit(const struct fyai_event *ev)
 
 	session->child = NULL;
 	session->exited = true;
+	session->crashed = remote_status_crashed(ev->status);
 	session->server->dirty = true;
 	remote_log(session->server, "worker %ld (branch '%s') %s", (long)ev->pid,
 		   session->branch ? session->branch : "none",
@@ -1069,14 +1093,17 @@ static void remote_watch_request(struct fyai_remote_peer *peer, fy_generic frame
 {
 	struct fy_generic_builder *gb = fyai_ctx_transient_gb(fyai_cmd_call_ctx(peer->server->call));
 	struct fyai_remote_session *session = peer->session;
+	fy_generic request;
 	const char *text;
+	bool send;
 
 	if (!fy_is_string(id)) {
 		peer->failed = true;
 		return;
 	}
+	send = !strcmp(subtype, "fyai_session_send");
 	if (strcmp(subtype, "initialize") && strcmp(subtype, "fyai_sync") &&
-	    strcmp(subtype, "fyai_query")) {
+	    strcmp(subtype, "fyai_query") && !send) {
 		remote_reply(peer, id, "a watcher only reads", fy_invalid);
 		return;
 	}
@@ -1085,6 +1112,16 @@ static void remote_watch_request(struct fyai_remote_peer *peer, fy_generic frame
 		return;
 	}
 	text = fy_castp(&id, "");
+	/* Translate watcher fyai_session_send into worker fyai_message. */
+	if (send) {
+		request = fy_get(frame, "request", fy_invalid);
+		frame = fy_mapping(gb, "type", "control_request", "request", fy_mapping(gb,
+			"subtype", "fyai_message", "text", fy_get(request, "text", ""),
+			"from", fy_get(request, "from", "a watcher")));
+		remote_log(peer->server, "client %lu: sends a message to the worker %ld "
+			   "on branch '%s'", peer->id, (long)session->pid,
+			   session->branch ? session->branch : "none");
+	}
 	frame = fy_assoc(gb, frame, "request_id", fy_stringf(gb,
 		REMOTE_WATCH_PREFIX "%lu:%s", peer->id, text));
 	if (fyai_remote_send(session->worker, frame))

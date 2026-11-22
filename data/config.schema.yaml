@@ -1728,12 +1728,14 @@ properties:
       prompt_top:
         x-fyai-model: review
         type: string
-        default: " {location}{sandbox}"
+        default: " {fleet}{location}{sandbox}"
         description: >-
           Set the top row of the interactive prompt. It is a {key} template over the
           session vars (model, provider, api, effort, summary, temp, ctx,
           tokens, cache, cost, branch, cwd, location, layout, isolation, view,
-          sandbox). {sandbox} is " · sandbox PROFILE" for the profile that
+          sandbox, fleet). {fleet} is "jumped from SESSION · /root returns · "
+          in a client that `/jump` or `fleet attach --return` brought into a
+          session of the fleet, and empty otherwise. {sandbox} is " · sandbox PROFILE" for the profile that
           confines the tools, and
           " · no sandbox" when nothing confines them.
           Empty uses the built-in branch and working-directory row.
