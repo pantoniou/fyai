@@ -1252,6 +1252,16 @@ properties:
         minimum: 0
         default: 5
         description: Set the number of tool-result preview rows.
+      tile_live_rows:
+        x-fyai-model: review
+        type: integer
+        minimum: 1
+        default: 5
+        description: >-
+          Set the rows of live output that each tile of the work pane keeps
+          under its head when several tiles share the pane. Tiles that cannot
+          all have them collapse to one line each in the agents and shells
+          panels; the tile with the focus stays a tile.
       tool_history_lines:
         type: integer
         minimum: 0

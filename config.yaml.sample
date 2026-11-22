@@ -397,6 +397,9 @@ display:
   tool_preview_lines: 5
   # Rows of a running tool call that its tile keeps to scroll back through.
   tool_history_lines: 40
+  # Live rows under the head of each tile when tiles share the work pane;
+  # tiles that cannot all have them collapse to a line in a panel.
+  tile_live_rows: 5
   # Minimum period between tool redraws; 0 redraws every update.
   tool_update_interval_ms: 33
   # Interval at which an idle UI wakes to look for changes that no component
