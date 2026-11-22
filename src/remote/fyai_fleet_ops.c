@@ -1338,3 +1338,39 @@ int fyai_fleet_close(struct fyai_ctx *ctx, const char *name, bool force,
 	free(dir);
 	return rc;
 }
+
+int fyai_fleet_kill(struct fyai_ctx *ctx, struct fy_generic_builder *gb,
+		    const char *project, bool force, const char *skip,
+		    fy_generic *rowsp)
+{
+	fy_generic rows, row, out = fy_seq_empty;
+	const char *name, *why;
+	char *cause;
+	bool busy;
+	int rc;
+
+	if (fyai_fleet_rows_list(ctx, gb, &rows))
+		return -1;
+	fy_foreach(row, fyai_fleet_rows_in(gb, rows, project)) {
+		if (!fy_any_equal(fy_get(row, "state", fy_invalid), "idle", "running",
+				  "waiting"))
+			continue;
+		name = fy_gb_intern_string(gb, fy_sprintfa("%s:%s",
+			fy_get(row, "project", "."), fy_get(row, "branch", "")));
+		if (skip && !strcmp(name, skip))
+			continue;
+		busy = false;
+		rc = fyai_fleet_close(ctx, name, force, &busy);
+		why = "";
+		if (rc) {
+			cause = fyai_diag_string(fyai_ctx_diag(ctx));
+			why = fy_gb_intern_string(gb, cause ? cause : "refused");
+			free(cause);
+			fyai_diag_reset(fyai_ctx_diag(ctx));
+		}
+		out = fy_append(gb, out, fy_mapping(gb, "name", name,
+			"state", rc ? "refused" : "ended", "busy", busy, "why", why));
+	}
+	*rowsp = out;
+	return 0;
+}

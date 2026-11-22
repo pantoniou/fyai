@@ -191,6 +191,21 @@ int fyai_cmd_fleet_list(struct fyai_cmd_call *call, fy_generic *result)
 	return 0;
 }
 
+/* Terminate live fleet sessions, keeping self when invoked interactively. */
+int fyai_cmd_fleet_kill(struct fyai_cmd_call *call, fy_generic *result)
+{
+	struct fyai_ctx *ctx = fyai_cmd_call_ctx(call);
+	const char *self = NULL;
+
+	if (call->surface == FYAI_CMD_SESSION) {
+		self = fyai_fleet_name_full(ctx, call->gb, fyai_ctx_branch(ctx));
+		if (!self)
+			return -1;
+	}
+	return fyai_fleet_kill(ctx, call->gb, fyai_cmd_arg_str(call, "project"),
+			       fyai_cmd_arg_bool(call, "force"), self, result);
+}
+
 int fyai_cmd_fleet_scan(struct fyai_cmd_call *call, fy_generic *result)
 {
 	return fyai_fleet_rows_scan(fyai_cmd_call_ctx(call), call->gb, result);

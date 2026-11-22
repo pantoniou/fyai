@@ -4390,6 +4390,40 @@ commands:
               x-fyai-positional: 0
               x-fyai-meta: PROJECT
               x-fyai-complete: dir
+      - command: kill
+        title: end every live session of the fleet
+        description: |
+          End the live sessions of the fleet, as `session kill` ends one: each
+          worker gets SIGTERM and its clients see the session end. The branches
+          keep the turns that were stored; a turn in flight is lost. With
+          PROJECT, end only the sessions of that project and the projects below
+          it. From a session, the session that runs the command stays. With
+          `--force` each worker gets SIGKILL at once. A session that refuses is
+          listed as `refused`.
+        surfaces: [cli, session]
+        handler: fleet_kill
+        flags: [no-storage]
+        while_busy: run
+        render:
+          table:
+            title: Sessions ended
+            empty: no live sessions
+            keys: [name, state, busy, why]
+        arguments:
+          type: object
+          additionalProperties: false
+          properties:
+            project:
+              type: string
+              minLength: 1
+              description: only the sessions of this project and below
+              x-fyai-positional: 0
+              x-fyai-meta: PROJECT
+              x-fyai-complete: dir
+            force:
+              type: boolean
+              description: kill each worker at once (SIGKILL)
+              x-fyai-short: f
       - command: start
         title: start a session of a project with a task
         description: |

@@ -120,6 +120,7 @@ static const struct {
 	{ "session_list",	fyai_cmd_session_list },
 	{ "session_kill",	fyai_cmd_session_kill },
 	{ "fleet_list",		fyai_cmd_fleet_list },
+	{ "fleet_kill",		fyai_cmd_fleet_kill },
 	{ "fleet_scan",		fyai_cmd_fleet_scan },
 	{ "fleet_create",	fyai_cmd_fleet_create },
 	{ "fleet_start",	fyai_cmd_fleet_start },

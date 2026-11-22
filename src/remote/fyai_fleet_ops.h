@@ -150,4 +150,14 @@ int fyai_fleet_supervise(struct fyai_ctx *ctx, const char *name,
 int fyai_fleet_close(struct fyai_ctx *ctx, const char *name, bool force,
 		     bool *busyp);
 
+/*
+ * Terminate every live session in @project and its descendants (NULL or empty
+ * for the entire fleet) except @skip. Individual refusals are recorded rather
+ * than aborting. Sets *@rowsp to {name, state, busy, why} with state "ended"
+ * or "refused". Returns 0, or -1 if the fleet cannot be enumerated.
+ */
+int fyai_fleet_kill(struct fyai_ctx *ctx, struct fy_generic_builder *gb,
+		    const char *project, bool force, const char *skip,
+		    fy_generic *rowsp);
+
 #endif
