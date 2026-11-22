@@ -28,6 +28,9 @@
 #define FYAI_CRASH_FRAMES 64
 /* Alternate stack so a stack overflow still reaches the handler. */
 #define FYAI_CRASH_ALT_STACK (64 * 1024)
+/* The report is bounded: a handler that has not ended after this many seconds
+ * is cut short and the process dies of the original signal. */
+#define FYAI_CRASH_WATCHDOG_S 5
 
 static const int crash_signals[] = {
 	SIGSEGV,
@@ -53,6 +56,8 @@ static volatile sig_atomic_t crash_fd = STDERR_FILENO;
 static volatile sig_atomic_t crash_is_tty;
 /* Set on entry so a fault inside the handler re-raises at once. */
 static volatile sig_atomic_t crash_active;
+/* The signal being reported, for the watchdog. */
+static volatile sig_atomic_t crash_signo;
 static struct sigaction crash_prev[FYAI_CRASH_NSIGNS];
 /* One bit per crash_signals[] entry this process installed. */
 static unsigned int crash_installed;
@@ -195,6 +200,34 @@ static void crash_term_restore(int fd)
 	}
 }
 
+/*
+ * A fault inside the allocator leaves its lock held by the thread that is
+ * reporting, so anything the report calls that allocates waits for ever. The
+ * watchdog ends the process of the original signal instead of hanging it.
+ */
+static void crash_watchdog(int signo)
+{
+	(void)signo;
+	crash_reraise((int)crash_signo);
+}
+
+static void crash_watchdog_arm(void)
+{
+	struct sigaction sa;
+	sigset_t unblock;
+
+	memset(&sa, 0, sizeof(sa));
+	sa.sa_handler = crash_watchdog;
+	sigemptyset(&sa.sa_mask);
+	sa.sa_flags = SA_ONSTACK;
+	if (sigaction(SIGALRM, &sa, NULL))
+		return;
+	sigemptyset(&unblock);
+	sigaddset(&unblock, SIGALRM);
+	(void)sigprocmask(SIG_UNBLOCK, &unblock, NULL);
+	(void)alarm(FYAI_CRASH_WATCHDOG_S);
+}
+
 static void crash_handler(int signo)
 {
 	int fd, flags;
@@ -206,6 +239,8 @@ static void crash_handler(int signo)
 	if (crash_active)
 		crash_reraise(signo);
 	crash_active = 1;
+	crash_signo = signo;
+	crash_watchdog_arm();
 
 	fd = (int)crash_fd;
 	/* A pipe with no reader must truncate the report, not hang the exit. */
@@ -246,6 +281,9 @@ void fyai_crash_install(void)
 	sigset_t unblock;
 	stack_t ss;
 	size_t i;
+#ifdef HAVE_EXECINFO
+	void *warm[1];
+#endif
 
 #ifdef __FILC__
 	/* The runtime refuses sigaltstack() and reports its own safety stops. */
@@ -253,6 +291,12 @@ void fyai_crash_install(void)
 #endif
 	if (crash_ready)
 		return;
+
+#ifdef HAVE_EXECINFO
+	/* The first backtrace() loads libgcc_s with dlopen, which allocates:
+	 * load it now, not in a handler that may run inside the allocator. */
+	(void)backtrace(warm, 1);
+#endif
 
 	/* Without an alternate stack a stack overflow never reaches us. */
 	ss.ss_sp = crash_altstack;
