@@ -3,15 +3,6 @@
 
 <fy-slot id="transcript" height="20"/>
 
-<fy-drop order="0">
-
-<fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
-
-- a:fleet/x · idle — Work done.
-</fy-drop>
-
 <fy-drop order="2">
 
 <fy-space/>
@@ -50,8 +41,6 @@ CAP <fy-fill/>
 
 <fy-space/>
 
-<fy-role name="chrome">Fleet</fy-role>
-
 - a:fleet/x · idle — Work done.
 </fy-drop>
 
@@ -69,15 +58,6 @@ CAP <fy-fill/>
 
 - [>] First <b>task</b>
 - [ ] Second task
-</fy-drop>
-
-<fy-drop order="0">
-
-<fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
-
-- a:fleet/x · idle — Work done.
 </fy-drop>
 
 <fy-space/>
@@ -139,8 +119,6 @@ CAP <fy-fill/>
 <fy-drop order="0">
 
 <fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
 
 - a:fleet/x · idle — Work done.
 </fy-drop>
@@ -249,8 +227,6 @@ CAP <fy-fill/>
 <fy-drop order="0">
 
 <fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
 
 - a:fleet/x · idle — Work done.
 </fy-drop>
@@ -429,15 +405,6 @@ STATUS line
 === case 8
 <fy-tight>
 
-<fy-drop order="0">
-
-<fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
-
-- a:fleet/x · idle — Work done.
-</fy-drop>
-
 <fy-drop order="2">
 
 <fy-space/>
@@ -461,8 +428,6 @@ STATUS line
 <fy-drop order="0">
 
 <fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
 
 - a:fleet/x · idle — Work done.
 </fy-drop>
@@ -496,15 +461,6 @@ STATUS line
 <fy-tight>
 
 <fy-slot id="tail" height="2"/>
-
-<fy-drop order="0">
-
-<fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
-
-- a:fleet/x · idle — Work done.
-</fy-drop>
 
 <fy-space/>
 
@@ -566,8 +522,6 @@ STATUS line
 <fy-drop order="0">
 
 <fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
 
 - a:fleet/x · idle — Work done.
 </fy-drop>
@@ -737,8 +691,6 @@ STATUS line
 
 <fy-space/>
 
-<fy-role name="chrome">Fleet</fy-role>
-
 - a:fleet/x · idle — Work done.
 </fy-drop>
 
@@ -783,15 +735,6 @@ HINT <b>x</b>
 
 <fy-slot id="tail" height="2"/>
 
-<fy-drop order="0">
-
-<fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
-
-- a:fleet/x · idle — Work done.
-</fy-drop>
-
 <fy-space/>
 
 <fy-role name="chrome">●</fy-role> **pending** (2)\
@@ -818,8 +761,6 @@ HINT <b>x</b>
 
 <fy-space/>
 
-<fy-role name="chrome">Fleet</fy-role>
-
 - a:fleet/x · idle — Work done.
 </fy-drop>
 
@@ -837,15 +778,6 @@ HINT <b>x</b>
 
 - [>] First <b>task</b>
 - [ ] Second task
-</fy-drop>
-
-<fy-drop order="0">
-
-<fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
-
-- a:fleet/x · idle — Work done.
 </fy-drop>
 
 <fy-drop order="2">
@@ -876,8 +808,6 @@ HINT <b>x</b>
 
 <fy-space/>
 
-<fy-role name="chrome">Fleet</fy-role>
-
 - a:fleet/x · idle — Work done.
 </fy-drop>
 
@@ -893,15 +823,6 @@ HINT <b>x</b>
 
 - [>] First <b>task</b>
 - [ ] Second task
-</fy-drop>
-
-<fy-drop order="0">
-
-<fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
-
-- a:fleet/x · idle — Work done.
 </fy-drop>
 
 <fy-space/>
@@ -948,8 +869,6 @@ HINT <b>x</b>
 
 <fy-space/>
 
-<fy-role name="chrome">Fleet</fy-role>
-
 - a:fleet/x · idle — Work done.
 </fy-drop>
 
@@ -958,15 +877,6 @@ HINT <b>x</b>
 <fy-tight>
 
 <fy-slot id="transcript" height="20"/>
-
-<fy-drop order="0">
-
-<fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
-
-- a:fleet/x · idle — Work done.
-</fy-drop>
 
 <fy-drop order="2">
 
@@ -1007,8 +917,6 @@ CAP <fy-fill/>
 
 <fy-space/>
 
-<fy-role name="chrome">Fleet</fy-role>
-
 - a:fleet/x · idle — Work done.
 </fy-drop>
 
@@ -1021,8 +929,6 @@ CAP <fy-fill/>
 <fy-drop order="0">
 
 <fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
 
 - a:fleet/x · idle — Work done.
 </fy-drop>
@@ -1070,8 +976,6 @@ CAP <fy-fill/>
 <fy-drop order="0">
 
 <fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
 
 - a:fleet/x · idle — Work done.
 </fy-drop>
@@ -1136,8 +1040,6 @@ STATUS line
 
 <fy-space/>
 
-<fy-role name="chrome">Fleet</fy-role>
-
 - a:fleet/x · idle — Work done.
 </fy-drop>
 
@@ -1184,15 +1086,6 @@ CAP <fy-fill/>
 
 <fy-slot id="tail" height="2"/>
 
-<fy-drop order="0">
-
-<fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
-
-- a:fleet/x · idle — Work done.
-</fy-drop>
-
 <fy-drop order="2">
 
 <fy-space/>
@@ -1217,8 +1110,6 @@ CAP <fy-fill/>
 
 <fy-space/>
 
-<fy-role name="chrome">Fleet</fy-role>
-
 - a:fleet/x · idle — Work done.
 </fy-drop>
 
@@ -1227,15 +1118,6 @@ CAP <fy-fill/>
 <fy-tight>
 
 <fy-slot id="tail" height="2"/>
-
-<fy-drop order="0">
-
-<fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
-
-- a:fleet/x · idle — Work done.
-</fy-drop>
 
 <fy-drop order="2">
 
@@ -1272,8 +1154,6 @@ CAP <fy-fill/>
 <fy-drop order="0">
 
 <fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
 
 - a:fleet/x · idle — Work done.
 </fy-drop>
@@ -1489,8 +1369,6 @@ CAP <fy-fill/>
 
 <fy-space/>
 
-<fy-role name="chrome">Fleet</fy-role>
-
 - a:fleet/x · idle — Work done.
 </fy-drop>
 
@@ -1639,8 +1517,6 @@ CAP <fy-fill/>
 
 <fy-space/>
 
-<fy-role name="chrome">Fleet</fy-role>
-
 - a:fleet/x · idle — Work done.
 </fy-drop>
 
@@ -1702,8 +1578,6 @@ CAP <fy-fill/>
 
 <fy-space/>
 
-<fy-role name="chrome">Fleet</fy-role>
-
 - a:fleet/x · idle — Work done.
 </fy-drop>
 
@@ -1747,15 +1621,6 @@ CAP <fy-fill/>
 - [ ] Second task
 </fy-drop>
 
-<fy-drop order="0">
-
-<fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
-
-- a:fleet/x · idle — Work done.
-</fy-drop>
-
 <fy-drop order="2">
 
 <fy-space/>
@@ -1780,8 +1645,6 @@ CAP <fy-fill/>
 
 <fy-space/>
 
-<fy-role name="chrome">Fleet</fy-role>
-
 - a:fleet/x · idle — Work done.
 </fy-drop>
 
@@ -1790,15 +1653,6 @@ CAP <fy-fill/>
 <fy-tight>
 
 <fy-slot id="transcript" height="20"/>
-
-<fy-drop order="0">
-
-<fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
-
-- a:fleet/x · idle — Work done.
-</fy-drop>
 
 <fy-space/>
 
@@ -1843,8 +1697,6 @@ CAP <fy-fill/>
 <fy-drop order="0">
 
 <fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
 
 - a:fleet/x · idle — Work done.
 </fy-drop>
@@ -1900,8 +1752,6 @@ CAP <fy-fill/>
 <fy-drop order="0">
 
 <fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
 
 - a:fleet/x · idle — Work done.
 </fy-drop>
@@ -2069,8 +1919,6 @@ HINT <b>x</b>
 
 <fy-space/>
 
-<fy-role name="chrome">Fleet</fy-role>
-
 - a:fleet/x · idle — Work done.
 </fy-drop>
 
@@ -2142,8 +1990,6 @@ HINT <b>x</b>
 <fy-drop order="0">
 
 <fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
 
 - a:fleet/x · idle — Work done.
 </fy-drop>
@@ -2302,8 +2148,6 @@ CAP <fy-fill/>
 
 <fy-space/>
 
-<fy-role name="chrome">Fleet</fy-role>
-
 - a:fleet/x · idle — Work done.
 </fy-drop>
 
@@ -2363,8 +2207,6 @@ CAP <fy-fill/>
 
 <fy-space/>
 
-<fy-role name="chrome">Fleet</fy-role>
-
 - a:fleet/x · idle — Work done.
 </fy-drop>
 
@@ -2413,8 +2255,6 @@ CAP <fy-fill/>
 <fy-drop order="0">
 
 <fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
 
 - a:fleet/x · idle — Work done.
 </fy-drop>
@@ -2548,8 +2388,6 @@ CAP <fy-fill/>
 <fy-drop order="0">
 
 <fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
 
 - a:fleet/x · idle — Work done.
 </fy-drop>
@@ -2702,8 +2540,6 @@ CAP <fy-fill/>
 
 <fy-space/>
 
-<fy-role name="chrome">Fleet</fy-role>
-
 - a:fleet/x · idle — Work done.
 </fy-drop>
 
@@ -2759,15 +2595,6 @@ CAP <fy-fill/>
 
 - [>] First <b>task</b>
 - [ ] Second task
-</fy-drop>
-
-<fy-drop order="0">
-
-<fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
-
-- a:fleet/x · idle — Work done.
 </fy-drop>
 
 <fy-space/>
@@ -2834,8 +2661,6 @@ STATUS line
 
 <fy-space/>
 
-<fy-role name="chrome">Fleet</fy-role>
-
 - a:fleet/x · idle — Work done.
 </fy-drop>
 
@@ -2848,8 +2673,6 @@ STATUS line
 <fy-drop order="0">
 
 <fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
 
 - a:fleet/x · idle — Work done.
 </fy-drop>
@@ -3077,8 +2900,6 @@ CAP <fy-fill/>
 
 <fy-space/>
 
-<fy-role name="chrome">Fleet</fy-role>
-
 - a:fleet/x · idle — Work done.
 </fy-drop>
 
@@ -3130,15 +2951,6 @@ CAP <fy-fill/>
 
 - [>] First <b>task</b>
 - [ ] Second task
-</fy-drop>
-
-<fy-drop order="0">
-
-<fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
-
-- a:fleet/x · idle — Work done.
 </fy-drop>
 
 <fy-drop order="2">
@@ -3195,8 +3007,6 @@ CAP <fy-fill/>
 
 <fy-space/>
 
-<fy-role name="chrome">Fleet</fy-role>
-
 - a:fleet/x · idle — Work done.
 </fy-drop>
 
@@ -3207,8 +3017,6 @@ CAP <fy-fill/>
 <fy-drop order="0">
 
 <fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
 
 - a:fleet/x · idle — Work done.
 </fy-drop>
@@ -3304,8 +3112,6 @@ CAP <fy-fill/>
 
 <fy-space/>
 
-<fy-role name="chrome">Fleet</fy-role>
-
 - a:fleet/x · idle — Work done.
 </fy-drop>
 
@@ -3368,8 +3174,6 @@ HINT <b>x</b>
 <fy-drop order="0">
 
 <fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
 
 - a:fleet/x · idle — Work done.
 </fy-drop>
@@ -3484,15 +3288,6 @@ CAP <fy-fill/>
 - [ ] Second task
 </fy-drop>
 
-<fy-drop order="0">
-
-<fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
-
-- a:fleet/x · idle — Work done.
-</fy-drop>
-
 <fy-space/>
 
 <fy-role name="chrome">●</fy-role> **pending** (2)\
@@ -3556,8 +3351,6 @@ CAP <fy-fill/>
 <fy-drop order="0">
 
 <fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
 
 - a:fleet/x · idle — Work done.
 </fy-drop>
@@ -3644,15 +3437,6 @@ CAP <fy-fill/>
 
 <fy-slot id="tail" height="2"/>
 
-<fy-drop order="0">
-
-<fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
-
-- a:fleet/x · idle — Work done.
-</fy-drop>
-
 <fy-drop order="2">
 
 <fy-space/>
@@ -3697,8 +3481,6 @@ CAP <fy-fill/>
 <fy-drop order="0">
 
 <fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
 
 - a:fleet/x · idle — Work done.
 </fy-drop>
@@ -3880,8 +3662,6 @@ CAP <fy-fill/>
 
 <fy-space/>
 
-<fy-role name="chrome">Fleet</fy-role>
-
 - a:fleet/x · idle — Work done.
 </fy-drop>
 
@@ -3945,8 +3725,6 @@ CAP <fy-fill/>
 <fy-drop order="0">
 
 <fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
 
 - a:fleet/x · idle — Work done.
 </fy-drop>
@@ -4024,8 +3802,6 @@ CAP <fy-fill/>
 <fy-drop order="0">
 
 <fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
 
 - a:fleet/x · idle — Work done.
 </fy-drop>
@@ -4236,8 +4012,6 @@ CAP <fy-fill/>
 <fy-drop order="0">
 
 <fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
 
 - a:fleet/x · idle — Work done.
 </fy-drop>
@@ -4518,15 +4292,6 @@ CAP <fy-fill/>
 - [ ] Second task
 </fy-drop>
 
-<fy-drop order="0">
-
-<fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
-
-- a:fleet/x · idle — Work done.
-</fy-drop>
-
 <fy-space/>
 
 <fy-role name="chrome">●</fy-role> **pending** (2)\
@@ -4570,8 +4335,6 @@ CAP <fy-fill/>
 <fy-drop order="0">
 
 <fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
 
 - a:fleet/x · idle — Work done.
 </fy-drop>
@@ -4621,8 +4384,6 @@ CAP <fy-fill/>
 <fy-drop order="0">
 
 <fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
 
 - a:fleet/x · idle — Work done.
 </fy-drop>
@@ -4853,15 +4614,6 @@ CAP <fy-fill/>
 - [ ] Second task
 </fy-drop>
 
-<fy-drop order="0">
-
-<fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
-
-- a:fleet/x · idle — Work done.
-</fy-drop>
-
 <fy-space/>
 
 <fy-role name="chrome">●</fy-role> **pending** (2)\
@@ -4928,8 +4680,6 @@ CAP <fy-fill/>
 
 <fy-space/>
 
-<fy-role name="chrome">Fleet</fy-role>
-
 - a:fleet/x · idle — Work done.
 </fy-drop>
 
@@ -4947,15 +4697,6 @@ CAP <fy-fill/>
 
 - [>] First <b>task</b>
 - [ ] Second task
-</fy-drop>
-
-<fy-drop order="0">
-
-<fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
-
-- a:fleet/x · idle — Work done.
 </fy-drop>
 
 <fy-drop order="2">
@@ -4989,8 +4730,6 @@ CAP <fy-fill/>
 <fy-drop order="0">
 
 <fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
 
 - a:fleet/x · idle — Work done.
 </fy-drop>
@@ -5065,8 +4804,6 @@ CAP <fy-fill/>
 
 <fy-space/>
 
-<fy-role name="chrome">Fleet</fy-role>
-
 - a:fleet/x · idle — Work done.
 </fy-drop>
 
@@ -5134,8 +4871,6 @@ CAP <fy-fill/>
 
 <fy-space/>
 
-<fy-role name="chrome">Fleet</fy-role>
-
 - a:fleet/x · idle — Work done.
 </fy-drop>
 
@@ -5192,8 +4927,6 @@ CAP <fy-fill/>
 <fy-drop order="0">
 
 <fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
 
 - a:fleet/x · idle — Work done.
 </fy-drop>
@@ -5343,15 +5076,6 @@ STATUS line
 
 <fy-slot id="transcript" height="20"/>
 
-<fy-drop order="0">
-
-<fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
-
-- a:fleet/x · idle — Work done.
-</fy-drop>
-
 <fy-space/>
 
 <fy-role name="chrome">●</fy-role> **pending** (2)\
@@ -5392,8 +5116,6 @@ STATUS line
 
 <fy-space/>
 
-<fy-role name="chrome">Fleet</fy-role>
-
 - a:fleet/x · idle — Work done.
 </fy-drop>
 
@@ -5411,15 +5133,6 @@ STATUS line
 
 - [>] First <b>task</b>
 - [ ] Second task
-</fy-drop>
-
-<fy-drop order="0">
-
-<fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
-
-- a:fleet/x · idle — Work done.
 </fy-drop>
 
 <fy-drop order="2">
@@ -5461,8 +5174,6 @@ STATUS line
 <fy-drop order="0">
 
 <fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
 
 - a:fleet/x · idle — Work done.
 </fy-drop>
@@ -5518,15 +5229,6 @@ HINT <b>x</b>
 
 <fy-slot id="transcript" height="20"/>
 
-<fy-drop order="0">
-
-<fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
-
-- a:fleet/x · idle — Work done.
-</fy-drop>
-
 <fy-drop order="2">
 
 <fy-space/>
@@ -5547,8 +5249,6 @@ HINT <b>x</b>
 
 <fy-space/>
 
-<fy-role name="chrome">Fleet</fy-role>
-
 - a:fleet/x · idle — Work done.
 </fy-drop>
 
@@ -5567,8 +5267,6 @@ HINT <b>x</b>
 <fy-drop order="0">
 
 <fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
 
 - a:fleet/x · idle — Work done.
 </fy-drop>
@@ -5801,8 +5499,6 @@ CAP <fy-fill/>
 
 <fy-space/>
 
-<fy-role name="chrome">Fleet</fy-role>
-
 - a:fleet/x · idle — Work done.
 </fy-drop>
 
@@ -5972,15 +5668,6 @@ STATUS line
 === case 114
 <fy-tight>
 
-<fy-drop order="0">
-
-<fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
-
-- a:fleet/x · idle — Work done.
-</fy-drop>
-
 <fy-space/>
 
 <fy-role name="chrome">●</fy-role> **pending** (2)\
@@ -6029,8 +5716,6 @@ STATUS line
 
 <fy-space/>
 
-<fy-role name="chrome">Fleet</fy-role>
-
 - a:fleet/x · idle — Work done.
 </fy-drop>
 
@@ -6053,8 +5738,6 @@ STATUS line
 <fy-drop order="0">
 
 <fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
 
 - a:fleet/x · idle — Work done.
 </fy-drop>
@@ -6166,15 +5849,6 @@ CAP <fy-fill/>
 
 <fy-slot id="tail" height="2"/>
 
-<fy-drop order="0">
-
-<fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
-
-- a:fleet/x · idle — Work done.
-</fy-drop>
-
 <fy-space/>
 
 <fy-role name="chrome">●</fy-role> **pending** (2)\
@@ -6213,23 +5887,12 @@ HINT <b>x</b>
 
 <fy-space/>
 
-<fy-role name="chrome">Fleet</fy-role>
-
 - a:fleet/x · idle — Work done.
 </fy-drop>
 
 
 === case 119
 <fy-tight>
-
-<fy-drop order="0">
-
-<fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
-
-- a:fleet/x · idle — Work done.
-</fy-drop>
 
 <fy-drop order="2">
 
@@ -6253,8 +5916,6 @@ HINT <b>x</b>
 
 <fy-space/>
 
-<fy-role name="chrome">Fleet</fy-role>
-
 - a:fleet/x · idle — Work done.
 </fy-drop>
 
@@ -6267,8 +5928,6 @@ HINT <b>x</b>
 <fy-drop order="0">
 
 <fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
 
 - a:fleet/x · idle — Work done.
 </fy-drop>
@@ -6310,8 +5969,6 @@ STATUS line
 <fy-drop order="0">
 
 <fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
 
 - a:fleet/x · idle — Work done.
 </fy-drop>
@@ -6361,8 +6018,6 @@ STATUS line
 <fy-drop order="0">
 
 <fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
 
 - a:fleet/x · idle — Work done.
 </fy-drop>
@@ -6482,15 +6137,6 @@ CAP <fy-fill/>
 
 <fy-slot id="transcript" height="20"/>
 
-<fy-drop order="0">
-
-<fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
-
-- a:fleet/x · idle — Work done.
-</fy-drop>
-
 <fy-space/>
 
 <fy-role name="chrome">●</fy-role> **pending** (2)\
@@ -6521,8 +6167,6 @@ CAP <fy-fill/>
 
 <fy-space/>
 
-<fy-role name="chrome">Fleet</fy-role>
-
 - a:fleet/x · idle — Work done.
 </fy-drop>
 
@@ -6535,8 +6179,6 @@ CAP <fy-fill/>
 <fy-drop order="0">
 
 <fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
 
 - a:fleet/x · idle — Work done.
 </fy-drop>
@@ -6588,8 +6230,6 @@ HINT <b>x</b>
 <fy-drop order="0">
 
 <fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
 
 - a:fleet/x · idle — Work done.
 </fy-drop>
@@ -6644,8 +6284,6 @@ CAP <fy-fill/>
 <fy-drop order="0">
 
 <fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
 
 - a:fleet/x · idle — Work done.
 </fy-drop>
@@ -6942,8 +6580,6 @@ CAP <fy-fill/>
 
 <fy-space/>
 
-<fy-role name="chrome">Fleet</fy-role>
-
 - a:fleet/x · idle — Work done.
 </fy-drop>
 
@@ -7062,15 +6698,6 @@ CAP <fy-fill/>
 - [ ] Second task
 </fy-drop>
 
-<fy-drop order="0">
-
-<fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
-
-- a:fleet/x · idle — Work done.
-</fy-drop>
-
 <fy-space/>
 
 <fy-role name="chrome">●</fy-role> **pending** (2)\
@@ -7108,8 +6735,6 @@ CAP <fy-fill/>
 <fy-drop order="0">
 
 <fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
 
 - a:fleet/x · idle — Work done.
 </fy-drop>
@@ -7198,15 +6823,6 @@ CAP <fy-fill/>
 
 <fy-slot id="transcript" height="20"/>
 
-<fy-drop order="0">
-
-<fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
-
-- a:fleet/x · idle — Work done.
-</fy-drop>
-
 <fy-space/>
 
 <fy-role name="chrome">●</fy-role> **pending** (2)\
@@ -7236,8 +6852,6 @@ CAP <fy-fill/>
 
 <fy-space/>
 
-<fy-role name="chrome">Fleet</fy-role>
-
 - a:fleet/x · idle — Work done.
 </fy-drop>
 
@@ -7258,8 +6872,6 @@ CAP <fy-fill/>
 <fy-drop order="0">
 
 <fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
 
 - a:fleet/x · idle — Work done.
 </fy-drop>
@@ -7313,8 +6925,6 @@ STATUS line
 <fy-drop order="0">
 
 <fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
 
 - a:fleet/x · idle — Work done.
 </fy-drop>
@@ -7373,15 +6983,6 @@ STATUS line
 - [ ] Second task
 </fy-drop>
 
-<fy-drop order="0">
-
-<fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
-
-- a:fleet/x · idle — Work done.
-</fy-drop>
-
 <fy-drop order="2">
 
 <fy-space/>
@@ -7425,8 +7026,6 @@ STATUS line
 
 <fy-space/>
 
-<fy-role name="chrome">Fleet</fy-role>
-
 - a:fleet/x · idle — Work done.
 </fy-drop>
 
@@ -7449,8 +7048,6 @@ STATUS line
 <fy-drop order="0">
 
 <fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
 
 - a:fleet/x · idle — Work done.
 </fy-drop>
@@ -7662,15 +7259,6 @@ STATUS line
 - [ ] Second task
 </fy-drop>
 
-<fy-drop order="0">
-
-<fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
-
-- a:fleet/x · idle — Work done.
-</fy-drop>
-
 <fy-space/>
 
 <fy-role name="chrome">●</fy-role> **pending** (2)\
@@ -7744,8 +7332,6 @@ STATUS line
 <fy-drop order="0">
 
 <fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
 
 - a:fleet/x · idle — Work done.
 </fy-drop>
@@ -7994,8 +7580,6 @@ STATUS line
 
 <fy-space/>
 
-<fy-role name="chrome">Fleet</fy-role>
-
 - a:fleet/x · idle — Work done.
 </fy-drop>
 
@@ -8036,8 +7620,6 @@ STATUS line
 <fy-drop order="0">
 
 <fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
 
 - a:fleet/x · idle — Work done.
 </fy-drop>
@@ -8151,15 +7733,6 @@ CAP <fy-fill/>
 === case 157
 <fy-tight>
 
-<fy-drop order="0">
-
-<fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
-
-- a:fleet/x · idle — Work done.
-</fy-drop>
-
 <fy-drop order="2">
 
 <fy-space/>
@@ -8204,8 +7777,6 @@ CAP <fy-fill/>
 <fy-drop order="0">
 
 <fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
 
 - a:fleet/x · idle — Work done.
 </fy-drop>
@@ -8533,15 +8104,6 @@ CAP <fy-fill/>
 - [ ] Second task
 </fy-drop>
 
-<fy-drop order="0">
-
-<fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
-
-- a:fleet/x · idle — Work done.
-</fy-drop>
-
 <fy-drop order="2">
 
 <fy-space/>
@@ -8592,8 +8154,6 @@ CAP <fy-fill/>
 <fy-drop order="0">
 
 <fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
 
 - a:fleet/x · idle — Work done.
 </fy-drop>
@@ -8709,15 +8269,6 @@ CAP <fy-fill/>
 
 <fy-slot id="transcript" height="20"/>
 
-<fy-drop order="0">
-
-<fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
-
-- a:fleet/x · idle — Work done.
-</fy-drop>
-
 <fy-space/>
 
 <fy-role name="chrome">●</fy-role> **pending** (2)\
@@ -8739,8 +8290,6 @@ CAP <fy-fill/>
 <fy-drop order="0">
 
 <fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
 
 - a:fleet/x · idle — Work done.
 </fy-drop>
@@ -8852,15 +8401,6 @@ CAP <fy-fill/>
 - [ ] Second task
 </fy-drop>
 
-<fy-drop order="0">
-
-<fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
-
-- a:fleet/x · idle — Work done.
-</fy-drop>
-
 <fy-drop order="2">
 
 <fy-space/>
@@ -8915,8 +8455,6 @@ CAP <fy-fill/>
 
 <fy-space/>
 
-<fy-role name="chrome">Fleet</fy-role>
-
 - a:fleet/x · idle — Work done.
 </fy-drop>
 
@@ -8939,8 +8477,6 @@ CAP <fy-fill/>
 <fy-drop order="0">
 
 <fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
 
 - a:fleet/x · idle — Work done.
 </fy-drop>
@@ -9018,15 +8554,6 @@ HINT <b>x</b>
 - [ ] Second task
 </fy-drop>
 
-<fy-drop order="0">
-
-<fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
-
-- a:fleet/x · idle — Work done.
-</fy-drop>
-
 <fy-space/>
 
 <fy-role name="chrome">●</fy-role> **pending** (2)\
@@ -9081,8 +8608,6 @@ HINT <b>x</b>
 
 <fy-space/>
 
-<fy-role name="chrome">Fleet</fy-role>
-
 - a:fleet/x · idle — Work done.
 </fy-drop>
 
@@ -9095,8 +8620,6 @@ HINT <b>x</b>
 <fy-drop order="0">
 
 <fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
 
 - a:fleet/x · idle — Work done.
 </fy-drop>
@@ -9161,8 +8684,6 @@ HINT <b>x</b>
 <fy-drop order="0">
 
 <fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
 
 - a:fleet/x · idle — Work done.
 </fy-drop>
@@ -9285,8 +8806,6 @@ CAP <fy-fill/>
 
 <fy-space/>
 
-<fy-role name="chrome">Fleet</fy-role>
-
 - a:fleet/x · idle — Work done.
 </fy-drop>
 
@@ -9380,8 +8899,6 @@ CAP <fy-fill/>
 
 <fy-space/>
 
-<fy-role name="chrome">Fleet</fy-role>
-
 - a:fleet/x · idle — Work done.
 </fy-drop>
 
@@ -9467,15 +8984,6 @@ CAP <fy-fill/>
 - [ ] Second task
 </fy-drop>
 
-<fy-drop order="0">
-
-<fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
-
-- a:fleet/x · idle — Work done.
-</fy-drop>
-
 <fy-drop order="2">
 
 <fy-space/>
@@ -9550,8 +9058,6 @@ CAP <fy-fill/>
 
 <fy-space/>
 
-<fy-role name="chrome">Fleet</fy-role>
-
 - a:fleet/x · idle — Work done.
 </fy-drop>
 
@@ -9564,8 +9070,6 @@ CAP <fy-fill/>
 <fy-drop order="0">
 
 <fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
 
 - a:fleet/x · idle — Work done.
 </fy-drop>
@@ -9646,8 +9150,6 @@ CAP <fy-fill/>
 <fy-drop order="0">
 
 <fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
 
 - a:fleet/x · idle — Work done.
 </fy-drop>
@@ -9784,8 +9286,6 @@ CAP <fy-fill/>
 
 <fy-space/>
 
-<fy-role name="chrome">Fleet</fy-role>
-
 - a:fleet/x · idle — Work done.
 </fy-drop>
 
@@ -9842,8 +9342,6 @@ CAP <fy-fill/>
 <fy-drop order="0">
 
 <fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
 
 - a:fleet/x · idle — Work done.
 </fy-drop>
@@ -9914,15 +9412,6 @@ CAP <fy-fill/>
 
 - [>] First <b>task</b>
 - [ ] Second task
-</fy-drop>
-
-<fy-drop order="0">
-
-<fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
-
-- a:fleet/x · idle — Work done.
 </fy-drop>
 
 <fy-space/>
@@ -9999,8 +9488,6 @@ CAP <fy-fill/>
 
 <fy-space/>
 
-<fy-role name="chrome">Fleet</fy-role>
-
 - a:fleet/x · idle — Work done.
 </fy-drop>
 
@@ -10016,15 +9503,6 @@ CAP <fy-fill/>
 
 - [>] First <b>task</b>
 - [ ] Second task
-</fy-drop>
-
-<fy-drop order="0">
-
-<fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
-
-- a:fleet/x · idle — Work done.
 </fy-drop>
 
 <fy-space/>
@@ -10119,8 +9597,6 @@ CAP <fy-fill/>
 <fy-drop order="0">
 
 <fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
 
 - a:fleet/x · idle — Work done.
 </fy-drop>
@@ -10236,8 +9712,6 @@ CAP <fy-fill/>
 <fy-drop order="0">
 
 <fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
 
 - a:fleet/x · idle — Work done.
 </fy-drop>
@@ -10386,8 +9860,6 @@ CAP <fy-fill/>
 
 <fy-space/>
 
-<fy-role name="chrome">Fleet</fy-role>
-
 - a:fleet/x · idle — Work done.
 </fy-drop>
 
@@ -10470,15 +9942,6 @@ HINT <b>x</b>
 
 <fy-slot id="transcript" height="20"/>
 
-<fy-drop order="0">
-
-<fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
-
-- a:fleet/x · idle — Work done.
-</fy-drop>
-
 <fy-drop order="2">
 
 <fy-space/>
@@ -10512,8 +9975,6 @@ HINT <b>x</b>
 <fy-drop order="0">
 
 <fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
 
 - a:fleet/x · idle — Work done.
 </fy-drop>
@@ -10566,8 +10027,6 @@ STATUS line
 
 <fy-space/>
 
-<fy-role name="chrome">Fleet</fy-role>
-
 - a:fleet/x · idle — Work done.
 </fy-drop>
 
@@ -10612,8 +10071,6 @@ STATUS line
 <fy-drop order="0">
 
 <fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
 
 - a:fleet/x · idle — Work done.
 </fy-drop>
@@ -10695,8 +10152,6 @@ CAP <fy-fill/>
 <fy-drop order="0">
 
 <fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
 
 - a:fleet/x · idle — Work done.
 </fy-drop>
@@ -10788,15 +10243,6 @@ CAP <fy-fill/>
 
 <fy-slot id="transcript" height="20"/>
 
-<fy-drop order="0">
-
-<fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
-
-- a:fleet/x · idle — Work done.
-</fy-drop>
-
 <fy-space/>
 
 <fy-role name="chrome">●</fy-role> **pending** (2)\
@@ -10849,8 +10295,6 @@ HINT <b>x</b>
 
 <fy-space/>
 
-<fy-role name="chrome">Fleet</fy-role>
-
 - a:fleet/x · idle — Work done.
 </fy-drop>
 
@@ -10867,15 +10311,6 @@ HINT <b>x</b>
 <fy-tight>
 
 <fy-slot id="transcript" height="20"/>
-
-<fy-drop order="0">
-
-<fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
-
-- a:fleet/x · idle — Work done.
-</fy-drop>
 
 <fy-space/>
 
@@ -10904,8 +10339,6 @@ HINT <b>x</b>
 <fy-drop order="0">
 
 <fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
 
 - a:fleet/x · idle — Work done.
 </fy-drop>
@@ -10977,8 +10410,6 @@ HINT <b>x</b>
 <fy-drop order="0">
 
 <fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
 
 - a:fleet/x · idle — Work done.
 </fy-drop>
@@ -11081,8 +10512,6 @@ HINT <b>x</b>
 <fy-drop order="0">
 
 <fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
 
 - a:fleet/x · idle — Work done.
 </fy-drop>
@@ -11331,8 +10760,6 @@ HINT <b>x</b>
 
 <fy-space/>
 
-<fy-role name="chrome">Fleet</fy-role>
-
 - a:fleet/x · idle — Work done.
 </fy-drop>
 
@@ -11429,8 +10856,6 @@ CAP <fy-fill/>
 <fy-drop order="0">
 
 <fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
 
 - a:fleet/x · idle — Work done.
 </fy-drop>
@@ -11552,15 +10977,6 @@ STATUS line
 - [ ] Second task
 </fy-drop>
 
-<fy-drop order="0">
-
-<fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
-
-- a:fleet/x · idle — Work done.
-</fy-drop>
-
 <fy-drop order="2">
 
 <fy-space/>
@@ -11610,8 +11026,6 @@ STATUS line
 <fy-drop order="0">
 
 <fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
 
 - a:fleet/x · idle — Work done.
 </fy-drop>
@@ -11707,8 +11121,6 @@ HINT <b>x</b>
 <fy-drop order="0">
 
 <fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
 
 - a:fleet/x · idle — Work done.
 </fy-drop>
@@ -11874,15 +11286,6 @@ CAP <fy-fill/>
 - [ ] Second task
 </fy-drop>
 
-<fy-drop order="0">
-
-<fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
-
-- a:fleet/x · idle — Work done.
-</fy-drop>
-
 <fy-space/>
 
 <fy-role name="chrome">●</fy-role> **pending** (2)\
@@ -11945,8 +11348,6 @@ CAP <fy-fill/>
 <fy-drop order="0">
 
 <fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
 
 - a:fleet/x · idle — Work done.
 </fy-drop>
@@ -12067,8 +11468,6 @@ CAP <fy-fill/>
 
 <fy-space/>
 
-<fy-role name="chrome">Fleet</fy-role>
-
 - a:fleet/x · idle — Work done.
 </fy-drop>
 
@@ -12108,15 +11507,6 @@ CAP <fy-fill/>
 
 - [>] First <b>task</b>
 - [ ] Second task
-</fy-drop>
-
-<fy-drop order="0">
-
-<fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
-
-- a:fleet/x · idle — Work done.
 </fy-drop>
 
 <fy-drop order="2">
@@ -12172,8 +11562,6 @@ CAP <fy-fill/>
 <fy-drop order="0">
 
 <fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
 
 - a:fleet/x · idle — Work done.
 </fy-drop>
@@ -12246,15 +11634,6 @@ CAP <fy-fill/>
 
 <fy-slot id="transcript" height="20"/>
 
-<fy-drop order="0">
-
-<fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
-
-- a:fleet/x · idle — Work done.
-</fy-drop>
-
 <fy-space/>
 
 <fy-role name="chrome">●</fy-role> **pending** (2)\
@@ -12284,8 +11663,6 @@ CAP <fy-fill/>
 <fy-drop order="0">
 
 <fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
 
 - a:fleet/x · idle — Work done.
 </fy-drop>
@@ -12368,8 +11745,6 @@ CAP <fy-fill/>
 
 <fy-space/>
 
-<fy-role name="chrome">Fleet</fy-role>
-
 - a:fleet/x · idle — Work done.
 </fy-drop>
 
@@ -12403,15 +11778,6 @@ CAP <fy-fill/>
 - [ ] Second task
 </fy-drop>
 
-<fy-drop order="0">
-
-<fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
-
-- a:fleet/x · idle — Work done.
-</fy-drop>
-
 <fy-drop order="2">
 
 <fy-space/>
@@ -12441,8 +11807,6 @@ CAP <fy-fill/>
 <fy-drop order="0">
 
 <fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
 
 - a:fleet/x · idle — Work done.
 </fy-drop>
@@ -12705,15 +12069,6 @@ CAP <fy-fill/>
 === case 251
 <fy-tight>
 
-<fy-drop order="0">
-
-<fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
-
-- a:fleet/x · idle — Work done.
-</fy-drop>
-
 <fy-space/>
 
 <fy-role name="chrome">●</fy-role> **pending** (2)\
@@ -12738,8 +12093,6 @@ CAP <fy-fill/>
 
 <fy-space/>
 
-<fy-role name="chrome">Fleet</fy-role>
-
 - a:fleet/x · idle — Work done.
 </fy-drop>
 
@@ -12757,15 +12110,6 @@ CAP <fy-fill/>
 
 - [>] First <b>task</b>
 - [ ] Second task
-</fy-drop>
-
-<fy-drop order="0">
-
-<fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
-
-- a:fleet/x · idle — Work done.
 </fy-drop>
 
 <fy-drop order="2">
@@ -12817,8 +12161,6 @@ CAP <fy-fill/>
 
 <fy-space/>
 
-<fy-role name="chrome">Fleet</fy-role>
-
 - a:fleet/x · idle — Work done.
 </fy-drop>
 
@@ -12835,15 +12177,6 @@ CAP <fy-fill/>
 <fy-tight>
 
 <fy-slot id="transcript" height="20"/>
-
-<fy-drop order="0">
-
-<fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
-
-- a:fleet/x · idle — Work done.
-</fy-drop>
 
 <fy-drop order="2">
 
@@ -12894,8 +12227,6 @@ CAP <fy-fill/>
 <fy-drop order="0">
 
 <fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
 
 - a:fleet/x · idle — Work done.
 </fy-drop>
@@ -12997,8 +12328,6 @@ CAP <fy-fill/>
 <fy-drop order="0">
 
 <fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
 
 - a:fleet/x · idle — Work done.
 </fy-drop>
@@ -13148,15 +12477,6 @@ HINT <b>x</b>
 
 <fy-slot id="transcript" height="20"/>
 
-<fy-drop order="0">
-
-<fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
-
-- a:fleet/x · idle — Work done.
-</fy-drop>
-
 <fy-slot id="note" height="1"/>
 
 <fy-space/>
@@ -13172,8 +12492,6 @@ CAP <fy-fill/>
 <fy-drop order="0">
 
 <fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
 
 - a:fleet/x · idle — Work done.
 </fy-drop>
@@ -13240,15 +12558,6 @@ CAP <fy-fill/>
 
 <fy-slot id="transcript" height="20"/>
 
-<fy-drop order="0">
-
-<fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
-
-- a:fleet/x · idle — Work done.
-</fy-drop>
-
 <fy-drop order="2">
 
 <fy-space/>
@@ -13272,8 +12581,6 @@ CAP <fy-fill/>
 <fy-drop order="0">
 
 <fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
 
 - a:fleet/x · idle — Work done.
 </fy-drop>
@@ -13352,15 +12659,6 @@ CAP <fy-fill/>
 
 <fy-slot id="transcript" height="20"/>
 
-<fy-drop order="0">
-
-<fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
-
-- a:fleet/x · idle — Work done.
-</fy-drop>
-
 <fy-drop order="2">
 
 <fy-space/>
@@ -13394,8 +12692,6 @@ CAP <fy-fill/>
 <fy-drop order="0">
 
 <fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
 
 - a:fleet/x · idle — Work done.
 </fy-drop>
@@ -13620,8 +12916,6 @@ CAP <fy-fill/>
 
 <fy-space/>
 
-<fy-role name="chrome">Fleet</fy-role>
-
 - a:fleet/x · idle — Work done.
 </fy-drop>
 
@@ -13668,8 +12962,6 @@ CAP <fy-fill/>
 <fy-drop order="0">
 
 <fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
 
 - a:fleet/x · idle — Work done.
 </fy-drop>
@@ -13734,8 +13026,6 @@ CAP <fy-fill/>
 
 <fy-space/>
 
-<fy-role name="chrome">Fleet</fy-role>
-
 - a:fleet/x · idle — Work done.
 </fy-drop>
 
@@ -13777,15 +13067,6 @@ CAP <fy-fill/>
 === case 275
 <fy-tight>
 
-<fy-drop order="0">
-
-<fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
-
-- a:fleet/x · idle — Work done.
-</fy-drop>
-
 <fy-space/>
 
 <fy-role name="chrome">●</fy-role> **pending** (2)\
@@ -13814,8 +13095,6 @@ CAP <fy-fill/>
 
 <fy-space/>
 
-<fy-role name="chrome">Fleet</fy-role>
-
 - a:fleet/x · idle — Work done.
 </fy-drop>
 
@@ -13828,8 +13107,6 @@ CAP <fy-fill/>
 <fy-drop order="0">
 
 <fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
 
 - a:fleet/x · idle — Work done.
 </fy-drop>
@@ -13885,15 +13162,6 @@ STATUS line
 
 <fy-slot id="tail" height="2"/>
 
-<fy-drop order="0">
-
-<fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
-
-- a:fleet/x · idle — Work done.
-</fy-drop>
-
 <fy-space/>
 
 <fy-role name="chrome">●</fy-role> **pending** (2)\
@@ -13931,8 +13199,6 @@ STATUS line
 <fy-drop order="0">
 
 <fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
 
 - a:fleet/x · idle — Work done.
 </fy-drop>
@@ -13993,15 +13259,6 @@ STATUS line
 === case 279
 <fy-tight>
 
-<fy-drop order="0">
-
-<fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
-
-- a:fleet/x · idle — Work done.
-</fy-drop>
-
 <fy-drop order="2">
 
 <fy-space/>
@@ -14026,8 +13283,6 @@ STATUS line
 
 <fy-space/>
 
-<fy-role name="chrome">Fleet</fy-role>
-
 - a:fleet/x · idle — Work done.
 </fy-drop>
 
@@ -14036,15 +13291,6 @@ STATUS line
 <fy-tight>
 
 <fy-slot id="transcript" height="20"/>
-
-<fy-drop order="0">
-
-<fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
-
-- a:fleet/x · idle — Work done.
-</fy-drop>
 
 <fy-space n="2"/>[1mReview[22m  Send these answers?
 
@@ -14060,8 +13306,6 @@ STATUS line
 
 <fy-space/>
 
-<fy-role name="chrome">Fleet</fy-role>
-
 - a:fleet/x · idle — Work done.
 </fy-drop>
 
@@ -14070,15 +13314,6 @@ STATUS line
 <fy-tight>
 
 <fy-slot id="tail" height="2"/>
-
-<fy-drop order="0">
-
-<fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
-
-- a:fleet/x · idle — Work done.
-</fy-drop>
 
 <fy-drop order="2">
 
@@ -14140,23 +13375,12 @@ CAP <fy-fill/>
 
 <fy-space/>
 
-<fy-role name="chrome">Fleet</fy-role>
-
 - a:fleet/x · idle — Work done.
 </fy-drop>
 
 
 === case 282
 <fy-tight>
-
-<fy-drop order="0">
-
-<fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
-
-- a:fleet/x · idle — Work done.
-</fy-drop>
 
 <fy-drop order="2">
 
@@ -14201,8 +13425,6 @@ CAP <fy-fill/>
 <fy-drop order="0">
 
 <fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
 
 - a:fleet/x · idle — Work done.
 </fy-drop>
@@ -14326,8 +13548,6 @@ CAP <fy-fill/>
 
 <fy-space/>
 
-<fy-role name="chrome">Fleet</fy-role>
-
 - a:fleet/x · idle — Work done.
 </fy-drop>
 
@@ -14377,15 +13597,6 @@ CAP <fy-fill/>
 
 <fy-slot id="tail" height="2"/>
 
-<fy-drop order="0">
-
-<fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
-
-- a:fleet/x · idle — Work done.
-</fy-drop>
-
 <fy-space/>
 
 <fy-role name="chrome">●</fy-role> **pending** (2)\
@@ -14430,8 +13641,6 @@ CAP <fy-fill/>
 <fy-drop order="0">
 
 <fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
 
 - a:fleet/x · idle — Work done.
 </fy-drop>
@@ -14488,8 +13697,6 @@ CAP <fy-fill/>
 
 <fy-space/>
 
-<fy-role name="chrome">Fleet</fy-role>
-
 - a:fleet/x · idle — Work done.
 </fy-drop>
 
@@ -14520,15 +13727,6 @@ STATUS line
 
 === case 290
 <fy-tight>
-
-<fy-drop order="0">
-
-<fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
-
-- a:fleet/x · idle — Work done.
-</fy-drop>
 
 <fy-drop order="2">
 
@@ -14574,8 +13772,6 @@ CAP <fy-fill/>
 <fy-drop order="0">
 
 <fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
 
 - a:fleet/x · idle — Work done.
 </fy-drop>
@@ -14626,15 +13822,6 @@ CAP <fy-fill/>
 
 - [>] First <b>task</b>
 - [ ] Second task
-</fy-drop>
-
-<fy-drop order="0">
-
-<fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
-
-- a:fleet/x · idle — Work done.
 </fy-drop>
 
 <fy-drop order="2">
@@ -14695,8 +13882,6 @@ CAP <fy-fill/>
 
 <fy-space/>
 
-<fy-role name="chrome">Fleet</fy-role>
-
 - a:fleet/x · idle — Work done.
 </fy-drop>
 
@@ -14749,8 +13934,6 @@ CAP <fy-fill/>
 
 <fy-space/>
 
-<fy-role name="chrome">Fleet</fy-role>
-
 - a:fleet/x · idle — Work done.
 </fy-drop>
 
@@ -14799,8 +13982,6 @@ CAP <fy-fill/>
 <fy-drop order="0">
 
 <fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
 
 - a:fleet/x · idle — Work done.
 </fy-drop>
@@ -14856,15 +14037,6 @@ CAP <fy-fill/>
 - [ ] Second task
 </fy-drop>
 
-<fy-drop order="0">
-
-<fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
-
-- a:fleet/x · idle — Work done.
-</fy-drop>
-
 <fy-space/>
 
 <fy-role name="chrome">●</fy-role> **pending** (2)\
@@ -14904,8 +14076,6 @@ CAP <fy-fill/>
 
 <fy-space/>
 
-<fy-role name="chrome">Fleet</fy-role>
-
 - a:fleet/x · idle — Work done.
 </fy-drop>
 
@@ -14918,8 +14088,6 @@ CAP <fy-fill/>
 <fy-drop order="0">
 
 <fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
 
 - a:fleet/x · idle — Work done.
 </fy-drop>
@@ -15123,8 +14291,6 @@ HINT <b>x</b>
 
 <fy-space/>
 
-<fy-role name="chrome">Fleet</fy-role>
-
 - a:fleet/x · idle — Work done.
 </fy-drop>
 
@@ -15302,15 +14468,6 @@ CAP <fy-fill/>
 - [ ] Second task
 </fy-drop>
 
-<fy-drop order="0">
-
-<fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
-
-- a:fleet/x · idle — Work done.
-</fy-drop>
-
 <fy-drop order="2">
 
 <fy-space/>
@@ -15359,8 +14516,6 @@ CAP <fy-fill/>
 <fy-drop order="0">
 
 <fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
 
 - a:fleet/x · idle — Work done.
 </fy-drop>
@@ -15466,15 +14621,6 @@ CAP <fy-fill/>
 
 <fy-slot id="tail" height="2"/>
 
-<fy-drop order="0">
-
-<fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
-
-- a:fleet/x · idle — Work done.
-</fy-drop>
-
 <fy-drop order="2">
 
 <fy-space/>
@@ -15522,8 +14668,6 @@ CAP <fy-fill/>
 
 <fy-space/>
 
-<fy-role name="chrome">Fleet</fy-role>
-
 - a:fleet/x · idle — Work done.
 </fy-drop>
 
@@ -15539,15 +14683,6 @@ CAP <fy-fill/>
 
 - [>] First <b>task</b>
 - [ ] Second task
-</fy-drop>
-
-<fy-drop order="0">
-
-<fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
-
-- a:fleet/x · idle — Work done.
 </fy-drop>
 
 <fy-drop order="2">
@@ -15633,8 +14768,6 @@ CAP <fy-fill/>
 
 <fy-space/>
 
-<fy-role name="chrome">Fleet</fy-role>
-
 - a:fleet/x · idle — Work done.
 </fy-drop>
 
@@ -15657,8 +14790,6 @@ CAP <fy-fill/>
 <fy-drop order="0">
 
 <fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
 
 - a:fleet/x · idle — Work done.
 </fy-drop>
@@ -15867,8 +14998,6 @@ CAP <fy-fill/>
 <fy-drop order="0">
 
 <fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
 
 - a:fleet/x · idle — Work done.
 </fy-drop>
@@ -16197,8 +15326,6 @@ STATUS line
 
 <fy-space/>
 
-<fy-role name="chrome">Fleet</fy-role>
-
 - a:fleet/x · idle — Work done.
 </fy-drop>
 
@@ -16261,8 +15388,6 @@ STATUS line
 <fy-drop order="0">
 
 <fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
 
 - a:fleet/x · idle — Work done.
 </fy-drop>
@@ -16672,15 +15797,6 @@ STATUS line
 === case 339
 <fy-tight>
 
-<fy-drop order="0">
-
-<fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
-
-- a:fleet/x · idle — Work done.
-</fy-drop>
-
 <fy-space/>
 
 <fy-role name="chrome">●</fy-role> **pending** (2)\
@@ -16729,23 +15845,12 @@ STATUS line
 
 <fy-space/>
 
-<fy-role name="chrome">Fleet</fy-role>
-
 - a:fleet/x · idle — Work done.
 </fy-drop>
 
 
 === case 340
 <fy-tight>
-
-<fy-drop order="0">
-
-<fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
-
-- a:fleet/x · idle — Work done.
-</fy-drop>
 
 <fy-space/>
 
@@ -16773,8 +15878,6 @@ STATUS line
 
 <fy-space/>
 
-<fy-role name="chrome">Fleet</fy-role>
-
 - a:fleet/x · idle — Work done.
 </fy-drop>
 
@@ -16792,15 +15895,6 @@ STATUS line
 
 - [>] First <b>task</b>
 - [ ] Second task
-</fy-drop>
-
-<fy-drop order="0">
-
-<fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
-
-- a:fleet/x · idle — Work done.
 </fy-drop>
 
 <fy-drop order="2">
@@ -16854,8 +15948,6 @@ STATUS line
 
 <fy-space/>
 
-<fy-role name="chrome">Fleet</fy-role>
-
 - a:fleet/x · idle — Work done.
 </fy-drop>
 
@@ -16868,8 +15960,6 @@ STATUS line
 <fy-drop order="0">
 
 <fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
 
 - a:fleet/x · idle — Work done.
 </fy-drop>
@@ -17032,8 +16122,6 @@ STATUS line
 <fy-drop order="0">
 
 <fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
 
 - a:fleet/x · idle — Work done.
 </fy-drop>
@@ -17353,8 +16441,6 @@ HINT <b>x</b>
 
 <fy-space/>
 
-<fy-role name="chrome">Fleet</fy-role>
-
 - a:fleet/x · idle — Work done.
 </fy-drop>
 
@@ -17402,15 +16488,6 @@ HINT <b>x</b>
 
 <fy-slot id="tail" height="2"/>
 
-<fy-drop order="0">
-
-<fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
-
-- a:fleet/x · idle — Work done.
-</fy-drop>
-
 <fy-space/>
 
 <fy-role name="chrome">●</fy-role> **pending** (2)\
@@ -17432,8 +16509,6 @@ HINT <b>x</b>
 <fy-drop order="0">
 
 <fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
 
 - a:fleet/x · idle — Work done.
 </fy-drop>
@@ -17721,8 +16796,6 @@ CAP <fy-fill/>
 
 <fy-space/>
 
-<fy-role name="chrome">Fleet</fy-role>
-
 - a:fleet/x · idle — Work done.
 </fy-drop>
 
@@ -17836,8 +16909,6 @@ CAP <fy-fill/>
 
 <fy-space/>
 
-<fy-role name="chrome">Fleet</fy-role>
-
 - a:fleet/x · idle — Work done.
 </fy-drop>
 
@@ -17924,8 +16995,6 @@ CAP <fy-fill/>
 
 <fy-space/>
 
-<fy-role name="chrome">Fleet</fy-role>
-
 - a:fleet/x · idle — Work done.
 </fy-drop>
 
@@ -17977,15 +17046,6 @@ CAP <fy-fill/>
 
 - [>] First <b>task</b>
 - [ ] Second task
-</fy-drop>
-
-<fy-drop order="0">
-
-<fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
-
-- a:fleet/x · idle — Work done.
 </fy-drop>
 
 <fy-space/>
@@ -18059,23 +17119,12 @@ CAP <fy-fill/>
 
 <fy-space/>
 
-<fy-role name="chrome">Fleet</fy-role>
-
 - a:fleet/x · idle — Work done.
 </fy-drop>
 
 
 === case 368
 <fy-tight>
-
-<fy-drop order="0">
-
-<fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
-
-- a:fleet/x · idle — Work done.
-</fy-drop>
 
 <fy-space/>
 
@@ -18112,8 +17161,6 @@ CAP <fy-fill/>
 <fy-drop order="0">
 
 <fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
 
 - a:fleet/x · idle — Work done.
 </fy-drop>
@@ -18162,15 +17209,6 @@ CAP <fy-fill/>
 
 - [>] First <b>task</b>
 - [ ] Second task
-</fy-drop>
-
-<fy-drop order="0">
-
-<fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
-
-- a:fleet/x · idle — Work done.
 </fy-drop>
 
 <fy-space/>
@@ -18234,8 +17272,6 @@ CAP <fy-fill/>
 <fy-drop order="0">
 
 <fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
 
 - a:fleet/x · idle — Work done.
 </fy-drop>
@@ -18302,15 +17338,6 @@ CAP <fy-fill/>
 - [ ] Second task
 </fy-drop>
 
-<fy-drop order="0">
-
-<fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
-
-- a:fleet/x · idle — Work done.
-</fy-drop>
-
 <fy-drop order="2">
 
 <fy-space/>
@@ -18361,8 +17388,6 @@ CAP <fy-fill/>
 
 <fy-space/>
 
-<fy-role name="chrome">Fleet</fy-role>
-
 - a:fleet/x · idle — Work done.
 </fy-drop>
 
@@ -18371,15 +17396,6 @@ CAP <fy-fill/>
 <fy-tight>
 
 <fy-slot id="transcript" height="20"/>
-
-<fy-drop order="0">
-
-<fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
-
-- a:fleet/x · idle — Work done.
-</fy-drop>
 
 <fy-drop order="2">
 
@@ -18420,8 +17436,6 @@ CAP <fy-fill/>
 <fy-drop order="0">
 
 <fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
 
 - a:fleet/x · idle — Work done.
 </fy-drop>
@@ -18578,15 +17592,6 @@ CAP <fy-fill/>
 - [ ] Second task
 </fy-drop>
 
-<fy-drop order="0">
-
-<fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
-
-- a:fleet/x · idle — Work done.
-</fy-drop>
-
 <fy-drop order="2">
 
 <fy-space/>
@@ -18635,8 +17640,6 @@ CAP <fy-fill/>
 <fy-drop order="0">
 
 <fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
 
 - a:fleet/x · idle — Work done.
 </fy-drop>
@@ -18742,8 +17745,6 @@ CAP <fy-fill/>
 
 <fy-space/>
 
-<fy-role name="chrome">Fleet</fy-role>
-
 - a:fleet/x · idle — Work done.
 </fy-drop>
 
@@ -18809,8 +17810,6 @@ CAP <fy-fill/>
 <fy-drop order="0">
 
 <fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
 
 - a:fleet/x · idle — Work done.
 </fy-drop>
@@ -19015,15 +18014,6 @@ HINT <b>x</b>
 - [ ] Second task
 </fy-drop>
 
-<fy-drop order="0">
-
-<fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
-
-- a:fleet/x · idle — Work done.
-</fy-drop>
-
 <fy-slot id="note" height="1"/>
 
 <fy-drop order="1">
@@ -19048,8 +18038,6 @@ HINT <b>x</b>
 
 <fy-space/>
 
-<fy-role name="chrome">Fleet</fy-role>
-
 - a:fleet/x · idle — Work done.
 </fy-drop>
 
@@ -19067,15 +18055,6 @@ HINT <b>x</b>
 
 - [>] First <b>task</b>
 - [ ] Second task
-</fy-drop>
-
-<fy-drop order="0">
-
-<fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
-
-- a:fleet/x · idle — Work done.
 </fy-drop>
 
 <fy-space/>
@@ -19120,8 +18099,6 @@ CAP <fy-fill/>
 
 <fy-space/>
 
-<fy-role name="chrome">Fleet</fy-role>
-
 - a:fleet/x · idle — Work done.
 </fy-drop>
 
@@ -19130,15 +18107,6 @@ CAP <fy-fill/>
 <fy-tight>
 
 <fy-slot id="tail" height="2"/>
-
-<fy-drop order="0">
-
-<fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
-
-- a:fleet/x · idle — Work done.
-</fy-drop>
 
 <fy-drop order="2">
 
@@ -19187,8 +18155,6 @@ CAP <fy-fill/>
 <fy-drop order="0">
 
 <fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
 
 - a:fleet/x · idle — Work done.
 </fy-drop>
@@ -19333,8 +18299,6 @@ CAP <fy-fill/>
 
 <fy-space/>
 
-<fy-role name="chrome">Fleet</fy-role>
-
 - a:fleet/x · idle — Work done.
 </fy-drop>
 
@@ -19386,8 +18350,6 @@ CAP <fy-fill/>
 
 <fy-space/>
 
-<fy-role name="chrome">Fleet</fy-role>
-
 - a:fleet/x · idle — Work done.
 </fy-drop>
 
@@ -19424,15 +18386,6 @@ CAP <fy-fill/>
 <fy-tight>
 
 <fy-slot id="transcript" height="20"/>
-
-<fy-drop order="0">
-
-<fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
-
-- a:fleet/x · idle — Work done.
-</fy-drop>
 
 <fy-space/>
 
@@ -19476,8 +18429,6 @@ CAP <fy-fill/>
 <fy-drop order="0">
 
 <fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
 
 - a:fleet/x · idle — Work done.
 </fy-drop>
@@ -19544,8 +18495,6 @@ CAP <fy-fill/>
 
 <fy-space/>
 
-<fy-role name="chrome">Fleet</fy-role>
-
 - a:fleet/x · idle — Work done.
 </fy-drop>
 
@@ -19602,8 +18551,6 @@ CAP <fy-fill/>
 <fy-drop order="0">
 
 <fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
 
 - a:fleet/x · idle — Work done.
 </fy-drop>
@@ -19750,8 +18697,6 @@ CAP <fy-fill/>
 
 <fy-space/>
 
-<fy-role name="chrome">Fleet</fy-role>
-
 - a:fleet/x · idle — Work done.
 </fy-drop>
 
@@ -19789,15 +18734,6 @@ CAP <fy-fill/>
 
 - [>] First <b>task</b>
 - [ ] Second task
-</fy-drop>
-
-<fy-drop order="0">
-
-<fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
-
-- a:fleet/x · idle — Work done.
 </fy-drop>
 
 <fy-space/>
@@ -19857,8 +18793,6 @@ STATUS line
 <fy-drop order="0">
 
 <fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
 
 - a:fleet/x · idle — Work done.
 </fy-drop>
@@ -19981,15 +18915,6 @@ STATUS line
 - [ ] Second task
 </fy-drop>
 
-<fy-drop order="0">
-
-<fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
-
-- a:fleet/x · idle — Work done.
-</fy-drop>
-
 <fy-space/>
 
 <fy-role name="chrome">●</fy-role> **pending** (2)\
@@ -20039,8 +18964,6 @@ STATUS line
 <fy-drop order="0">
 
 <fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
 
 - a:fleet/x · idle — Work done.
 </fy-drop>
@@ -20207,15 +19130,6 @@ CAP <fy-fill/>
 
 <fy-slot id="transcript" height="20"/>
 
-<fy-drop order="0">
-
-<fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
-
-- a:fleet/x · idle — Work done.
-</fy-drop>
-
 <fy-space/>
 
 <fy-role name="chrome">●</fy-role> **pending** (2)\
@@ -20274,8 +19188,6 @@ CAP <fy-fill/>
 
 <fy-space/>
 
-<fy-role name="chrome">Fleet</fy-role>
-
 - a:fleet/x · idle — Work done.
 </fy-drop>
 
@@ -20326,15 +19238,6 @@ CAP <fy-fill/>
 
 === case 409
 <fy-tight>
-
-<fy-drop order="0">
-
-<fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
-
-- a:fleet/x · idle — Work done.
-</fy-drop>
 
 <fy-space/>
 
@@ -20395,8 +19298,6 @@ CAP <fy-fill/>
 
 <fy-space/>
 
-<fy-role name="chrome">Fleet</fy-role>
-
 - a:fleet/x · idle — Work done.
 </fy-drop>
 
@@ -20407,8 +19308,6 @@ CAP <fy-fill/>
 <fy-drop order="0">
 
 <fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
 
 - a:fleet/x · idle — Work done.
 </fy-drop>
@@ -20451,8 +19350,6 @@ CAP <fy-fill/>
 <fy-drop order="0">
 
 <fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
 
 - a:fleet/x · idle — Work done.
 </fy-drop>
@@ -20531,8 +19428,6 @@ CAP <fy-fill/>
 
 <fy-space/>
 
-<fy-role name="chrome">Fleet</fy-role>
-
 - a:fleet/x · idle — Work done.
 </fy-drop>
 
@@ -20598,15 +19493,6 @@ STATUS line
 - [ ] Second task
 </fy-drop>
 
-<fy-drop order="0">
-
-<fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
-
-- a:fleet/x · idle — Work done.
-</fy-drop>
-
 <fy-drop order="2">
 
 <fy-space/>
@@ -20645,8 +19531,6 @@ STATUS line
 <fy-drop order="0">
 
 <fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
 
 - a:fleet/x · idle — Work done.
 </fy-drop>
@@ -20716,15 +19600,6 @@ CAP <fy-fill/>
 === case 418
 <fy-tight>
 
-<fy-drop order="0">
-
-<fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
-
-- a:fleet/x · idle — Work done.
-</fy-drop>
-
 <fy-space/>
 
 <fy-role name="chrome">●</fy-role> **pending** (2)\
@@ -20784,8 +19659,6 @@ STATUS line
 
 <fy-space/>
 
-<fy-role name="chrome">Fleet</fy-role>
-
 - a:fleet/x · idle — Work done.
 </fy-drop>
 
@@ -20798,8 +19671,6 @@ STATUS line
 <fy-drop order="0">
 
 <fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
 
 - a:fleet/x · idle — Work done.
 </fy-drop>
@@ -20892,8 +19763,6 @@ STATUS line
 
 <fy-space/>
 
-<fy-role name="chrome">Fleet</fy-role>
-
 - a:fleet/x · idle — Work done.
 </fy-drop>
 
@@ -20964,8 +19833,6 @@ STATUS line
 <fy-drop order="0">
 
 <fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
 
 - a:fleet/x · idle — Work done.
 </fy-drop>
@@ -21058,15 +19925,6 @@ CAP <fy-fill/>
 - [ ] Second task
 </fy-drop>
 
-<fy-drop order="0">
-
-<fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
-
-- a:fleet/x · idle — Work done.
-</fy-drop>
-
 <fy-space/>
 
 <fy-role name="chrome">●</fy-role> **pending** (2)\
@@ -21137,8 +19995,6 @@ CAP <fy-fill/>
 <fy-drop order="0">
 
 <fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
 
 - a:fleet/x · idle — Work done.
 </fy-drop>
@@ -21322,8 +20178,6 @@ CAP <fy-fill/>
 <fy-drop order="0">
 
 <fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
 
 - a:fleet/x · idle — Work done.
 </fy-drop>
@@ -21675,8 +20529,6 @@ CAP <fy-fill/>
 
 <fy-space/>
 
-<fy-role name="chrome">Fleet</fy-role>
-
 - a:fleet/x · idle — Work done.
 </fy-drop>
 
@@ -21914,15 +20766,6 @@ CAP <fy-fill/>
 
 <fy-slot id="tail" height="2"/>
 
-<fy-drop order="0">
-
-<fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
-
-- a:fleet/x · idle — Work done.
-</fy-drop>
-
 <fy-drop order="2">
 
 <fy-space/>
@@ -21967,8 +20810,6 @@ CAP <fy-fill/>
 
 <fy-space/>
 
-<fy-role name="chrome">Fleet</fy-role>
-
 - a:fleet/x · idle — Work done.
 </fy-drop>
 
@@ -21989,8 +20830,6 @@ CAP <fy-fill/>
 <fy-drop order="0">
 
 <fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
 
 - a:fleet/x · idle — Work done.
 </fy-drop>
@@ -22051,15 +20890,6 @@ STATUS line
 
 <fy-slot id="tail" height="2"/>
 
-<fy-drop order="0">
-
-<fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
-
-- a:fleet/x · idle — Work done.
-</fy-drop>
-
 <fy-drop order="2">
 
 <fy-space/>
@@ -22100,8 +20930,6 @@ STATUS line
 <fy-drop order="0">
 
 <fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
 
 - a:fleet/x · idle — Work done.
 </fy-drop>
@@ -22233,15 +21061,6 @@ STATUS line
 === case 454
 <fy-tight>
 
-<fy-drop order="0">
-
-<fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
-
-- a:fleet/x · idle — Work done.
-</fy-drop>
-
 <fy-space/>
 
 <fy-role name="chrome">●</fy-role> **pending** (2)\
@@ -22273,8 +21092,6 @@ STATUS line
 
 <fy-space/>
 
-<fy-role name="chrome">Fleet</fy-role>
-
 - a:fleet/x · idle — Work done.
 </fy-drop>
 
@@ -22297,8 +21114,6 @@ STATUS line
 <fy-drop order="0">
 
 <fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
 
 - a:fleet/x · idle — Work done.
 </fy-drop>
@@ -22371,8 +21186,6 @@ STATUS line
 
 <fy-space/>
 
-<fy-role name="chrome">Fleet</fy-role>
-
 - a:fleet/x · idle — Work done.
 </fy-drop>
 
@@ -22428,15 +21241,6 @@ STATUS line
 
 <fy-slot id="tail" height="2"/>
 
-<fy-drop order="0">
-
-<fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
-
-- a:fleet/x · idle — Work done.
-</fy-drop>
-
 <fy-space/>
 
 <fy-role name="chrome">●</fy-role> **pending** (2)\
@@ -22481,8 +21285,6 @@ HINT <b>x</b>
 <fy-drop order="0">
 
 <fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
 
 - a:fleet/x · idle — Work done.
 </fy-drop>
@@ -22637,8 +21439,6 @@ HINT <b>x</b>
 
 <fy-space/>
 
-<fy-role name="chrome">Fleet</fy-role>
-
 - a:fleet/x · idle — Work done.
 </fy-drop>
 
@@ -22675,15 +21475,6 @@ HINT <b>x</b>
 
 <fy-slot id="transcript" height="20"/>
 
-<fy-drop order="0">
-
-<fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
-
-- a:fleet/x · idle — Work done.
-</fy-drop>
-
 <fy-drop order="2">
 
 <fy-space/>
@@ -22715,8 +21506,6 @@ HINT <b>x</b>
 
 <fy-space/>
 
-<fy-role name="chrome">Fleet</fy-role>
-
 - a:fleet/x · idle — Work done.
 </fy-drop>
 
@@ -22739,8 +21528,6 @@ HINT <b>x</b>
 <fy-drop order="0">
 
 <fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
 
 - a:fleet/x · idle — Work done.
 </fy-drop>
@@ -22798,8 +21585,6 @@ HINT <b>x</b>
 <fy-drop order="0">
 
 <fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
 
 - a:fleet/x · idle — Work done.
 </fy-drop>
@@ -22861,15 +21646,6 @@ STATUS line
 - [ ] Second task
 </fy-drop>
 
-<fy-drop order="0">
-
-<fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
-
-- a:fleet/x · idle — Work done.
-</fy-drop>
-
 <fy-drop order="2">
 
 <fy-space/>
@@ -22916,8 +21692,6 @@ STATUS line
 
 <fy-space/>
 
-<fy-role name="chrome">Fleet</fy-role>
-
 - a:fleet/x · idle — Work done.
 </fy-drop>
 
@@ -22928,8 +21702,6 @@ STATUS line
 <fy-drop order="0">
 
 <fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
 
 - a:fleet/x · idle — Work done.
 </fy-drop>
@@ -23056,8 +21828,6 @@ CAP <fy-fill/>
 
 <fy-space/>
 
-<fy-role name="chrome">Fleet</fy-role>
-
 - a:fleet/x · idle — Work done.
 </fy-drop>
 
@@ -23107,15 +21877,6 @@ CAP <fy-fill/>
 
 <fy-slot id="transcript" height="20"/>
 
-<fy-drop order="0">
-
-<fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
-
-- a:fleet/x · idle — Work done.
-</fy-drop>
-
 <fy-space/>
 
 <fy-role name="chrome">●</fy-role> **pending** (2)\
@@ -23143,8 +21904,6 @@ CAP <fy-fill/>
 <fy-drop order="0">
 
 <fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
 
 - a:fleet/x · idle — Work done.
 </fy-drop>
@@ -23561,8 +22320,6 @@ HINT <b>x</b>
 
 <fy-space/>
 
-<fy-role name="chrome">Fleet</fy-role>
-
 - a:fleet/x · idle — Work done.
 </fy-drop>
 
@@ -23757,15 +22514,6 @@ CAP <fy-fill/>
 - [ ] Second task
 </fy-drop>
 
-<fy-drop order="0">
-
-<fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
-
-- a:fleet/x · idle — Work done.
-</fy-drop>
-
 <fy-drop order="2">
 
 <fy-space/>
@@ -23823,8 +22571,6 @@ CAP <fy-fill/>
 <fy-drop order="0">
 
 <fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
 
 - a:fleet/x · idle — Work done.
 </fy-drop>
@@ -23985,8 +22731,6 @@ HINT <b>x</b>
 
 <fy-space/>
 
-<fy-role name="chrome">Fleet</fy-role>
-
 - a:fleet/x · idle — Work done.
 </fy-drop>
 
@@ -24013,8 +22757,6 @@ HINT <b>x</b>
 <fy-drop order="0">
 
 <fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
 
 - a:fleet/x · idle — Work done.
 </fy-drop>
@@ -24124,15 +22866,6 @@ HINT <b>x</b>
 
 <fy-slot id="tail" height="2"/>
 
-<fy-drop order="0">
-
-<fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
-
-- a:fleet/x · idle — Work done.
-</fy-drop>
-
 <fy-space/>
 
 <fy-role name="chrome">●</fy-role> **pending** (2)\
@@ -24172,8 +22905,6 @@ HINT <b>x</b>
 
 <fy-space/>
 
-<fy-role name="chrome">Fleet</fy-role>
-
 - a:fleet/x · idle — Work done.
 </fy-drop>
 
@@ -24196,8 +22927,6 @@ HINT <b>x</b>
 <fy-drop order="0">
 
 <fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
 
 - a:fleet/x · idle — Work done.
 </fy-drop>
@@ -24287,15 +23016,6 @@ HINT <b>x</b>
 - [ ] Second task
 </fy-drop>
 
-<fy-drop order="0">
-
-<fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
-
-- a:fleet/x · idle — Work done.
-</fy-drop>
-
 <fy-drop order="2">
 
 <fy-space/>
@@ -24342,8 +23062,6 @@ CAP <fy-fill/>
 <fy-drop order="0">
 
 <fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
 
 - a:fleet/x · idle — Work done.
 </fy-drop>
@@ -24398,15 +23116,6 @@ STATUS line
 - [ ] Second task
 </fy-drop>
 
-<fy-drop order="0">
-
-<fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
-
-- a:fleet/x · idle — Work done.
-</fy-drop>
-
 <fy-space/>
 
 <fy-role name="chrome">●</fy-role> **pending** (2)\
@@ -24449,8 +23158,6 @@ STATUS line
 
 <fy-space/>
 
-<fy-role name="chrome">Fleet</fy-role>
-
 - a:fleet/x · idle — Work done.
 </fy-drop>
 
@@ -24461,8 +23168,6 @@ STATUS line
 <fy-drop order="0">
 
 <fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
 
 - a:fleet/x · idle — Work done.
 </fy-drop>
@@ -24487,8 +23192,6 @@ CAP <fy-fill/>
 <fy-drop order="0">
 
 <fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
 
 - a:fleet/x · idle — Work done.
 </fy-drop>
@@ -24571,8 +23274,6 @@ HINT <b>x</b>
 
 <fy-space/>
 
-<fy-role name="chrome">Fleet</fy-role>
-
 - a:fleet/x · idle — Work done.
 </fy-drop>
 
@@ -24614,15 +23315,6 @@ HINT <b>x</b>
 <fy-tight>
 
 <fy-slot id="transcript" height="20"/>
-
-<fy-drop order="0">
-
-<fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
-
-- a:fleet/x · idle — Work done.
-</fy-drop>
 
 <fy-drop order="2">
 
@@ -24671,8 +23363,6 @@ HINT <b>x</b>
 
 <fy-space/>
 
-<fy-role name="chrome">Fleet</fy-role>
-
 - a:fleet/x · idle — Work done.
 </fy-drop>
 
@@ -24685,8 +23375,6 @@ HINT <b>x</b>
 <fy-drop order="0">
 
 <fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
 
 - a:fleet/x · idle — Work done.
 </fy-drop>
@@ -24837,8 +23525,6 @@ CAP <fy-fill/>
 
 <fy-space/>
 
-<fy-role name="chrome">Fleet</fy-role>
-
 - a:fleet/x · idle — Work done.
 </fy-drop>
 
@@ -24869,8 +23555,6 @@ CAP <fy-fill/>
 <fy-drop order="0">
 
 <fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
 
 - a:fleet/x · idle — Work done.
 </fy-drop>
@@ -24925,15 +23609,6 @@ CAP <fy-fill/>
 - [ ] Second task
 </fy-drop>
 
-<fy-drop order="0">
-
-<fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
-
-- a:fleet/x · idle — Work done.
-</fy-drop>
-
 <fy-space/>
 
 <fy-role name="chrome">●</fy-role> **pending** (2)\
@@ -24983,8 +23658,6 @@ CAP <fy-fill/>
 
 <fy-space/>
 
-<fy-role name="chrome">Fleet</fy-role>
-
 - a:fleet/x · idle — Work done.
 </fy-drop>
 
@@ -25005,8 +23678,6 @@ CAP <fy-fill/>
 <fy-drop order="0">
 
 <fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
 
 - a:fleet/x · idle — Work done.
 </fy-drop>
@@ -25055,15 +23726,6 @@ CAP <fy-fill/>
 - [ ] Second task
 </fy-drop>
 
-<fy-drop order="0">
-
-<fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
-
-- a:fleet/x · idle — Work done.
-</fy-drop>
-
 <fy-slot id="note" height="2"/>
 
 <fy-space/>
@@ -25084,8 +23746,6 @@ CAP <fy-fill/>
 <fy-drop order="0">
 
 <fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
 
 - a:fleet/x · idle — Work done.
 </fy-drop>
@@ -25188,15 +23848,6 @@ CAP <fy-fill/>
 - [ ] Second task
 </fy-drop>
 
-<fy-drop order="0">
-
-<fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
-
-- a:fleet/x · idle — Work done.
-</fy-drop>
-
 <fy-space/>
 
 <fy-role name="chrome">●</fy-role> **pending** (2)\
@@ -25240,8 +23891,6 @@ CAP <fy-fill/>
 <fy-drop order="0">
 
 <fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
 
 - a:fleet/x · idle — Work done.
 </fy-drop>
@@ -25311,8 +23960,6 @@ CAP <fy-fill/>
 <fy-drop order="0">
 
 <fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
 
 - a:fleet/x · idle — Work done.
 </fy-drop>
@@ -25411,15 +24058,6 @@ CAP <fy-fill/>
 - [ ] Second task
 </fy-drop>
 
-<fy-drop order="0">
-
-<fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
-
-- a:fleet/x · idle — Work done.
-</fy-drop>
-
 <fy-drop order="2">
 
 <fy-space/>
@@ -25474,8 +24112,6 @@ CAP <fy-fill/>
 <fy-drop order="0">
 
 <fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
 
 - a:fleet/x · idle — Work done.
 </fy-drop>
@@ -25596,15 +24232,6 @@ CAP <fy-fill/>
 
 <fy-slot id="tail" height="2"/>
 
-<fy-drop order="0">
-
-<fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
-
-- a:fleet/x · idle — Work done.
-</fy-drop>
-
 <fy-space/>
 
 <fy-role name="chrome">●</fy-role> **pending** (2)\
@@ -25656,8 +24283,6 @@ CAP <fy-fill/>
 <fy-drop order="0">
 
 <fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
 
 - a:fleet/x · idle — Work done.
 </fy-drop>
@@ -25711,8 +24336,6 @@ CAP <fy-fill/>
 <fy-drop order="0">
 
 <fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
 
 - a:fleet/x · idle — Work done.
 </fy-drop>
@@ -25911,15 +24534,6 @@ CAP <fy-fill/>
 - [ ] Second task
 </fy-drop>
 
-<fy-drop order="0">
-
-<fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
-
-- a:fleet/x · idle — Work done.
-</fy-drop>
-
 <fy-space/>
 
 <fy-role name="chrome">●</fy-role> **pending** (2)\
@@ -25965,8 +24579,6 @@ CAP <fy-fill/>
 <fy-drop order="0">
 
 <fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
 
 - a:fleet/x · idle — Work done.
 </fy-drop>
@@ -26112,8 +24724,6 @@ CAP <fy-fill/>
 
 <fy-space/>
 
-<fy-role name="chrome">Fleet</fy-role>
-
 - a:fleet/x · idle — Work done.
 </fy-drop>
 
@@ -26186,8 +24796,6 @@ CAP <fy-fill/>
 <fy-drop order="0">
 
 <fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
 
 - a:fleet/x · idle — Work done.
 </fy-drop>
@@ -26300,8 +24908,6 @@ CAP <fy-fill/>
 <fy-drop order="0">
 
 <fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
 
 - a:fleet/x · idle — Work done.
 </fy-drop>
@@ -26437,15 +25043,6 @@ CAP <fy-fill/>
 - [ ] Second task
 </fy-drop>
 
-<fy-drop order="0">
-
-<fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
-
-- a:fleet/x · idle — Work done.
-</fy-drop>
-
 <fy-space/>
 
 <fy-role name="chrome">●</fy-role> **pending** (2)\
@@ -26490,8 +25087,6 @@ CAP <fy-fill/>
 
 <fy-space/>
 
-<fy-role name="chrome">Fleet</fy-role>
-
 - a:fleet/x · idle — Work done.
 </fy-drop>
 
@@ -26504,8 +25099,6 @@ CAP <fy-fill/>
 <fy-drop order="0">
 
 <fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
 
 - a:fleet/x · idle — Work done.
 </fy-drop>
@@ -26576,8 +25169,6 @@ CAP <fy-fill/>
 
 <fy-space/>
 
-<fy-role name="chrome">Fleet</fy-role>
-
 - a:fleet/x · idle — Work done.
 </fy-drop>
 
@@ -26625,15 +25216,6 @@ CAP <fy-fill/>
 - [ ] Second task
 </fy-drop>
 
-<fy-drop order="0">
-
-<fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
-
-- a:fleet/x · idle — Work done.
-</fy-drop>
-
 <fy-drop order="2">
 
 <fy-space/>
@@ -26677,8 +25259,6 @@ CAP <fy-fill/>
 <fy-drop order="0">
 
 <fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
 
 - a:fleet/x · idle — Work done.
 </fy-drop>
@@ -26734,8 +25314,6 @@ CAP <fy-fill/>
 
 <fy-space/>
 
-<fy-role name="chrome">Fleet</fy-role>
-
 - a:fleet/x · idle — Work done.
 </fy-drop>
 
@@ -26773,15 +25351,6 @@ CAP <fy-fill/>
 
 - [>] First <b>task</b>
 - [ ] Second task
-</fy-drop>
-
-<fy-drop order="0">
-
-<fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
-
-- a:fleet/x · idle — Work done.
 </fy-drop>
 
 <fy-drop order="2">
@@ -26831,8 +25400,6 @@ CAP <fy-fill/>
 <fy-drop order="0">
 
 <fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
 
 - a:fleet/x · idle — Work done.
 </fy-drop>
@@ -26943,8 +25510,6 @@ CAP <fy-fill/>
 
 <fy-space/>
 
-<fy-role name="chrome">Fleet</fy-role>
-
 - a:fleet/x · idle — Work done.
 </fy-drop>
 
@@ -26986,8 +25551,6 @@ CAP <fy-fill/>
 <fy-drop order="0">
 
 <fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
 
 - a:fleet/x · idle — Work done.
 </fy-drop>
@@ -27067,15 +25630,6 @@ CAP <fy-fill/>
 
 <fy-slot id="transcript" height="20"/>
 
-<fy-drop order="0">
-
-<fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
-
-- a:fleet/x · idle — Work done.
-</fy-drop>
-
 <fy-space/>
 
 <fy-role name="chrome">●</fy-role> **pending** (2)\
@@ -27111,8 +25665,6 @@ CAP <fy-fill/>
 <fy-drop order="0">
 
 <fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
 
 - a:fleet/x · idle — Work done.
 </fy-drop>
@@ -27187,8 +25739,6 @@ CAP <fy-fill/>
 <fy-drop order="0">
 
 <fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
 
 - a:fleet/x · idle — Work done.
 </fy-drop>
@@ -27328,8 +25878,6 @@ CAP <fy-fill/>
 
 <fy-space/>
 
-<fy-role name="chrome">Fleet</fy-role>
-
 - a:fleet/x · idle — Work done.
 </fy-drop>
 
@@ -27432,15 +25980,6 @@ CAP <fy-fill/>
 - [ ] Second task
 </fy-drop>
 
-<fy-drop order="0">
-
-<fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
-
-- a:fleet/x · idle — Work done.
-</fy-drop>
-
 <fy-drop order="2">
 
 <fy-space/>
@@ -27496,8 +26035,6 @@ CAP <fy-fill/>
 
 <fy-space/>
 
-<fy-role name="chrome">Fleet</fy-role>
-
 - a:fleet/x · idle — Work done.
 </fy-drop>
 
@@ -27528,15 +26065,6 @@ CAP <fy-fill/>
 <fy-tight>
 
 <fy-slot id="tail" height="2"/>
-
-<fy-drop order="0">
-
-<fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
-
-- a:fleet/x · idle — Work done.
-</fy-drop>
 
 <fy-space/>
 
@@ -27582,8 +26110,6 @@ STATUS line
 <fy-drop order="0">
 
 <fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
 
 - a:fleet/x · idle — Work done.
 </fy-drop>
@@ -27644,15 +26170,6 @@ STATUS line
 
 <fy-slot id="transcript" height="20"/>
 
-<fy-drop order="0">
-
-<fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
-
-- a:fleet/x · idle — Work done.
-</fy-drop>
-
 <fy-drop order="2">
 
 <fy-space/>
@@ -27686,8 +26203,6 @@ STATUS line
 <fy-drop order="0">
 
 <fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
 
 - a:fleet/x · idle — Work done.
 </fy-drop>
@@ -27756,15 +26271,6 @@ STATUS line
 - [ ] Second task
 </fy-drop>
 
-<fy-drop order="0">
-
-<fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
-
-- a:fleet/x · idle — Work done.
-</fy-drop>
-
 <fy-drop order="2">
 
 <fy-space/>
@@ -27822,8 +26328,6 @@ CAP <fy-fill/>
 
 <fy-space/>
 
-<fy-role name="chrome">Fleet</fy-role>
-
 - a:fleet/x · idle — Work done.
 </fy-drop>
 
@@ -27836,8 +26340,6 @@ CAP <fy-fill/>
 <fy-drop order="0">
 
 <fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
 
 - a:fleet/x · idle — Work done.
 </fy-drop>
@@ -27960,8 +26462,6 @@ STATUS line
 
 <fy-space/>
 
-<fy-role name="chrome">Fleet</fy-role>
-
 - a:fleet/x · idle — Work done.
 </fy-drop>
 
@@ -28036,15 +26536,6 @@ STATUS line
 
 <fy-slot id="transcript" height="20"/>
 
-<fy-drop order="0">
-
-<fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
-
-- a:fleet/x · idle — Work done.
-</fy-drop>
-
 <fy-space/>
 
 <fy-role name="chrome">●</fy-role> **pending** (2)\
@@ -28090,8 +26581,6 @@ STATUS line
 <fy-drop order="0">
 
 <fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
 
 - a:fleet/x · idle — Work done.
 </fy-drop>
@@ -28245,8 +26734,6 @@ STATUS line
 
 <fy-space/>
 
-<fy-role name="chrome">Fleet</fy-role>
-
 - a:fleet/x · idle — Work done.
 </fy-drop>
 
@@ -28381,15 +26868,6 @@ CAP <fy-fill/>
 - [ ] Second task
 </fy-drop>
 
-<fy-drop order="0">
-
-<fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
-
-- a:fleet/x · idle — Work done.
-</fy-drop>
-
 <fy-drop order="1">
 
 <fy-slot id="completion" height="1"/>
@@ -28409,8 +26887,6 @@ CAP <fy-fill/>
 <fy-drop order="0">
 
 <fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
 
 - a:fleet/x · idle — Work done.
 </fy-drop>
@@ -28555,15 +27031,6 @@ CAP <fy-fill/>
 
 <fy-slot id="tail" height="2"/>
 
-<fy-drop order="0">
-
-<fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
-
-- a:fleet/x · idle — Work done.
-</fy-drop>
-
 <fy-space/>
 
 <fy-role name="chrome">●</fy-role> **pending** (2)\
@@ -28609,8 +27076,6 @@ CAP <fy-fill/>
 
 <fy-space/>
 
-<fy-role name="chrome">Fleet</fy-role>
-
 - a:fleet/x · idle — Work done.
 </fy-drop>
 
@@ -28633,8 +27098,6 @@ CAP <fy-fill/>
 <fy-drop order="0">
 
 <fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
 
 - a:fleet/x · idle — Work done.
 </fy-drop>
@@ -28686,8 +27149,6 @@ CAP <fy-fill/>
 <fy-drop order="0">
 
 <fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
 
 - a:fleet/x · idle — Work done.
 </fy-drop>
@@ -28914,15 +27375,6 @@ CAP <fy-fill/>
 
 <fy-slot id="transcript" height="20"/>
 
-<fy-drop order="0">
-
-<fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
-
-- a:fleet/x · idle — Work done.
-</fy-drop>
-
 <fy-drop order="2">
 
 <fy-space/>
@@ -28957,8 +27409,6 @@ CAP <fy-fill/>
 <fy-drop order="0">
 
 <fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
 
 - a:fleet/x · idle — Work done.
 </fy-drop>
@@ -29185,15 +27635,6 @@ HINT <b>x</b>
 - [ ] Second task
 </fy-drop>
 
-<fy-drop order="0">
-
-<fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
-
-- a:fleet/x · idle — Work done.
-</fy-drop>
-
 <fy-space/>
 
 <fy-role name="chrome">●</fy-role> **pending** (2)\
@@ -29226,8 +27667,6 @@ HINT <b>x</b>
 
 <fy-space/>
 
-<fy-role name="chrome">Fleet</fy-role>
-
 - a:fleet/x · idle — Work done.
 </fy-drop>
 
@@ -29243,15 +27682,6 @@ HINT <b>x</b>
 
 - [>] First <b>task</b>
 - [ ] Second task
-</fy-drop>
-
-<fy-drop order="0">
-
-<fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
-
-- a:fleet/x · idle — Work done.
 </fy-drop>
 
 <fy-drop order="2">
@@ -29294,8 +27724,6 @@ HINT <b>x</b>
 
 <fy-space/>
 
-<fy-role name="chrome">Fleet</fy-role>
-
 - a:fleet/x · idle — Work done.
 </fy-drop>
 
@@ -29318,8 +27746,6 @@ HINT <b>x</b>
 <fy-drop order="0">
 
 <fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
 
 - a:fleet/x · idle — Work done.
 </fy-drop>
@@ -29376,15 +27802,6 @@ HINT <b>x</b>
 
 - [>] First <b>task</b>
 - [ ] Second task
-</fy-drop>
-
-<fy-drop order="0">
-
-<fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
-
-- a:fleet/x · idle — Work done.
 </fy-drop>
 
 <fy-space/>
@@ -29464,8 +27881,6 @@ HINT <b>x</b>
 
 <fy-space/>
 
-<fy-role name="chrome">Fleet</fy-role>
-
 - a:fleet/x · idle — Work done.
 </fy-drop>
 
@@ -29488,8 +27903,6 @@ HINT <b>x</b>
 <fy-drop order="0">
 
 <fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
 
 - a:fleet/x · idle — Work done.
 </fy-drop>
@@ -29529,15 +27942,6 @@ CAP <fy-fill/>
 
 === case 599
 <fy-tight>
-
-<fy-drop order="0">
-
-<fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
-
-- a:fleet/x · idle — Work done.
-</fy-drop>
 
 <fy-drop order="2">
 
@@ -29592,8 +27996,6 @@ CAP <fy-fill/>
 <fy-drop order="0">
 
 <fy-space/>
-
-<fy-role name="chrome">Fleet</fy-role>
 
 - a:fleet/x · idle — Work done.
 </fy-drop>

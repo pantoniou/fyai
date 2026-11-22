@@ -878,7 +878,7 @@ void fyai_workpane_tile_set_agent(struct fyai_workpane_manager *wm,
 		t->agent = agent;
 }
 
-/* Whether @t stands in the agents panel, else in the shells one. */
+/* Whether @t is listed with the agents, else with the shells after them. */
 static bool workpane_tile_agent(const struct fyai_workpane_tile *t)
 {
 	return t->agent || t->kind == FYAI_WORKPANE_TILE_AGENT ||

@@ -150,15 +150,16 @@ struct fyai_page_state {
 	int fleet_rows;
 	bool fleet_shown;
 	/*
-	 * The tiles that overflowed the work pane, one line each: the agents
-	 * and the shells panels. UI Markdown borrowed for the frame (or NULL),
-	 * its rows, and whether it is shown.
+	 * The work that has no room in the pane or the transcript, one line
+	 * each: agents, then shells. It stands in the live panel under the
+	 * fleet members. UI Markdown borrowed for the frame (or NULL), its
+	 * rows, and whether it is shown.
 	 */
 	struct fyai_page_list {
 		const char *source;
 		int rows;
 		bool shown;
-	} agents, shells;
+	} work;
 	/*
 	 * The lines the user typed while a turn runs, which wait for the
 	 * prompt and stand on top of the input area. UI Markdown, borrowed for

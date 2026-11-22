@@ -195,7 +195,7 @@ int fyai_workpane_ceiling(const struct fyai_workpane_manager *wm, int rows);
 void fyai_workpane_tile_set_agent(struct fyai_workpane_manager *wm,
 				  const struct fytim_surface *sf, bool agent);
 /*
- * The UI Markdown of an agents or a shells panel: a list with one line for
+ * The UI Markdown of the work in the live panel: a list with one line for
  * each piece of work that has no room, cut to the @cols columns of the page.
  * A line starts in the gutter with the UI Markdown of its state in @marks,
  * which the theme makes and which takes @mark_cols columns; @blank is an

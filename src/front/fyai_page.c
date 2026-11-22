@@ -341,15 +341,18 @@ int fyai_page_chrome_rows(const struct fyai_page_state *st)
 	rows += st->note_nlines;
 	if (st->log_title && st->log_rows > 0)
 		rows += st->log_rows + 1;
+	/* The live panel, the fleet members then the work, stands under one
+	 * blank row and has no heading. */
 	return rows + (st->todo_shown ? st->todo_rows + 2 : 0) +
-	       (st->fleet_shown ? st->fleet_rows + 2 : 0) +
-	       (st->agents.shown ? st->agents.rows + 2 : 0) +
-	       (st->shells.shown ? st->shells.rows + 2 : 0);
+	       (st->fleet_shown || st->work.shown) +
+	       (st->fleet_shown ? st->fleet_rows : 0) +
+	       (st->work.shown ? st->work.rows : 0);
 }
 
-/* Show the panel *@shown of @rows when its rows and its heading fit. */
+/* Show the panel *@shown of @rows when they fit with the rows of @frame
+ * that come with it. */
 static void page_fit_panel(struct fyai_page_state *st, int height, int rows,
-			   bool *shown)
+			   int frame, bool *shown)
 {
 	int left;
 
@@ -357,7 +360,7 @@ static void page_fit_panel(struct fyai_page_state *st, int height, int rows,
 		return;
 	*shown = false;
 	left = height - fyai_page_chrome_rows(st) - st->pane_rows;
-	*shown = rows + 2 <= left;
+	*shown = rows + frame <= left;
 }
 
 int fyai_page_pending_budget(const struct fyai_page_state *st, int height)
@@ -378,7 +381,7 @@ int fyai_page_pending_budget(const struct fyai_page_state *st, int height)
 
 void fyai_page_fit(struct fyai_page_state *st, int height)
 {
-	bool todo, fleet, agents, shells;
+	bool todo, fleet, work;
 	int left, budget;
 
 	if (!st || height <= 0)
@@ -390,8 +393,7 @@ void fyai_page_fit(struct fyai_page_state *st, int height)
 		st->todo_shown = false;
 		st->fleet_rows = 0;
 		st->fleet_shown = false;
-		st->agents.shown = false;
-		st->shells.shown = false;
+		st->work.shown = false;
 		st->tail_rows = 0;
 		st->transcript_rows = 0;
 		return;
@@ -404,8 +406,7 @@ void fyai_page_fit(struct fyai_page_state *st, int height)
 		st->todo_shown = false;
 		st->fleet_rows = 0;
 		st->fleet_shown = false;
-		st->agents.shown = false;
-		st->shells.shown = false;
+		st->work.shown = false;
 		st->tail_rows = 0;
 		st->transcript_rows = 0;
 		return;
@@ -426,22 +427,20 @@ void fyai_page_fit(struct fyai_page_state *st, int height)
 	}
 	/*
 	 * The panels never take the input: each one stands when it fits with
-	 * those before it, in the order todo, fleet, agents, shells.
+	 * those before it, in the order todo, fleet, work. The fleet and the
+	 * work share the blank row of the live panel.
 	 */
 	todo = st->todo_shown;
 	fleet = st->fleet_shown;
-	agents = st->agents.shown;
-	shells = st->shells.shown;
-	st->todo_shown = st->fleet_shown = false;
-	st->agents.shown = st->shells.shown = false;
+	work = st->work.shown;
+	st->todo_shown = st->fleet_shown = st->work.shown = false;
 	st->todo_shown = todo;
-	page_fit_panel(st, height, st->todo_rows, &st->todo_shown);
+	page_fit_panel(st, height, st->todo_rows, 2, &st->todo_shown);
 	st->fleet_shown = fleet;
-	page_fit_panel(st, height, st->fleet_rows, &st->fleet_shown);
-	st->agents.shown = agents;
-	page_fit_panel(st, height, st->agents.rows, &st->agents.shown);
-	st->shells.shown = shells;
-	page_fit_panel(st, height, st->shells.rows, &st->shells.shown);
+	page_fit_panel(st, height, st->fleet_rows, 1, &st->fleet_shown);
+	st->work.shown = work;
+	page_fit_panel(st, height, st->work.rows, !st->fleet_shown,
+		       &st->work.shown);
 	left = height - fyai_page_chrome_rows(st);
 	/* The work outranks the tail, which shows its last rows. */
 	if (st->pane_rows > left) {
@@ -896,15 +895,18 @@ static fy_generic page_ask_generic(struct fy_generic_builder *gb,
 		"waiting_shown", (_Bool)(ask->waiting > 0));
 }
 
-/* The state of the panel @l, which stands below the prompt with @below. */
-static fy_generic page_list_generic(struct fy_generic_builder *gb,
-				    const struct fyai_page_list *l, bool below)
+/* The state of the live panel: the fleet members and the work, above or
+ * below the prompt with the pane. */
+static fy_generic page_live_generic(struct fy_generic_builder *gb,
+				    const struct fyai_page_state *st)
 {
+	bool shown = st->fleet_shown || st->work.shown;
+
 	return fy_mapping(gb,
-		"shown", (bool)(l->shown && !below),
-		"below", (bool)(l->shown && below),
-		"source", page_str(l->source),
-		"rows", l->rows);
+		"shown", (bool)(shown && !st->pane_below),
+		"below", (bool)(shown && st->pane_below),
+		"fleet", (bool)st->fleet_shown,
+		"work", (bool)st->work.shown);
 }
 
 /*
@@ -919,8 +921,10 @@ fy_generic fyai_page_state_generic(struct fy_generic_builder *gb,
 	bool hint = page_text_visible(st->hint);
 	bool side = st->pane_side && grid;
 	fy_generic ask = page_ask_generic(gb, st->input_focus, st->ask);
-	fy_generic agents = page_list_generic(gb, &st->agents, st->pane_below);
-	fy_generic shells = page_list_generic(gb, &st->shells, st->pane_below);
+	fy_generic live = page_live_generic(gb, st);
+	fy_generic work = fy_mapping(gb,
+		"source", page_str(st->work.source),
+		"rows", st->work.rows);
 
 	return fy_mapping(gb,
 		"input", fy_mapping(gb, "mode",
@@ -953,8 +957,8 @@ fy_generic fyai_page_state_generic(struct fy_generic_builder *gb,
 			"below", (bool)(st->fleet_shown && st->pane_below),
 			"source", page_str(st->fleet_source),
 			"rows", st->fleet_rows),
-		"agents", agents,
-		"shells", shells,
+		"live", live,
+		"work", work,
 		"note", fy_mapping(gb,
 			"shown", (bool)(st->note_nlines > 0),
 			"rows", st->note_nlines),

@@ -255,8 +255,7 @@ struct fyai_ui {
 	int fleet_cols;
 	/* The panels of the tiles that overflowed the work pane, made for
 	 * each frame, and whether one of those tiles runs. */
-	char *agents_source;
-	char *shells_source;
+	char *work_source;
 	bool work_blink;
 	/* The calls drawn in blocks of the transcript while they run, and
 	 * the rows the last frame left them: the page without the chrome. */
@@ -3029,14 +3028,14 @@ static int ui_live_panel_add(struct fyai_ui *ui, bool agents,
 	return rc;
 }
 
-/* The most lines of an agents or shells panel: a quarter of the page. */
+/* The most work lines of the live panel: a quarter of the page. */
 static int ui_work_panel_max(int rows)
 {
 	return rows / 4 > 2 ? rows / 4 : 2;
 }
 
 /*
- * The agents and the shells panels of @st: one line for each tile that the
+ * The work lines of the live panel of @st: one line for each tile that the
  * sizing of the pane let overflow. A popup or a delegated agent shows none.
  */
 static int ui_work_panels(struct fyai_ui *ui, struct fyai_page_state *st,
@@ -3056,13 +3055,11 @@ static int ui_work_panels(struct fyai_ui *ui, struct fyai_page_state *st,
 	struct fyai_panel_list pl;
 	char mark[ARRAY_SIZE(states)][UI_MARK_MAX], blank[UI_MARK_MAX];
 	const char *marks[ARRAY_SIZE(states)];
-	bool blinks = false, more = false;
 	size_t frame, i;
 	int mark_cols, rc;
 
-	free(ui->agents_source);
-	free(ui->shells_source);
-	ui->agents_source = ui->shells_source = NULL;
+	free(ui->work_source);
+	ui->work_source = NULL;
 	ui->work_blink = false;
 	if (fyai_agent_delegated(ctx) || (st->fullscreen && st->popup_title))
 		return 0;
@@ -3075,27 +3072,20 @@ static int ui_work_panels(struct fyai_ui *ui, struct fyai_page_state *st,
 	if (ui_marks_markup(ui, spec, ARRAY_SIZE(states), mark, marks, blank,
 			    &mark_cols))
 		return -1;
+	/* One list: the agents, then the shells, under one count. */
 	fyai_panel_list_init(&pl, marks, mark_cols, blank, cols,
 			     ui_work_panel_max(rows));
 	rc = fyai_workpane_panel_add(wm, true, &pl) ||
-	     ui_live_panel_add(ui, true, &pl);
-	blinks = pl.blinks;
-	ui->agents_source = fyai_panel_list_finish(&pl);
-	fyai_panel_list_init(&pl, marks, mark_cols, blank, cols,
-			     ui_work_panel_max(rows));
-	rc = rc || fyai_workpane_panel_add(wm, false, &pl) ||
+	     ui_live_panel_add(ui, true, &pl) ||
+	     fyai_workpane_panel_add(wm, false, &pl) ||
 	     ui_live_panel_add(ui, false, &pl);
-	more = pl.blinks;
-	ui->shells_source = fyai_panel_list_finish(&pl);
-	ui->work_blink = blinks || more;
+	ui->work_blink = pl.blinks;
+	ui->work_source = fyai_panel_list_finish(&pl);
 	if (rc)
 		return -1;
-	st->agents.source = ui->agents_source;
-	st->agents.rows = ui_markup_rows(ui->agents_source, cols);
-	st->agents.shown = ui->agents_source != NULL;
-	st->shells.source = ui->shells_source;
-	st->shells.rows = ui_markup_rows(ui->shells_source, cols);
-	st->shells.shown = ui->shells_source != NULL;
+	st->work.source = ui->work_source;
+	st->work.rows = ui_markup_rows(ui->work_source, cols);
+	st->work.shown = ui->work_source != NULL;
 	return 0;
 }
 
@@ -3177,11 +3167,11 @@ static int ui_page_frame_fit(struct fyai_ui *ui, struct ui_page_frame *f)
 	st->fullscreen = ui->fullscreen;
 	rc = ui_work_panels(ui, st, cols, rows);
 	fyai_error_check(ctx, !rc, err_page,
-			 "cannot make the agents and shells panels");
+			 "cannot make the work lines of the live panel");
 	/* The calls of the transcript size to what the chrome leaves, the
 	 * panels they go to not counted. */
 	base = *st;
-	base.agents.shown = base.shells.shown = false;
+	base.work.shown = false;
 	ui->live_room = rows - fyai_page_chrome_rows(&base);
 	ui_pending_fit(ui, st, cols, rows);
 	fyai_page_fit(st, rows);
@@ -4156,8 +4146,7 @@ void fyai_ui_close(struct fyai_ctx *ctx)
 	ui_popup_close(ui);
 	ui_note_clear(ui);
 	free(ui->todo_source);
-	free(ui->agents_source);
-	free(ui->shells_source);
+	free(ui->work_source);
 	while (ui->live)
 		ui_live_forget(ui, ui->live->key);
 	free(ui->fleet_source);

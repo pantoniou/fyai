@@ -1267,10 +1267,11 @@ properties:
         minimum: 1
         default: 5
         description: >-
-          Set the rows of live output that each tile of the work pane keeps
-          under its head when several tiles share the pane. Tiles that cannot
-          all have them collapse to one line each in the agents and shells
-          panels; the tile with the focus stays a tile.
+          Set the rows of live output that each running sub-agent or shell
+          keeps under its head, in the work pane or in the transcript, when
+          several run at once. Those that cannot all have them collapse to
+          one line each in the live panel; the tile with the focus stays a
+          tile.
       tool_history_lines:
         type: integer
         minimum: 0
