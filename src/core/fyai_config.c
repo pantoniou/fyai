@@ -748,7 +748,7 @@ static int config_apply_branch(struct fyai_cfg *cfg, fy_generic root)
 			return -1;
 		}
 		if (CONFIG_VALIDATE_ENUM(cfg, v, "on_conflict",
-					 "abort", "rebase", "merge"))
+					 "abort", "rebase", "merge", "fork"))
 			return -1;
 		cfg->branch_on_conflict = fy_get(v, "on_conflict",
 						 cfg->branch_on_conflict);

@@ -571,8 +571,8 @@ mcp:
 # Branch conflict handling.
 branch:
   # When another invocation advances this branch: abort without publishing,
-  # or replay unpublished turns with rebase or merge. Other branches do not
-  # conflict.
+  # replay unpublished turns with rebase or merge, or fork to a new session
+  # branch. Other branches do not conflict.
   on_conflict: abort
 
 # New project views trade crash durability for fast capture by default.

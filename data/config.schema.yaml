@@ -246,13 +246,17 @@ properties:
     properties:
       on_conflict:
         type: string
-        enum: [abort, rebase, merge]
+        enum: [abort, rebase, merge, fork]
+        x-fyai-scope: session
         description: >-
           Select how to handle a concurrent change to this branch. `abort`
           writes nothing and reports the conflict; it is the default.
           `rebase` and `merge` replay this invocation's turns on top
           of the ones already committed; they agree here, because unpublished
           turns have no recorded time while committed ones already happened.
+          `fork` keeps this invocation's turns on a new `session/` branch
+          that starts where this invocation started: the branch splits at
+          the first change that both sides made.
           Invocations on *different* branches never conflict.
 
   reasoning:
