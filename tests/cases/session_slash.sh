@@ -73,6 +73,10 @@ set +e
 /tool-detail
 /transcript-system on
 /transcript-system
+/work-height quarter
+/work-height
+/tool-display pane
+/tool-display
 /secret status api-key/not-configured
 /auth status
 /auth invalid
@@ -118,6 +122,8 @@ assert_stderr_contains "auth: provider 'invalid' is not supported yet"
 # session or require a configured secret backend.
 grep -Eq 'secret api-key/not-configured: (absent|unavailable)' "$TEST_DIR/stdout" || \
 	fail "secret status did not report absent or unavailable"
+assert_stdout_contains "work-height: quarter"
+assert_stdout_contains "tool-display: pane"
 assert_stdout_contains "Output max"
 assert_stdout_contains '| `read_file` | Read a UTF-8 text file from the workspace. |'
 assert_stdout_contains '| `sample_tool` | First sentence. |'
