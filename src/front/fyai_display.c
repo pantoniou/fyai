@@ -1780,7 +1780,7 @@ out:
 /* Append a marked, frameless tool body to @out. */
 static int view_append_block(struct fyai_ctx *ctx, struct fyai_buf *out,
 			     const char *md, size_t len, const char *lang,
-			     size_t max_lines)
+			     size_t max_lines, bool head)
 {
 	const char *nl;
 	const char *end;
@@ -1804,6 +1804,9 @@ static int view_append_block(struct fyai_ctx *ctx, struct fyai_buf *out,
 		len--;
 	if (!len)
 		return 0;
+	if (head)
+		return fyai_render_fenced_marked_head(ctx, md, len, lang,
+				max_lines, markdown_gutter_blank(ctx->cfg), out);
 	return fyai_render_fenced_marked(ctx, md, len, lang, max_lines,
 					 markdown_gutter_blank(ctx->cfg), out);
 }
@@ -1833,7 +1836,8 @@ static int view_split(struct fyai_ctx *ctx, const char *md, size_t len,
 					       md + blocks->item[i].start,
 					       blocks->item[i].end -
 						blocks->item[i].start,
-					       blocks->item[i].lang, max_lines);
+					       blocks->item[i].lang, max_lines,
+					       false);
 		fyai_error_check(ctx, !rc, out, "could not build the tool body");
 		pos = blocks->item[i].end;
 	}
@@ -3386,12 +3390,12 @@ static int fyai_display_tool_head(struct fyai_ctx *ctx, const char *md,
 
 static int fyai_display_tool_body(struct fyai_ctx *ctx, const char *md,
 				  size_t len, const char *lang,
-				  size_t max_lines)
+				  size_t max_lines, bool head)
 {
 	struct fyai_buf body = {0};
 	int rc;
 
-	rc = view_append_block(ctx, &body, md, len, lang, max_lines);
+	rc = view_append_block(ctx, &body, md, len, lang, max_lines, head);
 	if (!rc && body.len)
 		rc = fyai_sink_write(ctx->out->sink, FYAI_SINK_TRANSCRIPT,
 				     body.data, body.len);
@@ -3458,6 +3462,7 @@ struct fyai_fragment {
 	const char *lang;	/* empty when the fragment carries none */
 	const char *tool;	/* backfilled; empty when unknown */
 	int preview_lines;
+	bool command;		/* command body: first preview_lines rows */
 	bool ok;		/* tool_head outcome */
 	const char *cause;	/* tool_head failure cause, empty if none */
 };
@@ -3538,6 +3543,12 @@ static int fyai_fragment_walk(struct fyai_ctx *ctx, fy_generic output,
 				f.tool = "shell";
 		}
 		f.preview_lines = fyai_tool_preview_lines(cfg, f.tool);
+		/* A command shows its first rows and a count of the rest. */
+		f.command = f.unit == FYAI_FLOW_TOOL_BODY &&
+			    cfg->tool_command_lines > 0 &&
+			    fyai_tool_has(f.tool, FYAI_TOOL_COMMAND_BODY);
+		if (f.command)
+			f.preview_lines = cfg->tool_command_lines;
 		if (f.unit == FYAI_FLOW_TOOL_HEAD) {
 			gcause = fy_get(fragment, "cause");
 			f.ok = !fy_equal(fy_get(fragment, "ok"), fy_false);
@@ -3619,7 +3630,8 @@ static int render_walk_unit(void *user, const struct fyai_fragment *f)
 		fyai_error_check(ctx, !rc, out, "could not fence a tool body");
 		rc = fyai_display_tool_body(ctx, f->md, f->len, f->lang,
 					    f->preview_lines > 0 ?
-					    (size_t)f->preview_lines : 0);
+					    (size_t)f->preview_lines : 0,
+					    f->command);
 		fyai_error_check(ctx, !rc, out, "could not replay a tool body");
 		return 0;
 	case FYAI_FLOW_TOOL_TEXT:

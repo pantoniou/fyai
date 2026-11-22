@@ -368,8 +368,12 @@ int fyai_ui_append_shell_command(struct fyai_cfg *cfg,
 	markdown_tool_marker(cfg, mark, sizeof(mark));
 	saved = fyai_width_reserve_begin(cfg, markdown_gutter_cols(cfg) +
 					 FYAI_TOOL_MARKER_WIDTH);
-	rc = fyai_render_fenced_buffer(cfg, command, strlen(command), "sh",
-				       &rendered, 0);
+	/* A command of many lines shows its first rows: the call is the
+	 * description, the command is detail. */
+	rc = fyai_render_fenced_head(cfg, command, strlen(command), "sh",
+				     cfg->tool_command_lines > 0 ?
+				     (size_t)cfg->tool_command_lines : 0,
+				     &rendered);
 	fyai_width_reserve_end(cfg, saved);
 	if (rc)
 		goto out;

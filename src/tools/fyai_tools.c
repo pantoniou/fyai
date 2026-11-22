@@ -2060,7 +2060,7 @@ const struct fyai_tool_def fyai_tools_defs[] = {
 	  .effect = FYAI_TOOL_EFFECT_FILES },
 	{ .name = "shell", .run = fyai_run_shell_command,
 	  .head = fyai_tool_head_shell, .in_parent = fyai_shell_background_requested,
-	  .flags = FYAI_TOOL_MARKED | FYAI_TOOL_INSTANT,
+	  .flags = FYAI_TOOL_MARKED | FYAI_TOOL_INSTANT | FYAI_TOOL_COMMAND_BODY,
 	  .effect = FYAI_TOOL_EFFECT_PROCESS },
 	{ .name = "shell_input", .run = fyai_shell_input_tool,
 	  .flags = FYAI_TOOL_PARENT | FYAI_TOOL_SILENT,

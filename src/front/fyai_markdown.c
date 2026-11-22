@@ -1575,11 +1575,63 @@ int fyai_fprint_markdown(FILE *fp, const char *text, struct fyai_cfg *cfg,
  * fyai_print_markdown_limited(). ANSI is appended to @out; on failure the raw
  * text is appended instead and -1 returned.
  */
+static int markdown_render_fenced_limit(struct fyai_cfg *fcfg,
+					const char *text, size_t len,
+					const char *lang,
+					fy_generic template_vars,
+					size_t max_lines, size_t head,
+					struct fyai_buf *out, bool color,
+					enum fymd_cfg_flags extra);
+
+/*
+ * Keep the first @head rows that @out holds from @start, and a row that
+ * counts the rest, when more than @head + 1 rows stand there: as many rows
+ * as a cap of @head + 1 measures. Styling ends before the count.
+ */
+static int markdown_cut_head(struct fyai_buf *out, size_t start, size_t head)
+{
+	size_t i, rows = 0, cut = 0, total = 0;
+	char sep[64];
+	int n;
+
+	for (i = start; i < out->len; i++)
+		if (out->data[i] == '\n')
+			total++;
+	if (out->len > start && out->data[out->len - 1] != '\n')
+		total++;
+	if (total <= head + 1)
+		return 0;
+	for (i = start; i < out->len && rows < head; i++)
+		if (out->data[i] == '\n' && ++rows == head)
+			cut = i + 1;
+	n = snprintf(sep, sizeof(sep), "\x1b[0m\xe2\x8b\xaf %zu more lines\n",
+		     total - head);
+	if (n < 0 || (size_t)n >= sizeof(sep))
+		return -1;
+	out->len = cut;
+	out->data[out->len] = '\0';
+	return fyai_buf_append(out, sep);
+}
+
 static int markdown_render_fenced(struct fyai_cfg *fcfg, const char *text,
 				  size_t len, const char *lang,
 				  fy_generic template_vars, size_t max_lines,
 				  struct fyai_buf *out, bool color,
 				  enum fymd_cfg_flags extra)
+{
+	return markdown_render_fenced_limit(fcfg, text, len, lang,
+					    template_vars, max_lines, 0, out,
+					    color, extra);
+}
+
+/* With @head above zero, only the first @head rows and a count of the rest. */
+static int markdown_render_fenced_limit(struct fyai_cfg *fcfg,
+					const char *text, size_t len,
+					const char *lang,
+					fy_generic template_vars,
+					size_t max_lines, size_t head,
+					struct fyai_buf *out, bool color,
+					enum fymd_cfg_flags extra)
 {
 	struct fymd_fenced_block_opts opts;
 	struct fymd_renderer_cfg cfg;
@@ -1595,7 +1647,8 @@ static int markdown_render_fenced(struct fyai_cfg *fcfg, const char *text,
 	r = markdown_renderer_new(fcfg, &cfg);
 	if (!r)
 		goto raw;
-	markdown_set_line_limit(r, max_lines);
+	if (!head)
+		markdown_set_line_limit(r, max_lines);
 
 	/*
 	 * Render the raw content frameless (highlighting only, no theme fence
@@ -1617,6 +1670,8 @@ static int markdown_render_fenced(struct fyai_cfg *fcfg, const char *text,
 	out->data[out->len] = '\0';
 	fymd_free(s);
 	fymd_renderer_destroy(r);
+	if (head && markdown_cut_head(out, before, head))
+		return -1;
 	return 0;
 
 raw_reset:
@@ -1632,6 +1687,16 @@ raw:
 		out->data[out->len] = '\0';
 	}
 	return -1;
+}
+
+int fyai_render_fenced_head(struct fyai_cfg *cfg, const char *text,
+			    size_t len, const char *lang, size_t head,
+			    struct fyai_buf *out)
+{
+	return markdown_render_fenced_limit(cfg, text, len, lang, fy_invalid,
+					    0, head, out,
+					    markdown_color_enabled(cfg->color),
+					    0);
 }
 
 int fyai_render_fenced_buffer(struct fyai_cfg *cfg, const char *text,
@@ -1697,9 +1762,31 @@ out:
 	return -1;
 }
 
+static int markdown_fenced_marked(struct fyai_ctx *ctx, const char *text,
+				  size_t len, const char *lang,
+				  size_t max_lines, size_t head,
+				  const char *indent, struct fyai_buf *out);
+
 int fyai_render_fenced_marked(struct fyai_ctx *ctx, const char *text,
 			      size_t len, const char *lang, size_t max_lines,
 			      const char *indent, struct fyai_buf *out)
+{
+	return markdown_fenced_marked(ctx, text, len, lang, max_lines, 0,
+				      indent, out);
+}
+
+int fyai_render_fenced_marked_head(struct fyai_ctx *ctx, const char *text,
+				   size_t len, const char *lang, size_t head,
+				   const char *indent, struct fyai_buf *out)
+{
+	return markdown_fenced_marked(ctx, text, len, lang, 0, head, indent,
+				      out);
+}
+
+static int markdown_fenced_marked(struct fyai_ctx *ctx, const char *text,
+				  size_t len, const char *lang,
+				  size_t max_lines, size_t head,
+				  const char *indent, struct fyai_buf *out)
 {
 	struct fyai_buf rendered = {0};
 	size_t start;
@@ -1713,10 +1800,11 @@ int fyai_render_fenced_marked(struct fyai_ctx *ctx, const char *text,
 	saved = fyai_width_reserve_begin(ctx->cfg,
 					 fyai_indent_cols(indent) +
 					 FYAI_TOOL_MARKER_WIDTH);
-	rc = markdown_render_fenced(ctx->cfg, text, len, lang, fy_invalid,
-				    max_lines, &rendered,
-				    markdown_color_enabled(ctx->cfg->color),
-				    0);
+	rc = markdown_render_fenced_limit(ctx->cfg, text, len, lang,
+					  fy_invalid, max_lines, head,
+					  &rendered,
+					  markdown_color_enabled(ctx->cfg->color),
+					  0);
 	fyai_width_reserve_end(ctx->cfg, saved);
 	fyai_error_check(ctx, !rc, out, "could not render the tool body");
 	start = 0;

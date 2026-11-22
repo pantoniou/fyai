@@ -87,6 +87,11 @@ enum {
 	 * formatter keeps it short, and the preview does not cut it.
 	 */
 	FYAI_TOOL_WHOLE_RESULT	= 1 << 8,
+	/*
+	 * The body of a call is a command: it shows display/tool_command_lines
+	 * rows, live and in the transcript.
+	 */
+	FYAI_TOOL_COMMAND_BODY	= 1 << 9,
 };
 
 /*
