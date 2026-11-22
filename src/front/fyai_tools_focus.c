@@ -206,6 +206,9 @@ void fyai_tools_surface_request(struct fyai_ctx *ctx, struct fytim_surface *sf,
 
 	if (!ctx || !sf)
 		return;
+	/* A tile of a remote session has no session or job here. */
+	if (fyai_uimodel_tile_request(ctx, sf, delta))
+		return;
 	if (delta) {
 		/* Scroll the terminal view without sending input to the program. */
 		fyai_tile_owner(ctx, sf, &sess, &job);
@@ -320,9 +323,22 @@ int fyai_tools_session_close(struct fyai_ctx *ctx, const char *name,
 			     bool force)
 {
 	struct fyai_shell_session *sess = fyai_shell_session_find(ctx, name);
+	struct fyai_tool_job *job;
 
-	if (!sess)
-		return -1;
+	/* The tile of a sub-agent is named by its branch. */
+	if (!sess) {
+		for (job = ctx->jobs->tools; job; job = job->next)
+			if (job->agent && job->phase != FYAI_JOB_DONE &&
+			    job->branch && !strcmp(job->branch, name))
+				break;
+		if (!job)
+			return -1;
+		if (job->btw_panel)
+			fyai_tool_job_discard(job);
+		else
+			fyai_tool_job_cancel(job);
+		return 0;
+	}
 	sess->close_on_exit = true;
 	fyai_shell_session_close(sess, force);
 	return 0;

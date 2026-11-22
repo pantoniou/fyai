@@ -537,6 +537,29 @@ err:
 }
 
 /*
+ * Close the tile of @t, whose program ended. The worker drops its session
+ * later; a side question has none to tell. @key is what the user typed for
+ * the worker of another terminal.
+ */
+static void remote_ui_term_dismiss(struct fyai_remote_ui *view,
+				   struct remote_ui_term *t, const char *key,
+				   size_t keylen)
+{
+	struct fyai_ctx *ctx = fyai_remote_ui_ctx(view);
+
+	if (!t->btw &&
+	    remote_ui_request(view, "fyai_terminal_input", fy_mapping(
+			"name", t->name, "data", fy_string_size(key, keylen))))
+		view->failed = true;
+	t->dismissed = true;
+	fyai_tools_unzoom(ctx);
+	fyai_workpane_unregister(ctx->screen->workpane, t->surface);
+	fyai_ui_surface_close(ctx, t->surface);
+	t->surface = NULL;
+	fyai_ui_wake(ctx);
+}
+
+/*
  * The keys of the tile of a terminal go to its program in the worker. The
  * tile of a program that ended goes here at once when a key closes it, and
  * the keys after that key go to the prompt: the worker drops its session
@@ -583,19 +606,10 @@ static bool remote_ui_term_keys(void *data, struct fytim_surface *sf,
 		/* A program that ended reads nothing more. */
 		if (!remote_ui_term_closes(bytes, len))
 			return true;
-		if (!t->btw &&
-		    remote_ui_request(view, "fyai_terminal_input", fy_mapping(
-				"name", t->name, "data", fy_string_size(bytes, keylen))))
-			view->failed = true;
-		t->dismissed = true;
-		fyai_tools_unzoom(ctx);
-		fyai_workpane_unregister(ctx->screen->workpane, t->surface);
-		fyai_ui_surface_close(ctx, t->surface);
-		t->surface = NULL;
+		remote_ui_term_dismiss(view, t, bytes, keylen);
 		if (len > 1 && fyai_ui_keys_return(ctx, bytes + 1, len - 1))
 			fyai_warning(ctx, "the keys after the close of the "
 				     "terminal %s are lost", t->name);
-		fyai_ui_wake(ctx);
 		return true;
 	}
 	if (remote_ui_request(view, "fyai_terminal_input", fy_mapping(
@@ -615,9 +629,41 @@ static bool remote_ui_term_kept(void *data, struct fytim_surface *sf)
 	return t && t->exited && !t->dismissed;
 }
 
+/*
+ * A control of the tile of a terminal of the worker: the owner of the tile is
+ * this record, not a session or a job of this process. A close of a tile
+ * that ended drops it here; of a running one, asks the worker to end its
+ * program. A scroll moves the view that this process keeps.
+ */
+static bool remote_ui_term_request(void *data, struct fytim_surface *sf,
+				   int delta)
+{
+	struct fyai_remote_ui *view = data;
+	struct remote_ui_term *t;
+
+	for (t = view->terms; t && t->surface != sf; t = t->next)
+		;
+	/* A mirror of a session has the session of this process. */
+	if (!t || t->mirror)
+		return false;
+	if (delta) {
+		if (fyai_terminal_view_scroll(t->view, delta) &&
+		    fyai_ui_surface_publish(t->surface, t->view) > 0)
+			fyai_ui_wake(fyai_remote_ui_ctx(view));
+		return true;
+	}
+	if (t->exited)
+		remote_ui_term_dismiss(view, t, "\x1b", 1);
+	else if (remote_ui_request(view, "fyai_terminal_close", fy_mapping(
+			"name", t->name, "force", false)))
+		view->failed = true;
+	return true;
+}
+
 static const struct fyai_uimodel_tile_ops remote_ui_tile_ops = {
 	.keys = remote_ui_term_keys,
 	.kept = remote_ui_term_kept,
+	.request = remote_ui_term_request,
 };
 
 /* Show each terminal that the member "items" of the work store names. */

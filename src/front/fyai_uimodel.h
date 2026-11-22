@@ -173,13 +173,17 @@ int fyai_uimodel_mirror_text(struct fyai_ctx *ctx, long long id, size_t offset,
 /*
  * The tiles of a mirror show programs of the owner. @keys takes the keys of
  * the tile @sf, and says whether it is a tile of the mirror; @kept says
- * whether its program ended and its screen stays to read.
+ * whether its program ended and its screen stays to read. @request takes a
+ * control of the tile, a close for @delta 0 and else a scroll of @delta rows,
+ * and says whether the tile is one that it owns: the owner of such a tile is
+ * not a shell session or a job.
  */
 struct fytim_surface;
 struct fyai_uimodel_tile_ops {
 	bool (*keys)(void *data, struct fytim_surface *sf, const char *bytes,
 		     size_t len);
 	bool (*kept)(void *data, struct fytim_surface *sf);
+	bool (*request)(void *data, struct fytim_surface *sf, int delta);
 };
 void fyai_uimodel_mirror_tiles(struct fyai_ctx *ctx,
 			       const struct fyai_uimodel_tile_ops *ops,
@@ -187,6 +191,8 @@ void fyai_uimodel_mirror_tiles(struct fyai_ctx *ctx,
 bool fyai_uimodel_keys(struct fyai_ctx *ctx, struct fytim_surface *sf,
 		       const char *data, size_t len);
 bool fyai_uimodel_tile_kept(struct fyai_ctx *ctx, struct fytim_surface *sf);
+bool fyai_uimodel_tile_request(struct fyai_ctx *ctx, struct fytim_surface *sf,
+			       int delta);
 
 /* Ask the owner of a mirror; -1 when the model is not a mirror. */
 int fyai_uimodel_intent(struct fyai_ctx *ctx, const char *subtype,

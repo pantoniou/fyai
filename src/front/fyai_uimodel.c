@@ -511,6 +511,15 @@ bool fyai_uimodel_tile_kept(struct fyai_ctx *ctx, struct fytim_surface *sf)
 	       m->tiles->kept(m->tiles_data, sf);
 }
 
+bool fyai_uimodel_tile_request(struct fyai_ctx *ctx, struct fytim_surface *sf,
+			       int delta)
+{
+	struct fyai_uimodel *m = uimodel(ctx);
+
+	return m && m->mirror && m->tiles && m->tiles->request &&
+	       m->tiles->request(m->tiles_data, sf, delta);
+}
+
 int fyai_uimodel_intent(struct fyai_ctx *ctx, const char *subtype,
 			fy_generic request)
 {
