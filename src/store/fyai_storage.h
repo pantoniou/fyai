@@ -100,15 +100,18 @@ char *fyai_peek_branch_pick(const char *arena_dir_opt, const char *root_spec,
 			    const char *cwd, bool all, const char *prefix);
 
 /*
- * The sessions of the arena at @arena_dir, without a context: the rows of
- * fyai_branch_select_rows() with all branches, newest first, each with
- * `owner`, the {pid, start} of its pending table, `fleet`, its lineage, and
- * `tasks`, the tasks of a root session, when it has them. The rows
- * live in @gb. 0 with the rows in *@rowsp (empty when the arena has none), or
- * -1 when the arena cannot be read.
+ * Read session rows from @arena_dir without a context, internalized into @gb.
+ * Produces fyai_branch_select_rows() output (all branches, newest first; or
+ * only @only if non-NULL), augmented with optional `owner` ({pid, start} from
+ * pending), `fleet` (lineage), and `tasks`. If @turns > 0, adds `texts`:
+ * user/assistant message text from the last @turns turns (oldest first) as
+ * {role, text}, truncated to FYAI_PEEK_TEXT_MAX bytes.
+ * Returns 0 with *@rowsp populated (empty if no root), or -1 on read error.
  */
+#define FYAI_PEEK_TEXT_MAX	4000
+#define FYAI_PEEK_TURNS_MAX	200
 int fyai_peek_sessions(const char *arena_dir, struct fy_generic_builder *gb,
-		       fy_generic *rowsp);
+		       const char *only, size_t turns, fy_generic *rowsp);
 
 int fyai_peek_arena_config(const char *arena_dir_opt, const char *branch_opt,
 			   const char *root_spec, struct fy_generic_builder *gb,

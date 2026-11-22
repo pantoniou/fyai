@@ -9,7 +9,7 @@
 # Tool order is fixed: tool_search, mcp_resource, read_file, write_file,
 # apply_patch, shell, shell_input,
 # shell_output, shell_close, ask_user, ask_parent, agent, list, settings,
-# todo_write, time, wait,
+# fleet, todo_write, time, wait,
 # skill, structured_output.
 - type: function
   function:
@@ -898,6 +898,86 @@
           type: boolean
           description: |-
             For `list`: give only the keys whose value in force differs from the default.
+      required:
+        - action
+      additionalProperties: false
+- type: function
+  function:
+    name: fleet
+    description: >-
+      Work with the fleet: the projects below the root project of this session and their
+      sessions, which run as other fyai sessions with models of their own. A session is named
+      `PROJECT:BRANCH`, with the project relative to the root (`.` is the root itself). Start
+      with `search` to find a session or a task: it matches each word of `query`, in any case,
+      against the projects, branches, descriptions, the texts of tasks and the words of the
+      last turns of each session, and gives where the first word is and the text around it.
+      `list` gives each session with its state: `idle`, `running` or `waiting` (a question
+      waits for an answer) at a server, `stored` when nothing runs it, `lost` when its process
+      went with work in flight. `read` gives the words of the last `turns` turns of a session.
+      `tasks` gives the tasks that the root sessions keep. `start` starts a session in
+      `project` with `task` as its first message and keeps a task for it; it runs with no
+      client, and you get its answers with `read`. `send` gives a running session a message,
+      which its model reads as an event from this session. `interrupt` stops its turn,
+      `answer` answers its open question (an option number from 1, or a text), and `stop`
+      ends it. `task` marks a task `done`, `dropped` or `open` again by its `id`. A person may
+      drive a session in a terminal: what you send there, that person sees.
+    parameters:
+      type: object
+      properties:
+        action:
+          type: string
+          enum: [search, list, read, tasks, start, send, interrupt, answer, stop, task]
+          description: |-
+            What to do.
+        query:
+          type: string
+          description: |-
+            For `search`: words that each row must hold, such as `build failure`.
+        limit:
+          type: integer
+          description: |-
+            For `search`: the most rows to give, up to 50. Omit for 20.
+        name:
+          type: string
+          description: |-
+            For `read`, `send`, `interrupt`, `answer` and `stop`: the session, as `PROJECT:BRANCH`.
+        turns:
+          type: integer
+          description: |-
+            For `read`: the number of turns to give, up to 200. Omit for 4.
+        project:
+          type: string
+          description: |-
+            For `start`: the project, relative to the root.
+        task:
+          type: string
+          description: |-
+            For `start`: the first message of the new session: what it must do.
+        branch:
+          type: string
+          description: |-
+            For `start`: the branch of the new session. Omit for `fleet/` and the first words of the task.
+        text:
+          type: string
+          description: |-
+            For `send`: the message.
+        answer:
+          type: string
+          description: |-
+            For `answer`: the number of an option, from 1, or the text of the answer.
+        force:
+          type: boolean
+          description: |-
+            For `stop`: end the session at once, with no grace.
+        id:
+          type: integer
+          description: |-
+            For `task`: the id of the task.
+        state:
+          type: string
+          enum: [open, done, dropped]
+          description: |-
+            For `task`: the new state of the task.
       required:
         - action
       additionalProperties: false

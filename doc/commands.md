@@ -3594,7 +3594,7 @@ questions is answered in the session.
 
 the projects and sessions under the root project
 
-**Usage:** `fyai fleet {list|scan|start|tasks} ...`
+**Usage:** `fyai fleet {list|read|scan|search|start|tasks} ...`
 
 The fleet of the root project: the topmost project above this one, and
 every project below it. A project is a directory whose `.fyai` holds an
@@ -3609,7 +3609,9 @@ sets the scan: `fyai config set fleet/scan/depth 2` there.
 | Command | Description |
 | --- | --- |
 | `list` | list every session under the root |
+| `read` | read the last turns of a session of the fleet |
 | `scan` | list the projects under the root |
+| `search` | find sessions and tasks by their words |
 | `start` | start a session of a project with a task |
 | `tasks` | list the tasks of the root sessions |
 
@@ -3666,6 +3668,58 @@ the root keeps the task in its branch (`fleet tasks`).
 | Option | Description |
 | --- | --- |
 | `--branch BRANCH` | the branch of the session |
+| `--output FORMAT` | write the result as markdown, json, or yaml; see `help output` |
+| `-h`, `--help` | show this help |
+
+## fyai fleet search
+
+find sessions and tasks by their words
+
+**Usage:** `fyai fleet search [--limit N] WORDS...`
+
+Find the sessions and the tasks of the fleet that hold each word of
+QUERY, in any case: in the project, the branch, the description, the
+text of a task, or the words of the last 20 turns of a session. Each
+row names the session (PROJECT:BRANCH), where the first word is, and
+the text around it.
+
+
+### Arguments
+
+| Argument | Description |
+| --- | --- |
+| `WORDS` | the words to find |
+
+### Options
+
+| Option | Description |
+| --- | --- |
+| `--limit N` | the most rows to give (default 20) |
+| `--output FORMAT` | write the result as markdown, json, or yaml; see `help output` |
+| `-h`, `--help` | show this help |
+
+## fyai fleet read
+
+read the last turns of a session of the fleet
+
+**Usage:** `fyai fleet read [--turns N] NAME`
+
+Give the words of the user and assistant messages of the last turns of
+the session NAME (BRANCH, or PROJECT:BRANCH of the fleet), oldest
+first, whether a process runs it or not.
+
+
+### Arguments
+
+| Argument | Description |
+| --- | --- |
+| `NAME` | the session, as BRANCH or PROJECT:BRANCH |
+
+### Options
+
+| Option | Description |
+| --- | --- |
+| `--turns N` | the number of turns to give (default 4) |
 | `--output FORMAT` | write the result as markdown, json, or yaml; see `help output` |
 | `-h`, `--help` | show this help |
 
@@ -7448,7 +7502,7 @@ transport.
 
 the projects and sessions under the root project
 
-**Usage:** `/fleet {list|scan|start|task|tasks} ...`
+**Usage:** `/fleet {list|read|scan|search|start|task|tasks} ...`
 
 The fleet of the root project: the topmost project above this one, and
 every project below it. A project is a directory whose `.fyai` holds an
@@ -7463,7 +7517,9 @@ sets the scan: `fyai config set fleet/scan/depth 2` there.
 | Command | Description |
 | --- | --- |
 | `list` | list every session under the root |
+| `read` | read the last turns of a session of the fleet |
 | `scan` | list the projects under the root |
+| `search` | find sessions and tasks by their words |
 | `start` | start a session of a project with a task |
 | `task` | mark a task of this root session |
 | `tasks` | list the tasks of the root sessions |
@@ -7520,6 +7576,56 @@ the root keeps the task in its branch (`fleet tasks`).
 | Option | Description |
 | --- | --- |
 | `--branch BRANCH` | the branch of the session |
+| `-h`, `--help` | show this help |
+
+## /fleet search
+
+find sessions and tasks by their words
+
+**Usage:** `/fleet search [--limit N] WORDS...`
+
+Find the sessions and the tasks of the fleet that hold each word of
+QUERY, in any case: in the project, the branch, the description, the
+text of a task, or the words of the last 20 turns of a session. Each
+row names the session (PROJECT:BRANCH), where the first word is, and
+the text around it.
+
+
+### Arguments
+
+| Argument | Description |
+| --- | --- |
+| `WORDS` | the words to find |
+
+### Options
+
+| Option | Description |
+| --- | --- |
+| `--limit N` | the most rows to give (default 20) |
+| `-h`, `--help` | show this help |
+
+## /fleet read
+
+read the last turns of a session of the fleet
+
+**Usage:** `/fleet read [--turns N] NAME`
+
+Give the words of the user and assistant messages of the last turns of
+the session NAME (BRANCH, or PROJECT:BRANCH of the fleet), oldest
+first, whether a process runs it or not.
+
+
+### Arguments
+
+| Argument | Description |
+| --- | --- |
+| `NAME` | the session, as BRANCH or PROJECT:BRANCH |
+
+### Options
+
+| Option | Description |
+| --- | --- |
+| `--turns N` | the number of turns to give (default 4) |
 | `-h`, `--help` | show this help |
 
 ## /fleet tasks

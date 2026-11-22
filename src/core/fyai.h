@@ -576,6 +576,8 @@ struct fyai_cfg {
 	 */
 	const char *fleet_parent;
 	long long fleet_task;
+	/* Cached fleet tool availability: 0 unknown, 1 enabled, -1 disabled. */
+	int fleet_tool;
 	const char *remote_socket;	/* the socket of --remote TARGET, or NULL */
 	/* The global options and the words to run there, without the above. */
 	fy_generic remote_args;

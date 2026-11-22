@@ -576,6 +576,7 @@ set(FYAI_SOURCES
     src/front/fyai_uitranscript.c
     src/front/fyai_uidraw.c
     src/remote/fyai_remote.c
+    src/remote/fyai_fleet_ops.c
     src/remote/fyai_remote_server.c
     src/remote/fyai_remote_ui.c
     src/net/fyai_net.c
@@ -588,6 +589,7 @@ set(FYAI_SOURCES
     src/remote/fyai_claude_sdk.c
     src/tools/fyai_structured.c
     src/tools/fyai_settings.c
+    src/tools/fyai_fleet_tool.c
     src/tools/fyai_agents.c
     src/tools/fyai_ask.c
     src/loop/fyai_event_fmt.c
