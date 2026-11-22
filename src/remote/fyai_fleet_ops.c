@@ -93,6 +93,7 @@ static int fleet_child(struct fyai_ctx *ctx, struct fy_generic_builder *gb,
 		execv(self, (char *const *)argv);
 		_exit(127);
 	}
+	fyai_diag_tracef("spawn", "fleet %s, pid %ld", argv[2], (long)pid);
 	for (i = 0; i < 2; i++) {
 		close(fds[i][1]);
 		fds[i][1] = -1;

@@ -698,6 +698,7 @@ int run_shell_command_capture_cb(struct fyai_ctx *ctx, const char *command,
 	ret = -1;
 	job.pid = pid;
 
+	fyai_diag_tracef("spawn", "shell, pid %ld: %.80s", (long)pid, command);
 	close(stdout_pipe[1]);
 	close(stderr_pipe[1]);
 	stdout_pipe[1] = -1;
