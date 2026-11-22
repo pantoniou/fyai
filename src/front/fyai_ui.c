@@ -241,6 +241,8 @@ struct fyai_ui {
 	bool todo_shown;
 	/* Fleet member panel cached UI Markdown, rendered below todo. */
 	char *fleet_source;
+	/* True when any fleet member is active and needs blink timer ticks. */
+	bool fleet_blink;
 	int fleet_rows;
 	int fleet_cols;
 	/*
@@ -505,6 +507,21 @@ out:
 	return rc;
 }
 
+/* Rebuild cached fleet panel Markdown from the UI panels store. */
+static void ui_fleet_rebuild(struct fyai_ui *ui)
+{
+	struct fyai_ctx *ctx = fyai_ui_ctx(ui);
+
+	free(ui->fleet_source);
+	ui->fleet_rows = 0;
+	ui->fleet_cols = 0;
+	ui->fleet_source = fyai_fleet_panel_source(fy_get(
+		fyai_uimodel_get(ctx, FYAI_UI_PANELS), "fleet", fy_seq_empty),
+		ui->activity_phase, &ui->fleet_blink);
+	if (ui->fleet_blink && !ui->activity_interval_ms)
+		ui->activity_interval_ms = 500;
+}
+
 static int ui_activity_refresh(struct fyai_ui *ui)
 {
 	struct timespec ts;
@@ -515,7 +532,7 @@ static int ui_activity_refresh(struct fyai_ui *ui)
 	int rc = -1;
 
 	if (ui->activity_paused ||
-	    (!ui->busy && ui->tool_mode == UI_TOOL_IDLE))
+	    (!ui->busy && ui->tool_mode == UI_TOOL_IDLE && !ui->fleet_blink))
 		return 0;
 	if (clock_gettime(CLOCK_MONOTONIC, &ts))
 		return -1;
@@ -539,6 +556,10 @@ static int ui_activity_refresh(struct fyai_ui *ui)
 		return 0;
 	ui->activity_phase = phase;
 	ui->busy_shown_s = busy_s;
+	if (ui->fleet_blink) {
+		ui_fleet_rebuild(ui);
+		ui->frame_pending = true;
+	}
 	/*
 	 * Host-side blinking is intentional. SGR blink is inconsistently
 	 * implemented by terminals. The invocation itself is the work-band
@@ -1432,7 +1453,7 @@ static void ui_rearm(struct fyai_ui *ui)
 	if (!ui->timer_src)
 		return;
 	if (!ui->activity_paused &&
-	    (ui->busy || ui->tool_mode != UI_TOOL_IDLE) &&
+	    (ui->busy || ui->tool_mode != UI_TOOL_IDLE || ui->fleet_blink) &&
 	    ui->activity_interval_ms &&
 	    (ms < 1 || ui->activity_interval_ms < (unsigned int)ms))
 		ms = (int)ui->activity_interval_ms;
@@ -2833,12 +2854,7 @@ static int ui_page_frame_fit(struct fyai_ui *ui, struct ui_page_frame *f)
 			fyai_uimodel_get(ctx, FYAI_UI_PANELS), "todo",
 			fy_seq_empty));
 		ui->todo_shown = ui->todo_source != NULL;
-		free(ui->fleet_source);
-		ui->fleet_rows = 0;
-		ui->fleet_cols = 0;
-		ui->fleet_source = fyai_fleet_panel_source(fy_get(
-			fyai_uimodel_get(ctx, FYAI_UI_PANELS), "fleet",
-			fy_seq_empty));
+		ui_fleet_rebuild(ui);
 		ui->frame_pending = true;
 	}
 	if (ui->todo_source && ui->todo_cols != cols) {
