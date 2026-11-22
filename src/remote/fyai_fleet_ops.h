@@ -85,13 +85,25 @@ int fyai_fleet_start(struct fyai_ctx *ctx, struct fy_generic_builder *gb,
 		     const char *project, const char *task, const char *branch,
 		     bool publish, fy_generic *resultp);
 
+/*
+ * Create project @project under the fleet root (directories and arena via
+ * fyai_arena_create()). Rejects `.`, `..`, and symlinks escaping the tree;
+ * existing projects are preserved. Copies this session's config without
+ * fleet/root, or uses `fyai init` defaults when @default_config is true. If
+ * @task is non-NULL, also starts a session via fyai_fleet_start(). Sets
+ * *@resultp to {project, created} plus start fields when @task is given.
+ */
+int fyai_fleet_create(struct fyai_ctx *ctx, struct fy_generic_builder *gb,
+		      const char *project, const char *task, const char *branch,
+		      bool default_config, bool publish, fy_generic *resultp);
+
 /* Set task @id on this root session to "open", "done", or "dropped". */
 int fyai_fleet_task_mark(struct fyai_ctx *ctx, const char *id, const char *state,
 			 bool publish);
 
 /*
- * Whether this session is of a root with a project below it: the session
- * that supervises the fleet. Found once for a run.
+ * True if this session belongs to the topmost project with fleet/root set
+ * (enables supervision and the `fleet` tool). Cached per run.
  */
 bool fyai_fleet_is_root(struct fyai_ctx *ctx);
 

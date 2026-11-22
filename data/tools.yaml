@@ -916,7 +916,9 @@
       went with work in flight. `read` gives the words of the last `turns` turns of a session.
       `tasks` gives the tasks that the root sessions keep. `start` starts a session in
       `project` with `task` as its first message and keeps a task for it; it runs with no
-      client, and you get its answers with `read`. `send` gives a running session a message,
+      client, and you get its answers with `read`. `create` makes a new project: the directory
+      `project` below the root, with its arena, so that it joins the fleet; with `task` it
+      starts a session there as `start` does. `send` gives a running session a message,
       which its model reads as an event from this session. `interrupt` stops its turn,
       `answer` answers its open question (an option number from 1, or a text), and `stop`
       ends it. `adopt` makes a live session that a person started a member of yours, with a
@@ -930,7 +932,7 @@
       properties:
         action:
           type: string
-          enum: [search, list, read, tasks, start, send, interrupt, answer, stop, adopt, task]
+          enum: [search, list, read, tasks, start, create, send, interrupt, answer, stop, adopt, task]
           description: |-
             What to do.
         query:
@@ -952,15 +954,17 @@
         project:
           type: string
           description: |-
-            For `start`: the project, relative to the root.
+            For `start`: the project, relative to the root. For `create`: the path of the new
+            project, of plain names, relative to the root.
         task:
           type: string
           description: |-
-            For `start`: the first message of the new session: what it must do.
+            For `start`: the first message of the new session: what it must do. For `create`:
+            the same, or omit it to make the project and start nothing.
         branch:
           type: string
           description: |-
-            For `start`: the branch of the new session. Omit for `fleet/` and the first words of the task.
+            For `start` and `create`: the branch of the new session. Omit for `fleet/` and the first words of the task.
         text:
           type: string
           description: |-
@@ -973,6 +977,11 @@
           type: boolean
           description: |-
             For `stop`: end the session at once, with no grace.
+        default_config:
+          type: boolean
+          description: |-
+            For `create`: store the sample configuration in the new project. Omit to give it the
+            configuration of this project, which names the model.
         id:
           type: integer
           description: |-

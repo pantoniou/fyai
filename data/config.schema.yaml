@@ -552,6 +552,14 @@ properties:
             description: >-
               The names of the directories that the scan does not go into, as
               shell patterns.
+      root:
+        type: boolean
+        default: false
+        description: >-
+          This project is a fleet root: a session of it gets the `fleet`
+          tool, which works on the projects below it. Only the topmost project
+          of a tree can be a root; a project that `fleet create` makes does
+          not inherit the key. `fyai init --root` sets it.
       approve:
         type: string
         enum: [never, start, always]

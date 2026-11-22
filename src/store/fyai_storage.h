@@ -84,6 +84,23 @@ int fyai_publish_branches(struct fyai_ctx *ctx, fy_generic base,
 
 int fyai_init_storage(struct fyai_ctx *ctx);
 
+/*
+ * Return @config with fleet/root set to true (@root true) or removed (@root
+ * false; unchanged if absent). Returns fy_invalid on allocation failure.
+ */
+fy_generic fyai_config_fleet_root(struct fy_generic_builder *gb,
+				  fy_generic config, bool root);
+
+/*
+ * Create a new project arena in @project_dir with branch `main` seeded from
+ * @config (or the default sample config if fy_invalid). Safe to call while
+ * @ctx has another arena open: picks a non-overlapping mmap base for the new
+ * arena without disturbing @ctx's arena. Returns 0 on success, -1 if an arena
+ * already exists or creation fails.
+ */
+int fyai_arena_create(struct fyai_ctx *ctx, const char *project_dir,
+		      fy_generic config);
+
 /* Return true if a configuration contains a literal api_key. */
 bool fyai_config_has_raw_secret(fy_generic doc);
 

@@ -12,6 +12,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
+#include <sys/stat.h>
 #include <sys/wait.h>
 #include <unistd.h>
 
@@ -641,18 +642,25 @@ static const char *fleet_task_branch(struct fy_generic_builder *gb, const char *
 	return fy_gb_intern_string(gb, fy_sprintfa("fleet/%s", n ? slug : "task"));
 }
 
+/* True if canonical @path equals @root or lies beneath it. */
+static bool fleet_under(const char *path, const char *root)
+{
+	size_t len = strlen(root);
+
+	return !strncmp(path, root, len) && (!path[len] || path[len] == '/');
+}
+
 /*
  * Resolve canonical path of @project under @root, returning NULL if it
  * escapes @root. Caller frees.
  */
 static char *fleet_project_dir(const char *root, const char *project)
 {
-	size_t len = strlen(root);
 	char *dir;
 
 	dir = realpath(strcmp(project, ".") ? fy_sprintfa("%s/%s", root, project) :
 		       root, NULL);
-	if (dir && !strncmp(dir, root, len) && (!dir[len] || dir[len] == '/'))
+	if (dir && fleet_under(dir, root))
 		return dir;
 	free(dir);
 	return NULL;
@@ -697,6 +705,128 @@ int fyai_fleet_task_dispatch(struct fyai_ctx *ctx, fy_generic id, fy_generic tas
 	}
 	free(dir);
 	free(home);
+	free(root);
+	free(cwd);
+	return rc;
+}
+
+/* True if @project is relative with no empty, `.`, `..`, or `.fyai` parts. */
+static bool fleet_project_valid(const char *project)
+{
+	const char *seg = project, *end;
+	size_t len;
+
+	if (!*project || *project == '/')
+		return false;
+	for (;; seg = end + 1) {
+		end = strchr(seg, '/');
+		len = end ? (size_t)(end - seg) : strlen(seg);
+		if (!len || (len == 1 && *seg == '.') ||
+		    (len == 2 && seg[0] == '.' && seg[1] == '.') ||
+		    (len == 5 && !strncmp(seg, ".fyai", 5)))
+			return false;
+		if (!end)
+			return true;
+	}
+}
+
+/*
+ * Create each path component of @project under @root, rejecting symlinks that
+ * resolve outside @root before descending further. Sets *@dirp (caller frees).
+ */
+static int fleet_make_dir(struct fyai_ctx *ctx, const char *root,
+			  const char *project, char **dirp)
+{
+	char *cur = NULL, *real = NULL, *next = NULL;
+	const char *seg = project, *end;
+	struct stat st;
+	size_t len;
+	bool made;
+	int rc = -1;
+
+	cur = strdup(root);
+	fyai_error_check(ctx, cur, out, "fleet: out of memory");
+	for (;; seg = end + 1) {
+		end = strchr(seg, '/');
+		len = end ? (size_t)(end - seg) : strlen(seg);
+		if (asprintf(&next, "%s/%.*s", cur, (int)len, seg) < 0)
+			next = NULL;
+		fyai_error_check(ctx, next, out, "fleet: out of memory");
+		free(cur);
+		cur = next;
+		next = NULL;
+		made = !mkdir(cur, 0777) ||
+		       (errno == EEXIST && !stat(cur, &st) && S_ISDIR(st.st_mode));
+		fyai_error_check(ctx, made, out,
+				 "fleet: cannot make the directory %s: %s", cur,
+				 strerror(errno));
+		real = realpath(cur, NULL);
+		fyai_error_check(ctx, real && fleet_under(real, root), out,
+				 "fleet: '%s' leaves the root '%s'", project,
+				 root);
+		free(real);
+		real = NULL;
+		if (!end)
+			break;
+	}
+	*dirp = realpath(cur, NULL);
+	fyai_error_check(ctx, *dirp, out, "fleet: cannot resolve %s: %s", cur,
+			 strerror(errno));
+	rc = 0;
+out:
+	free(real);
+	free(next);
+	free(cur);
+	return rc;
+}
+
+int fyai_fleet_create(struct fyai_ctx *ctx, struct fy_generic_builder *gb,
+		      const char *project, const char *task, const char *branch,
+		      bool default_config, bool publish, fy_generic *resultp)
+{
+	fy_generic started = fy_invalid, config;
+	char *cwd = NULL, *root = NULL, *dir = NULL, *home = NULL;
+	bool created = false;
+	int rc = -1;
+
+	fyai_error_check(ctx, fleet_project_valid(project), err,
+			 "fleet: '%s' is no project name: give a path of plain "
+			 "names below the root", project);
+	cwd = getcwd(NULL, 0);
+	fyai_error_check(ctx, cwd, err, "cannot read the current directory");
+	root = fyai_fleet_root_of(cwd);
+	fyai_error_check(ctx, root, err, "fleet: no project holds '%s'", cwd);
+	if (fleet_make_dir(ctx, root, project, &dir))
+		goto err;
+	/* Preserve an existing project at @dir without reinitializing it. */
+	home = fyai_fleet_project_of(dir);
+	if (!home || strcmp(home, dir)) {
+		/* Strip fleet/root when copying config to a child project. */
+		config = default_config ? fy_invalid :
+			 fyai_config_fleet_root(gb, ctx->cfg->config_doc,
+						 false);
+		if (!default_config && !fy_is_valid(config)) {
+			fyai_error(ctx, "fleet: cannot take the configuration "
+				       "of this session");
+			goto err;
+		}
+		if (fyai_arena_create(ctx, dir, config))
+			goto err;
+		created = true;
+	}
+	if (task) {
+		if (fyai_fleet_start(ctx, gb, project, task, branch, publish,
+				     &started))
+			goto err;
+		*resultp = fy_assoc(gb, started, "created", created);
+	} else {
+		*resultp = fy_mapping(gb, "project", project, "created",
+				      created);
+	}
+	rc = 0;
+err:
+	free(home);
+	free(dir);
 	free(root);
 	free(cwd);
 	return rc;
@@ -936,36 +1066,24 @@ bool fyai_fleet_has_room(struct fyai_ctx *ctx)
 	return max <= 0 || (long long)fyai_fleet_watch_live(ctx) < max;
 }
 
-/* A scan stops at the second project: the root has one below it. */
-static int fleet_root_found(const char *dir, void *data)
-{
-	int *count = data;
-
-	(void)dir;
-	return ++*count > 1;
-}
-
 bool fyai_fleet_is_root(struct fyai_ctx *ctx)
 {
 	struct fyai_cfg *cfg = ctx->cfg;
-	fy_generic scan = fy_get(fy_get(cfg->config_doc, "fleet", fy_invalid), "scan",
-				 fy_invalid);
+	fy_generic fleet;
 	char *cwd, *project = NULL, *root = NULL;
-	int count = 0;
 
 	if (cfg->fleet_tool)
 		return cfg->fleet_tool > 0;
 	cfg->fleet_tool = -1;
+	fleet = fy_get(cfg->config_doc, "fleet", fy_invalid);
+	if (!fy_get(fleet, "root", false))
+		return false;
 	cwd = getcwd(NULL, 0);
 	if (cwd) {
 		project = fyai_fleet_project_of(cwd);
 		root = fyai_fleet_root_of(cwd);
 	}
-	if (project && root && !strcmp(project, root) &&
-	    fyai_fleet_scan(root, (int)fy_get(scan, "depth",
-					      (long long)DEFAULT_FLEET_SCAN_DEPTH),
-			    fy_get(scan, "exclude", fy_seq_empty),
-			    fleet_root_found, &count) > 0)
+	if (project && root && !strcmp(project, root))
 		cfg->fleet_tool = 1;
 	free(root);
 	free(project);

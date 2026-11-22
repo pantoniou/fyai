@@ -573,8 +573,22 @@ out:
 	return base;
 }
 
-/* Open (creating if needed) the durable arena at @arena_dir into @ctx. */
-static int fyai_open_arena(struct fyai_ctx *ctx, const char *arena_dir)
+/* Fixed mmap region bases/sizes for a new arena; 0 uses allocator defaults. */
+struct fyai_arena_place {
+	uint64_t region_base;
+	uint64_t region_size;
+	uint64_t index_region_base;
+	uint64_t index_region_size;
+};
+
+/*
+ * Open (or create) the durable arena at @arena_dir into @arena. Existing
+ * arenas reuse their recorded boot base; new arenas use @place if non-NULL.
+ * When @transient is true, stacks an in-memory overlay builder on top.
+ */
+static int fyai_arena_open_at(struct fyai_arena *arena, const char *arena_dir,
+			      bool transient,
+			      const struct fyai_arena_place *place)
 {
 	struct fy_durable_allocator_cfg dur_cfg;
 	struct fy_generic_builder_cfg gb_cfg;
@@ -588,6 +602,12 @@ static int fyai_open_arena(struct fyai_ctx *ctx, const char *arena_dir)
 	memset(&dur_cfg, 0, sizeof(dur_cfg));
 	dur_cfg.dir = arena_dir;
 	dur_cfg.region_base = fyai_arena_boot_base(arena_dir);
+	if (!dur_cfg.region_base && place) {
+		dur_cfg.region_base = place->region_base;
+		dur_cfg.region_size = place->region_size;
+		dur_cfg.index_region_base = place->index_region_base;
+		dur_cfg.index_region_size = place->index_region_size;
+	}
 	dur_cfg.flags = FY_DURABLE_ARENA_CREATE | FY_DURABLE_ARENA_DEDUP |
 			FY_DURABLE_ARENA_SPARSE | FY_DURABLE_ARENA_SEPARATE_INDEX;
 
@@ -604,15 +624,15 @@ static int fyai_open_arena(struct fyai_ctx *ctx, const char *arena_dir)
 	}
 #endif
 	fyai_unreserve_arena_ranges(&dur_cfg);
-	ctx->arena->durable_allocator = fy_allocator_create("durable", &dur_cfg);
-	if (!ctx->arena->durable_allocator)
+	arena->durable_allocator = fy_allocator_create("durable", &dur_cfg);
+	if (!arena->durable_allocator)
 		return -1;
 
 	memset(&gb_cfg, 0, sizeof(gb_cfg));
 	gb_cfg.flags = FYGBCF_SCOPE_LEADER | FYGBCF_DEDUP_ENABLED;
-	gb_cfg.allocator = ctx->arena->durable_allocator;
-	ctx->arena->durable_gb = fy_generic_builder_create(&gb_cfg);
-	if (!ctx->arena->durable_gb)
+	gb_cfg.allocator = arena->durable_allocator;
+	arena->durable_gb = fy_generic_builder_create(&gb_cfg);
+	if (!arena->durable_gb)
 		return -1;
 
 	/*
@@ -620,38 +640,105 @@ static int fyai_open_arena(struct fyai_ctx *ctx, const char *arena_dir)
 	 * config/state writes are visible this run but never published; normally
 	 * it is the durable builder itself.
 	 */
-	if (ctx->cfg && ctx->cfg->transient) {
+	if (transient) {
 		memset(&ov_cfg, 0, sizeof(ov_cfg));
 		memset(&ov_gb_cfg, 0, sizeof(ov_gb_cfg));
 
 		ov_cfg.scenario = FYAST_PER_TAG_FREE_DEDUP;
-		ctx->arena->overlay_allocator = fy_allocator_create("auto", &ov_cfg);
-		if (!ctx->arena->overlay_allocator)
+		arena->overlay_allocator = fy_allocator_create("auto", &ov_cfg);
+		if (!arena->overlay_allocator)
 			return -1;
 		ov_gb_cfg.flags = FYGBCF_SCOPE_LEADER | FYGBCF_DEDUP_ENABLED |
 				  FYGBCF_CREATE_TAG;
-		ov_gb_cfg.allocator = ctx->arena->overlay_allocator;
-		ov_gb_cfg.parent = ctx->arena->durable_gb;
-		ctx->arena->gb = fy_generic_builder_create(&ov_gb_cfg);
-		if (!ctx->arena->gb)
+		ov_gb_cfg.allocator = arena->overlay_allocator;
+		ov_gb_cfg.parent = arena->durable_gb;
+		arena->gb = fy_generic_builder_create(&ov_gb_cfg);
+		if (!arena->gb)
 			return -1;
 	} else {
-		ctx->arena->gb = ctx->arena->durable_gb;
+		arena->gb = arena->durable_gb;
 	}
 
-	ctx->arena->refs_head = fy_allocator_refs_get(ctx->arena->durable_allocator);
+	arena->refs_head = fy_allocator_refs_get(arena->durable_allocator);
 	return 0;
+}
+
+/* Returns true if virtual address range [@base, @base + @size) is unmapped. */
+static bool arena_range_free(uint64_t base, uint64_t size)
+{
+	void *p;
+	int flags = MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE;
+	bool free_range;
+
+#ifdef MAP_FIXED_NOREPLACE
+	flags |= MAP_FIXED_NOREPLACE;
+#endif
+	p = mmap((void *)(uintptr_t)base, (size_t)size, PROT_NONE, flags, -1,
+		 0);
+	if (p == MAP_FAILED)
+		return false;
+	free_range = p == (void *)(uintptr_t)base;
+	munmap(p, (size_t)size);
+	return free_range;
+}
+
+/* Number of stride-aligned VA slots probed when placing a second arena. */
+#define FYAI_ARENA_SLOTS	15
+
+/*
+ * Choose non-overlapping mmap bases for a new arena at @arena_dir while @open
+ * is mapped. Probes FYAI_ARENA_SLOTS stride-aligned slots hashed from
+ * @arena_dir; the chosen base is persisted in the new arena's boot header.
+ * Leaves *@place zeroed (allocator defaults) if @open is NULL.
+ * Returns 0 on success, -1 if no free slot is available.
+ */
+static int arena_place(struct fy_allocator *open, const char *arena_dir,
+		       struct fyai_arena_place *place)
+{
+	uint64_t cbase, csize, ibase, isize, hash = 1469598103934665603ULL;
+	unsigned int slot, n;
+	const char *p;
+
+	memset(place, 0, sizeof(*place));
+	if (!open)
+		return 0;
+	cbase = fy_allocator_region_base(open);
+	csize = fy_allocator_region_size(open);
+	ibase = fy_allocator_index_region_base(open);
+	isize = fy_allocator_index_region_size(open);
+	if (!cbase || !csize || !ibase || !isize)
+		return -1;
+	for (p = arena_dir; *p; p++)
+		hash = (hash ^ (unsigned char)*p) * 1099511628211ULL;
+	for (n = 0; n < FYAI_ARENA_SLOTS; n++) {
+		slot = 1 + (unsigned int)((hash + n) % FYAI_ARENA_SLOTS);
+		if (!arena_range_free(cbase + slot * csize, csize) ||
+		    !arena_range_free(ibase + slot * isize, isize))
+			continue;
+		place->region_base = cbase + slot * csize;
+		place->region_size = csize;
+		place->index_region_base = ibase + slot * isize;
+		place->index_region_size = isize;
+		return 0;
+	}
+	return -1;
+}
+
+/* Open (creating if needed) the durable arena at @arena_dir into @ctx. */
+static int fyai_open_arena(struct fyai_ctx *ctx, const char *arena_dir)
+{
+	return fyai_arena_open_at(ctx->arena, arena_dir,
+				  ctx->cfg && ctx->cfg->transient, NULL);
 }
 
 static int fyai_root_publish_try(struct fyai_ctx *ctx);
 
 /*
- * The config document a new arena starts from: the embedded
- * config.yaml.sample, so a project begins on a working document rather than
- * on an empty config. @who names the caller in a report. Returns fy_invalid
- * and reports why on failure.
+ * Parse the embedded config.yaml.sample into @gb to seed a new arena.
+ * @who labels diagnostics on failure. Returns fy_invalid on error.
  */
-static fy_generic fyai_seed_config(struct fyai_ctx *ctx, const char *who)
+static fy_generic fyai_seed_config(struct fyai_ctx *ctx,
+				   struct fy_generic_builder *gb, const char *who)
 {
 	fy_generic_sized_string sample = {
 		.data = (const char *)FYAI_EMBEDDED_CONFIG,
@@ -659,7 +746,7 @@ static fy_generic fyai_seed_config(struct fyai_ctx *ctx, const char *who)
 	};
 	fy_generic config, report;
 
-	config = fy_parse(ctx->arena->gb, sample,
+	config = fy_parse(gb, sample,
 			  FYAI_YAML_PARSE_FLAGS | FYOPPF_INPUT_TYPE_STRING,
 			  NULL);
 	if (!fy_is_valid(config)) {
@@ -747,7 +834,7 @@ static int storage_bootstrap_seed(struct fyai_ctx *ctx)
 	fy_generic config;
 	int rc;
 
-	config = fyai_seed_config(ctx, "init");
+	config = fyai_seed_config(ctx, ctx->arena->gb, "init");
 	if (!fy_is_valid(config))
 		return -1;
 	ctx->bstate->config = config;
@@ -2309,6 +2396,23 @@ static char *fyai_enclosing_project(const char *dir)
 	}
 }
 
+fy_generic fyai_config_fleet_root(struct fy_generic_builder *gb,
+				  fy_generic config, bool root)
+{
+	fy_generic fleet;
+
+	fleet = fy_get(config, "fleet", fy_invalid);
+	if (!root && !fy_is_valid(fy_get(fleet, "root", fy_invalid)))
+		return config;
+	if (!fy_is_mapping(config))
+		config = fy_map_empty;
+	if (!fy_is_mapping(fleet))
+		fleet = fy_map_empty;
+	fleet = root ? fy_assoc(gb, fleet, "root", true) :
+		       fy_disassoc(gb, fleet, "root");
+	return fy_assoc(gb, config, "fleet", fleet);
+}
+
 int fyai_init_storage(struct fyai_ctx *ctx)
 {
 	struct fyai_cfg *cfg = ctx->cfg;
@@ -2371,7 +2475,7 @@ int fyai_init_storage(struct fyai_ctx *ctx)
 			fyai_error(ctx, "init: arena already carries a config (use --force)");
 			goto out;
 		}
-		if (!args->config && rc >= 0) {
+		if (!args->config && !args->root && rc >= 0) {
 			fyai_result(ctx, "already initialized .fyai\n");
 			ret = 0;
 			goto out;
@@ -2394,11 +2498,18 @@ int fyai_init_storage(struct fyai_ctx *ctx)
 		}
 		config = fy_get(report, "config", config);
 	} else if (fy_is_invalid(config)) {
-		config = fyai_seed_config(ctx, "init");
+		config = fyai_seed_config(ctx, ctx->arena->gb, "init");
 		if (!fy_is_valid(config))
 			goto out;
 	}
 
+	if (args->root) {
+		config = fyai_config_fleet_root(ctx->arena->gb, config, true);
+		if (!fy_is_valid(config)) {
+			fyai_error(ctx, "init: cannot set fleet/root");
+			goto out;
+		}
+	}
 	ctx->bstate->config = config;
 	ctx->bstate->catalog = catalog;
 	ctx->turn->last_message = head;
@@ -2415,6 +2526,82 @@ int fyai_init_storage(struct fyai_ctx *ctx)
 	ret = 0;
 out:
 	fyai_close_storage(ctx);
+	free(arena_dir);
+	return ret;
+}
+
+int fyai_arena_create(struct fyai_ctx *ctx, const char *project_dir,
+		      fy_generic config)
+{
+	struct fyai_arena na;
+	struct fyai_arena_place place;
+	struct fyai_branch nb;
+	fy_generic report, entry, branches, now, root;
+	char *arena_dir = NULL, *boot = NULL;
+	bool exists, ok;
+	int rc, ret = -1;
+
+	fyai_arena_init(&na);
+	if (asprintf(&arena_dir, "%s/.fyai/arena", project_dir) < 0)
+		arena_dir = NULL;
+	fyai_error_check(ctx, arena_dir, out, "init: out of memory");
+	if (asprintf(&boot, "%s/arena-0.bin", arena_dir) < 0)
+		boot = NULL;
+	fyai_error_check(ctx, boot, out, "init: out of memory");
+	exists = !access(boot, F_OK);
+	fyai_error_check(ctx, !exists, out, "init: %s holds an arena already",
+			 arena_dir);
+	rc = arena_place(ctx->arena->durable_allocator, arena_dir, &place);
+	fyai_error_check(ctx, !rc, out,
+			 "init: no free place in this process for the arena %s",
+			 arena_dir);
+	rc = fyai_arena_open_at(&na, arena_dir, false, &place);
+	fyai_error_check(ctx, !rc, out, "init: cannot create the arena %s",
+			 arena_dir);
+
+	/* Validate and internalize @config, or use the sample config. */
+	if (fy_is_valid(config)) {
+		report = fyai_config_validate_report(ctx->cfg, config,
+						     "the project configuration");
+		ok = !fy_not_equal(fy_get(report, "result"), "ok");
+		fyai_error_check(ctx, ok, out,
+				 "init: the configuration of %s is not valid",
+				 project_dir);
+		config = fy_gb_internalize(na.gb,
+					   fy_get(report, "config", config));
+	} else {
+		config = fyai_seed_config(ctx, na.gb, "init");
+	}
+	fyai_error_check(ctx, fy_is_valid(config), out,
+			 "init: cannot store the configuration in %s", arena_dir);
+
+	/* Publish initial root containing branch `main`. */
+	fyai_branch_decode(fy_invalid, &nb);
+	now = fy_value(na.gb, (long long)fyai_branch_timestamp());
+	nb.config = config;
+	nb.created = now;
+	nb.updated = now;
+	nb.cwd = fy_value(na.gb, project_dir);
+	nb.op = fy_value(na.gb, FYAI_BRANCH_OP_CONFIG);
+	entry = fyai_branch_build(na.gb, &nb);
+	branches = fyai_branches_set(na.gb, fy_invalid, FYAI_BRANCH_DEFAULT,
+				     entry);
+	root = fy_invalid;
+	if (fy_is_valid(branches))
+		root = fyai_root_build(na.gb, branches,
+				       fy_value(na.gb, FYAI_BRANCH_DEFAULT), now,
+				       fy_null);
+	fyai_error_check(ctx, fy_is_valid(root), out,
+			 "init: cannot build the first root of %s", arena_dir);
+	rc = fy_allocator_refs_publish(na.durable_allocator, 0,
+				       (uint64_t)root.v,
+				       FY_ALLOC_REFS_CHECKPOINT);
+	fyai_error_check(ctx, !rc, out,
+			 "init: cannot publish the first root of %s", arena_dir);
+	ret = 0;
+out:
+	fyai_arena_release(&na);
+	free(boot);
 	free(arena_dir);
 	return ret;
 }

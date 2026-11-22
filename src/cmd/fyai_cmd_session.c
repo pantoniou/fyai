@@ -337,6 +337,25 @@ int fyai_cmd_fleet_start(struct fyai_cmd_call *call, fy_generic *result)
 				fyai_cmd_arg_str(call, "branch"), true, result);
 }
 
+/* Create a project under the fleet root and optionally start a session. */
+int fyai_cmd_fleet_create(struct fyai_cmd_call *call, fy_generic *result)
+{
+	bool kept;
+	int rc;
+
+	rc = fyai_fleet_create(fyai_cmd_call_ctx(call), call->gb,
+			       fyai_cmd_arg_str(call, "project"),
+			       fyai_cmd_arg_str(call, "task"),
+			       fyai_cmd_arg_str(call, "branch"),
+			       fyai_cmd_arg_bool(call, "default_config"), true,
+			       result);
+	if (!rc) {
+		kept = !fy_get(*result, "created", false);
+		*result = fy_assoc(call->gb, *result, "kept", kept);
+	}
+	return rc;
+}
+
 /*
  * Hand off this split-worker session (including any in-flight turn) to the
  * project server and detach the terminal client.

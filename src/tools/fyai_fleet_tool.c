@@ -90,9 +90,9 @@ static bool fleet_tool_asks(struct fyai_ctx *ctx, fy_generic action)
 	if (fy_equal(approve, "never"))
 		return false;
 	if (fy_equal(approve, "always"))
-		return fy_any_equal(action, "start", "send", "interrupt", "answer",
-				    "stop", "adopt");
-	return fy_equal(action, "start");
+		return fy_any_equal(action, "start", "create", "send", "interrupt",
+				    "answer", "stop", "adopt");
+	return fy_any_equal(action, "start", "create");
 }
 
 /*
@@ -140,11 +140,21 @@ static const char *fleet_tool_what(struct fy_generic_builder *gb, fy_generic act
 				   fy_generic args)
 {
 	const char *name = fy_get(args, "name", "");
+	const char *project = fy_get(args, "project", "?");
+	const char *task = fy_get(args, "task", "");
 
 	if (fy_equal(action, "start"))
 		return fy_gb_intern_string(gb, fy_sprintfa("starts a session in %s "
 			"with the task: %s", fy_get(args, "project", "?"),
 			fy_get(args, "task", "")));
+	if (fy_equal(action, "create")) {
+		if (!*task)
+			return fy_gb_intern_string(gb, fy_sprintfa(
+				"makes the project %s", project));
+		return fy_gb_intern_string(gb, fy_sprintfa("makes the project "
+			"%s and starts a session in it with the task: %s",
+			project, task));
+	}
 	if (fy_equal(action, "send"))
 		return fy_gb_intern_string(gb, fy_sprintfa("sends %s: %s", name,
 			fy_get(args, "text", "")));
@@ -222,6 +232,14 @@ static fy_generic fleet_tool_run_generic(struct fyai_ctx *ctx, fy_generic args,
 		rc = fyai_fleet_start(ctx, gb, fleet_tool_arg(args, "project"),
 				      fleet_tool_arg(args, "task"),
 				      fleet_tool_arg(args, "branch"), false, &out);
+	} else if (fy_equal(action, "create")) {
+		if (!fleet_tool_arg(args, "project"))
+			return fy_value(gb, "fleet: create needs a project");
+		rc = fyai_fleet_create(ctx, gb, fleet_tool_arg(args, "project"),
+				       fleet_tool_arg(args, "task"),
+				       fleet_tool_arg(args, "branch"),
+				       fy_get(args, "default_config", false),
+				       false, &out);
 	} else if (fy_equal(action, "send")) {
 		text = fleet_tool_arg(args, "text");
 		if (!text)
@@ -311,15 +329,18 @@ static void fleet_tool_head(struct fyai_ctx *ctx, FILE *mf,
 	(void)preview_lines;
 	(void)blocks;
 	fprintf(mf, "**fleet** %s", fy_any_equal(action, "search", "list", "read",
-		"tasks", "start", "send", "interrupt", "answer", "stop", "adopt", "task") ?
+		"tasks", "start", "create", "send", "interrupt", "answer",
+		"stop", "adopt", "task") ?
 		fy_castp(&action, "") : "?");
 	what = fy_equal(action, "search") ? fy_get(args, "query", "") :
-	       fy_equal(action, "start") ? fy_get(args, "project", "") :
-	       fy_get(args, "name", "");
+	       fy_any_equal(action, "start", "create") ?
+	       fy_get(args, "project", "") : fy_get(args, "name", "");
 	if (*what)
 		fprintf(mf, " %s", fleet_tool_span(gb, what));
-	if (fy_equal(action, "start") && *fy_get(args, "task", ""))
-		fprintf(mf, " %s", fleet_tool_span(gb, fy_get(args, "task", "")));
+	if (fy_any_equal(action, "start", "create") &&
+	    *fy_get(args, "task", ""))
+		fprintf(mf, " %s",
+			fleet_tool_span(gb, fy_get(args, "task", "")));
 	if (fy_equal(action, "task"))
 		fprintf(mf, " %lld %s", fy_get(args, "id", 0LL),
 			fy_any_equal(fy_get(args, "state", fy_invalid), "open", "done",
