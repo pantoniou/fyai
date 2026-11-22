@@ -198,8 +198,13 @@ struct fyai_remote_server {
 	bool require_token;
 	bool accept_failed;		/* reported once */
 	bool stop;
-	/* `serve --once`: exit once started and no sessions remain active. */
+	/*
+	 * `serve --once`: exit once started and no sessions remain active, or
+	 * at @once_until when no session came: the client that started the
+	 * server waits for admission no longer than that.
+	 */
 	bool once, started;
+	fyai_event_ms_t once_until;
 	bool dirty;			/* `.live` record needs rewrite */
 	/*
 	 * `serve/idle_ms`: idle timeout before reaping settled parked workers
@@ -1759,13 +1764,16 @@ out:
 	free(path);
 }
 
-/* True when `--once` server ran at least one worker and none remain active. */
+/* True when a `--once` server ran at least one worker and none remain active,
+ * or when no worker came by its deadline. */
 static bool remote_once_done(const struct fyai_remote_server *server)
 {
 	const struct fyai_remote_session *session;
 
-	if (!server->once || !server->started)
+	if (!server->once)
 		return false;
+	if (!server->started)
+		return fyai_event_now_ms() >= server->once_until;
 	for (session = server->sessions; session; session = session->next)
 		if (!session->exited && (session->due || session->peer ||
 					 session->driven || session->watchers ||
@@ -3082,7 +3090,7 @@ int fyai_cmd_remote_serve(struct fyai_cmd_call *call, fy_generic *result)
 	struct fyai_remote_session *session;
 	struct fyai_remote_peer *peer;
 	int rc = -1, token_fd, ready_fd = -1;
-	fyai_event_ms_t deadline, wait = -1;
+	fyai_event_ms_t deadline, left, wait = -1;
 	fy_generic serve_cfg;
 	bool success = false;
 
@@ -3092,6 +3100,7 @@ int fyai_cmd_remote_serve(struct fyai_cmd_call *call, fy_generic *result)
 	token_fd = fy_get(call->args, "token_fd", -1);
 	server.front_fd = fy_get(call->args, "front_fd", -1);
 	server.once = fy_get(call->args, "once", false);
+	server.once_until = fyai_event_now_ms() + REMOTE_ADMIT_MS;
 	serve_cfg = fy_get(ctx->cfg->config_doc, "serve", fy_invalid);
 	server.idle_ms = fy_get(serve_cfg, "idle_ms", 30000LL);
 	fyai_error_check(ctx, !server.once || (!projects && server.front_fd < 0),
@@ -3160,6 +3169,14 @@ int fyai_cmd_remote_serve(struct fyai_cmd_call *call, fy_generic *result)
 	while (!ctx->loop->terminate_pending && !fyai_interrupt_check(ctx) &&
 	       !server.stop) {
 		fyai_event_interrupt_ack(ctx->loop);
+		/* A server that serves once wakes at its deadline. */
+		if (server.once && !server.started) {
+			left = server.once_until - fyai_event_now_ms();
+			if (left < 0)
+				left = 0;
+			if (wait < 0 || wait > left)
+				wait = left;
+		}
 		rc = fyai_event_loop_step(loop, wait);
 		if (rc < 0)
 			break;
@@ -3168,7 +3185,9 @@ int fyai_cmd_remote_serve(struct fyai_cmd_call *call, fy_generic *result)
 		if (server.dirty)
 			remote_record(&server);
 		if (remote_once_done(&server)) {
-			remote_log(&server, "the sessions ended their turns");
+			remote_log(&server, server.started ?
+				   "the sessions ended their turns" :
+				   "no session came to the server");
 			break;
 		}
 	}
