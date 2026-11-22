@@ -145,6 +145,47 @@ static bool chrome_intraword(const char *s, const char *p, const char *end)
  * markup included, until a codepoint would pass @max columns. Return the
  * columns.
  */
+/*
+ * Close the code span and the strong emphasis that a cut of markup leaves
+ * open, so that the markup after the cut stays markup. An opener with no text
+ * behind it goes.
+ */
+static int chrome_cut_close(struct fyai_buf *cut)
+{
+	size_t i, ticks = 0, stars = 0, last_tick = 0, last_stars = 0;
+	bool code = false;
+
+	for (i = 0; i < cut->len; i++) {
+		if (cut->data[i] == '\\' && i + 1 < cut->len) {
+			i++;
+		} else if (cut->data[i] == '`') {
+			ticks++;
+			last_tick = i;
+			code = !code;
+		} else if (!code && cut->data[i] == '*' && i + 1 < cut->len &&
+			   cut->data[i + 1] == '*') {
+			stars++;
+			last_stars = i;
+			i++;
+		}
+	}
+	if (ticks % 2) {
+		if (last_tick + 1 == cut->len)
+			cut->data[--cut->len] = '\0';
+		else if (fyai_buf_append(cut, "`"))
+			return -1;
+	}
+	if (stars % 2) {
+		if (last_stars + 2 == cut->len) {
+			cut->len -= 2;
+			cut->data[cut->len] = '\0';
+		} else if (fyai_buf_append(cut, "**")) {
+			return -1;
+		}
+	}
+	return 0;
+}
+
 int fyai_chrome_markup_cols(const char *s, struct fyai_buf *out,
 			    int max)
 {
@@ -185,6 +226,8 @@ int fyai_chrome_markup_cols(const char *s, struct fyai_buf *out,
 						       (size_t)(p - start)))
 			break;
 	}
+	if (out && p && p < end)
+		(void)chrome_cut_close(out);
 	return cols;
 }
 

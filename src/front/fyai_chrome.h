@@ -163,7 +163,8 @@ int fyai_chrome_panel(struct fyai_ctx *ctx, struct fyai_buf *out,
 /*
  * Count the columns that the UI Markdown @s takes on a row. Tags, SGR
  * sequences and emphasis markers take none. With @out, copy the source of @s,
- * markup included, up to @max columns.
+ * markup included, up to @max columns; a cut closes the code span and the
+ * strong emphasis that it leaves open.
  */
 int fyai_chrome_markup_cols(const char *s, struct fyai_buf *out,
 			    int max);
