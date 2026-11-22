@@ -547,6 +547,7 @@ set(FYAI_SOURCES
     src/sandbox/fyai_view_fs.c
     src/store/fyai_manifest.c
     src/net/fyai_wire.c
+    src/store/fyai_fleet.c
     src/store/fyai_project.c
     src/store/fyai_project_diff.c
     src/store/fyai_project_capture.c

@@ -28,6 +28,7 @@
 #include "fyai_cmd_int.h"
 #include "fyai_config.h"
 #include "fyai_event.h"
+#include "fyai_fleet.h"
 #include "fyai_host.h"
 #include "fyai_jsonrpc.h"
 #include "fyai_remote.h"
@@ -122,7 +123,8 @@ struct fyai_remote_session {
 	const char *branch;
 };
 
-/* In a server of projects: the project server of one project. */
+/* The project server of one project, which a server of projects or the
+ * server of a project above it started. */
 struct fyai_remote_project {
 	struct fyai_remote_project *next;
 	struct fyai_remote_server *server;
@@ -1083,7 +1085,8 @@ static bool remote_path_within(const char *dir, const char *path)
  * The directory that a client names, @path, relative to the directory that the
  * server serves, and the project root that holds it: *@dirp and *@rootp, which
  * the caller frees. A server of projects serves only directories under its
- * own, and a project server only its project. NULL with the reason in *@why.
+ * own; a project server serves its own project and nested subprojects
+ * (resolved via fyai_fleet_project_of()). Returns -1 with *@why on failure.
  */
 static int remote_resolve(struct fyai_remote_server *server, const char *path,
 			  char **dirp, char **rootp, const char **why)
@@ -1116,8 +1119,12 @@ static int remote_resolve(struct fyai_remote_server *server, const char *path,
 			"server";
 		goto err;
 	}
-	root = server->base ? fyai_discover_project_root_from(dir) : NULL;
-	/* A project that is the directory of the projects is not served. */
+	root = server->base ? fyai_discover_project_root_from(dir) :
+		fyai_fleet_project_of(dir);
+	/*
+	 * Reject projects at the base directory itself or above this project
+	 * server's root.
+	 */
 	if (root && !remote_path_within(base, root)) {
 		free(root);
 		root = NULL;
@@ -1341,8 +1348,8 @@ fail:
 }
 
 /*
- * In a server of projects: give @peer, which asked for @dir in @root, to the
- * project server of @root. That server answers the request @id.
+ * Hand off @peer (requesting @dir in @root) to the child project server for
+ * @root, spawning it on demand. The child answers control request @id.
  */
 static void remote_hand_over(struct fyai_remote_peer *peer, fy_generic id,
 			     const char *dir, const char *root)
@@ -1393,8 +1400,17 @@ static void remote_project(struct fyai_remote_peer *peer, fy_generic id,
 		remote_reply(peer, id, why, fy_invalid);
 		return;
 	}
-	if (server->base) {
-		remote_hand_over(peer, id, dir, root);
+	if (server->base || strcmp(root, server->root)) {
+		/* `--once` servers do not spawn child project servers. */
+		if (server->once) {
+			remote_log(server, "client %lu: refused the directory '%s' of "
+				   "the project '%s'", peer->id, dir, root);
+			remote_reply(peer, id, "the directory is in another project, "
+				     "which a server that serves once does not serve",
+				     fy_invalid);
+		} else {
+			remote_hand_over(peer, id, dir, root);
+		}
 	} else {
 		free(peer->dir);
 		peer->dir = dir;
@@ -1525,8 +1541,9 @@ static fy_generic remote_status(struct fyai_remote_server *server)
 	if (server->base)
 		return fy_assoc(gb, fy_assoc(gb, value, "projects_dir", server->base),
 				"projects", projects);
-	return fy_assoc(gb, fy_assoc(gb, value, "project", server->root),
-			"sessions", sessions);
+	value = fy_assoc(gb, fy_assoc(gb, value, "project", server->root),
+			 "sessions", sessions);
+	return fy_empty(projects) ? value : fy_assoc(gb, value, "projects", projects);
 }
 
 /*
