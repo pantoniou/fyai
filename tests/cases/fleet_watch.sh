@@ -25,6 +25,9 @@ fyai_test_on_exit '"$FYAI_BIN" serve stop >/dev/null 2>&1 || true'
 pty_run "$TEST_DIR/pty1.out" "$FYAI_BIN" -b main -i <<'PTY'
 steps:
   - type: Start the work
+  - wait-screen: "1. Reject"
+    timeout: session
+  - write: "\e[B\r"
   - wait-screen: "The member finished."
     timeout: session
   - wait-screen: "a:fleet/do-the-work · idle — Work done."
