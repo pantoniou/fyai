@@ -183,7 +183,12 @@ int fyai_cmd_session_list(struct fyai_cmd_call *call, fy_generic *result)
 
 int fyai_cmd_fleet_list(struct fyai_cmd_call *call, fy_generic *result)
 {
-	return fyai_fleet_rows_list(fyai_cmd_call_ctx(call), call->gb, result);
+	const char *project = fyai_cmd_arg_str(call, "project");
+
+	if (fyai_fleet_rows_list(fyai_cmd_call_ctx(call), call->gb, result))
+		return -1;
+	*result = fyai_fleet_rows_in(call->gb, *result, project);
+	return 0;
 }
 
 int fyai_cmd_fleet_scan(struct fyai_cmd_call *call, fy_generic *result)
@@ -293,7 +298,8 @@ int fyai_cmd_fleet_jump(struct fyai_cmd_call *call, fy_generic *result)
 	struct fyai_ctx *ctx = fyai_cmd_call_ctx(call);
 	const char *name, *self;
 
-	name = fyai_fleet_name_full(ctx, call->gb, fyai_cmd_arg_str(call, "name"));
+	name = fyai_fleet_jump_name(ctx, call->gb,
+				    fyai_cmd_arg_str(call, "name"));
 	self = name ? fyai_fleet_name_full(ctx, call->gb, fyai_ctx_branch(ctx)) : NULL;
 	if (!name || !self)
 		return -1;

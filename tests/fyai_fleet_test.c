@@ -17,12 +17,14 @@
 #include <libfyaml/libfyaml-generic.h>
 
 #include "fyai_fleet.h"
+#include "fyai_fleet_ops.h"
 #include "fyai_fleet_watch.h"
 
 #include "fyai_test_registry.h"
 
 FYAI_TEST_ENTRY(fleet, walk, fleet_walk)
 FYAI_TEST_ENTRY(fleet, panel_blinks, fleet_panel_blinks)
+FYAI_TEST_ENTRY(fleet, rows_in_root, fleet_rows_in_root)
 
 static int failures;
 
@@ -208,6 +210,28 @@ int fleet_panel_blinks(void)
 	CHECK(a && !blinks);
 	free(a);
 	CHECK(!fyai_fleet_panel_source(fy_seq_empty, 0, &blinks) && !blinks);
+	fy_generic_builder_destroy(gb);
+	return failures ? 1 : 0;
+}
+
+/* Verify fyai_fleet_rows_in filters by project prefix, with "." matching all. */
+int fleet_rows_in_root(void)
+{
+	struct fy_generic_builder_cfg gbc = { .flags = FYGBCF_SCOPE_LEADER };
+	struct fy_generic_builder *gb = fy_generic_builder_create(&gbc);
+	fy_generic rows;
+
+	failures = 0;
+	CHECK(gb);
+	rows = fy_sequence(gb, fy_mapping(gb, "project", "."),
+			   fy_mapping(gb, "project", "a"),
+			   fy_mapping(gb, "project", "a/b"),
+			   fy_mapping(gb, "project", "ab"));
+	CHECK(fy_len(fyai_fleet_rows_in(gb, rows, ".")) == 4);
+	CHECK(fy_len(fyai_fleet_rows_in(gb, rows, "./")) == 4);
+	CHECK(fy_len(fyai_fleet_rows_in(gb, rows, "a")) == 2);
+	CHECK(fy_len(fyai_fleet_rows_in(gb, rows, "a/b")) == 1);
+	CHECK(fy_len(fyai_fleet_rows_in(gb, rows, NULL)) == 4);
 	fy_generic_builder_destroy(gb);
 	return failures ? 1 : 0;
 }

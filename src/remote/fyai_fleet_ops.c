@@ -299,6 +299,30 @@ int fyai_fleet_rows_list(struct fyai_ctx *ctx, struct fy_generic_builder *gb,
 	return fy_is_valid(out) ? 0 : -1;
 }
 
+fy_generic fyai_fleet_rows_in(struct fy_generic_builder *gb, fy_generic rows,
+			      const char *project)
+{
+	fy_generic row, out = fy_seq_empty;
+	const char *name;
+	size_t len;
+
+	if (!project || !*project)
+		return rows;
+	len = strlen(project);
+	while (len > 1 && project[len - 1] == '/')
+		len--;
+	/* "." matches the entire fleet. */
+	if (len == 1 && project[0] == '.')
+		return rows;
+	fy_foreach(row, rows) {
+		name = fy_get(row, "project", ".");
+		if (!strncmp(name, project, len) &&
+		    (!name[len] || name[len] == '/'))
+			out = fy_append(gb, out, row);
+	}
+	return out;
+}
+
 int fyai_fleet_rows_scan(struct fyai_ctx *ctx, struct fy_generic_builder *gb,
 			 fy_generic *rowsp)
 {
@@ -1143,29 +1167,78 @@ out:
 	return full;
 }
 
+/* Find the row matching PROJECT:BRANCH @full in @rows, or return fy_invalid. */
+static fy_generic fleet_row_find(fy_generic rows, const char *full)
+{
+	fy_generic row;
+
+	fy_foreach(row, rows)
+		if (!strcmp(fy_sprintfa("%s:%s", fy_get(row, "project", "."),
+					fy_get(row, "branch", "")), full))
+			return row;
+	return fy_invalid;
+}
+
+/*
+ * Pick jump target for @project: `main` if present, else its first session,
+ * or NULL if @project has no rows. Returns interned string in @gb.
+ */
+static const char *fleet_project_session(struct fy_generic_builder *gb,
+					 fy_generic rows, const char *project)
+{
+	const char *branch = NULL;
+	fy_generic row;
+
+	fy_foreach(row, rows) {
+		if (strcmp(fy_get(row, "project", "."), project))
+			continue;
+		if (!branch)
+			branch = fy_get(row, "branch", "");
+		if (fy_equal(fy_get(row, "branch"), "main")) {
+			branch = "main";
+			break;
+		}
+	}
+	if (!branch)
+		return NULL;
+	return fy_gb_intern_string(gb, fy_sprintfa("%s:%s", project, branch));
+}
+
+const char *fyai_fleet_jump_name(struct fyai_ctx *ctx,
+				 struct fy_generic_builder *gb, const char *name)
+{
+	const char *full, *project;
+	fy_generic rows;
+
+	full = fyai_fleet_name_full(ctx, gb, name);
+	if (!full || strchr(name, ':') || fyai_fleet_rows_list(ctx, gb, &rows))
+		return full;
+	if (fy_is_valid(fleet_row_find(rows, full)))
+		return full;
+	project = fleet_project_session(gb, rows, name);
+	return project ? project : full;
+}
+
 int fyai_fleet_attach(struct fyai_ctx *ctx, const char *name, const char *ret,
 		      bool *watchp)
 {
 	struct fyai_cfg *cfg = ctx->cfg;
 	struct fy_generic_builder *gb = fyai_ctx_transient_gb(ctx);
-	fy_generic rows, row, state = fy_invalid;
+	fy_generic rows, row, state;
 	const char *full, *branch;
-	bool attached = false;
+	bool attached;
 	char *dir = NULL;
 	int rc = -1;
 
-	full = fyai_fleet_name_full(ctx, gb, name);
+	full = fyai_fleet_jump_name(ctx, gb, name);
 	if (!full || fleet_name(ctx, full, &dir, &branch))
 		return -1;
 	if (fyai_fleet_rows_list(ctx, gb, &rows))
 		goto out;
-	fy_foreach(row, rows)
-		if (!strcmp(fy_sprintfa("%s:%s", fy_get(row, "project", "."),
-					fy_get(row, "branch", "")), full)) {
-			state = fy_get(row, "state", fy_invalid);
-			attached = fy_get(row, "attached", false);
-		}
-	fyai_error_check(ctx, fy_is_valid(state), out, "fleet: no session '%s'", full);
+	row = fleet_row_find(rows, full);
+	fyai_error_check(ctx, fy_is_valid(row), out, "fleet: no session '%s'", full);
+	state = fy_get(row, "state", fy_invalid);
+	attached = fy_get(row, "attached", false);
 	/* Start a worker on the project server if the session is not live. */
 	if (fy_any_equal(state, "stored", "lost") && fyai_fleet_revive(ctx, full))
 		goto out;

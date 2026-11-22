@@ -211,6 +211,9 @@ static fy_generic fleet_tool_run_generic(struct fyai_ctx *ctx, fy_generic args,
 	}
 	if (fy_equal(action, "list")) {
 		rc = fyai_fleet_rows_list(ctx, gb, &rows);
+		if (!rc)
+			rows = fyai_fleet_rows_in(gb, rows,
+						  fleet_tool_arg(args, "project"));
 		out = fy_mapping(gb, "sessions", rows);
 	} else if (fy_equal(action, "tasks")) {
 		rc = fyai_fleet_rows_tasks(ctx, gb, &rows);

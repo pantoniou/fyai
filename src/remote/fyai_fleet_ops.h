@@ -23,6 +23,13 @@ struct fyai_ctx;
 int fyai_fleet_rows_list(struct fyai_ctx *ctx, struct fy_generic_builder *gb,
 			 fy_generic *rowsp);
 
+/*
+ * Filter @rows (from fyai_fleet_rows_list()) to @project and its descendants.
+ * NULL or empty @project returns all rows.
+ */
+fy_generic fyai_fleet_rows_in(struct fy_generic_builder *gb, fy_generic rows,
+			      const char *project);
+
 /* Scan projects as {project, sessions, live}. */
 int fyai_fleet_rows_scan(struct fyai_ctx *ctx, struct fy_generic_builder *gb,
 			 fy_generic *rowsp);
@@ -119,6 +126,13 @@ int fyai_fleet_revive(struct fyai_ctx *ctx, const char *name);
  */
 const char *fyai_fleet_name_full(struct fyai_ctx *ctx, struct fy_generic_builder *gb,
 				 const char *name);
+
+/*
+ * Resolve jump target @name to PROJECT:BRANCH in @gb. If @name names a
+ * project without a branch, picks `main` or its first session.
+ */
+const char *fyai_fleet_jump_name(struct fyai_ctx *ctx,
+				 struct fy_generic_builder *gb, const char *name);
 
 /*
  * Exec this process into a client for session @name (starting it if not live),
