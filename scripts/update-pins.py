@@ -3,9 +3,9 @@
 """Move the pinned revision of each libfy* dependency to the tip of its
 upstream master branch.
 
-Pins are in CMakeLists.txt, .github/workflows/release.yaml and
-docker/Dockerfile.static. The script edits the files only. It does not
-commit.
+Pins are in CMakeLists.txt, .github/workflows/release.yaml,
+docker/Dockerfile.static and the static build scripts. The script edits the
+files only. It does not commit.
 """
 
 import argparse
@@ -17,7 +17,8 @@ import sys
 DEPS = ("libfyaml", "libfypalette", "libfymd4c", "libfymermaid",
         "libfytimui", "libfyvterm")
 FILES = ("CMakeLists.txt", ".github/workflows/release.yaml",
-         "docker/Dockerfile.static")
+         "docker/Dockerfile.static", "scripts/build-static-native.sh",
+         "scripts/build-static-asan.sh")
 BASE_URL = os.environ.get("FYAI_PIN_BASE_URL", "https://github.com/pantoniou")
 SHA = r"[0-9a-f]{40}"
 
@@ -34,8 +35,8 @@ def pin_patterns(dep):
                    r"GIT_TAG\s+)(%s)" % (name, SHA)),
         # git -C /tmp/libfyfoo checkout <sha>
         re.compile(r"(git -C \S*/%s checkout\s+)(%s)" % (name, SHA)),
-        # LIBFYFOO_REF=<sha> and LIBFYFOO_REF: <sha>
-        re.compile(r"(\b%s_REF[:=]\s*)(%s)" % (name.upper(), SHA)),
+        # LIBFYFOO_REF=<sha>, LIBFYFOO_REF: <sha> and ${LIBFYFOO_REF:-<sha>}
+        re.compile(r"(\b%s_REF(?::-|[:=])\s*)(%s)" % (name.upper(), SHA)),
     ]
 
 
