@@ -126,6 +126,9 @@ This document gives the owner of each source file and of each shared component. 
 - `src/tools/fyai_tools.c`: the dispatch of tool calls, the tool implementations
   and the glue. `src/tools/fyai_tools_int.h` is the interface that the tool files
   share; keep a function there only when another tool file calls it.
+- `src/tools/fyai_pending.c`: durable persistence for background work in the
+  branch store (`durable`): tracks active waits, monitors, background commands,
+  and sub-agents, and recovers them after a process crash.
 - `src/tools/fyai_tool_job.c`: the lifecycle of a tool job and of a job group:
   spawn, submit, gate, collect and the exchange scope.
 - `src/tools/fyai_tool_child.c`: the tool child process: its fork and exec, its
@@ -208,6 +211,18 @@ This document gives the owner of each source file and of each shared component. 
   (`doc/future-cleanups.md`, The data of the client): a page of rows, a cursor,
   and the `rev` of the data.
 - `src/store/fyai_merge.c`: branch merge and rebase.
+- `src/remote/fyai_fleet_ops.c`: shared fleet operations used by both the
+  `fleet` commands and the `fleet` tool: listing, scanning, task queries,
+  search, and read (executed in a child process when the caller has an open
+  arena), plus session start and supervisor requests.
+- `src/tools/fyai_fleet_tool.c`: implementation of the `fleet` tool available
+  to root sessions.
+- `src/remote/fyai_fleet_watch.c`: `struct fyai_fleet_watch` (`ctx->fleet`),
+  managing persistent supervisor connections from a root session to its members
+  and converting member state changes into model events.
+- `src/store/fyai_fleet.c`: project tree discovery (nearest project, parent,
+  and root via upward directory traversal with ceiling rules) and recursive
+  scanning of projects under a root (`doc/fyai-fleet-sdd.md`, sections 5.1 and 6.1).
 - `src/provider/fyai_catalog.c`: provider and model catalogue.
 - `src/core/fyai_media.c`: attachments that a message carries, their bytes, and
   the clipboard helper (`doc/media.md`). `fyai_image.*` is something else:
@@ -221,4 +236,3 @@ This document gives the owner of each source file and of each shared component. 
 - `src/*/*.h`: shared structures and internal interfaces.
 - `data/`: embedded configuration schemas and catalogue data.
 - `tests/`: unit tests, functional cases, mock providers, and scenarios.
-

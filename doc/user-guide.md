@@ -260,6 +260,25 @@ fyai dump anchors
 fyai dump providers
 ```
 
+### Title a session
+
+`/title` asks the active model to generate a short title for the session and
+saves it as the branch description, which `branch list`, `fleet list`, and
+`fleet search` display instead of generated names like `session-1234`. The
+request uses the conversation history without tools and is not appended to the
+branch; only the resulting title is saved. `/title --summary` also displays a
+short summary without saving it. `/title TEXT` saves `TEXT` directly without
+calling the model. Configure the request with `title/prompt`,
+`title/summary_prompt`, and `title/max_chars`.
+
+When `title/auto` is enabled, any untitled `session/` branch automatically
+spawns a detached `fyai title` process after its first exchange to generate
+and save a title silently. Branches that already have a title (set via
+`/title TEXT` or `branch describe`) are not retitled. Under credential
+isolation, the title process opens its own supervisor channel just like a
+server worker. Auto-titling runs once; if the request fails, the error is
+logged to the trace and you can run `/title` manually.
+
 ### Start over or compact
 
 ```sh
@@ -2115,6 +2134,119 @@ fyai --remote . resume --last      # the last session of this directory
 fyai serve status
 fyai serve stop
 ```
+
+A project server also serves as the front end for nested projects beneath it.
+A project is any directory containing a `.fyai` arena, and a project inside
+another project at any depth is its own independent project. Running
+`--remote .` inside a project without a local server walks up parent
+directories (like Git) to find the nearest ancestor project with a running
+server. That ancestor server starts a child server for the target project on
+demand and routes the client to it. Upward discovery skips `$HOME` and stops
+at `$HOME`, filesystem mount boundaries, or any directory listed in
+`$FYAI_CEILING_DIRECTORIES` (colon-separated).
+
+```sh
+cd ~/work && fyai serve --daemon   # ~/work is a project with projects below
+cd ~/work/fyai && fyai --remote . branch list   # served for ~/work/fyai
+```
+
+Interactive terminal sessions automatically register with the nearest running
+project or ancestor server (or register as soon as one starts). Registered
+sessions appear in `session list` and `serve status`, can be observed with
+`remote connect --watch`, can be terminated with `session kill`, and hand off
+to the server over the same connection on `/background` while remaining driven
+by their local terminal until then.
+
+A parked session on a server with no attached client, active turn, or pending
+work exits after 30 seconds of inactivity: its worker stops while the session
+remains saved in the arena, and `resume` or `/jump` starts it again on demand.
+Override the timeout by passing `fyai --config FILE serve` with
+`serve: {idle_ms: N}` in `FILE` (set `0` to disable idle exit).
+
+`fyai fleet` discovers projects beneath the fleet root (the topmost ancestor
+project above the current directory) and lists all of their sessions, whether
+live or stored. Projects are found automatically by scanning the directory
+tree; no manual registration is required.
+
+```sh
+fyai fleet scan      # list projects with their stored and live session counts
+fyai fleet list      # list all sessions: stored, running, lost, idle, waiting
+fyai fleet list libs # list only sessions in project libs and its subprojects
+fyai fleet kill      # stop all live sessions (`kill libs`: under libs only)
+fyai config set fleet/scan/depth 2   # set max scan depth in the fleet root
+fyai init --root                     # initialize a fleet root (enables the fleet tool)
+fyai config set fleet/root true      # enable fleet root mode on an existing top-level project
+fyai fleet create apps/web           # create a subproject inheriting the root's config
+fyai fleet create apps/web --default-config   # create a subproject with the default sample config
+```
+
+When no server reports a session, its state is `stored` (no active process),
+`lost` (the worker crashed with pending work, which restarts automatically on
+resume), or `running` (a live process running without a server). When a server
+tracks a session, it reports `idle`, `running`, or `waiting`.
+
+Sessions in other projects are addressed as `PROJECT:BRANCH`, where `PROJECT`
+is the path relative to the fleet root (`.` for the root itself). The `session`
+subcommands target any live session by this name—including user-driven terminal
+sessions—and display incoming messages, interrupts, and question answers in the
+session's UI.
+
+```sh
+fyai fleet start fyai "Fix the build"    # starts fyai:fleet/fix-the-build
+fyai session send fyai:fleet/fix-the-build Also run the tests.
+fyai session interrupt fyai:fleet/fix-the-build
+fyai session answer fyai:fleet/fix-the-build 2   # option 2, or a text
+fyai session kill fyai:fleet/fix-the-build
+```
+
+Messages are delivered to the model as `[message 'user']` events (use `--from`
+to set another sender name). Sessions started with `fleet start` run headless
+and stay parked on their server; run `resume` in their project to attach.
+
+`fleet search WORDS` performs case-insensitive search across session metadata,
+tasks, and recent conversation turns; `fleet read NAME` prints the recent turns
+of a session. In a fleet root session, the model has access to the `fleet` tool
+to search, inspect, start, message, and stop member sessions.
+
+From any session, `/jump PROJECT:BRANCH` switches the current terminal to
+another fleet session, and `/root` returns to the session you jumped from. The
+session you leave remains running on its server as with `/background`. Jumping
+to a `stored` or `lost` session starts it; jumping to a session already driven
+by another terminal opens it in watch mode, where typed lines are sent as
+messages and slash commands are disabled. The top status bar displays the
+return session and a `/root` reminder. From the CLI, `fyai fleet attach NAME`
+connects directly to a fleet session. Tab completion supports `PROJECT:BRANCH`
+candidates (with state and title) in `/jump`, `fleet attach`, `fleet read`, and
+`session send`/`interrupt`/`answer`.
+
+In a root session, `/session adopt NAME TEXT` adopts a live user-started
+session as a supervised member: it sets the root session as the member's
+parent, creates a task with `TEXT`, and subscribes the root session to its
+events.
+
+By default, the `fleet` tool prompts for approval before starting or creating
+sessions (`fleet/approve`: `start` by default, `always` for every mutating
+action, or `never` to disable prompts). A root session supervises at most
+`fleet/max_live` active members at once (default `8`); additional starts are
+queued as tasks and launched as active members exit. Configure both in the
+fleet root:
+`fyai config set fleet/approve always`.
+
+Root sessions display supervised members in a `Fleet` panel below the todo
+list, showing each member's name, state, and a preview of its last answer (or
+`no members` when empty). Use `fleet panel off` and `fleet panel on` to toggle
+the panel for the session.
+
+Root sessions receive events from their supervised members:
+`[session 'PROJECT:BRANCH' idle]` with the member's reply, `waiting` when a
+member asks a question, and `ended` when a member exits. When a root session
+restarts on its branch, it reattaches to its open tasks and resumes monitoring
+their members.
+
+Running `fleet start` from inside a session records the calling session as the
+new session's parent. In a root session, it also creates a tracked task, which
+`fleet tasks` lists and `/fleet task ID done` (or `dropped`) closes. `fleet
+list` shows the task and parent for each session.
 
 `fyai serve --projects DIR` serves each project under DIR on
 `~/.fyai/unix/serve.sock`. A client names its project with `--project`,
