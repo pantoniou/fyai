@@ -10,7 +10,7 @@ for mode in local split; do
     if [ "$mode" = split ]; then
         args+=(--split)
     fi
-    FYAI_TEST_NO_SPLIT=1 pty_run "$TEST_DIR/$mode.out" \
+    pty_run "$TEST_DIR/$mode.out" \
         "$FYAI_BIN" "${args[@]}" -k test-key --theme dark -m mock-model \
         --set display/markdown=false --set display/screen=fullscreen -i <<'PTY'
 steps:

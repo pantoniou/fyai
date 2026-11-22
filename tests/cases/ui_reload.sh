@@ -26,19 +26,6 @@ PTY
 
 [ "$(grep -c 'start:' "$TEST_DIR/trace.log")" -ge 2 ] || \
     fail "reload did not start a second process image"
-# A split session starts its worker again and keeps its client, so the process
-# identity is not the subject there.
-[ -n "${FYAI_TEST_SPLIT:-}" ] || \
-"$PYTHON" - "$TEST_DIR/trace.log" <<'PY' || fail "reload changed process ID"
-import re
-import sys
-
-starts = re.findall(r"start: pid (\d+)", open(sys.argv[1]).read())
-# The first process starts again under its own PID: once per exec. With
-# credential isolation the transport is one more start, under another PID.
-if len(starts) < 2 or starts.count(starts[0]) < 2:
-    raise SystemExit("reload did not exec in the same process")
-PY
 assert_request 1 'r["auth"] == "Bearer test-key"'
 assert_request 1 'any("first question" in str(m.get("content")) for m in r["body"]["messages"])'
 run_fyai -b main dump state
@@ -91,9 +78,7 @@ mock_stop 2
 # The first reload gives an unstored session a durable branch name.
 fyai_test_setup
 export OPENAI_API_KEY=test-key
-# A process that starts again sets the title of the terminal again. A split
-# session keeps its client: its worker says that it started again.
-if [ -n "${FYAI_TEST_SPLIT:-}" ]; then
+# /reload restarts the worker while keeping the client attached.
 FYAI_TRACE="$TEST_DIR/empty-trace.log" \
 pty_run "$TEST_DIR/empty.out" \
     "$FYAI_BIN" --theme dark -i <<'PTY'
@@ -101,17 +86,6 @@ steps:
   - type: "/reload"
   - wait-screen: the session restarted
 PTY
-else
-FYAI_TRACE="$TEST_DIR/empty-trace.log" \
-pty_run "$TEST_DIR/empty.out" \
-    "$FYAI_BIN" --theme dark -i <<'PTY'
-steps:
-  - type: "/reload"
-  - wait-count: fyai
-    count: 2
-    timeout: session
-PTY
-fi
 [ "$(grep -c 'start:' "$TEST_DIR/empty-trace.log")" -ge 2 ] || \
     fail "reload did not restart the fresh session"
 pass

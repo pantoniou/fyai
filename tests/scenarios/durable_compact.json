@@ -1,0 +1,59 @@
+{
+ "steps": [
+  {
+   "match": {
+    "http": "POST",
+    "path": "/v1/chat/completions",
+    "body_contains": "remember the magic word"
+   },
+   "response": {
+    "id": "c-seed",
+    "object": "chat.completion",
+    "model": "mock-model",
+    "choices": [
+     {
+      "index": 0,
+      "finish_reason": "stop",
+      "message": {
+       "role": "assistant",
+       "content": "Seeded reply."
+      }
+     }
+    ],
+    "usage": {
+     "prompt_tokens": 10,
+     "completion_tokens": 4,
+     "total_tokens": 14
+    }
+   }
+  },
+  {
+   "match": {
+    "http": "POST",
+    "path": "/v1/chat/completions",
+    "body_contains": "Summarize this conversation"
+   },
+   "response": {
+    "id": "c-sum",
+    "object": "chat.completion",
+    "model": "mock-model",
+    "choices": [
+     {
+      "index": 0,
+      "finish_reason": "stop",
+      "message": {
+       "role": "assistant",
+       "content": "SUMMARY: seeded exchange."
+      }
+     }
+    ],
+    "usage": {
+     "prompt_tokens": 10,
+     "completion_tokens": 4,
+     "total_tokens": 14
+    }
+   },
+   "wait_for": "release-compact"
+  }
+ ]
+}

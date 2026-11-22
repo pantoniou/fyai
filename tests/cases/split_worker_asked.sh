@@ -1,8 +1,8 @@
 #!/bin/bash
 # SPDX-License-Identifier: MIT
-# The worker of a split session ends with its client even when it waits for
-# an answer. The client is killed while a question of the model is open, and
-# the worker, which nobody can answer now, ends.
+# Verify that when a client is killed while a model question is pending, the
+# worker hands off to a server and stays in `waiting` state until answered or
+# killed.
 set -eu
 # This test inspects Linux /proc.
 [ "$(uname -s)" = Linux ] || exit 77
@@ -49,12 +49,26 @@ done
 client="$(awk '{print $4}' "/proc/$worker/stat")"
 kill -KILL "$client"
 
-if ! "$PYTHON" -I "$TESTS_DIR/wait_exit.py" "$worker" $((30 * FYAI_TIMEOUT_SCALE)); then
+# Worker survives client kill and appears in `waiting` state on the server.
+"$PYTHON" -I "$TESTS_DIR/wait_exit.py" "$client" $((30 * FYAI_TIMEOUT_SCALE)) ||
+	fail "the client did not end"
+state=
+for i in $(seq 1 600); do
+	run_fyai session list --output json
+	state="$("$PYTHON" -c 'import json,sys; r=json.load(open(sys.argv[1])); print(r[0]["state"] if r else "")' "$TEST_DIR/stdout")"
+	[ -z "$state" ] || break
+	"$PYTHON" -I "$TESTS_DIR/wait_exit.py" "$worker" 0 && break
+done
+[ "$state" = waiting ] || {
 	kill -KILL "$worker" 2>/dev/null || true
 	printf go >"$TEST_DIR/go"
 	wait "$DRIVER" || true
-	fail "the worker did not end with its client"
-fi
+	fail "the session is not waiting at a server: '$state'"
+}
+run_fyai session kill split/asked
+assert_status 0
+"$PYTHON" -I "$TESTS_DIR/wait_exit.py" "$worker" $((30 * FYAI_TIMEOUT_SCALE)) ||
+	fail "session kill did not end the worker"
 printf go >"$TEST_DIR/go"
 wait "$DRIVER" || true
 pass

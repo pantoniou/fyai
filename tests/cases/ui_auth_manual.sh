@@ -41,8 +41,7 @@ def screen():
     return "\n".join("".join(row) for row in terminal.screen.grid)
 
 try:
-    until(lambda: any(row.lstrip().startswith("❯")
-                      for row in terminal.screen.display()))
+    until(lambda: any("❯" in row for row in terminal.screen.display()))
     os.write(master, b"/auth login --manual\n")
     pattern = r"https://auth.openai.com/api/accounts/authorize\?[^\s┃]+"
     def login_query():

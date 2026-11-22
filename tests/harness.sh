@@ -131,6 +131,9 @@ fyai_test_cleanup() {
 	[ -z "${TEST_SCRATCH:-}" ] || rm -rf "$TEST_SCRATCH"
 	if [ -n "$TEST_DIR" ]; then
 		fyai_sanitizer_report
+		# Overlayfs work dirs lack write perms; chmod before removal.
+		find "$TEST_DIR" -type d -path '*/.fyai/views' \
+			-exec chmod -R u+rwx {} + 2>/dev/null || true
 		rm -rf "$TEST_DIR"
 		TEST_DIR=""
 	fi
@@ -190,33 +193,20 @@ pty_run() {
 	[ -z "${FYAI_TRACE+x}" ] || keep+=(--env "FYAI_TRACE=$FYAI_TRACE")
 	[ -z "${FYAI_TRACE_LEVEL+x}" ] ||
 		keep+=(--env "FYAI_TRACE_LEVEL=$FYAI_TRACE_LEVEL")
-	# FYAI_TEST_SPLIT=1 runs each session at a worker that is a child of the
-	# process: --split goes after the first fyai of the command, unless the
-	# command is already a client of a server.
-	# Keep the oracle baseline in-process.
-	if [ -n "${FYAI_TEST_SPLIT:-}" ] && [ -z "${FYAI_TEST_NO_SPLIT:-}" ]; then
-		# The client keeps its UI over a restart of the session, so it
-		# says that the new worker started instead of taking the
-		# keyboard protocol again.
-		sed -i '/^  - wait-count: "\\e\[>1u"$/{N;s/.*/  - wait-screen: the session restarted/}' "$script"
-		local -a args=()
-		local word done_split=
-		for word in "$@"; do
-			case "$word" in
-			--remote | remote | --remote=*) done_split=1 ;;
-			# The player of a recording is no session.
-			cast) done_split=1 ;;
-			esac
-		done
-		for word in "$@"; do
-			args+=("$word")
-			if [ -z "$done_split" ] && [ "$word" = "$FYAI_BIN" ]; then
-				args+=(--split)
-				done_split=1
-			fi
-		done
-		set -- ${args[@]+"${args[@]}"}
-	fi
+	# Interactive sessions run in a child worker; on reload the client keeps
+	# its terminal UI and prints a restart notice instead of re-enabling the
+	# keyboard protocol. Use Python rather than `sed -i` for macOS BSD sed
+	# compatibility.
+	"$PYTHON" -I - "$script" <<'PY' || return 1
+import re
+import sys
+
+path = sys.argv[1]
+text = open(path).read()
+text = re.sub(r'^  - wait-count: "\\e\[>1u"\n[^\n]*\n',
+              '  - wait-screen: the session restarted\n', text, flags=re.M)
+open(path, "w").write(text)
+PY
 	env -u FYAI_TRACE -u FYAI_TRACE_LEVEL "$FYAI_BIN" __pty-driver \
 		${keep[@]+"${keep[@]}"} "$script" "$out" "$@"
 }
