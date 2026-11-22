@@ -689,6 +689,14 @@ register, focus, zoom, resize - and sizes nothing itself.
   to one row. The panels stand after todo and fleet, take at most a quarter
   of the page, and count the lines they leave out. The cap counts only the
   tiles that the user hid.
+- The mark of a panel line, in the agents, shells and fleet panels, is the
+  theme's: the indicator of a call (`tool.pending`, `tool.ok`, `tool.fail`)
+  or the glyphs `fleet.waiting`, `fleet.idle` and `fleet.ended`, each in
+  its palette role. Do not write a mark glyph in C. The mark stands in the
+  gutter, as on the head of a call, and the lines are rows of one paragraph,
+  not list items under a bullet. `ui_marks_markup()` gives every mark the
+  width of the gutter or of the widest first frame, so a blank frame of a
+  blink keeps its columns and the text after it does not move.
 - `display/focus_bg` is the ground of what holds the keys - the prompt, a
   picker and a focused tile - and the one place focus is said. `theme`, the
   default, is the focus wash of the palette theme: the `pane.focus` role of
