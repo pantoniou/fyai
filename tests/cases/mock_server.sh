@@ -111,8 +111,28 @@ for text, want in (("a second one", "second"), ("a first one", "first")):
     check(got == {"which": want}, "body match: %r" % got)
     s.close()
 
+# The last item selects the step: a keyword in older items does not, and a
+# repeated step answers again.
+for msgs, want in (
+        ([{"role": "user", "content": "agents 4"}], "agents"),
+        ([{"role": "user", "content": "agents 4"},
+          {"role": "tool", "content": "ok"}], "tool"),
+        ([{"role": "user", "content": [{"type": "text", "text": "agents"}]}],
+         "agents")):
+    s = connect()
+    s.sendall(post("/last", json.dumps({"messages": msgs})))
+    got = json.loads(read_reply(s)[2])
+    check(got == {"last": want}, "last match: %r" % got)
+    s.close()
+s = connect()
+s.sendall(post("/last", json.dumps({"input": [{"type": "message",
+                                                "role": "user",
+                                                "content": "other"}]})))
+check(read_reply(s)[0] == 500, "an unmatched last item took a step")
+s.close()
+
 records = [json.loads(line) for line in open(run + "/requests.jsonl")]
-check(len(records) == 9, "%d requests recorded" % len(records))
+check(len(records) == 13, "%d requests recorded" % len(records))
 ka = [r["client_port"] for r in records if r["path"] == "/ka"]
 check(len(ka) == 2 and ka[0] == ka[1], "keep-alive used two connections")
 chunked = [r for r in records if r["path"] == "/chunked"][0]
@@ -122,5 +142,5 @@ PYEOF
 	fail "mock server behaviour"
 
 [ ! -e "$TEST_DIR/stream-wait-failed" ] || fail "a marker wait expired"
-mock_stop 9
+mock_stop 12
 pass

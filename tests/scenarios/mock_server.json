@@ -8,6 +8,8 @@
     {"match": {"path": "/chunked"}, "response": {"chunked": true}},
     {"match": {"http": "GET", "path": "/url"}, "raw": "{{BASE_URL}}/x"},
     {"match": {"path": "/by-body", "body_contains": "second"}, "response": {"which": "second"}},
-    {"match": {"path": "/by-body", "body_contains": "first"}, "response": {"which": "first"}}
+    {"match": {"path": "/by-body", "body_contains": "first"}, "response": {"which": "first"}},
+    {"match": {"path": "/last", "last_role": "tool"}, "repeat": true, "response": {"last": "tool"}},
+    {"match": {"path": "/last", "last_contains": "agents"}, "repeat": true, "response": {"last": "agents"}}
   ]
 }
