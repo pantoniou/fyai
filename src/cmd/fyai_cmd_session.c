@@ -453,18 +453,155 @@ int fyai_cmd_fleet_scan(struct fyai_cmd_call *call, fy_generic *result)
 	return fy_is_valid(out) ? 0 : -1;
 }
 
+/*
+ * The project directory and the branch of the session that the argument
+ * "branch" names: `PROJECT:BRANCH` of the fleet, or `BRANCH` of this project.
+ * *@dirp is NULL for this project; the caller frees it.
+ */
+static int session_name(struct fyai_cmd_call *call, char **dirp,
+			const char **branchp)
+{
+	struct fyai_ctx *ctx = fyai_cmd_call_ctx(call);
+	const char *name = fyai_cmd_arg_str(call, "branch");
+	char *cwd = getcwd(NULL, 0);
+	int rc;
+
+	fyai_error_check(ctx, cwd, err, "cannot read the current directory");
+	rc = fyai_fleet_name_split(cwd, name, dirp, branchp);
+	free(cwd);
+	fyai_error_check(ctx, !rc, err, "'%s' names no branch", name);
+	return 0;
+err:
+	return -1;
+}
+
 /* Terminate a single live session hosted on the server. */
 int fyai_cmd_session_kill(struct fyai_cmd_call *call, fy_generic *result)
 {
 	struct fyai_ctx *ctx = fyai_cmd_call_ctx(call);
-	const char *branch = fyai_cmd_arg_str(call, "branch");
+	const char *branch;
+	char *dir = NULL;
 	bool busy = false;
+	int rc;
 
-	if (fyai_remote_session_close(ctx, branch, fyai_cmd_arg_bool(call, "force"),
-				      &busy))
+	if (session_name(call, &dir, &branch))
 		return -1;
-	*result = fy_mapping(call->gb, "branch", branch, "busy", busy);
+	rc = fyai_remote_session_close(ctx, dir, branch,
+				       fyai_cmd_arg_bool(call, "force"), &busy);
+	free(dir);
+	if (rc)
+		return -1;
+	*result = fy_mapping(call->gb, "branch", fyai_cmd_arg_str(call, "branch"),
+			     "busy", busy);
 	return 0;
+}
+
+/* Dispatch a supervisor control event @subtype to the target session branch. */
+static int session_supervise(struct fyai_cmd_call *call, const char *subtype,
+			     fy_generic fields, fy_generic *result)
+{
+	struct fyai_ctx *ctx = fyai_cmd_call_ctx(call);
+	const char *branch;
+	char *dir = NULL;
+	int rc;
+
+	if (session_name(call, &dir, &branch))
+		return -1;
+	rc = fyai_remote_supervise(ctx, dir, branch, subtype, fields);
+	free(dir);
+	if (rc)
+		return -1;
+	*result = fy_mapping(call->gb, "branch", fyai_cmd_arg_str(call, "branch"));
+	return 0;
+}
+
+int fyai_cmd_session_send(struct fyai_cmd_call *call, fy_generic *result)
+{
+	const char *from = fyai_cmd_arg_str(call, "from");
+
+	return session_supervise(call, "fyai_session_send", fy_mapping(call->gb,
+		"text", fyai_cmd_arg_str(call, "text"),
+		"from", from ? from : "user"), result);
+}
+
+int fyai_cmd_session_halt(struct fyai_cmd_call *call, fy_generic *result)
+{
+	return session_supervise(call, "fyai_session_interrupt", fy_map_empty,
+				 result);
+}
+
+int fyai_cmd_session_answer(struct fyai_cmd_call *call, fy_generic *result)
+{
+	return session_supervise(call, "fyai_session_answer", fy_mapping(call->gb,
+		"answer", fyai_cmd_arg_str(call, "answer")), result);
+}
+
+/*
+ * A branch for a task with no branch named: `fleet/` and the first words of
+ * the task, in the builder of @call.
+ */
+static const char *fleet_task_branch(struct fyai_cmd_call *call, const char *task)
+{
+	char slug[33];
+	size_t n = 0;
+	bool dash = false;
+	const char *p;
+
+	for (p = task; *p && n < sizeof(slug) - 1; p++) {
+		if ((*p >= 'a' && *p <= 'z') || (*p >= '0' && *p <= '9')) {
+			if (dash && n)
+				slug[n++] = '-';
+			if (n < sizeof(slug) - 1)
+				slug[n++] = *p;
+			dash = false;
+		} else if (*p >= 'A' && *p <= 'Z') {
+			if (dash && n)
+				slug[n++] = '-';
+			if (n < sizeof(slug) - 1)
+				slug[n++] = (char)(*p - 'A' + 'a');
+			dash = false;
+		} else {
+			dash = true;
+		}
+	}
+	slug[n] = '\0';
+	return fy_gb_intern_string(call->gb, fy_sprintfa("fleet/%s", n ? slug : "task"));
+}
+
+/* Start a new fleet session in a project with an initial task. */
+int fyai_cmd_fleet_start(struct fyai_cmd_call *call, fy_generic *result)
+{
+	struct fyai_ctx *ctx = fyai_cmd_call_ctx(call);
+	const char *project = fyai_cmd_arg_str(call, "project");
+	const char *task = fyai_cmd_arg_str(call, "task");
+	const char *branch = fyai_cmd_arg_str(call, "branch");
+	char *cwd = NULL, *root = NULL, *dir = NULL;
+	int rc = -1;
+
+	cwd = getcwd(NULL, 0);
+	fyai_error_check(ctx, cwd, out, "cannot read the current directory");
+	root = fyai_fleet_root_of(cwd);
+	fyai_error_check(ctx, root, out, "fleet: no project holds '%s'", cwd);
+	dir = realpath(strcmp(project, ".") ? fy_sprintfa("%s/%s", root, project) :
+		       root, NULL);
+	fyai_error_check(ctx, dir && !strncmp(dir, root, strlen(root)) &&
+			 (!dir[strlen(root)] || dir[strlen(root)] == '/'), out,
+			 "fleet: '%s' is no directory under the root '%s'", project,
+			 root);
+	if (!branch)
+		branch = fleet_task_branch(call, task);
+	fyai_error_check(ctx, branch && fyai_branch_name_valid(branch), out,
+			 "fleet: '%s' is not a valid branch", branch ? branch : "");
+	rc = fyai_remote_start(ctx, dir, branch, task);
+	if (!rc)
+		*result = fy_mapping(call->gb, "project", project, "branch", branch,
+				     "name", fy_stringf(call->gb, "%s:%s", project,
+							branch));
+out:
+	free(dir);
+	free(root);
+	free(cwd);
+	return rc ? -1 : 0;
 }
 
 /*

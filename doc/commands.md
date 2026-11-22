@@ -3443,7 +3443,7 @@ attach the image in shot.png in the home directory
 
 set the isolation of this session and move work between it and the project
 
-**Usage:** `fyai session {kill|list} ...`
+**Usage:** `fyai session {answer|interrupt|kill|list|send} ...`
 
 The isolation of the session. With no subcommand, show the state.
 `lockdown` takes the strongest isolation that this host can enforce, and
@@ -3456,8 +3456,11 @@ its view and the project: `push` writes its changes into the project, and
 
 | Command | Description |
 | --- | --- |
+| `answer` | answer the question of a live session |
+| `interrupt` | interrupt the turn of a live session |
 | `kill` | end a live session |
 | `list`, `ps` | list the live sessions of the project |
+| `send` | send a message to a live session |
 
 With no command, `status` runs.
 
@@ -3488,19 +3491,20 @@ server runs is not live; `resume` lists the stored ones.
 
 end a live session
 
-**Usage:** `fyai session kill [--force] BRANCH`
+**Usage:** `fyai session kill [--force] NAME`
 
 End the live session BRANCH at its server: its worker gets SIGTERM, and
 its clients see the session end. The branch keeps the turns that were
 stored; a turn in flight is lost. With `--force` the worker gets
-SIGKILL at once.
+SIGKILL at once. `PROJECT:BRANCH` names a session of another project
+of the fleet (`fleet list`).
 
 
 ### Arguments
 
 | Argument | Description |
 | --- | --- |
-| `BRANCH` | the branch of the live session |
+| `NAME` | the live session, as BRANCH or PROJECT:BRANCH |
 
 ### Options
 
@@ -3510,11 +3514,87 @@ SIGKILL at once.
 | `--output FORMAT` | write the result as markdown, json, or yaml; see `help output` |
 | `-h`, `--help` | show this help |
 
+## fyai session send
+
+send a message to a live session
+
+**Usage:** `fyai session send [--from NAME] NAME TEXT...`
+
+Send TEXT to the live session NAME (BRANCH, or PROJECT:BRANCH of the
+fleet), also to one that a client drives. The model gets it as the
+event `[message 'FROM']` with the text as its body: an idle session
+runs a turn for it, a running one reads it at its next round. A client
+of the session sees it as it sees an event.
+
+
+### Arguments
+
+| Argument | Description |
+| --- | --- |
+| `NAME` | the live session, as BRANCH or PROJECT:BRANCH |
+| `TEXT` | the message |
+
+### Options
+
+| Option | Description |
+| --- | --- |
+| `--from NAME` | who the message is from (default user) |
+| `--output FORMAT` | write the result as markdown, json, or yaml; see `help output` |
+| `-h`, `--help` | show this help |
+
+## fyai session interrupt
+
+interrupt the turn of a live session
+
+**Usage:** `fyai session interrupt NAME`
+
+Interrupt the turn that the live session NAME runs, as Escape does in
+the session. A session with no turn is not changed.
+
+
+### Arguments
+
+| Argument | Description |
+| --- | --- |
+| `NAME` | the live session, as BRANCH or PROJECT:BRANCH |
+
+### Options
+
+| Option | Description |
+| --- | --- |
+| `--output FORMAT` | write the result as markdown, json, or yaml; see `help output` |
+| `-h`, `--help` | show this help |
+
+## fyai session answer
+
+answer the question of a live session
+
+**Usage:** `fyai session answer NAME ANSWER...`
+
+Answer the first question that the live session NAME waits on: the
+number of an option, from 1, or any other text. A set of several
+questions is answered in the session.
+
+
+### Arguments
+
+| Argument | Description |
+| --- | --- |
+| `NAME` | the live session, as BRANCH or PROJECT:BRANCH |
+| `ANSWER` | the number of an option, or the text of the answer |
+
+### Options
+
+| Option | Description |
+| --- | --- |
+| `--output FORMAT` | write the result as markdown, json, or yaml; see `help output` |
+| `-h`, `--help` | show this help |
+
 ## fyai fleet
 
 the projects and sessions under the root project
 
-**Usage:** `fyai fleet {list|scan} ...`
+**Usage:** `fyai fleet {list|scan|start} ...`
 
 The fleet of the root project: the topmost project above this one, and
 every project below it. A project is a directory whose `.fyai` holds an
@@ -3530,6 +3610,7 @@ sets the scan: `fyai config set fleet/scan/depth 2` there.
 | --- | --- |
 | `list` | list every session under the root |
 | `scan` | list the projects under the root |
+| `start` | start a session of a project with a task |
 
 With no command, `list` runs.
 
@@ -3552,6 +3633,36 @@ runs is `running` with no server, and one whose process was lost is
 
 | Option | Description |
 | --- | --- |
+| `--output FORMAT` | write the result as markdown, json, or yaml; see `help output` |
+| `-h`, `--help` | show this help |
+
+## fyai fleet start
+
+start a session of a project with a task
+
+**Usage:** `fyai fleet start [--branch BRANCH] PROJECT TASK...`
+
+Start a session in PROJECT (a directory relative to the root; `.` is
+the root) at the server that runs its sessions, with TASK as its first
+message. The session runs with no client, and the server keeps it
+after its turn: `fleet list` shows it, `session send` gives it more,
+and `resume` joins it. Its branch is `--branch`, or `fleet/` and the
+first words of the task. A server must run for the project or above
+it: `fyai serve --daemon` in the root.
+
+
+### Arguments
+
+| Argument | Description |
+| --- | --- |
+| `PROJECT` | the project, relative to the root |
+| `TASK` | the first message of the session |
+
+### Options
+
+| Option | Description |
+| --- | --- |
+| `--branch BRANCH` | the branch of the session |
 | `--output FORMAT` | write the result as markdown, json, or yaml; see `help output` |
 | `-h`, `--help` | show this help |
 
@@ -6964,7 +7075,7 @@ Commit the current branch and restart fyai on it. Live shells and sub-agents mus
 
 set the isolation of this session and move work between it and the project
 
-**Usage:** `/session {dev|kill|list|lockdown|new|profile|pull|push|status|yolo} ...`
+**Usage:** `/session {answer|dev|interrupt|kill|list|lockdown|new|profile|pull|push|send|status|yolo} ...`
 
 The isolation of the session. With no subcommand, show the state.
 `lockdown` takes the strongest isolation that this host can enforce, and
@@ -6977,7 +7088,9 @@ its view and the project: `push` writes its changes into the project, and
 
 | Command | Description |
 | --- | --- |
+| `answer` | answer the question of a live session |
 | `dev` | confine the tools to project work |
+| `interrupt` | interrupt the turn of a live session |
 | `kill` | end a live session |
 | `list`, `ps` | list the live sessions of the project |
 | `lockdown` | take the strongest isolation that this host can enforce |
@@ -6985,6 +7098,7 @@ its view and the project: `push` writes its changes into the project, and
 | `profile` | select the sandbox profile of the tools, or list the profiles |
 | `pull` | take the project as it is now into the session |
 | `push` | apply the changes of the session to the project |
+| `send` | send a message to a live session |
 | `status` | show the isolation of this session |
 | `yolo` | take off the isolation of the session |
 
@@ -7016,25 +7130,99 @@ server runs is not live; `resume` lists the stored ones.
 
 end a live session
 
-**Usage:** `/session kill [--force] BRANCH`
+**Usage:** `/session kill [--force] NAME`
 
 End the live session BRANCH at its server: its worker gets SIGTERM, and
 its clients see the session end. The branch keeps the turns that were
 stored; a turn in flight is lost. With `--force` the worker gets
-SIGKILL at once.
+SIGKILL at once. `PROJECT:BRANCH` names a session of another project
+of the fleet (`fleet list`).
 
 
 ### Arguments
 
 | Argument | Description |
 | --- | --- |
-| `BRANCH` | the branch of the live session |
+| `NAME` | the live session, as BRANCH or PROJECT:BRANCH |
 
 ### Options
 
 | Option | Description |
 | --- | --- |
 | `--force` | send SIGKILL, with no grace |
+| `-h`, `--help` | show this help |
+
+## /session send
+
+send a message to a live session
+
+**Usage:** `/session send [--from NAME] NAME TEXT...`
+
+Send TEXT to the live session NAME (BRANCH, or PROJECT:BRANCH of the
+fleet), also to one that a client drives. The model gets it as the
+event `[message 'FROM']` with the text as its body: an idle session
+runs a turn for it, a running one reads it at its next round. A client
+of the session sees it as it sees an event.
+
+
+### Arguments
+
+| Argument | Description |
+| --- | --- |
+| `NAME` | the live session, as BRANCH or PROJECT:BRANCH |
+| `TEXT` | the message |
+
+### Options
+
+| Option | Description |
+| --- | --- |
+| `--from NAME` | who the message is from (default user) |
+| `-h`, `--help` | show this help |
+
+## /session interrupt
+
+interrupt the turn of a live session
+
+**Usage:** `/session interrupt NAME`
+
+Interrupt the turn that the live session NAME runs, as Escape does in
+the session. A session with no turn is not changed.
+
+
+### Arguments
+
+| Argument | Description |
+| --- | --- |
+| `NAME` | the live session, as BRANCH or PROJECT:BRANCH |
+
+### Options
+
+| Option | Description |
+| --- | --- |
+| `-h`, `--help` | show this help |
+
+## /session answer
+
+answer the question of a live session
+
+**Usage:** `/session answer NAME ANSWER...`
+
+Answer the first question that the live session NAME waits on: the
+number of an option, from 1, or any other text. A set of several
+questions is answered in the session.
+
+
+### Arguments
+
+| Argument | Description |
+| --- | --- |
+| `NAME` | the live session, as BRANCH or PROJECT:BRANCH |
+| `ANSWER` | the number of an option, or the text of the answer |
+
+### Options
+
+| Option | Description |
+| --- | --- |
 | `-h`, `--help` | show this help |
 
 ## /session new
@@ -7238,7 +7426,7 @@ transport.
 
 the projects and sessions under the root project
 
-**Usage:** `/fleet {list|scan} ...`
+**Usage:** `/fleet {list|scan|start} ...`
 
 The fleet of the root project: the topmost project above this one, and
 every project below it. A project is a directory whose `.fyai` holds an
@@ -7254,6 +7442,7 @@ sets the scan: `fyai config set fleet/scan/depth 2` there.
 | --- | --- |
 | `list` | list every session under the root |
 | `scan` | list the projects under the root |
+| `start` | start a session of a project with a task |
 
 With no command, `list` runs.
 
@@ -7276,6 +7465,35 @@ runs is `running` with no server, and one whose process was lost is
 
 | Option | Description |
 | --- | --- |
+| `-h`, `--help` | show this help |
+
+## /fleet start
+
+start a session of a project with a task
+
+**Usage:** `/fleet start [--branch BRANCH] PROJECT TASK...`
+
+Start a session in PROJECT (a directory relative to the root; `.` is
+the root) at the server that runs its sessions, with TASK as its first
+message. The session runs with no client, and the server keeps it
+after its turn: `fleet list` shows it, `session send` gives it more,
+and `resume` joins it. Its branch is `--branch`, or `fleet/` and the
+first words of the task. A server must run for the project or above
+it: `fyai serve --daemon` in the root.
+
+
+### Arguments
+
+| Argument | Description |
+| --- | --- |
+| `PROJECT` | the project, relative to the root |
+| `TASK` | the first message of the session |
+
+### Options
+
+| Option | Description |
+| --- | --- |
+| `--branch BRANCH` | the branch of the session |
 | `-h`, `--help` | show this help |
 
 ## /fleet scan

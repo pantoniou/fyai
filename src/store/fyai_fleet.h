@@ -35,6 +35,18 @@ char *fyai_fleet_parent(const char *root);
 char *fyai_fleet_root_of(const char *dir);
 
 /*
+ * Split a session spec `PROJECT:BRANCH` or `BRANCH`. PROJECT is a path
+ * relative to the fleet root of @cwd (`.` for the root) containing
+ * .fyai/arena; if the prefix before the first colon is not a project, the
+ * entire string is treated as a branch name (e.g. `main/agent:x`).
+ * Sets *@dirp to the heap-allocated project realpath (caller frees) or NULL
+ * for @cwd's project, and *@branchp into @name.
+ * Returns 0 on success, or -1 if the branch portion is empty.
+ */
+int fyai_fleet_name_split(const char *cwd, const char *name, char **dirp,
+			  const char **branchp);
+
+/*
  * Recursively invoke @found with the realpath of each project at or under
  * @root (@root first if it is a project) in lexicographical order, including
  * nested projects. Skips .fyai, .git, symlinks, mount crossings, names

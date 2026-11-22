@@ -3934,7 +3934,8 @@ commands:
           End the live session BRANCH at its server: its worker gets SIGTERM, and
           its clients see the session end. The branch keeps the turns that were
           stored; a turn in flight is lost. With `--force` the worker gets
-          SIGKILL at once.
+          SIGKILL at once. `PROJECT:BRANCH` names a session of another project
+          of the fleet (`fleet list`).
         surfaces: [cli, session]
         handler: session_kill
         flags: [no-storage]
@@ -3951,13 +3952,106 @@ commands:
             branch:
               type: string
               minLength: 1
-              description: the branch of the live session
+              description: the live session, as BRANCH or PROJECT:BRANCH
               x-fyai-positional: 0
-              x-fyai-meta: BRANCH
+              x-fyai-meta: NAME
               x-fyai-complete: session
             force:
               type: boolean
               description: send SIGKILL, with no grace
+      - command: send
+        title: send a message to a live session
+        description: |
+          Send TEXT to the live session NAME (BRANCH, or PROJECT:BRANCH of the
+          fleet), also to one that a client drives. The model gets it as the
+          event `[message 'FROM']` with the text as its body: an idle session
+          runs a turn for it, a running one reads it at its next round. A client
+          of the session sees it as it sees an event.
+        surfaces: [cli, session]
+        handler: session_send
+        flags: [no-storage]
+        while_busy: run
+        render:
+          message: "sent to {branch}"
+        arguments:
+          type: object
+          required: [branch, text]
+          additionalProperties: false
+          properties:
+            branch:
+              type: string
+              minLength: 1
+              description: the live session, as BRANCH or PROJECT:BRANCH
+              x-fyai-positional: 0
+              x-fyai-meta: NAME
+              x-fyai-complete: session
+            text:
+              type: string
+              minLength: 1
+              description: the message
+              x-fyai-positional: 1
+              x-fyai-rest: true
+              x-fyai-meta: TEXT
+            from:
+              type: string
+              minLength: 1
+              description: who the message is from (default user)
+              x-fyai-long: from
+              x-fyai-meta: NAME
+      - command: interrupt
+        title: interrupt the turn of a live session
+        description: |
+          Interrupt the turn that the live session NAME runs, as Escape does in
+          the session. A session with no turn is not changed.
+        surfaces: [cli, session]
+        handler: session_interrupt
+        flags: [no-storage]
+        while_busy: run
+        render:
+          message: "interrupted {branch}"
+        arguments:
+          type: object
+          required: [branch]
+          additionalProperties: false
+          properties:
+            branch:
+              type: string
+              minLength: 1
+              description: the live session, as BRANCH or PROJECT:BRANCH
+              x-fyai-positional: 0
+              x-fyai-meta: NAME
+              x-fyai-complete: session
+      - command: answer
+        title: answer the question of a live session
+        description: |
+          Answer the first question that the live session NAME waits on: the
+          number of an option, from 1, or any other text. A set of several
+          questions is answered in the session.
+        surfaces: [cli, session]
+        handler: session_answer
+        flags: [no-storage]
+        while_busy: run
+        render:
+          message: "answered {branch}"
+        arguments:
+          type: object
+          required: [branch, answer]
+          additionalProperties: false
+          properties:
+            branch:
+              type: string
+              minLength: 1
+              description: the live session, as BRANCH or PROJECT:BRANCH
+              x-fyai-positional: 0
+              x-fyai-meta: NAME
+              x-fyai-complete: session
+            answer:
+              type: string
+              minLength: 1
+              description: the number of an option, or the text of the answer
+              x-fyai-positional: 1
+              x-fyai-rest: true
+              x-fyai-meta: ANSWER
       - command: new
         surfaces: [session]
         title: start a new session with an empty conversation
@@ -4180,6 +4274,47 @@ commands:
         arguments:
           type: object
           additionalProperties: false
+      - command: start
+        title: start a session of a project with a task
+        description: |
+          Start a session in PROJECT (a directory relative to the root; `.` is
+          the root) at the server that runs its sessions, with TASK as its first
+          message. The session runs with no client, and the server keeps it
+          after its turn: `fleet list` shows it, `session send` gives it more,
+          and `resume` joins it. Its branch is `--branch`, or `fleet/` and the
+          first words of the task. A server must run for the project or above
+          it: `fyai serve --daemon` in the root.
+        surfaces: [cli, session]
+        handler: fleet_start
+        flags: [no-storage]
+        while_busy: run
+        render:
+          message: "started {name}"
+        arguments:
+          type: object
+          required: [project, task]
+          additionalProperties: false
+          properties:
+            project:
+              type: string
+              minLength: 1
+              description: the project, relative to the root
+              x-fyai-positional: 0
+              x-fyai-meta: PROJECT
+              x-fyai-complete: dir
+            task:
+              type: string
+              minLength: 1
+              description: the first message of the session
+              x-fyai-positional: 1
+              x-fyai-rest: true
+              x-fyai-meta: TASK
+            branch:
+              type: string
+              minLength: 1
+              description: the branch of the session
+              x-fyai-long: branch
+              x-fyai-meta: BRANCH
       - command: scan
         title: list the projects under the root
         description: |

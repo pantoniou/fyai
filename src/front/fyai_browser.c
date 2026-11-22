@@ -2800,7 +2800,7 @@ void fyai_browser_step(struct fyai_ctx *ctx)
 	if (action == 'K') {
 		/* Close server sessions via RPC instead of local agent kill. */
 		if (b->selected < b->count && b->rows[b->selected].live) {
-			if (fyai_remote_session_close(ctx, b->target, false, NULL))
+			if (fyai_remote_session_close(ctx, NULL, b->target, false, NULL))
 				browser_message(b, "The session could not be ended.");
 			else
 				browser_refresh(b);

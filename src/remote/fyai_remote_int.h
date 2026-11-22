@@ -22,6 +22,8 @@ static const char *const remote_features[] = {
 	 * registers with the server and reports busy in fyai_worker frames.
 	 */
 	"register",
+	/* fyai_session_send, fyai_session_interrupt, fyai_session_answer. */
+	"supervise",
 };
 
 int fyai_remote_cloexec(int fd);

@@ -228,3 +228,31 @@ int fyai_fleet_scan(const char *root, int depth, fy_generic exclude,
 	free(real);
 	return rc;
 }
+
+int fyai_fleet_name_split(const char *cwd, const char *name, char **dirp,
+			  const char **branchp)
+{
+	const char *colon = strchr(name, ':');
+	char *root, *path = NULL, *real = NULL;
+
+	*dirp = NULL;
+	*branchp = name;
+	if (colon && colon > name) {
+		root = fyai_fleet_root_of(cwd);
+		if (root && asprintf(&path, "%s/%.*s", root, (int)(colon - name),
+				     name) >= 0)
+			real = realpath(path, NULL);
+		free(path);
+		/* Require the resolved project to be at or beneath @root. */
+		if (real && fleet_is_project(real) && root &&
+		    !strncmp(real, root, strlen(root)) &&
+		    (!real[strlen(root)] || real[strlen(root)] == '/')) {
+			*dirp = real;
+			real = NULL;
+			*branchp = colon + 1;
+		}
+		free(real);
+		free(root);
+	}
+	return **branchp ? 0 : -1;
+}
