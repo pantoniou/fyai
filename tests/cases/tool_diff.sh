@@ -52,12 +52,61 @@ assert_status 0
 assert_stdout_contains 'diff --git a/made.txt b/made.txt'
 assert_stdout_contains '+beta line'
 
+# display/tool_diff_view stat draws the count of each file and not the diff. The record
+# keeps the whole diff: the history shows it whole by default, counted with stat, and
+# not at all with none.
+reset_project
+mock_start tool_diff.json
+run_with --set view/tool_diff=true --set display/tool_diff_view=stat "edit the files"
+assert_status 0
+assert_stdout_contains '2 files changed'
+assert_stdout_contains 'made.txt'
+assert_stdout_contains 'existing.txt'
+assert_stdout_not_contains 'diff --git'
+assert_stdout_not_contains '+beta line'
+assert_stdout_contains 'All done.'
+run_fyai --set display/tool_diff_view=full history
+assert_status 0
+assert_stdout_contains 'diff --git a/made.txt b/made.txt'
+run_fyai --set display/tool_diff_view=stat history
+assert_status 0
+assert_stdout_contains '2 files changed'
+assert_stdout_not_contains 'diff --git'
+run_fyai --set display/tool_diff_view=total history
+assert_status 0
+assert_stdout_contains '2 files changed, +2 -1'
+assert_stdout_not_contains 'diff --git'
+assert_stdout_not_contains 'existing.txt'
+run_fyai --set display/tool_diff_view=none history
+assert_status 0
+assert_stdout_not_contains 'diff --git'
+assert_stdout_not_contains 'files changed'
+assert_stdout_contains 'All done.'
+reset_project
+mock_start tool_diff.json
+run_with --set view/tool_diff=true --set display/tool_diff_view=total "edit the files"
+assert_status 0
+assert_stdout_contains '2 files changed, +2 -1'
+assert_stdout_not_contains 'diff --git'
+assert_stdout_not_contains 'existing.txt'
+assert_stdout_contains 'All done.'
+reset_project
+mock_start tool_diff.json
+run_with --set view/tool_diff=true --set display/tool_diff_view=none "edit the files"
+assert_status 0
+assert_stdout_not_contains 'diff --git'
+assert_stdout_not_contains 'files changed'
+[ "$(cat made.txt)" = hello ] || fail 'the call did not run'
+run_fyai --set display/tool_diff_view=full history
+assert_status 0
+assert_stdout_contains 'diff --git a/made.txt b/made.txt'
+
 # A patch does not display its own diff while the group diff shows it: the call names
 # the file, and the change is shown once, under the calls. Without the diff it shows
 # its own. The list and project_view calls have a title and not their arguments.
 reset_project
 mock_start tool_diff_patch.json
-run_with --new --set view/tool_diff=true "patch the file"
+run_with --new --set view/tool_diff=true --set display/tool_diff_view=full "patch the file"
 assert_status 0
 assert_stdout_contains 'diff --git a/existing.txt b/existing.txt'
 assert_stdout_contains 'Patched.'
@@ -111,6 +160,30 @@ set -e
 [ -e first.txt ] || fail 'undo went deeper than view/undo_depth'
 grep -qF 'no tool call of this session changed the project' "$TEST_DIR/err" "$TEST_DIR/out" || fail 'the group beyond the depth was kept'
 mock_stop 4
+
+# With a palette theme the counts take the colours of the line numbers of a diff, green
+# for the added lines and red for the removed ones. A display setting
+# stays for the runs that follow, so the last run puts them back.
+reset_project
+mock_start tool_diff.json
+run_with --color on --set display/markdown=true --set display/theme=ember:dark \
+	--set view/tool_diff=true --set display/tool_diff_view=stat "edit the files"
+assert_status 0
+add=$(grep -aoP '\x1b\[38;2;[0-9;]+m(?=\+1)' "$TEST_DIR/stdout" | head -n 1)
+del=$(grep -aoP '\x1b\[38;2;[0-9;]+m(?=-1)' "$TEST_DIR/stdout" | head -n 1)
+[ -n "$add" ] || fail 'the added count has no colour'
+[ -n "$del" ] || fail 'the removed count has no colour'
+[ "$add" != "$del" ] || fail 'the added and removed counts have one colour'
+assert_stdout_not_contains 'fy-role'
+run_fyai --color on --set display/markdown=true --set display/theme=ember:dark \
+	--set display/tool_diff_view=total history
+assert_status 0
+add=$(grep -aoP '\x1b\[38;2;[0-9;]+m(?=\+2)' "$TEST_DIR/stdout" | head -n 1)
+del=$(grep -aoP '\x1b\[38;2;[0-9;]+m(?=-1)' "$TEST_DIR/stdout" | head -n 1)
+[ -n "$add" ] && [ -n "$del" ] && [ "$add" != "$del" ] || fail 'the one line count has no green and red'
+assert_stdout_not_contains 'fy-role'
+run_fyai --set display/markdown=false --set display/theme=ember:auto --set display/tool_diff_view=full history
+assert_status 0
 
 # A session that runs in a view takes the diffs too, and the project is not changed.
 # Its states are kept in a directory of the arena for the run, which is gone at the end.
