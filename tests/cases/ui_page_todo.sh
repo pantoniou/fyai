@@ -1,7 +1,8 @@
 #!/bin/bash
 # SPDX-License-Identifier: MIT
 # The todo list of the branch stands above the prompt of the page, one row
-# for each item with its state mark, and follows a change of the list.
+# for each item with its state mark, and follows a change of the list. The marks
+# are glyphs of the theme of one width, so the text of each row starts in one column.
 set -eu
 . "$(dirname "$0")/../harness.sh"
 
@@ -9,7 +10,8 @@ fyai_test_setup
 run_fyai tool todo_write '{"todos":[
 	{"content":"First page task","status":"completed","priority":"high"},
 	{"content":"Second page task","status":"in_progress","priority":"medium"},
-	{"content":"Third page task","status":"pending","priority":"low"}]}'
+	{"content":"Third page task","status":"pending","priority":"low"},
+	{"content":"Fourth page task","status":"cancelled","priority":"low"}]}'
 assert_status 0
 
 driver=0
@@ -18,9 +20,10 @@ FYAI_TRACE="$TEST_DIR/trace.log" pty_run "$TEST_DIR/pty.out" \
 	-m mock-model -i <<'PTY' || driver=$?
 cols: 100
 steps:
-  - wait-screen: "✔ First page task"
-  - wait-screen: "[>] Second page task"
-  - wait-screen: "☐ Third page task"
+  - wait-screen: "✔  First page task"
+  - wait-screen: "▶  Second page task"
+  - wait-screen: "☐  Third page task"
+  - wait-screen: "–  Fourth page task"
   - type: /todo clear
   - wait-gone: Second page task
   - type: /quit
