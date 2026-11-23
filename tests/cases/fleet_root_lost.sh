@@ -63,8 +63,24 @@ steps:
 PTY
 driver=$!
 read -r _ <"$SYNC/started" || true
-# Wait for the member's turn request (request 2 overall) to reach the mock.
-wait_requests 2
+# Wait for the request of the member itself. The root can send a turn of its
+# own for the start notice first, so a count of requests does not say it.
+member_requests() {
+	"$PYTHON" -I - "$TEST_DIR/requests.jsonl" <<'PY'
+import json, sys
+n = 0
+for l in open(sys.argv[1]):
+    m = json.dumps(json.loads(l)["body"]["messages"])
+    if "Fix the build" in m and "Say done" not in m:
+        n += 1
+print(n)
+PY
+}
+want=2
+until [ "$(member_requests)" -ge 1 ]; do
+	wait_requests "$want"
+	want=$((want + 1))
+done
 
 "$FYAI_BIN" fleet list --output json >"$TEST_DIR/fleet.json"
 "$FYAI_BIN" fleet tasks --output json >"$TEST_DIR/tasks.json"
