@@ -1,12 +1,13 @@
 # fyai
 
-`fyai` is an AI coding assistant written in C. It has no daemon and keeps no
-hidden process state.
+`fyai` is an AI coding assistant written in C. It has no required daemon and
+keeps no hidden process state.
 
 Each invocation opens the durable state of the project, runs one command or one
 complete model and tool loop, publishes the changes in one atomic step, and
 exits. An interactive session keeps one process alive for the terminal UI. It
-uses the same durable state.
+uses the same durable state. An optional `fyai serve` process hosts remote and
+background sessions without keeping canonical state of its own.
 
 ![An interactive fyai session: a Python program written, run through the shell
 tool, read back, and its algorithm drawn as a diagram in the
@@ -18,6 +19,10 @@ terminal](doc/img/demo.gif)
 
 - Content-addressed, immutable libfyaml arena in `.fyai/arena`. One atomic root
   is the only mutable value.
+- Durable mode (`durable`, on by default): publishes each completed tool round
+  and active background work (waits, monitors, commands, sub-agents, queued
+  events, and session views) as checkpoints so crashed runs recover on restart
+  and resume with `/continue`.
 - Provider-independent conversation content. A branch can continue on another
   model, provider or API grammar.
 - Branches that each own a conversation and a configuration. A branch start
@@ -129,6 +134,26 @@ terminal](doc/img/demo.gif)
   resume and a branch browser.
 - `--cast` records a session. `fyai cast play` plays it.
 
+### Servers, remotes, and fleets
+
+- `fyai serve` (`--daemon`, `--projects`, `--once`) hosts sessions and runs
+  remote commands on a Unix socket and optional HTTP/HTTPS WebSocket listeners
+  with bearer tokens and TLS key pinning (`remote fingerprint`, `remote rekey`).
+- `--remote` targets local sockets (`.`, `PATH`), `ssh://` hosts via
+  `remote bridge`, and `http://`/`https://` listeners via `remote relay`.
+- `fyai remote connect` attaches to a served session, watches a live session
+  with `--watch`, or relays Agent SDK frames with `--protocol sdk`.
+- Background sessions: `/background` (and unexpected terminal disconnect) hands
+  live work off to a server; `session list`/`kill`/`send`/`interrupt`/`answer`
+  manage live sessions; parked idle workers exit after `serve/idle_ms`.
+- Fleet operations under a root project (`init --root`): `fleet scan`, `list`,
+  `create`, `start`, `search`, `read`, `attach`, `tasks` and `kill` discover
+  and control nested projects and their sessions.
+- Root sessions supervise members with the `fleet` tool (`fleet/approve`,
+  `fleet/max_live`), `/session adopt` and the live fleet panel. `/jump`,
+  `/root`, and `/split` switch between fleet sessions or open them side by side
+  in work-pane tiles.
+
 ### Integration
 
 - MCP servers over Streamable HTTP or stdio, with `tool_search` and
@@ -148,8 +173,8 @@ terminal](doc/img/demo.gif)
   one invocation.
 - Trace logs (`log wire`, `$FYAI_TRACE`), crash backtrace and a diagnostic
   dump on SIGUSR2.
-- Native C build with CMake. Dynamic, mostly-static glibc and static musl
-  builds. Linux and macOS.
+- Native C build with CMake. Dynamic, mostly-static glibc, static musl, and
+  memory-safe [Fil-C](doc/filc.md) builds. Linux and macOS.
 
 ## Quick start
 
@@ -188,11 +213,15 @@ fyai help branch
 - [Branching](doc/branching.md)
 - [Exchange scope](doc/exchange-scope.md) and
   [sandbox namespaces](doc/sandbox-namespaces.md)
+- [Remote sessions](doc/remote-sessions-sdd.md) and
+  [background sessions](doc/fyai-background-sessions-sdd.md)
+- [Fleets of sessions](doc/fyai-fleet-sdd.md)
 - [Filesystem views](doc/agent-filesystem-views-sdd.md)
 - [Transport isolation](doc/agent-transport-isolation-sdd.md)
 - [Sub-agent protocol](doc/agent-protocol.md) and
   [fork model](doc/agent-fork-model.md)
-- [Static builds](doc/user-guide.md#build)
+- [Static builds](doc/user-guide.md#build) and
+  [Fil-C builds](doc/filc.md)
 - [System requirements and design](doc/srd/fyai-srd.md)
 
 ## Status
