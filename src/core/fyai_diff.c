@@ -346,3 +346,226 @@ out:
 	free(tb.lines);
 	return rc;
 }
+
+/* The file that the walk of fyai_diff_stat() is in. */
+struct diff_stat_file {
+	char *path;
+	size_t added, removed;
+	bool open, git, seen_hunk, binary;
+};
+
+struct diff_stat {
+	struct fy_generic_builder *gb;
+	fy_generic *rows;
+	size_t count, cap;
+	struct diff_stat_file cur;
+};
+
+static void diff_stat_reset(struct diff_stat *st)
+{
+	free(st->cur.path);
+	memset(&st->cur, 0, sizeof(st->cur));
+}
+
+/* Close the current file into a row; its name may be empty for bare hunks. */
+static int diff_stat_close(struct diff_stat *st)
+{
+	struct diff_stat_file *f = &st->cur;
+	fy_generic *rows;
+	fy_generic row;
+
+	if (!f->open)
+		return 0;
+	if (st->count == st->cap) {
+		st->cap = st->cap ? st->cap * 2 : 8;
+		rows = realloc(st->rows, st->cap * sizeof(*rows));
+		if (!rows)
+			return -1;
+		st->rows = rows;
+	}
+	row = fy_mapping(st->gb, "path", fy_value(st->gb, f->path ? f->path : ""),
+			 "added", (long long)f->added,
+			 "removed", (long long)f->removed,
+			 "binary", f->binary ? fy_true : fy_false);
+	if (!fy_is_valid(row))
+		return -1;
+	st->rows[st->count++] = row;
+	diff_stat_reset(st);
+	return 0;
+}
+
+static int diff_stat_open(struct diff_stat *st, const char *path, size_t len,
+			  bool git)
+{
+	if (diff_stat_close(st))
+		return -1;
+	st->cur.open = true;
+	st->cur.git = git;
+	st->cur.path = strndup(path ? path : "", path ? len : 0);
+	return st->cur.path ? 0 : -1;
+}
+
+/*
+ * The path of `diff --git a/X b/X`: both names are equal, so the middle of
+ * the rest is the split, even when the name holds spaces. A rename or a row
+ * that does not fit falls back to the first ` b/`.
+ */
+static void diff_stat_git_path(const char *rest, size_t n, const char **pathp,
+			       size_t *lenp)
+{
+	const char *sep;
+	size_t half;
+
+	*pathp = rest;
+	*lenp = n;
+	if (n < 2 || strncmp(rest, "a/", 2))
+		return;
+	rest += 2;
+	n -= 2;
+	if (n >= 3 && (n - 3) % 2 == 0) {
+		half = (n - 3) / 2;
+		if (!strncmp(rest + half, " b/", 3) &&
+		    !strncmp(rest, rest + half + 3, half)) {
+			*pathp = rest;
+			*lenp = half;
+			return;
+		}
+	}
+	sep = memmem(rest, n, " b/", 3);
+	*pathp = rest;
+	*lenp = sep ? (size_t)(sep - rest) : n;
+}
+
+/* Read the lengths of a hunk header; an absent length is one. */
+static void diff_stat_hunk(const char *p, size_t n, size_t *oldp, size_t *newp)
+{
+	char *end;
+	const char *q = p + 3, *stop = p + n;
+	unsigned long a = 1, b = 1;
+
+	*oldp = *newp = 0;
+	if (q >= stop)
+		return;
+	strtoul(q, &end, 10);
+	if (end < stop && *end == ',')
+		a = strtoul(end + 1, &end, 10);
+	while (end < stop && *end == ' ')
+		end++;
+	if (end >= stop || *end != '+')
+		return;
+	strtoul(end + 1, &end, 10);
+	if (end < stop && *end == ',')
+		b = strtoul(end + 1, &end, 10);
+	*oldp = a;
+	*newp = b;
+}
+
+/* The name on a `---` or `+++` row, without a tab and what follows it. */
+static size_t diff_stat_name_len(const char *p, size_t n)
+{
+	const char *tab = memchr(p, '\t', n);
+
+	return tab ? (size_t)(tab - p) : n;
+}
+
+/*
+ * Take the name of a `---` or `+++` row. A git file already has its name from
+ * the `diff --git` row, and only the new name of a rename replaces it. A
+ * name of /dev/null keeps the other side.
+ */
+static int diff_stat_header(struct diff_stat *st, const char *p, size_t n,
+			    bool is_new)
+{
+	struct diff_stat_file *f = &st->cur;
+	size_t len = diff_stat_name_len(p, n);
+	char *path;
+
+	if (len == 9 && !strncmp(p, "/dev/null", 9))
+		return 0;
+	if (f->git) {
+		if (!is_new)
+			return 0;
+		if (len > 2 && !strncmp(p, "b/", 2)) {
+			p += 2;
+			len -= 2;
+		}
+	}
+	path = strndup(p, len);
+	if (!path)
+		return -1;
+	free(f->path);
+	f->path = path;
+	return 0;
+}
+
+int fyai_diff_stat(struct fy_generic_builder *gb, const char *diff, size_t len,
+		   fy_generic *out)
+{
+	struct diff_stat st = { .gb = gb };
+	size_t old_left = 0, new_left = 0, n;
+	const char *p = diff, *end = diff + len, *nl, *path;
+	int rc = -1;
+
+	*out = fy_invalid;
+	while (p < end) {
+		nl = memchr(p, '\n', (size_t)(end - p));
+		n = nl ? (size_t)(nl - p) : (size_t)(end - p);
+		if (old_left || new_left) {
+			/* A blank hunk row is a context row that lost its space. */
+			switch (n ? *p : ' ') {
+			case '+':
+				st.cur.added++;
+				new_left -= new_left ? 1 : 0;
+				break;
+			case '-':
+				st.cur.removed++;
+				old_left -= old_left ? 1 : 0;
+				break;
+			case '\\':
+				break;
+			default:
+				old_left -= old_left ? 1 : 0;
+				new_left -= new_left ? 1 : 0;
+				break;
+			}
+		} else if (n > 11 && !strncmp(p, "diff --git ", 11)) {
+			diff_stat_git_path(p + 11, n - 11, &path, &n);
+			if (diff_stat_open(&st, path, n, true))
+				goto out;
+		} else if (n >= 12 && !strncmp(p, "Binary files", 12)) {
+			st.cur.open = true;
+			st.cur.binary = true;
+		} else if (n >= 16 && !strncmp(p, "GIT binary patch", 16)) {
+			st.cur.open = true;
+			st.cur.binary = true;
+		} else if (n >= 4 && !strncmp(p, "--- ", 4)) {
+			/* A header without `diff --git` starts a file; with
+			 * one, it names the file the git row opened. */
+			if (!st.cur.open || (!st.cur.git && st.cur.seen_hunk)) {
+				if (diff_stat_open(&st, "", 0, false))
+					goto out;
+			}
+			if (diff_stat_header(&st, p + 4, n - 4, false))
+				goto out;
+		} else if (n >= 4 && !strncmp(p, "+++ ", 4)) {
+			if (!st.cur.open && diff_stat_open(&st, "", 0, false))
+				goto out;
+			if (diff_stat_header(&st, p + 4, n - 4, true))
+				goto out;
+		} else if (n >= 3 && !strncmp(p, "@@ ", 3)) {
+			if (!st.cur.open && diff_stat_open(&st, "", 0, false))
+				goto out;
+			st.cur.seen_hunk = true;
+			diff_stat_hunk(p, n, &old_left, &new_left);
+		}
+		p = nl ? nl + 1 : end;
+	}
+	if (diff_stat_close(&st))
+		goto out;
+	*out = fy_gb_sequence_create(gb, st.count, st.rows);
+	rc = fy_is_valid(*out) ? 0 : -1;
+out:
+	diff_stat_reset(&st);
+	free(st.rows);
+	return rc;
+}
