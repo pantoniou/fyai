@@ -18,6 +18,7 @@ FYAI_TEST_ENTRY(transcript_view, window_shows_the_last_rows, transcript_view_win
 FYAI_TEST_ENTRY(transcript_view, scroll_stops_at_the_ends, transcript_view_scroll_stops_at_the_ends)
 FYAI_TEST_ENTRY(transcript_view, live_rows_follow_the_stored, transcript_view_live_rows_follow_the_stored)
 FYAI_TEST_ENTRY(transcript_view, tail_scrolls_with_transcript, transcript_view_tail_scrolls_with_transcript)
+FYAI_TEST_ENTRY(transcript_view, frozen_tail_rows_are_final, transcript_view_frozen_tail_rows_are_final)
 FYAI_TEST_ENTRY(transcript_view, scrolled_view_keeps_its_top, transcript_view_scrolled_view_keeps_its_top)
 FYAI_TEST_ENTRY(transcript_view, copy_reads_the_selected_cells, transcript_view_copy_reads_the_selected_cells)
 FYAI_TEST_ENTRY(transcript_view, update_renders_what_changed, transcript_view_update_renders_what_changed)
@@ -157,6 +158,33 @@ int transcript_view_tail_scrolls_with_transcript(void)
 	FYAI_TCHECK(rows_are(w, n, end, 2));
 	FYAI_TCHECK(!fyai_transcript_view_set_tail(v, NULL, 0));
 	FYAI_TCHECK(fyai_transcript_view_rows(v) == 2);
+	fyai_transcript_view_destroy(v);
+	return 0;
+}
+
+/* The frozen rows of the tail are final, unless a live block or an open row
+ * stands before them; a new tail has none. */
+int transcript_view_frozen_tail_rows_are_final(void)
+{
+	struct fyai_transcript_view *v = fyai_transcript_view_create();
+
+	FYAI_TCHECK(v != NULL);
+	FYAI_TCHECK(!fyai_transcript_view_set_stored(v, "a\nb\n", 4));
+	FYAI_TCHECK(!fyai_transcript_view_set_tail(v, "t1\nt2\nt3\n", 9));
+	FYAI_TCHECK(fyai_transcript_view_final_rows(v) == 2);
+	fyai_transcript_view_set_tail_final(v, 2);
+	FYAI_TCHECK(fyai_transcript_view_final_rows(v) == 4);
+	fyai_transcript_view_set_tail_final(v, 10);
+	FYAI_TCHECK(fyai_transcript_view_final_rows(v) == 5);
+	FYAI_TCHECK(!fyai_transcript_view_block_set(v, 1, "call\n", 5));
+	FYAI_TCHECK(fyai_transcript_view_final_rows(v) == 2);
+	fyai_transcript_view_block_drop(v, 1);
+	FYAI_TCHECK(fyai_transcript_view_final_rows(v) == 5);
+	FYAI_TCHECK(!fyai_transcript_view_append_live(v, "open", 4));
+	FYAI_TCHECK(fyai_transcript_view_final_rows(v) == 3);
+	FYAI_TCHECK(!fyai_transcript_view_append_live(v, "\n", 1));
+	FYAI_TCHECK(!fyai_transcript_view_set_tail(v, "t1\n", 3));
+	FYAI_TCHECK(fyai_transcript_view_final_rows(v) == 3);
 	fyai_transcript_view_destroy(v);
 	return 0;
 }
