@@ -35,6 +35,7 @@
 
 FYAI_TEST_ENTRY(project, recovery_damage, project_recovery_damage)
 FYAI_TEST_ENTRY(project, borrowed_git, project_borrowed_git)
+FYAI_TEST_ENTRY(project, stat_cache, project_stat_cache)
 FYAI_TEST_ENTRY(project, identity_attributes, project_identity_attributes)
 FYAI_TEST_ENTRY(project, directory_order, project_directory_order)
 FYAI_TEST_ENTRY(project, directory_ancestors, project_directory_ancestors)
@@ -252,6 +253,118 @@ static void project_progress_check(void *arg, const struct fyai_project_capture_
 	FYAI_TCHECK(stats->completed <= stats->files);
 	FYAI_TCHECK(stats->copies + stats->reflinks + stats->hardlinks + stats->metacopies <=
 		    stats->files);
+}
+
+/* Capture the source with the cache; return the stats and the root digest. */
+static void project_cache_capture(struct fyai_project_capture_opts *opts,
+				  struct fyai_project_capture_stats *stats,
+				  unsigned char root[FYAI_CAS_HASH_SIZE])
+{
+	struct fyai_manifest manifest = { 0 };
+	char error[PATH_MAX];
+
+	memset(stats, 0, sizeof(*stats));
+	opts->stats = stats;
+	FYAI_TCHECK(!fyai_project_capture_manifest(opts, &manifest, error, sizeof(error)));
+	memcpy(root, manifest.root, FYAI_CAS_HASH_SIZE);
+	fyai_manifest_close(&manifest);
+}
+
+static void project_cache_write(int source, const char *name, const char *text)
+{
+	int fd = openat(source, name, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0644);
+
+	FYAI_TCHECK(fd >= 0);
+	FYAI_TCHECK(write(fd, text, strlen(text)) == (ssize_t)strlen(text));
+	close(fd);
+}
+
+/*
+ * The stat cache keeps the digest of an unchanged file: a capture reads only
+ * files whose stat differs, a change that keeps size and mtime is found
+ * through the ctime, a missing object is made again, and a file changed just
+ * before a capture is read by the next one.
+ */
+int project_stat_cache(void)
+{
+	struct fyai_project_capture_opts opts = { .workers = 2,
+						  .defer_sync = true,
+						  .baseline_fd = -1,
+						  .data_fd = -1,
+						  .upper_fd = -1,
+						  .previous_baseline_fd = -1 };
+	struct fyai_project_capture_stats stats;
+	struct stat st;
+	struct timespec times[2];
+	unsigned char first[FYAI_CAS_HASH_SIZE], second[FYAI_CAS_HASH_SIZE], third[FYAI_CAS_HASH_SIZE];
+	char path[] = "/tmp/fyai-project-cache-XXXXXX";
+	int root, objects, source;
+
+	FYAI_TCHECK(mkdtemp(path));
+	root = open(path, O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+	FYAI_TCHECK(root >= 0);
+	FYAI_TCHECK(!mkdirat(root, "source", 0700) && !mkdirat(root, "objects", 0700));
+	objects = openat(root, "objects", O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+	FYAI_TCHECK(objects >= 0 && !mkdirat(objects, "blake3", 0700));
+	opts.source_fd = openat(root, "source", O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+	opts.objects_fd = openat(objects, "blake3", O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+	FYAI_TCHECK(opts.source_fd >= 0 && opts.objects_fd >= 0);
+	source = opts.source_fd;
+	FYAI_TCHECK(!mkdirat(source, "dir", 0700));
+	project_cache_write(source, "a", "alpha\n");
+	project_cache_write(source, "dir/b", "beta\n");
+	project_cache_write(source, "c", "gamma\n");
+
+	/* A file that was just written is racy, and is read again. */
+	opts.stat_cache = fyai_project_stat_cache_new();
+	FYAI_TCHECK(opts.stat_cache);
+	project_cache_capture(&opts, &stats, first);
+	FYAI_TCHECK(stats.files == 3 && !stats.cached_files);
+	project_cache_capture(&opts, &stats, second);
+	FYAI_TCHECK(!stats.cached_files && !memcmp(first, second, sizeof(first)));
+
+	/* A cache that treats the files as settled keeps their digests. */
+	fyai_project_stat_cache_set_racy(opts.stat_cache, -1);
+	project_cache_capture(&opts, &stats, second);
+	project_cache_capture(&opts, &stats, second);
+	FYAI_TCHECK(stats.cached_files == 3 && !stats.copied_bytes);
+	FYAI_TCHECK(!memcmp(first, second, sizeof(first)));
+
+	/* The content changes, size and mtime stay: the ctime shows it. */
+	FYAI_TCHECK(!fstatat(source, "dir/b", &st, AT_SYMLINK_NOFOLLOW));
+	project_cache_write(source, "dir/b", "BETA\n");
+	times[0].tv_sec = 0;
+	times[0].tv_nsec = UTIME_OMIT;
+	times[1] = st.st_mtim;
+	FYAI_TCHECK(!utimensat(source, "dir/b", times, AT_SYMLINK_NOFOLLOW));
+	project_cache_capture(&opts, &stats, third);
+	FYAI_TCHECK(stats.cached_files == 2);
+	FYAI_TCHECK(memcmp(second, third, sizeof(second)));
+	project_cache_capture(&opts, &stats, second);
+	FYAI_TCHECK(stats.cached_files == 3 && !memcmp(second, third, sizeof(second)));
+
+	/* An object that is gone is made again from the file. */
+	project_remove_tree(opts.objects_fd);
+	project_cache_capture(&opts, &stats, second);
+	FYAI_TCHECK(stats.cached_files == 0 && !memcmp(second, third, sizeof(second)));
+	project_cache_capture(&opts, &stats, second);
+	FYAI_TCHECK(stats.cached_files == 3);
+
+	FYAI_TCHECK(!mkdirat(root, "other", 0700));
+	close(opts.objects_fd);
+	opts.objects_fd = openat(root, "other", O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+	FYAI_TCHECK(opts.objects_fd >= 0);
+	project_cache_capture(&opts, &stats, second);
+	FYAI_TCHECK(stats.cached_files == 0 && !memcmp(second, third, sizeof(second)));
+
+	fyai_project_stat_cache_free(opts.stat_cache);
+	close(opts.source_fd);
+	close(opts.objects_fd);
+	close(objects);
+	project_remove_tree(root);
+	close(root);
+	FYAI_TCHECK(!rmdir(path));
+	return 0;
 }
 
 int project_borrowed_git(void)
@@ -669,6 +782,10 @@ int project_capture_parallel(void)
 
 #else
 int project_recovery_damage(void)
+{
+	return 0;
+}
+int project_stat_cache(void)
 {
 	return 0;
 }
