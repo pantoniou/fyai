@@ -10,11 +10,14 @@
 #include <string.h>
 
 #include "fyai_diff.h"
+#include "fyai_test.h"
 
 #include "fyai_test_registry.h"
 
 FYAI_TEST_ENTRY(diff, unified, diff_unified)
 FYAI_TEST_ENTRY(diff, many_edits, diff_many_edits)
+FYAI_TEST_ENTRY(diff, stat, diff_stat)
+FYAI_TEST_ENTRY(diff, stat_unified, diff_stat_unified)
 
 static int failures;
 
@@ -99,4 +102,101 @@ int diff_many_edits(void)
 		return 1;
 	}
 	return 0;
+}
+
+static struct fy_generic_builder *stat_builder(void)
+{
+	struct fy_generic_builder_cfg cfg = {
+		.flags = FYGBCF_SCOPE_LEADER | FYGBCF_DEDUP_ENABLED,
+	};
+
+	return fy_generic_builder_create(&cfg);
+}
+
+/* Whether row @i of @rows is the file @path with these counts. */
+static bool stat_row_is(fy_generic rows, size_t i, const char *path,
+			long long added, long long removed, bool binary)
+{
+	fy_generic row = fy_get_at(rows, i);
+	fy_generic gp = fy_get(row, "path", fy_invalid);
+	const char *got = fy_castp(&gp, "");
+	long long a = fy_get(row, "added", -1LL);
+	long long r = fy_get(row, "removed", -1LL);
+	/* Two defaults tell a bool of the wrong value from a missing one. */
+	bool b = fy_get(row, "binary", false);
+	bool b2 = fy_get(row, "binary", true);
+
+	if (strcmp(got, path) || a != added || r != removed || b != binary ||
+	    b2 != binary) {
+		fprintf(stderr, "row %zu: want %s +%lld -%lld bin %d, got %s +%lld -%lld bin %d\n",
+			i, path, added, removed, binary, got, a, r, b);
+		return false;
+	}
+	return true;
+}
+
+/* The rows are those of the project diff: git format, one part for a path. */
+int diff_stat(void)
+{
+	static const char diff[] =
+		"diff --git a/src/a b.c b/src/a b.c\n"
+		"--- a/src/a b.c\n+++ b/src/a b.c\n"
+		"@@ -1,3 +1,3 @@\n x\n-old\n+new\n y\n"
+		"@@ -9 +9,2 @@\n-- not a header\n+one\n+two\n"
+		"diff --git a/new.txt b/new.txt\nnew file mode 100644\n"
+		"--- /dev/null\n+++ b/new.txt\n"
+		"@@ -0,0 +1,2 @@\n+a\n+b\n"
+		"diff --git a/gone.txt b/gone.txt\ndeleted file mode 100644\n"
+		"--- a/gone.txt\n+++ /dev/null\n"
+		"@@ -1 +0,0 @@\n-bye\n\\ No newline at end of file\n"
+		"diff --git a/img.png b/img.png\n"
+		"Binary files a/img.png and b/img.png differ\n"
+		"diff --git a/mode.sh b/mode.sh\nold mode 100644\nnew mode 100755\n";
+	struct fy_generic_builder *gb = stat_builder();
+	fy_generic rows;
+	int rc = 1;
+
+	FYAI_TCHECK(gb);
+	FYAI_TCHECK(!fyai_diff_stat(gb, diff, strlen(diff), &rows));
+	FYAI_TCHECK(fy_is_sequence(rows) && fy_len(rows) == 5);
+	FYAI_TCHECK(stat_row_is(rows, 0, "src/a b.c", 3, 2, false));
+	FYAI_TCHECK(stat_row_is(rows, 1, "new.txt", 2, 0, false));
+	FYAI_TCHECK(stat_row_is(rows, 2, "gone.txt", 0, 1, false));
+	FYAI_TCHECK(stat_row_is(rows, 3, "img.png", 0, 0, true));
+	FYAI_TCHECK(stat_row_is(rows, 4, "mode.sh", 0, 0, false));
+	FYAI_TCHECK(!fyai_diff_stat(gb, "", 0, &rows));
+	FYAI_TCHECK(fy_is_sequence(rows) && fy_len(rows) == 0);
+	rc = 0;
+	fy_generic_builder_destroy(gb);
+	return rc;
+}
+
+/* A plain unified diff has no git rows: the headers start each file. */
+int diff_stat_unified(void)
+{
+	static const char diff[] =
+		"--- a\t2026-01-01\n+++ b\t2026-01-02\n"
+		"@@ -1,2 +1 @@\n-1\n-2\n+x\n"
+		"--- c\n+++ d\n@@ -0,0 +1 @@\n+z\n";
+	struct fy_generic_builder *gb = stat_builder();
+	static const char from[] = "1\n2\n3\n", to[] = "1\nx\n3\ny\n";
+	char *out = NULL;
+	fy_generic rows;
+	int rc = 1;
+
+	FYAI_TCHECK(gb);
+	FYAI_TCHECK(!fyai_diff_stat(gb, diff, strlen(diff), &rows));
+	FYAI_TCHECK(fy_len(rows) == 2);
+	FYAI_TCHECK(stat_row_is(rows, 0, "b", 1, 2, false));
+	FYAI_TCHECK(stat_row_is(rows, 1, "d", 1, 0, false));
+	/* The counts agree with the diff that fyai_diff_unified() writes. */
+	FYAI_TCHECK(!fyai_diff_unified(from, strlen(from), to, strlen(to), "a",
+				       "b", 1, &out));
+	FYAI_TCHECK(!fyai_diff_stat(gb, out, strlen(out), &rows));
+	FYAI_TCHECK(fy_len(rows) == 1);
+	FYAI_TCHECK(stat_row_is(rows, 0, "b", 2, 1, false));
+	rc = 0;
+	free(out);
+	fy_generic_builder_destroy(gb);
+	return rc;
 }
