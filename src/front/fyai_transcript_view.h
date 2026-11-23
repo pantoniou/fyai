@@ -88,9 +88,17 @@ int fyai_transcript_view_replace_live(struct fyai_transcript_view *v,
 				      fyai_transcript_view_measure_fn measure,
 				      void *user);
 
-/* Replace the rendered rows of the in-flight tail. The view owns a copy. */
+/* Replace the rendered rows of the in-flight tail. The view owns a copy. The
+ * tail has no final rows until fyai_transcript_view_set_tail_final(). */
 int fyai_transcript_view_set_tail(struct fyai_transcript_view *v,
 				  const char *text, size_t len);
+
+/*
+ * The first @rows rows of the tail no longer change: the renderer froze them.
+ * They count as final rows when nothing stands before them that can change.
+ */
+void fyai_transcript_view_set_tail_final(struct fyai_transcript_view *v,
+					 size_t rows);
 
 /*
  * Replace the rendered rows of the live block of @key, which a call in flight
@@ -135,8 +143,9 @@ bool fyai_transcript_view_has_block(const struct fyai_transcript_view *v,
 size_t fyai_transcript_view_rows(const struct fyai_transcript_view *v);
 
 /*
- * The rows from the first that no longer change: the stored exchanges and the
- * presented rows, without the live blocks and the streaming tail.
+ * The rows from the first that no longer change: the stored exchanges, the
+ * presented rows and the frozen rows of the tail, without the live blocks and
+ * the mutable rows of the tail.
  */
 size_t fyai_transcript_view_final_rows(const struct fyai_transcript_view *v);
 

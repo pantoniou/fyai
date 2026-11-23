@@ -60,6 +60,7 @@ struct fyai_transcript_view {
 	size_t nblocks;
 	size_t block_rows;	/* the rows of every block */
 	struct view_rows tail;
+	size_t tail_final;	/* the first rows of the tail that no longer change */
 	bool live_open;		/* the last live row did not end yet */
 	int offset;		/* rows back from the end of the transcript */
 	/*
@@ -686,6 +687,7 @@ int fyai_transcript_view_set_tail(struct fyai_transcript_view *v,
 	old = v->tail.count;
 	view_rows_free(&v->tail);
 	v->tail = next;
+	v->tail_final = 0;
 	view_offset_shift(v, (long long)v->tail.count - (long long)old);
 	return 0;
 }
@@ -851,9 +853,22 @@ void fyai_transcript_view_set_sent(struct fyai_transcript_view *v, size_t rows)
 		v->sent = rows;
 }
 
+void fyai_transcript_view_set_tail_final(struct fyai_transcript_view *v,
+					 size_t rows)
+{
+	if (v)
+		v->tail_final = rows < v->tail.count ? rows : v->tail.count;
+}
+
 size_t fyai_transcript_view_final_rows(const struct fyai_transcript_view *v)
 {
-	return v ? v->stored + v->live.count : 0;
+	if (!v)
+		return 0;
+	/* The final rows of the tail follow the presented rows only when no
+	 * block stands between them and no presented row is still open. */
+	if (!v->nblocks && !v->live_open)
+		return v->stored + v->live.count + v->tail_final;
+	return v->stored + v->live.count;
 }
 
 const char *fyai_transcript_view_row(const struct fyai_transcript_view *v,

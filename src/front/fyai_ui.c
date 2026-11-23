@@ -3299,6 +3299,8 @@ static int ui_page_frame_content(struct fyai_ui *ui, struct ui_page_frame *f)
 						   ui->stream_rows.len);
 			fyai_error_check(ctx, !rc, err_page,
 					 "cannot keep the live transcript rows");
+			fyai_transcript_view_set_tail_final(ui->view,
+				fyai_count_newlines(tail, ui->stream_frozen));
 			ui->stream_changed = false;
 		}
 		/* The view is made at the width presented rows are made at. */
