@@ -608,3 +608,14 @@ int fyai_project_verify_borrowed(int objects_fd, fy_generic snapshot, char *erro
 {
 	return fyai_project_check_borrowed(objects_fd, snapshot, true, error, error_size);
 }
+
+#define PROJECT_STR(x) #x
+#define PROJECT_XSTR(x) PROJECT_STR(x)
+
+const char *fyai_project_strerror(int err)
+{
+	if (err == E2BIG)
+		return "the project has more than " PROJECT_XSTR(FYAI_PROJECT_MAX_ENTRIES)
+		       " files and directories; leave paths out with view/ignore or a .gitignore file";
+	return strerror(err);
+}

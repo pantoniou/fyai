@@ -98,6 +98,12 @@ struct fyai_branch_state {
 	 * capture, freed with the application, not kept by a forked child.
 	 */
 	struct fyai_project_stat_cache *stat_cache;
+	/*
+	 * A project capture failed with more than FYAI_PROJECT_MAX_ENTRIES files
+	 * and directories. The failure is reported once; later captures of this
+	 * run do not try again.
+	 */
+	bool project_too_big;
 };
 
 void fyai_branch_state_init(struct fyai_branch_state *bs,

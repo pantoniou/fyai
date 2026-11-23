@@ -643,7 +643,7 @@ static void view_capture_release(struct view_capture *c)
 			   name, *c->error ? c->error : ".", c->attempt);
 	else if (!c->complete)
 		fyai_error(ctx, "view '%s': cannot capture '%s'%s%s: %s", name, c->project,
-			   *c->error ? " at " : "", c->error, strerror(saved));
+			   *c->error ? " at " : "", c->error, fyai_project_strerror(saved));
 	free(c->resolved);
 	free(c->storage);
 	free(c->objects);
@@ -1315,7 +1315,7 @@ out:
 	free(listing.data);
 	if (rc)
 		fyai_error(fyai_cmd_call_ctx(call), "view '%s': cannot diff%s%s: %s", name,
-			   *error_path ? " at " : "", error_path, strerror(saved));
+			   *error_path ? " at " : "", error_path, fyai_project_strerror(saved));
 	return rc ? -1 : 0;
 }
 
@@ -2252,7 +2252,7 @@ out:
 	shell_command_result_cleanup(&output);
 	if (!complete)
 		fyai_error(fyai_cmd_call_ctx(call), "view '%s': cannot complete execution%s%s: %s", name,
-			   *error ? " at " : "", error, strerror(saved));
+			   *error ? " at " : "", error, fyai_project_strerror(saved));
 	return complete ? 0 : -1;
 }
 
@@ -2353,7 +2353,7 @@ out:
 	shell_command_result_cleanup(&output);
 	if (!complete && !reported)
 		fyai_error(ctx, "view '%s': cannot complete execution%s%s: %s", name,
-			   *error ? " at " : "", error, strerror(saved));
+			   *error ? " at " : "", error, fyai_project_strerror(saved));
 	return complete && !finished ? 0 : -1;
 }
 
@@ -3086,7 +3086,7 @@ out:
 		close(lock);
 	if (rc)
 		fyai_error(fyai_cmd_call_ctx(call), "view '%s': cannot synchronize%s%s: %s", name,
-			   *error ? " at " : "", error, strerror(saved));
+			   *error ? " at " : "", error, fyai_project_strerror(saved));
 	return rc ? -1 : 0;
 }
 
@@ -3198,7 +3198,7 @@ out:
 				   name, target, strerror(saved));
 		else
 			fyai_error(fyai_cmd_call_ctx(call), "view '%s': cannot mount at '%s'%s%s: %s", name,
-				   target, *error ? " at " : "", error, strerror(saved));
+				   target, *error ? " at " : "", error, fyai_project_strerror(saved));
 	}
 	free(resolved);
 	return complete ? 0 : -1;
@@ -3354,7 +3354,7 @@ err:
 		saved = errno;
 		if (rc == -2)
 			fyai_error(ctx, "view '%s': cannot prepare execution%s%s: %s", name,
-				   *error ? " at " : "", error, strerror(saved));
+				   *error ? " at " : "", error, fyai_project_strerror(saved));
 		goto fail;
 	}
 	run->started = true;
@@ -3411,7 +3411,7 @@ int fyai_view_run_finish(struct fyai_ctx *ctx, struct fyai_view_run *run, char *
 		saved = errno;
 		view_save(ctx, run->name, fy_assoc(ctx->arena->gb, run->view, "state", "incomplete"));
 		fyai_error(ctx, "view '%s': cannot capture the result%s%s: %s", run->name,
-			   *error ? " at " : "", error, strerror(saved));
+			   *error ? " at " : "", error, fyai_project_strerror(saved));
 		return -1;
 	}
 	updated = fy_assoc(ctx->arena->gb, run->view, "result", snapshot);
@@ -3445,7 +3445,7 @@ static int view_run_checkpoint(struct fyai_ctx *ctx, struct fyai_view_run *run)
 	if (!fy_is_valid(snapshot)) {
 		saved = errno;
 		fyai_error(ctx, "view '%s': cannot capture the result%s%s: %s", run->name,
-			   *error ? " at " : "", error, strerror(saved));
+			   *error ? " at " : "", error, fyai_project_strerror(saved));
 		return -1;
 	}
 	updated = fy_assoc(ctx->arena->gb, run->view, "result", snapshot);
@@ -4379,7 +4379,7 @@ out:
 	}
 	free(listing.data);
 	if (rc)
-		fyai_warning(ctx, "tool diff: cannot compare the project states: %s", strerror(saved));
+		fyai_warning(ctx, "tool diff: cannot compare the project states: %s", fyai_project_strerror(saved));
 	errno = saved;
 	return rc;
 }
@@ -4408,6 +4408,10 @@ int fyai_project_state_capture(struct fyai_ctx *ctx, fy_generic *ref)
 	int rc = -1, saved, gc_lock = -1;
 
 	*ref = fy_invalid;
+	if (ctx->bstate->project_too_big) {
+		errno = E2BIG;
+		return -1;
+	}
 	fyai_ignore_spec_load(&ignore, fyai_ignore_record(ctx->arena->gb, ctx->cfg->config_doc));
 	opts.ignore = &ignore;
 	root = project_state_root(ctx);
@@ -4461,9 +4465,12 @@ out:
 	free(storage);
 	free(objects);
 	free(views);
+	if (rc && saved == E2BIG)
+		ctx->bstate->project_too_big = true;
 	if (rc)
-		fyai_warning(ctx, "project state: cannot capture the project%s%s: %s",
-			     *error ? " at " : "", error, strerror(saved));
+		fyai_warning(ctx, "project state: cannot capture the project%s%s: %s%s",
+			     *error ? " at " : "", error, fyai_project_strerror(saved),
+			     saved == E2BIG ? "; the diffs and undo of this run are off" : "");
 	errno = saved;
 	return rc;
 }

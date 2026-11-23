@@ -12,10 +12,20 @@
 
 /*
  * Snapshots are untrusted input. Walks of a recorded root stop at this nesting
- * depth, and at this many manifests: the root and at most 100000 entries.
+ * depth, and at this many manifests: the root and at most
+ * FYAI_PROJECT_MAX_ENTRIES entries. A capture holds its nodes in one array of
+ * this size, which is address space and not memory until a node is used.
  */
 #define FYAI_PROJECT_MAX_DEPTH 128
-#define FYAI_PROJECT_MAX_NODES 100001
+#define FYAI_PROJECT_MAX_ENTRIES 1000000
+#define FYAI_PROJECT_MAX_NODES (FYAI_PROJECT_MAX_ENTRIES + 1)
+
+/*
+ * The text of an errno of a project capture or comparison. E2BIG says that
+ * the project has more than FYAI_PROJECT_MAX_ENTRIES files and directories,
+ * and what to do about it; any other value is strerror(). The result is static.
+ */
+const char *fyai_project_strerror(int err);
 
 enum fyai_project_kind {
 	FYAI_PROJECT_FILE = 1,
