@@ -36,6 +36,7 @@
 FYAI_TEST_ENTRY(project, recovery_damage, project_recovery_damage)
 FYAI_TEST_ENTRY(project, borrowed_git, project_borrowed_git)
 FYAI_TEST_ENTRY(project, stat_cache, project_stat_cache)
+FYAI_TEST_ENTRY(project, strerror, project_strerror)
 FYAI_TEST_ENTRY(project, identity_attributes, project_identity_attributes)
 FYAI_TEST_ENTRY(project, directory_order, project_directory_order)
 FYAI_TEST_ENTRY(project, directory_ancestors, project_directory_ancestors)
@@ -798,6 +799,17 @@ int project_capture_parallel(void)
 	return 0;
 }
 #endif
+
+/* E2BIG names the limit and the remedy; other errors keep strerror(). */
+int project_strerror(void)
+{
+	const char *text = fyai_project_strerror(E2BIG);
+
+	FYAI_TCHECK(strstr(text, "more than 1000000 files and directories"));
+	FYAI_TCHECK(strstr(text, "view/ignore"));
+	FYAI_TCHECK(!strcmp(fyai_project_strerror(ENOENT), strerror(ENOENT)));
+	return 0;
+}
 
 int project_table_lookup(void)
 {
