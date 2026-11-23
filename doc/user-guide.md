@@ -1991,9 +1991,9 @@ fyai -i
 
 A line beginning with `//` is sent to the model verbatim with one slash removed. Slash command names accept an unambiguous prefix; exact matches win.
 
-A session takes the whole normal screen of the terminal (`display/screen: primary`). The wheel, PageUp and PageDown scroll the transcript of the page. A row that leaves the top of the page goes to the scrollback of the terminal, once and in order, so the scrollback holds the whole session. When the session ends, its last screen of transcript stays, and the prompt and the status go. Live shells and sub-agents are tiles of one work pane. With the mouse grabbed, selection and copy are fyai's, and paste stays the terminal's.
+A session takes the alternate screen of the terminal (`display/screen: fullscreen`). The wheel, PageUp and PageDown scroll the transcript of the page. When the session ends, the terminal shows what it showed before. Live shells and sub-agents are tiles of one work pane. Selection and copy are fyai's, and paste stays the terminal's.
 
-`fyai config set display/screen fullscreen` uses the alternate screen instead, and the terminal shows what it showed before when the session ends. `fyai config set display/screen inline` keeps the transcript in the terminal scrollback under a small live region. `display/screen` is read when the session starts. `display/work_controls none` leaves the mouse to the terminal, and `display/work_zoom_rows` sets the height of the work pane (`full`, `half`, `quarter` or a row count). Other display settings take effect on the next frame and belong to the branch they are set on.
+`fyai config set display/screen primary` uses the whole normal screen instead. A row that leaves the top of the page goes to the scrollback of the terminal, once and in order, so the scrollback holds the whole session, and the last screen of transcript stays when the session ends. With the mouse grabbed, selection and copy are fyai's there too. `fyai config set display/screen inline` keeps the transcript in the terminal scrollback under a small live region. `display/screen` is read when the session starts. `display/work_controls none` leaves the mouse to the terminal, and `display/work_zoom_rows` sets the height of the work pane (`full`, `half`, `quarter` or a row count). Other display settings take effect on the next frame and belong to the branch they are set on.
 
 ### Input during a turn
 
@@ -2152,8 +2152,8 @@ the work pane, the header, the prompt between two rules and the status. On a
 short terminal the page loses the status first, then the header, then the
 rules, and keeps the prompt. Refer to `doc/markdown-ui-plan.md`.
 
-An interactive session takes the whole normal screen
-(`display/screen: primary`), with the work pane at half the terminal (`display/work_zoom_rows: half`) and the
+An interactive session takes the alternate screen
+(`display/screen: fullscreen`), with the work pane at half the terminal (`display/work_zoom_rows: half`) and the
 mouse controls of a tile (`display/work_controls: full`). For the inline
 session, which keeps the transcript in the scrollback of the terminal, run:
 

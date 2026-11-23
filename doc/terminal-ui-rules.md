@@ -152,8 +152,8 @@ display makes them again.
 The page states the live screen as one UI Markdown page. `src/front/fyai_page.c` owns
 the page source; the terminal library draws its slots.
 
-- `display/screen` selects where the page stands. `fullscreen` takes the
-  alternate screen. `primary`, the default, is the same page on the normal
+- `display/screen` selects where the page stands. `fullscreen`, the default,
+  takes the alternate screen. `primary` is the same page on the normal
   screen: the band of the terminal library is as tall as the terminal, and
   `ui_scroll_out()` sends each final row of the transcript view that leaves
   the top of the page to the scrollback with `fytim_commit()`, once and in
