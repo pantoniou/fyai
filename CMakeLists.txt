@@ -281,7 +281,7 @@ endif()
 # libfymermaid consume it.
 include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/FyDeps.cmake)
 fyai_fy_dep(libfypalette 8f9f8ece3e5ecf0994857f2d4de05d0e47038462)
-fyai_fy_dep(libfymd4c 4157eb39ce62880a7a45111de91e14ceb1c2e39d)
+fyai_fy_dep(libfymd4c ad0c60184635bc062e97e713b2708ca55900ab04)
 
 if(FYAI_STATIC_DEPS AND TARGET libfyaml::fyaml_static)
     set_target_properties(libfyaml::fyaml_static PROPERTIES
