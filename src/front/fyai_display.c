@@ -25,6 +25,7 @@
 #include "fyai_cost.h"
 #include "fyai_branch.h"
 #include "fyai_diff.h"
+#include "fyai_render.h"
 #include "fyai_session.h"
 #include "fyai_config.h"
 #include "fyai_display.h"
@@ -2952,6 +2953,163 @@ err_closed:
 	return -1;
 }
 
+#define FYAI_DIFF_SUMMARY_ROWS 20
+
+/*
+ * The Markdown of a diff counted by file: a title with the total, then one
+ * row for each file, at most FYAI_DIFF_SUMMARY_ROWS of them. With @ui the
+ * counts take the roles of the line numbers of a diff, and the source is UI
+ * Markdown: the paths are escaped, and it is drawn with
+ * fyai_print_markdown_body_ui(). The tags take no columns, so a source made
+ * without @ui measures the same. Returns allocated source that the caller
+ * frees, or NULL.
+ */
+static char *fyai_diff_summary_source(struct fyai_ctx *ctx, const char *diff,
+				      size_t len, bool ui)
+{
+	struct fy_generic_builder *gb = ctx->transient->gb;
+	fy_generic items[FYAI_DIFF_SUMMARY_ROWS + 1];
+	fy_generic rows, row, data, keys, columns, opts, path, cadded, cremoved;
+	long long added = 0, removed = 0, a, r, files, shown = 0;
+	const char *name;
+	char *escaped;
+	bool binary;
+
+	if (fyai_diff_stat(gb, diff, len, &rows))
+		return NULL;
+	files = (long long)fy_len(rows);
+	fy_foreach(row, rows) {
+		a = fy_get(row, "added", 0LL);
+		r = fy_get(row, "removed", 0LL);
+		binary = fy_get(row, "binary", false);
+		added += a;
+		removed += r;
+		if (shown >= FYAI_DIFF_SUMMARY_ROWS)
+			continue;
+		path = fy_get(row, "path", fy_invalid);
+		if (ui) {
+			name = fy_castp(&path, "");
+			escaped = markdown_ui_escape(name);
+			if (!escaped)
+				return NULL;
+			path = fy_value(gb, escaped);
+			free(escaped);
+		}
+		items[shown++] = fy_mapping(gb, "path", path,
+			"added", binary ? fy_value(gb, "binary") :
+					  fy_stringf(gb, "+%lld", a),
+			"removed", binary ? fy_value(gb, "") :
+					    fy_stringf(gb, "-%lld", r));
+	}
+	if (files > shown)
+		items[shown++] = fy_mapping(gb,
+			"path", fy_stringf(gb, "%lld more files", files - shown),
+			"added", "", "removed", "");
+	data = fy_gb_sequence_create(gb, (size_t)shown, items);
+	keys = fy_sequence(gb, "path", "added", "removed");
+	cadded = ui ? fy_mapping(gb, "name", "Added", "align", "right",
+				 "role", "diff.lineno.add") :
+		      fy_mapping(gb, "name", "Added", "align", "right");
+	cremoved = ui ? fy_mapping(gb, "name", "Removed", "align", "right",
+				   "role", "diff.lineno.del") :
+			fy_mapping(gb, "name", "Removed", "align", "right");
+	columns = fy_mapping(gb,
+		"path", fy_mapping(gb, "name", "File", "align", "left"),
+		"added", cadded, "removed", cremoved);
+	opts = fy_mapping(gb,
+		"title", fy_stringf(gb, "%lld file%s changed, +%lld -%lld",
+				    files, files == 1 ? "" : "s", added, removed),
+		"keys", keys, "columns", columns);
+	if (!fy_is_valid(data) || !fy_is_valid(opts))
+		return NULL;
+	return fyai_generic_markdown_source(opts, data);
+}
+
+/*
+ * The Markdown of a diff counted in one line: the files, then the added and
+ * the removed lines, in the roles of the line numbers of a diff when @ui is
+ * set. Returns allocated source that the caller frees, or NULL.
+ */
+static char *fyai_diff_total_source(struct fyai_ctx *ctx, const char *diff,
+				    size_t len, bool ui)
+{
+	fy_generic rows, row;
+	long long added = 0, removed = 0, files;
+	char *md = NULL;
+	int rc;
+
+	if (fyai_diff_stat(ctx->transient->gb, diff, len, &rows))
+		return NULL;
+	files = (long long)fy_len(rows);
+	fy_foreach(row, rows) {
+		added += fy_get(row, "added", 0LL);
+		removed += fy_get(row, "removed", 0LL);
+	}
+	if (ui)
+		rc = asprintf(&md, "%lld file%s changed, "
+			      "<fy-role name=\"diff.lineno.add\">+%lld</fy-role> "
+			      "<fy-role name=\"diff.lineno.del\">-%lld</fy-role>\n",
+			      files, files == 1 ? "" : "s", added, removed);
+	else
+		rc = asprintf(&md, "%lld file%s changed, +%lld -%lld\n", files,
+			      files == 1 ? "" : "s", added, removed);
+	return rc < 0 ? NULL : md;
+}
+
+/* The source of the counted view of @diff, or NULL: a view that is not counted
+ * has none, and nor does one that cannot be made. */
+static char *fyai_diff_view_source(struct fyai_ctx *ctx, const char *diff,
+				   size_t len, bool ui)
+{
+	const char *view = ctx->cfg->tool_diff_view;
+
+	if (!strcmp(view, "stat"))
+		return fyai_diff_summary_source(ctx, diff, len, ui);
+	if (!strcmp(view, "total"))
+		return fyai_diff_total_source(ctx, diff, len, ui);
+	return NULL;
+}
+
+/*
+ * Draw a diff of a group of tool calls as display/tool_diff_view says: whole,
+ * counted by file, counted in one line, or not at all. The live turn and the
+ * history replay both use it.
+ */
+static int fyai_diff_draw(struct fyai_ctx *ctx, const char *diff, size_t len,
+			  int preview_lines)
+{
+	struct fyai_cfg *cfg = ctx->cfg;
+	char *md;
+	bool ui;
+	int rc;
+
+	if (!strcmp(cfg->tool_diff_view, "none"))
+		return 0;
+	rc = fyai_sink_unit(ctx->out->sink, FYAI_SINK_TRANSCRIPT, FYAI_FLOW_TOOL_TEXT);
+	if (rc)
+		return rc;
+	if (strcmp(cfg->tool_diff_view, "full")) {
+		ui = cfg->markdown;
+		md = fyai_diff_view_source(ctx, diff, len, ui);
+		if (md) {
+			fyai_print_tool_separator(ctx->out->sink, cfg);
+			if (ui)
+				(void)fyai_print_markdown_body_ui(ctx->out->sink, cfg,
+								  md, strlen(md));
+			else
+				(void)fyai_print_markdown_body(ctx->out->sink, cfg,
+							       md, strlen(md));
+			free(md);
+			return 0;
+		}
+		/* A count that cannot be made leaves the whole diff. */
+	}
+	fyai_print_tool_separator(ctx->out->sink, cfg);
+	fyai_print_fenced(ctx->out->sink, cfg, diff, len, "diff", fy_invalid,
+			  preview_lines < 0 ? 0 : (size_t)preview_lines);
+	return 0;
+}
+
 int fyai_present_tool_diff(struct fyai_ctx *ctx, const char *diff)
 {
 	struct fyai_cfg *cfg;
@@ -2975,11 +3133,8 @@ int fyai_present_tool_diff(struct fyai_ctx *ctx, const char *diff)
 
 	/* Draw it as the replay draws it: one fenced block of the language diff. */
 	lines = fyai_tool_preview_lines(cfg, "diff");
-	rc = fyai_sink_unit(ctx->out->sink, FYAI_SINK_TRANSCRIPT, FYAI_FLOW_TOOL_TEXT);
+	rc = fyai_diff_draw(ctx, diff, length, lines);
 	fyai_error_check(ctx, !rc, err_resume, "could not fence the tool diff");
-	fyai_print_tool_separator(ctx->out->sink, cfg);
-	fyai_print_fenced(ctx->out->sink, cfg, diff, length, "diff", fy_invalid,
-			  lines < 0 ? 0 : (size_t)lines);
 
 	/* Store the source that was drawn, with the separator outside the fragment. */
 	start = strlen(fyai_output_markdown(ctx, NULL));
@@ -3635,6 +3790,12 @@ static int render_walk_unit(void *user, const struct fyai_fragment *f)
 		fyai_error_check(ctx, !rc, out, "could not replay a tool body");
 		return 0;
 	case FYAI_FLOW_TOOL_TEXT:
+		if (!strcmp(f->tool, "diff")) {
+			rc = fyai_diff_draw(ctx, f->md, f->len, f->preview_lines);
+			fyai_error_check(ctx, !rc, out,
+					 "could not replay a tool diff");
+			return 0;
+		}
 		/* Recorded terminal source draws as a tool result. */
 		rc = fyai_sink_unit(ctx->out->sink, FYAI_SINK_TRANSCRIPT, f->unit);
 		fyai_error_check(ctx, !rc, out, "could not fence a tool screen");
@@ -4301,10 +4462,17 @@ static size_t fyai_display_result_rows(fy_generic content, int preview)
  * walk and the same manager, so the recap window measures the rows it draws.
  */
 struct measure_walk {
+	struct fyai_ctx *ctx;
 	struct fymd_renderer *m;
 	struct fyai_flow flow;
 	size_t rows;
 };
+
+/* The context that this object stands on. */
+static inline struct fyai_ctx *measure_walk_ctx(const struct measure_walk *o)
+{
+	return o->ctx;
+}
 
 static int measure_walk_gap(void *user, const char *md, size_t len,
 			    enum fyai_flow_unit next)
@@ -4336,14 +4504,25 @@ static int measure_walk_unit(void *user, const struct fyai_fragment *f)
 	struct measure_walk *w = user;
 	struct fyai_flow_sep sep;
 	size_t cap;
+	char *md;
 
+	if (f->unit == FYAI_FLOW_TOOL_TEXT && !strcmp(f->tool, "diff") &&
+	    !strcmp(measure_walk_ctx(w)->cfg->tool_diff_view, "none"))
+		return 0;
 	sep = fyai_flow_before(&w->flow, f->unit);
 	w->rows += fyai_flow_sep_rows(&sep);
 	fyai_flow_emitted(&w->flow, f->unit, true);
 
 	/* Include the preview and the row that reports the omission. */
 	cap = f->preview_lines > 0 ? (size_t)f->preview_lines + 1 : 0;
-	if (f->unit == FYAI_FLOW_TOOL_RESULT &&
+	md = NULL;
+	if (f->unit == FYAI_FLOW_TOOL_TEXT && !strcmp(f->tool, "diff"))
+		md = fyai_diff_view_source(measure_walk_ctx(w), f->md, f->len,
+					   false);
+	if (md) {
+		w->rows += measure_rows(w->m, md, strlen(md));
+		free(md);
+	} else if (f->unit == FYAI_FLOW_TOOL_RESULT &&
 	    !strcmp(f->lang, FYAI_RESULT_MARKDOWN))
 		w->rows += measure_rows(w->m, f->md, f->len);
 	else if (f->unit == FYAI_FLOW_TOOL_RESULT)
@@ -4373,6 +4552,7 @@ static size_t fyai_display_output_rows(struct fyai_ctx *ctx,
 	size_t rows;
 
 	memset(&w, 0, sizeof(w));
+	w.ctx = ctx;
 	w.m = m;
 	fyai_flow_reset(&w.flow, ctx->cfg);
 	(void)fyai_fragment_walk(ctx, output, results, result_pos,

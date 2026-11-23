@@ -38,6 +38,12 @@
  *					(default for sequences), "humanize"
  *					(underscores to spaces, capitalized)
  *					or "plain"
+ *				role	palette role of the cells, as the
+ *					UI Markdown tag <fy-role> draws it:
+ *					only a render with FYMD_RF_UI acts on
+ *					it, and a column without one has no
+ *					tag. The cell text must not hold a
+ *					tag of its own: escape it first.
  *
  * Cells are escaped and truncated, so no value can break the table.
  * Returns 0 on success, -1 on failure.

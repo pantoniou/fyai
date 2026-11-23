@@ -508,6 +508,10 @@ display:
   # Live output of a shell or agent call: inline draws it in the transcript
   # at the call; pane shows a tile of the work pane.
   tool_display: inline
+  # What view/tool_diff draws for a group of tool calls: full is the whole
+  # diff, stat is the count of added and removed lines with one row for each
+  # file, total is the count on one line, none draws nothing.
+  tool_diff_view: full
   # Rows of a terminal that tool_display inline draws in the transcript.
   inline_terminal_rows: 12
   # Editor location for /edit, config edit, and log views: pane or terminal.

@@ -153,6 +153,7 @@ static inline fy_generic fyai_generic_or_null(fy_generic v)
 #define DEFAULT_COMMAND_BG "theme"
 #define DEFAULT_COMMAND_BG_MIX 6
 #define DEFAULT_TOOL_DISPLAY "inline"
+#define DEFAULT_TOOL_DIFF_VIEW "full"
 #define DEFAULT_FOCUS_MARK "edge"
 #define DEFAULT_INLINE_TERMINAL_ROWS 12
 #define DEFAULT_FOCUS_BG "theme"
@@ -397,6 +398,7 @@ struct fyai_cfg {
 	const char *command_bg;		/* theme | none | #rrggbb */
 	int command_bg_mix;		/* percent of the theme colour */
 	const char *tool_display;	/* pane | inline */
+	const char *tool_diff_view;	/* full | stat | total | none */
 	int inline_terminal_rows;	/* rows of an inline terminal */
 	int work_columns;		/* columns when work_layout is columns */
 	/* A side layout of the page document: auto takes it at the size the

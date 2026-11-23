@@ -39,6 +39,7 @@ enum render_format {
 struct render_col {
 	fy_generic key;			/* stable storage: fy_castp() safe */
 	char name[RENDER_NAME_MAX];
+	char role[RENDER_NAME_MAX];	/* cell palette role, or "" */
 	const char *align;
 	enum render_format fmt;
 	bool fmt_set;
@@ -246,6 +247,7 @@ static void render_col_setup(struct render_col *col, fy_generic columns,
 	col->align = render_align_default(sample);
 	col->fmt = render_format_default(sample);
 	col->fmt_set = false;
+	col->role[0] = '\0';
 
 	opts = fy_get(columns, fy_castp(&col->key, ""), fy_invalid);
 	if (!fy_is_mapping(opts))
@@ -261,6 +263,9 @@ static void render_col_setup(struct render_col *col, fy_generic columns,
 		col->fmt = render_format_parse(fy_castp(&v, ""));
 		col->fmt_set = true;
 	}
+	v = fy_get(opts, "role", fy_invalid);
+	if (fy_is_string(v))
+		snprintf(col->role, sizeof(col->role), "%s", fy_castp(&v, ""));
 }
 
 /*
@@ -340,7 +345,7 @@ static void render_seq_table(FILE *fp, fy_generic data, fy_generic renderopts)
 	fy_generic row, v;
 	const char *empty;
 	size_t ncols, j;
-	bool any;
+	bool any, role;
 
 	cols = render_cols_collect(data, renderopts, &ncols);
 	if (!cols || !ncols) {
@@ -367,8 +372,14 @@ static void render_seq_table(FILE *fp, fy_generic data, fy_generic renderopts)
 		for (j = 0; j < ncols; j++) {
 			fputc(' ', fp);
 			v = fy_get(row, fy_castp(&cols[j].key, ""), fy_invalid);
+			role = cols[j].role[0] && fy_is_valid(v) &&
+			       !(fy_is_string(v) && !*fy_castp(&v, ""));
+			if (role)
+				fprintf(fp, "<fy-role name=\"%s\">", cols[j].role);
 			render_cell(fp, v, cols[j].fmt_set ? cols[j].fmt :
 				    render_format_default(v));
+			if (role)
+				fputs("</fy-role>", fp);
 			fputs(" |", fp);
 		}
 		fputc('\n', fp);

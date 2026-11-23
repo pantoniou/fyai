@@ -254,6 +254,10 @@ int fyai_print_markdown_limited(const char *text, struct fyai_cfg *cfg,
  * width the indent leaves, then indented. */
 int fyai_print_markdown_body(struct fyai_sink *sink, struct fyai_cfg *cfg,
 			     const char *text, size_t len);
+/* The same for UI Markdown: the fy-* tags that fyai wrote act, so the text
+ * must carry no tag of a model or a program (markdown_ui_escape()). */
+int fyai_print_markdown_body_ui(struct fyai_sink *sink, struct fyai_cfg *cfg,
+				const char *text, size_t len);
 int fyai_print_fenced(struct fyai_sink *sink, struct fyai_cfg *cfg,
 		      const char *text, size_t len,
 		      const char *lang, fy_generic template_vars,

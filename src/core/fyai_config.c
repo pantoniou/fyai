@@ -888,6 +888,8 @@ static void config_apply_display_work(struct fyai_cfg *cfg, fy_generic v)
 					  (long long)cfg->command_bg_mix);
 	cfg->tool_display = fy_gb_intern_string(cfg->gb,
 		fy_get(v, "tool_display", cfg->tool_display));
+	cfg->tool_diff_view = fy_gb_intern_string(cfg->gb,
+		fy_get(v, "tool_diff_view", cfg->tool_diff_view));
 	cfg->inline_terminal_rows = fy_get(v, "inline_terminal_rows",
 					   cfg->inline_terminal_rows);
 	cfg->focus_bg = fy_gb_intern_string(cfg->gb,
@@ -3264,6 +3266,7 @@ void fyai_config_set_defaults(struct fyai_cfg *cfg)
 	cfg->command_bg = DEFAULT_COMMAND_BG;
 	cfg->command_bg_mix = DEFAULT_COMMAND_BG_MIX;
 	cfg->tool_display = DEFAULT_TOOL_DISPLAY;
+	cfg->tool_diff_view = DEFAULT_TOOL_DIFF_VIEW;
 	cfg->focus_mark = DEFAULT_FOCUS_MARK;
 	cfg->inline_terminal_rows = DEFAULT_INLINE_TERMINAL_ROWS;
 	cfg->focus_bg = DEFAULT_FOCUS_BG;

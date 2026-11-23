@@ -1825,8 +1825,8 @@ out:
 	return -1;
 }
 
-int fyai_print_markdown_body(struct fyai_sink *sink, struct fyai_cfg *cfg,
-			     const char *text, size_t len)
+static int markdown_print_body(struct fyai_sink *sink, struct fyai_cfg *cfg,
+			       const char *text, size_t len, bool ui)
 {
 	struct fyai_buf out = {0};
 	const char *indent = markdown_tool_output_indent(cfg);
@@ -1838,9 +1838,13 @@ int fyai_print_markdown_body(struct fyai_sink *sink, struct fyai_cfg *cfg,
 	if (!len)
 		return 0;
 	saved = fyai_width_reserve_begin(cfg, fyai_indent_cols(indent));
-	rc = markdown_render(cfg, text, len, &out,
-			     markdown_color_enabled(cfg->color),
-			     cfg->theme_variant);
+	if (ui)
+		rc = markdown_render_margins_ui(cfg, text, len, &out, "", "",
+						NULL, NULL);
+	else
+		rc = markdown_render(cfg, text, len, &out,
+				     markdown_color_enabled(cfg->color),
+				     cfg->theme_variant);
 	fyai_width_reserve_end(cfg, saved);
 	if (rc || !out.data) {
 		free(out.data);
@@ -1866,6 +1870,18 @@ int fyai_print_markdown_body(struct fyai_sink *sink, struct fyai_cfg *cfg,
 	(void)fyai_sink_write(sink, FYAI_SINK_TRANSCRIPT, "\n", 1);
 	free(out.data);
 	return 0;
+}
+
+int fyai_print_markdown_body(struct fyai_sink *sink, struct fyai_cfg *cfg,
+			     const char *text, size_t len)
+{
+	return markdown_print_body(sink, cfg, text, len, false);
+}
+
+int fyai_print_markdown_body_ui(struct fyai_sink *sink, struct fyai_cfg *cfg,
+				const char *text, size_t len)
+{
+	return markdown_print_body(sink, cfg, text, len, true);
 }
 
 int fyai_print_fenced(struct fyai_sink *sink, struct fyai_cfg *cfg,

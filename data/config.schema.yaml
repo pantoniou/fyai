@@ -1439,6 +1439,18 @@ properties:
           transcript at the position of the call. An inline page draws it
           under the live tail until it is committed to the scrollback. A
           display without a page uses pane.
+      tool_diff_view:
+        x-fyai-model: review
+        type: string
+        enum: [full, stat, total, none]
+        default: full
+        description: >-
+          Select how the diff of a group of tool calls is drawn, when
+          view/tool_diff records it. full draws the whole diff. stat draws the
+          count of files, added lines and removed lines, then one row for each
+          file. total draws the count alone, on one line. none draws nothing, so the user does not see what the calls
+          changed. The stored diff is always whole: a replay uses this value,
+          and export writes the whole diff.
       inline_terminal_rows:
         type: integer
         minimum: 1
