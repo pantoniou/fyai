@@ -18,6 +18,13 @@ assert_stdout_contains 'Planned.'
 assert_request 0 'any(t["function"]["name"] == "todo_write" for t in r["body"]["tools"])'
 assert_request 0 'any(t["function"]["name"] == "todo_write" and "todos" in t["function"]["parameters"]["properties"] for t in r["body"]["tools"])'
 
+# The list in the record has a glyph of its state for each row, of one width.
+run_fyai --set display/tool_preview_lines=20 history
+assert_status 0
+assert_stdout_contains '▶  task one'
+assert_stdout_contains '☐  task two'
+assert_stdout_not_contains '[>]'
+
 run_fyai todo
 assert_status 0
 assert_stdout_contains 'no todos'
