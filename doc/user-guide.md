@@ -16,9 +16,11 @@ Authority, in order: the implementation and its tests, `fyai help VERB` for the 
 10. [MCP servers](#10-mcp-servers)
 11. [Observability and maintenance](#11-observability-and-maintenance)
 12. [Interactive mode](#12-interactive-mode)
-13. [CLI reference](#13-cli-reference)
-14. [Architecture and operational notes](#14-architecture-and-operational-notes)
-15. [Where to look next](#15-where-to-look-next)
+13. [Servers and remote sessions](#13-servers-and-remote-sessions)
+14. [Fleets of sessions](#14-fleets-of-sessions)
+15. [CLI reference](#15-cli-reference)
+16. [Architecture and operational notes](#16-architecture-and-operational-notes)
+17. [Where to look next](#17-where-to-look-next)
 
 ## 1. Getting started
 
@@ -68,6 +70,38 @@ A self-contained musl binary can be built with:
 ```sh
 MODE=musl scripts/build-static-docker.sh ./fyai
 ```
+
+#### Fil-C builds
+
+`fyai` builds and runs with [Fil-C](https://fil-c.org/), a memory-safe C
+implementation. It requires a Fil-C toolchain with `zgc_reserve_at()`, which
+places the durable arenas at their configured base address.
+
+When `$FILC` or `~/filc` contains a Fil-C toolchain, CMake defines the targets
+`filc`, `filc-debug` (`RelWithDebInfo`), and `check-filc`:
+
+```sh
+cmake -S . -B build -G Ninja
+cmake --build build --target filc
+cmake --build build --target check-filc
+```
+
+Each target runs `scripts/build-filc.sh`, which builds zlib and OpenSSL from
+source with the Fil-C compiler into a private prefix and then builds `fyai`
+with static libraries (hiding host packages so every dependency is built with
+Fil-C). The executable is `out/filc/fyai` (or `out/filc-debug/fyai`) of the
+build directory. Run it with `LD_LIBRARY_PATH=$FILC/pizfix/lib`.
+
+You can also invoke the script directly:
+
+```sh
+FILC=~/filc scripts/build-filc.sh -b build-filc -o out/filc
+```
+
+Under Fil-C, the crash handler and the Linux kernel keyring secret store are
+not built (Fil-C reports its own safety stops and rejects integer pointer
+arguments to `syscall()`). `check-filc` skips the cases that do not apply under
+Fil-C. See [doc/filc.md](filc.md) for manual build flags and runtime notes.
 
 ### Initialize a project
 
@@ -203,6 +237,47 @@ or use `--last`.
 The running process is not the source of truth. Durable state is stored as immutable values in a libfyaml content-addressed arena. Publication replaces the arena root atomically; unchanged values are shared structurally.
 
 This gives batch commands, scripts, interactive sessions, and delegated agents the same persistence model.
+
+### Durable mode
+
+By default, `durable` is `true`. During a turn that calls tools, `fyai`
+publishes the turn in flight to the arena before each model request once all
+tool calls of the previous round have returned results.
+
+- If the process or worker crashes mid-turn, the conversation is preserved
+  through the last completed tool round, and a newly attaching client sees all
+  completed rounds.
+- Each round writes a `checkpoint` ref-log entry that the next publish
+  replaces. A completed turn leaves no checkpoint entries behind, so
+  `BRANCH@{N}` counts exchanges the same way with or without `durable`.
+- `/continue` invokes the model on the current branch head with no new user
+  message, resuming a turn that stopped after a tool round (for example after a
+  crash or after reaching `max_tool_iterations`).
+
+With `durable` enabled, each publish also records active background work and
+queued model events in the branch store (`pending`): named waits, monitors,
+background commands, background sub-agents, and up to 64 queued model events,
+along with the owner's PID and process start time. Clean shutdown, `/clear`,
+`/reset`, `/resume`, and `/checkout` clear the table. If a session starts on a
+branch whose `pending` owner is no longer running (a crashed worker, shown as
+`lost` in `fleet list`), `fyai` restores it automatically:
+
+- Named waits resume for their remaining time; overdue waits fire immediately.
+- Monitors and background commands restart with their remaining time limit, and
+  the model receives `[monitor 'NAME' restarted: ...]`.
+- Background sub-agents restart from the last checkpoint on their own branch
+  (and restore any nested pending work of their own); the parent receives
+  `[agent 'NAME' restarted: ...]`.
+- Queued model events are re-enqueued ahead of the restarted work.
+- In a session running in a filesystem view, each round also snapshots the view
+  state into the checkpoint entry. After a crash, the supervisor restores the
+  view to the last checkpoint before restarting the session so uncommitted
+  writes from the crashed round are discarded while earlier rounds are kept.
+
+Unbacked transient state—such as in-flight inter-agent messages and unsent
+typed input—is not persisted across a crash. Set `durable: false`
+(`fyai config set durable false`) to publish a turn only when it finishes;
+recovery then covers only completed exchanges.
 
 ### Canonical content is provider-independent
 
@@ -1959,6 +2034,13 @@ While a turn runs, the prompt mark is an ellipsis instead of the usual arrow. A 
 | `/tools [agent] [--brief\|--full]` | List catalogue agent tools |
 | `/help` | List commands and settings |
 | `/reload` | Commit the active branch and restart this binary on that branch |
+| `/continue` | Run the model on the current branch head with no new message |
+| `/background`, `/detach` | Hand the session off to a server and leave the terminal |
+| `/session [list\|kill\|send\|interrupt\|answer\|adopt\|new\|push\|pull]` | Manage live sessions, isolation presets, and session views |
+| `/fleet [list\|scan\|start\|create\|search\|read\|tasks\|task\|panel\|kill]` | Inspect and control fleet projects and sessions |
+| `/jump [--split] NAME` | Switch the terminal to another fleet session (or open it in a tile) |
+| `/split [NAME]` | Open a second session on this branch, or watch a fleet session, in a tile |
+| `/root` | Return to the session you jumped from with `/jump` |
 | `/exit`, `/quit` | Leave the session |
 
 `/reload` waits for the current turn to finish. It preserves the branch,
@@ -2138,16 +2220,16 @@ gives the whole terminal to the editor, as before:
 fyai --set display/editor=terminal -i
 ```
 
-### Remote sessions
+## 13. Servers and remote sessions
+
+A `fyai serve` process hosts sessions and runs remote commands on behalf of
+clients. Like a local invocation, the server holds no canonical state: each
+session runs in its own worker process and commits to the project arena.
+
+### Starting and stopping a server
 
 `fyai serve` serves the project of the current directory on a Unix socket,
-`.fyai/unix/remote.sock`. The global option `--remote .` runs a command at that
-server as it runs here: the same output, at the width of your terminal, and
-the same exit status. Standard input goes to the command, and `^C` interrupts
-it. With no command line on a terminal, `--remote .` opens the interactive
-session of the server; `--branch` attaches to the live session of a branch, or
-starts one there, and `resume NAME` or `resume --last` attaches to the session
-that resume selects. `--remote PATH` names the socket of a server.
+`.fyai/unix/remote.sock`. `serve start` is the default subcommand.
 
 ```sh
 fyai serve --daemon                # serve this project in the background
@@ -2158,6 +2240,26 @@ fyai --remote . resume --last      # the last session of this directory
 fyai serve status
 fyai serve stop
 ```
+
+The server writes one line for each connection, project, session, and command
+to standard error. With `--daemon`, it runs in the background and logs to
+`.fyai/logs/serve.log` of the project, to `~/.fyai/logs/serve.log` with
+`--projects`, or to `--log FILE`. A Unix-socket server accepts only clients of
+its own user.
+
+Additional server modes:
+
+- `fyai serve --projects DIR` serves every project under `DIR` on
+  `~/.fyai/unix/serve.sock` (for directories that are not themselves a
+  project). Clients name the project with `--project DIR` or by running inside
+  that directory. The server starts one child project server per project on
+  demand. Stop or inspect it with `fyai serve stop --projects` and
+  `fyai serve status --projects`.
+- `fyai serve --once` serves until all sessions that ran have no active turn
+  and no attached client (or until the admission window expires with no
+  session arriving), then exits. `/background` uses this mode when no project
+  server is already running.
+- `fyai serve --socket PATH` overrides the default Unix socket path.
 
 A project server also serves as the front end for nested projects beneath it.
 A project is any directory containing a `.fyai` arena, and a project inside
@@ -2174,6 +2276,120 @@ cd ~/work && fyai serve --daemon   # ~/work is a project with projects below
 cd ~/work/fyai && fyai --remote . branch list   # served for ~/work/fyai
 ```
 
+```sh
+fyai serve --projects ~/work --daemon
+fyai --remote . --project fyai branch list
+```
+
+### Remote targets (`--remote`)
+
+The global option `--remote TARGET` runs any verb, prompt, or interactive
+session at a server. Output renders at the width of your terminal, standard
+input goes to the remote command, `^C` interrupts it, and the exit status
+matches the remote run.
+
+| Target | Transport |
+| --- | --- |
+| `.` | The server of this project (`.fyai/unix/remote.sock`), an ancestor project server, or `~/.fyai/unix/serve.sock`. |
+| `PATH` | The Unix socket at `PATH`. |
+| `ssh://[USER@]HOST[:PORT]/DIR` | Runs `ssh` to `HOST` and relays through `fyai remote bridge` to the server of `DIR` (or pass `--project DIR`). |
+| `http://HOST:PORT/DIR` | Connects over WebSocket through `fyai remote relay` to a server started with `--listen`. |
+| `https://HOST:PORT/DIR` | Same over TLS 1.2/1.3. |
+
+With no verb on a terminal, `--remote TARGET` opens the interactive session at
+the server. Pass `-b BRANCH` to attach to or start a named branch, or pass
+`resume NAME` / `resume --last` to attach to a stored or live session.
+
+#### Connecting over SSH
+
+Start a server on the remote host (for example `fyai serve --projects ~/work
+--daemon` or `fyai serve --daemon` inside a fleet root), then reach it with
+`ssh://`:
+
+```sh
+fyai --remote ssh://alice@devbox/fyai branch list
+fyai --remote ssh://alice@devbox:2222/fyai -b main
+```
+
+`fyai` invokes `$FYAI_SSH` (default `ssh`) to run `fyai remote bridge` on the
+remote host. SSH handles authentication and encryption, and a random `--nonce`
+skips any remote login banner before frames begin. `fyai` must be on the remote
+`PATH`.
+
+#### Connecting over HTTP and HTTPS
+
+Pass `--listen ADDRESS` (repeatable) to `fyai serve` to accept WebSocket
+clients alongside the Unix socket. `ADDRESS` is `HOST:PORT` or `[HOST]:PORT`
+with scheme `http://` (the default) or `https://`; port `0` allocates a free
+port and logs it. Plain `http://` is intended for loopback or a tunnel (such as
+SSH port forwarding or a TLS-terminating proxy); listening on a non-loopback
+plain HTTP address logs a warning.
+
+Every HTTP or HTTPS client authenticates with a 64-hex-digit bearer token:
+
+- On the server, `--token-file FILE` sets the token file (default
+  `~/.fyai/serve.token`, created with mode `0600` if absent).
+- On the client, `fyai` reads `$FYAI_REMOTE_TOKEN`, or else the first line of
+  its local `~/.fyai/serve.token`.
+
+For `https://`, the server uses `--tls-cert` and `--tls-key` (PEM files), or
+generates a self-signed ECDSA P-256 certificate and key in
+`~/.fyai/tls/server.pem` (valid for `localhost`, loopback addresses, the
+hostname, and any `--tls-name` DNS names or IPs). The server logs its public
+key fingerprint (`sha256:...`). Inspect or rotate the self-signed key with:
+
+```sh
+fyai remote fingerprint [FILE]           # print sha256:... of the certificate
+fyai remote rekey [--tls-name NAME ...]  # replace ~/.fyai/tls/server.pem
+```
+
+A client verifies an `https://` server using one of:
+
+1. `$FYAI_REMOTE_PIN=sha256:...` to pin the server's public key fingerprint
+   directly (matching `fyai remote fingerprint`; colons and case are ignored).
+2. A certificate chaining to system root CAs or `$FYAI_REMOTE_CA` (PEM file)
+   whose name matches the host or IP.
+
+```sh
+# On the host:
+fyai serve --projects ~/work --listen https://0.0.0.0:9443 --tls-name devbox.ts.net --daemon
+fyai remote fingerprint
+
+# On the client:
+export FYAI_REMOTE_TOKEN=<64-hex-token>
+export FYAI_REMOTE_PIN=sha256:<fingerprint>
+fyai --remote https://devbox.ts.net:9443/fyai
+```
+
+Set `FYAI_REMOTE_NO_IMAGE=1` to force line-delimited JSON frames instead of
+binary generic images on local Unix sockets (WebSocket connections always use
+text frames).
+
+### Direct connections and watching (`remote connect`)
+
+`fyai remote connect [SOCKET]` connects directly to a local Unix socket
+(default `.fyai/unix/remote.sock`) and opens the full-screen terminal UI on a
+live or newly started session:
+
+```sh
+fyai -b work/a remote connect              # attach to or start work/a
+fyai remote connect --last                 # attach to the last session of this directory
+fyai -b work/a remote connect --watch      # observe a live session without taking control
+fyai -b work/a remote connect --protocol sdk  # carry Claude Agent SDK NDJSON frames on stdio
+```
+
+- Each live session has at most one controlling client and any number of
+  watchers. A watcher (`--watch`) receives the live UI and transcript updates
+  without taking control; it cannot run mutating slash commands or interrupt
+  the turn, and lines typed in a watcher are forwarded as messages to the
+  session.
+- `--protocol sdk` relays the raw Agent SDK stream-json frames on standard
+  input and output for programmatic clients.
+- `--token-fd FD` passes a launch token to a server started with
+  `fyai serve --token-fd FD`.
+
+### Background sessions, handoff, and idle shutdown
+
 Interactive terminal sessions automatically register with the nearest running
 project or ancestor server (or register as soon as one starts). Registered
 sessions appear in `session list` and `serve status`, can be observed with
@@ -2181,16 +2397,38 @@ sessions appear in `session list` and `serve status`, can be observed with
 to the server over the same connection on `/background` while remaining driven
 by their local terminal until then.
 
+Use `/background` (alias `/detach`) at any time to leave the terminal while the
+session, its turn, tools, and open questions keep running on the server. If the
+terminal closes or drops unexpectedly while work is active, the session hands
+itself off to the server automatically instead of aborting. Starting a new
+session with `/session new` or switching with `/resume` also leaves a busy
+session running on the server.
+
+Manage live sessions of the current project with `session`:
+
+```sh
+fyai session list                  # list live sessions (alias: session ps)
+fyai session kill work/a           # stop a live session (--force sends SIGKILL)
+fyai resume                        # pick and rejoin a live or stored session
+```
+
+In the `resume` picker, live sessions are marked and joining one reattaches to
+its running worker; press `K` on a live row to stop it.
+
 A parked session on a server with no attached client, active turn, or pending
 work exits after 30 seconds of inactivity: its worker stops while the session
 remains saved in the arena, and `resume` or `/jump` starts it again on demand.
 Override the timeout by passing `fyai --config FILE serve` with
 `serve: {idle_ms: N}` in `FILE` (set `0` to disable idle exit).
 
+## 14. Fleets of sessions
+
 `fyai fleet` discovers projects beneath the fleet root (the topmost ancestor
 project above the current directory) and lists all of their sessions, whether
 live or stored. Projects are found automatically by scanning the directory
 tree; no manual registration is required.
+
+### Root project and discovery
 
 ```sh
 fyai fleet scan      # list projects with their stored and live session counts
@@ -2209,6 +2447,8 @@ When no server reports a session, its state is `stored` (no active process),
 resume), or `running` (a live process running without a server). When a server
 tracks a session, it reports `idle`, `running`, or `waiting`.
 
+### Starting and controlling member sessions
+
 Sessions in other projects are addressed as `PROJECT:BRANCH`, where `PROJECT`
 is the path relative to the fleet root (`.` for the root itself). The `session`
 subcommands target any live session by this name—including user-driven terminal
@@ -2226,11 +2466,16 @@ fyai session kill fyai:fleet/fix-the-build
 Messages are delivered to the model as `[message 'user']` events (use `--from`
 to set another sender name). Sessions started with `fleet start` run headless
 and stay parked on their server; run `resume` in their project to attach.
+From inside a session (or under a `serve --once` server), `fleet start` starts
+a server for a member project that has none; from the command line, run
+`fyai serve --daemon` in the fleet root first.
 
 `fleet search WORDS` performs case-insensitive search across session metadata,
 tasks, and recent conversation turns; `fleet read NAME` prints the recent turns
 of a session. In a fleet root session, the model has access to the `fleet` tool
 to search, inspect, start, message, and stop member sessions.
+
+### Jumping and split tiles
 
 From any session, `/jump PROJECT:BRANCH` switches the current terminal to
 another fleet session, and `/root` returns to the session you jumped from. The
@@ -2242,6 +2487,14 @@ return session and a `/root` reminder. From the CLI, `fyai fleet attach NAME`
 connects directly to a fleet session. Tab completion supports `PROJECT:BRANCH`
 candidates (with state and title) in `/jump`, `fleet attach`, `fleet read`, and
 `session send`/`interrupt`/`answer`.
+
+Use `/jump --split NAME` (or `/split NAME`) to watch a fleet session in a tile
+of the work pane while keeping the current session active. `/split` with no
+argument opens an independent second session on the current branch in a tile;
+both sessions stay on the same branch until both commit, at which point the
+second forks onto a new `session/` branch.
+
+### Supervision, tasks, and policy
 
 In a root session, `/session adopt NAME TEXT` adopts a live user-started
 session as a supervised member: it sets the root session as the member's
@@ -2272,24 +2525,7 @@ new session's parent. In a root session, it also creates a tracked task, which
 `fleet tasks` lists and `/fleet task ID done` (or `dropped`) closes. `fleet
 list` shows the task and parent for each session.
 
-`fyai serve --projects DIR` serves each project under DIR on
-`~/.fyai/unix/serve.sock`. A client names its project with `--project`,
-relative to DIR, or by its own directory. The server starts one project server
-for each project, in that project, and gives it the client. A client in a
-project that no project server serves uses this server.
-
-```sh
-fyai serve --projects ~/work --daemon
-fyai --remote . --project fyai branch list
-```
-
-The server writes one line for each connection, project, session, and
-command to standard error. With `--daemon`, it runs in the background and the
-log goes to `.fyai/logs/serve.log` of the project, to
-`~/.fyai/logs/serve.log` with `--projects`, or to the file that `--log` names.
-A server accepts only clients of its own user.
-
-## 13. CLI reference
+## 15. CLI reference
 
 ```text
 fyai [global-options] <verb> [verb-args]
@@ -2321,6 +2557,7 @@ The list follows `fyai help`. `fyai help VERB` gives the syntax of one verb, and
 | `diff [-u] [FROM [TO]]` | Compare two reflog entries. |
 | `dump [state|anchors|providers]` | Write the stored conversation as YAML. |
 | `export, import` | Write or read a conversation in the textual format. |
+| `fleet ...` | Discover, start, inspect, and control sessions under a fleet root. |
 | `gc` | Collect the garbage of the arena and the project storage. |
 | `help [verb|topic]` | Describe commands and topics. |
 | `history, transcript, display` | Show the conversation of the branch. |
@@ -2331,7 +2568,9 @@ The list follows `fyai help`. `fyai help VERB` gives the syntax of one verb, and
 | `merge BRANCH` | Interleave the exchanges of two branches by time. |
 | `model [name]` | Show or select the model. |
 | `page` | Show and review the page of the screen. |
+| `query ...` | Ask for rows of data from the arena. |
 | `rebase BRANCH` | Put the exchanges of this branch after those of another. |
+| `remote ...` | Connect to a remote session, relay over SSH/WebSocket, or manage TLS keys. |
 | `render` | Render Markdown in the terminal. |
 | `replay` | Send the user turns of the branch again. |
 | `reset, rewind REF` | Move the head of the branch to a reference. |
@@ -2340,9 +2579,12 @@ The list follows `fyai help`. `fyai help VERB` gives the syntax of one verb, and
 | `sandbox ...` | Show or set the sandbox policy. `sandbox apparmor` writes the AppArmor profile. |
 | `schema` | Export the supported schemas. |
 | `secret ...` | Manage secrets without showing their values. |
+| `serve [start\|status\|stop]` | Serve remote sessions and commands on a Unix socket and optional HTTP/HTTPS listeners. |
+| `session ...` | List or control live sessions, or inspect session isolation. |
 | `skill ...` | Import, show or remove the skills of the branch. |
 | `stats [--raw|--json|--yaml]` | Show token use and cost. |
 | `term` | Run a program in a terminal that fyai draws. |
+| `title ...` | Generate or set a title for the session. |
 | `todo` | Show or clear the todo list of the branch. |
 | `tool NAME [json]` | Run one built-in tool without a model call. |
 | `transport` | Serve model requests for isolated agents. |
@@ -2359,6 +2601,8 @@ The list follows `fyai help`. `fyai help VERB` gives the syntax of one verb, and
 | `-m`, `--model MODEL` | Select the model, as `model` or `provider/model`. |
 | `-b`, `--branch NAME` | Select a branch for this invocation (else `$FYAI_BRANCH`, else `HEAD`). |
 | `--root HANDLE` | Read one exact state, read-only. |
+| `--project DIR` | Work in directory `DIR` (with `--remote`, relative to the server's project root). |
+| `--remote TARGET` | Run the command or session at server `TARGET` (`.`, socket path, `ssh://`, `http://`, or `https://`). |
 | `--set KEY=VALUE` | Set a configuration key and store it. |
 | `--get KEY` | Print a key in one-line flow form. |
 | `--delete KEY` | Delete a configuration key. |
@@ -2375,7 +2619,7 @@ The list follows `fyai help`. `fyai help VERB` gives the syntax of one verb, and
 | `--cast-compat` | Write the recording as plain asciicast. |
 | `-d`, `--debug` | Increase the debug verbosity. |
 
-## 14. Architecture and operational notes
+## 16. Architecture and operational notes
 
 - Arena values are immutable after publication.
 - The root is the one mutable publication point, and it changes atomically.
@@ -2383,11 +2627,11 @@ The list follows `fyai help`. `fyai help VERB` gives the syntax of one verb, and
 - Work that the model delegates to a sub-agent is stored on a persistent agent branch. `fyai branch --all` lists those branches. The `fyai agent` verb is transient.
 - A fresh-context agent starts a new task context. A forked agent continues from the parent branch and uses the parent's model.
 - When fyai creates a conversation, it adds repository instructions such as `AGENTS.md` and `CLAUDE.md` to the system prompt. A continuation uses the stored system turn. Files with identical content are added once, by content hash and not by path.
-- Streamed output is for display. Only completed canonical state is published.
+- Streamed output is for display. With `durable` enabled (the default), canonical checkpoints are published after each completed tool round; with `durable: false`, only completed turns are published.
 - `history` is for people. Use the `dump` views to inspect exact state.
-- Linux is the primary platform. macOS has its own credential and event backends. Landlock, namespaces, network egress limits and the kernel secret store are Linux only. macOS has a Seatbelt file sandbox and standalone native views. See [fyai on macOS](macos.md).
+- Linux is the primary platform (including memory-safe [Fil-C](filc.md) builds). macOS has its own credential and event backends. Landlock, namespaces, network egress limits and the kernel secret store are Linux only. macOS has a Seatbelt file sandbox and standalone native views. See [fyai on macOS](macos.md).
 
-## 15. Where to look next
+## 17. Where to look next
 
 ```sh
 fyai help
@@ -2400,6 +2644,9 @@ fyai config describe [PATH]
 - `data/config.schema.yaml`: the accepted configuration structure.
 - `doc/declarative-state.md`: the declarative documents, their schemas, layers and rollback, and model access to them.
 - `doc/branching.md`: branch and root semantics.
+- `doc/remote-sessions-sdd.md` and `doc/fyai-background-sessions-sdd.md`: remote transports, background sessions, and `durable` recovery.
+- `doc/fyai-fleet-sdd.md`: fleet hierarchy, supervision, and task tracking.
+- `doc/filc.md`: building and running `fyai` with Fil-C.
 - `doc/srd/fyai-srd.md`: the storage and provider contract.
 - The unit and functional tests show exact behaviour.
 
