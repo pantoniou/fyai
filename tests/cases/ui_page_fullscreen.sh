@@ -287,6 +287,18 @@ if b"Hello from the mock provider." in data[left:]:
 PY
     fail "the session printed the conversation after the exit"
 
+# A primary page with tile controls grabs the mouse, so the terminal no longer
+# selects. A press and a release over the answer copy its text: the normal
+# screen tracks no motion between them.
+session primary 30 1 display/work_controls=full <<'PTY'
+  - wait-screen: Hello from the mock provider.
+  - write: "\e[<0;3;5M\e[<0;31;5m"
+  - wait-copy: Hello from the mock provider.
+PTY
+if grep -a -q "did not take the selection" "$TEST_DIR/pty.out"; then
+    fail "the primary page could not copy the selection"
+fi
+
 # The same conversation inline stays on the terminal's own screen.
 session inline <<'PTY'
   - wait-screen: Hello from the mock provider.
