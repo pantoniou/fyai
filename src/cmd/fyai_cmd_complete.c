@@ -877,7 +877,12 @@ static void complete_remote(struct complete_req *r, const char *kind,
 		 * serves any longer word. */
 		if (!e->ready)
 			goto out;
-		if (e->complete || !strcmp(e->partial, r->partial)) {
+		/* A model word with a slash names another set of candidates
+		 * than one without it. */
+		if (!strcmp(e->partial, r->partial) ||
+		    (e->complete && (strcmp(kind, "model") ||
+				     !!strchr(e->partial, '/') ==
+				     !!strchr(r->partial, '/')))) {
 			complete_entry_emit(r, e);
 			goto out;
 		}

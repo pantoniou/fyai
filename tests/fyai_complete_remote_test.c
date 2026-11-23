@@ -19,6 +19,7 @@
 FYAI_TEST_ENTRY(complete_remote, worker_answer, complete_worker_answer)
 FYAI_TEST_ENTRY(complete_remote, worker_refuses, complete_worker_refuses)
 FYAI_TEST_ENTRY(complete_remote, client_cache, complete_client_cache)
+FYAI_TEST_ENTRY(complete_remote, client_model_slash, complete_client_model_slash)
 FYAI_TEST_ENTRY(complete_remote, client_local, complete_client_local)
 FYAI_TEST_ENTRY(complete_remote, reset, complete_client_reset)
 
@@ -108,6 +109,7 @@ static int fixture_open(struct fixture *f)
 				  entry_new(f->gb, "beta work"));
 	f->worker_state.branches = table;
 	f->worker.bstate = &f->worker_state;
+	f->cfg.catalog = fy_invalid;
 	f->worker.cfg = &f->cfg;
 	f->worker.screen = &f->screen;
 	f->client.bstate = &f->client_state;
@@ -218,6 +220,26 @@ int complete_client_cache(void)
 	complete_line(&f.client, "main/b", &c);
 	FYAI_TCHECK(f.asked == 2);
 	FYAI_TCHECK(strstr(c.buf, "main/beta\n"));
+	fixture_close(&f);
+	return 0;
+}
+
+int complete_client_model_slash(void)
+{
+	struct fixture f;
+	struct cands c;
+	const char *bare[] = { "model", "" };
+	const char *slash[] = { "model", "anthropic/" };
+
+	fixture_open(&f);
+	memset(&c, 0, sizeof(c));
+	fyai_cmd_complete(&f.client, FYAI_CMD_SESSION, 2, bare, cands_add, &c);
+	FYAI_TCHECK(f.asked == 1);
+	/* The set of a bare word has no provider/model rows: ask again. */
+	memset(&c, 0, sizeof(c));
+	fyai_cmd_complete(&f.client, FYAI_CMD_SESSION, 2, slash, cands_add, &c);
+	FYAI_TCHECK(f.asked == 2);
+	FYAI_TCHECK(strstr(c.buf, "anthropic/claude"));
 	fixture_close(&f);
 	return 0;
 }
