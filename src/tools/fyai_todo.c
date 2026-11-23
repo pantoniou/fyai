@@ -253,30 +253,43 @@ fy_generic fyai_todo_rows(struct fyai_ctx *ctx, struct fy_generic_builder *gb)
 	return rows;
 }
 
-/* One row of the panel: the state mark and the task text, escaped. */
-static const char *todo_mark(const char *status)
+/* The mark of a row of the panel for its status. */
+static enum fyai_todo_mark todo_panel_mark(const char *status)
 {
 	if (!strcmp(status, FYAI_TODO_COMPLETED))
-		return "x";
+		return FYAI_TODO_MARK_DONE;
 	if (!strcmp(status, FYAI_TODO_IN_PROGRESS))
-		return ">";
+		return FYAI_TODO_MARK_PROGRESS;
 	if (!strcmp(status, FYAI_TODO_CANCELLED))
-		return "-";
-	return " ";
+		return FYAI_TODO_MARK_CANCELLED;
+	return FYAI_TODO_MARK_OPEN;
 }
 
-char *fyai_todo_panel_source(fy_generic rows)
+/* One row of the Markdown list: the state mark and the task text. */
+static const char *todo_mark(const char *status)
+{
+	switch (todo_panel_mark(status)) {
+	case FYAI_TODO_MARK_DONE:
+		return "x";
+	case FYAI_TODO_MARK_PROGRESS:
+		return ">";
+	case FYAI_TODO_MARK_CANCELLED:
+		return "-";
+	default:
+		return " ";
+	}
+}
+
+char *fyai_todo_panel_source(fy_generic rows, const char *const *marks)
 {
 	struct fyai_buf out = {0};
 	fy_generic item, g;
 	const char *text, *status;
-	const char *escaped;
-	bool first;
-	int rc;
+	char *escaped;
+	int rc = 0;
 
 	if (!fy_is_sequence(rows) || fy_empty(rows))
 		return NULL;
-	first = true;
 	fy_foreach(item, rows) {
 		g = fy_get(item, "content", fy_invalid);
 		text = fy_castp(&g, "");
@@ -284,22 +297,18 @@ char *fyai_todo_panel_source(fy_generic rows)
 		status = fy_castp(&g, "");
 		escaped = markdown_ui_escape(text);
 		if (!escaped) {
-			free(out.data);
-			return NULL;
+			rc = -1;
+			break;
 		}
-		rc = fyai_buf_append(&out, first ? "- [" : "\n- [");
-		rc = rc || fyai_buf_append(&out, todo_mark(status));
-		rc = rc || fyai_buf_append(&out, "] ");
-		rc = rc || fyai_buf_append(&out, escaped);
-		free((char *)escaped);
-		if (rc) {
-			free(out.data);
-			return NULL;
-		}
-		first = false;
+		/* One paragraph, one row per todo, the mark in the gutter. */
+		rc = (out.data && fyai_buf_append(&out, "\\\n")) ||
+		     fyai_buf_append(&out, marks[todo_panel_mark(status)]) ||
+		     fyai_buf_append(&out, escaped);
+		free(escaped);
+		if (rc)
+			break;
 	}
-	rc = fyai_buf_append(&out, "\n");
-	if (rc) {
+	if (rc || fyai_buf_append(&out, "\n")) {
 		free(out.data);
 		return NULL;
 	}

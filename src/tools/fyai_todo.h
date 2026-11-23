@@ -46,11 +46,23 @@ int fyai_todo_clear(struct fyai_ctx *ctx);
 /* The stored list as rows of content, status, and priority, built in @gb. */
 fy_generic fyai_todo_rows(struct fyai_ctx *ctx, struct fy_generic_builder *gb);
 
+/* The state of a todo row, as the index of its mark in the panel. */
+enum fyai_todo_mark {
+	FYAI_TODO_MARK_OPEN,
+	FYAI_TODO_MARK_PROGRESS,
+	FYAI_TODO_MARK_DONE,
+	FYAI_TODO_MARK_CANCELLED,
+	FYAI_TODO_MARK_COUNT
+};
+
 /*
- * @rows, the todo rows of the panels store, as UI Markdown for the page panel.
- * The caller frees it. NULL when there is no row.
+ * @rows, the todo rows of the panels store, as UI Markdown for the page panel:
+ * one paragraph with a row for each todo, each led by the entry of @marks for
+ * its state. @marks holds FYAI_TODO_MARK_COUNT UI Markdown marks of one width,
+ * which the caller draws from the theme. The caller frees the result. NULL
+ * when there is no row.
  */
-char *fyai_todo_panel_source(fy_generic rows);
+char *fyai_todo_panel_source(fy_generic rows, const char *const *marks);
 
 /* Write the stored list to the panels store of the UI model. */
 void fyai_todo_model_update(struct fyai_ctx *ctx);

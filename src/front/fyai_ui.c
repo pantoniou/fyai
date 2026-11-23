@@ -705,6 +705,74 @@ static void ui_fleet_rebuild(struct fyai_ui *ui)
 		ui->activity_interval_ms = 500;
 }
 
+/*
+ * The role of a mark: the first of @names that the palette defines, so a
+ * theme that has no todo roles draws the marks in the roles of a call and a
+ * fleet member.
+ */
+static const char *ui_role_first(const struct fyai_cfg *cfg,
+				 const char *const *names)
+{
+	const char *on;
+	size_t i;
+
+	for (i = 0; names[i + 1]; i++) {
+		/* A role the palette does not define has an empty escape. */
+		on = cfg->palette ? fypal_ctx_on(cfg->palette, names[i]) : NULL;
+		if (on && *on)
+			return names[i];
+	}
+	return names[i];
+}
+
+/* Rebuild the cached todo panel Markdown from the UI panels store. */
+static void ui_todo_rebuild(struct fyai_ui *ui)
+{
+	static const struct {
+		const char *glyph;
+		const char *alt;	/* the glyph of a Markdown task mark */
+		const char *fallback;
+		const char *roles[3];
+	} states[] = {
+		[FYAI_TODO_MARK_OPEN] = { "todo.open", "md.task.open",
+			"\u2610", { "todo.open", "text.dim", NULL } },
+		[FYAI_TODO_MARK_PROGRESS] = { "todo.progress", NULL,
+			"\u25b6", { "todo.progress", "tool.pending", NULL } },
+		[FYAI_TODO_MARK_DONE] = { "todo.done", "md.task.done",
+			"\u2714", { "todo.done", "tool.ok", NULL } },
+		[FYAI_TODO_MARK_CANCELLED] = { "todo.cancelled", NULL,
+			"\u2013", { "todo.cancelled", "fleet.ended", NULL } },
+	};
+	struct fyai_ctx *ctx = fyai_ui_ctx(ui);
+	struct ui_mark spec[FYAI_TODO_MARK_COUNT];
+	char mark[FYAI_TODO_MARK_COUNT][UI_MARK_MAX], blank[UI_MARK_MAX];
+	const char *marks[FYAI_TODO_MARK_COUNT], *fallback;
+	size_t i;
+	int mark_cols;
+
+	free(ui->todo_source);
+	ui->todo_source = NULL;
+	ui->todo_rows = 0;
+	ui->todo_cols = 0;
+	for (i = 0; i < FYAI_TODO_MARK_COUNT; i++) {
+		fallback = states[i].alt ? markdown_glyph(ctx->cfg,
+				states[i].alt, states[i].fallback) :
+				states[i].fallback;
+		spec[i].glyph = markdown_glyph(ctx->cfg, states[i].glyph,
+					       fallback);
+		spec[i].first = spec[i].glyph;
+		spec[i].role = ui_role_first(ctx->cfg, states[i].roles);
+	}
+	if (ui_marks_markup(ui, spec, FYAI_TODO_MARK_COUNT, mark, marks, blank,
+			    &mark_cols)) {
+		fyai_warning(ctx, "todo: cannot draw the marks of the list");
+		return;
+	}
+	ui->todo_source = fyai_todo_panel_source(fy_get(
+		fyai_uimodel_get(ctx, FYAI_UI_PANELS), "todo", fy_seq_empty),
+		marks);
+}
+
 static int ui_activity_refresh(struct fyai_ui *ui)
 {
 	struct timespec ts;
@@ -3118,12 +3186,7 @@ static int ui_page_frame_fit(struct fyai_ui *ui, struct ui_page_frame *f)
 	/* The todo panel follows the panels store. */
 	if (fyai_uimodel_seq(ctx, FYAI_UI_PANELS) != ui->todo_seq) {
 		ui->todo_seq = fyai_uimodel_seq(ctx, FYAI_UI_PANELS);
-		free(ui->todo_source);
-		ui->todo_rows = 0;
-		ui->todo_cols = 0;
-		ui->todo_source = fyai_todo_panel_source(fy_get(
-			fyai_uimodel_get(ctx, FYAI_UI_PANELS), "todo",
-			fy_seq_empty));
+		ui_todo_rebuild(ui);
 		ui->todo_shown = ui->todo_source != NULL;
 		ui_fleet_rebuild(ui);
 		ui->frame_pending = true;
