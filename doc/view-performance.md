@@ -112,8 +112,13 @@ Linux, ext4, NVMe, 12 cores, warm cache.
 | `view enter true` | 0.44 s |
 | `view diff` | 1.3 s |
 
-A tree with build output has more than 100000 nodes. The capture then fails
-with `E2BIG`, because of `FYAI_PROJECT_MAX_NODES`.
+The same tree with its build output (100657 files) is also captured: a capture
+holds at most `FYAI_PROJECT_MAX_ENTRIES` (1000000) files and directories. A project
+with more fails with `E2BIG`, and the message says so and names `view/ignore` and
+the `.gitignore` files. The diff view reports it once for a run and then leaves
+its diffs and `undo` off for that run. The nodes of a capture are one array of
+address space of the size of the limit, and memory only for the nodes that are
+used: a capture of 1 million nodes takes about 0.8 GB.
 
 The first measurement of the exit was 1.55 s. 66% of it was libfyaml dedup:
 the builder of the exit child had `FYGBCF_DEDUP_ENABLED`, and the installed
