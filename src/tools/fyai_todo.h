@@ -56,6 +56,13 @@ enum fyai_todo_mark {
 };
 
 /*
+ * The glyph of the mark of a todo in the theme, or the one of a build with no
+ * palette. Borrowed from the palette or static.
+ */
+const char *fyai_todo_glyph(const struct fyai_cfg *cfg,
+			    enum fyai_todo_mark mark);
+
+/*
  * @rows, the todo rows of the panels store, as UI Markdown for the page panel:
  * one paragraph with a row for each todo, each led by the entry of @marks for
  * its state. @marks holds FYAI_TODO_MARK_COUNT UI Markdown marks of one width,

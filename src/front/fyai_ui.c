@@ -728,25 +728,18 @@ static const char *ui_role_first(const struct fyai_cfg *cfg,
 /* Rebuild the cached todo panel Markdown from the UI panels store. */
 static void ui_todo_rebuild(struct fyai_ui *ui)
 {
-	static const struct {
-		const char *glyph;
-		const char *alt;	/* the glyph of a Markdown task mark */
-		const char *fallback;
-		const char *roles[3];
-	} states[] = {
-		[FYAI_TODO_MARK_OPEN] = { "todo.open", "md.task.open",
-			"\u2610", { "todo.open", "text.dim", NULL } },
-		[FYAI_TODO_MARK_PROGRESS] = { "todo.progress", NULL,
-			"\u25b6", { "todo.progress", "tool.pending", NULL } },
-		[FYAI_TODO_MARK_DONE] = { "todo.done", "md.task.done",
-			"\u2714", { "todo.done", "tool.ok", NULL } },
-		[FYAI_TODO_MARK_CANCELLED] = { "todo.cancelled", NULL,
-			"\u2013", { "todo.cancelled", "fleet.ended", NULL } },
+	static const char *const roles[FYAI_TODO_MARK_COUNT][3] = {
+		[FYAI_TODO_MARK_OPEN] = { "todo.open", "text.dim", NULL },
+		[FYAI_TODO_MARK_PROGRESS] = { "todo.progress", "tool.pending",
+					      NULL },
+		[FYAI_TODO_MARK_DONE] = { "todo.done", "tool.ok", NULL },
+		[FYAI_TODO_MARK_CANCELLED] = { "todo.cancelled", "fleet.ended",
+					       NULL },
 	};
 	struct fyai_ctx *ctx = fyai_ui_ctx(ui);
 	struct ui_mark spec[FYAI_TODO_MARK_COUNT];
 	char mark[FYAI_TODO_MARK_COUNT][UI_MARK_MAX], blank[UI_MARK_MAX];
-	const char *marks[FYAI_TODO_MARK_COUNT], *fallback;
+	const char *marks[FYAI_TODO_MARK_COUNT];
 	size_t i;
 	int mark_cols;
 
@@ -755,13 +748,9 @@ static void ui_todo_rebuild(struct fyai_ui *ui)
 	ui->todo_rows = 0;
 	ui->todo_cols = 0;
 	for (i = 0; i < FYAI_TODO_MARK_COUNT; i++) {
-		fallback = states[i].alt ? markdown_glyph(ctx->cfg,
-				states[i].alt, states[i].fallback) :
-				states[i].fallback;
-		spec[i].glyph = markdown_glyph(ctx->cfg, states[i].glyph,
-					       fallback);
+		spec[i].glyph = fyai_todo_glyph(ctx->cfg, i);
 		spec[i].first = spec[i].glyph;
-		spec[i].role = ui_role_first(ctx->cfg, states[i].roles);
+		spec[i].role = ui_role_first(ctx->cfg, roles[i]);
 	}
 	if (ui_marks_markup(ui, spec, FYAI_TODO_MARK_COUNT, mark, marks, blank,
 			    &mark_cols)) {

@@ -265,19 +265,28 @@ static enum fyai_todo_mark todo_panel_mark(const char *status)
 	return FYAI_TODO_MARK_OPEN;
 }
 
-/* One row of the Markdown list: the state mark and the task text. */
-static const char *todo_mark(const char *status)
+const char *fyai_todo_glyph(const struct fyai_cfg *cfg,
+			    enum fyai_todo_mark mark)
 {
-	switch (todo_panel_mark(status)) {
-	case FYAI_TODO_MARK_DONE:
-		return "x";
-	case FYAI_TODO_MARK_PROGRESS:
-		return ">";
-	case FYAI_TODO_MARK_CANCELLED:
-		return "-";
-	default:
-		return " ";
-	}
+	/* Markdown task glyphs, used when the theme has no todo glyph. */
+	static const struct {
+		const char *name;
+		const char *alt;
+		const char *fallback;
+	} glyphs[FYAI_TODO_MARK_COUNT] = {
+		[FYAI_TODO_MARK_OPEN] = { "todo.open", "md.task.open",
+					  "\u2610" },
+		[FYAI_TODO_MARK_PROGRESS] = { "todo.progress", NULL, "\u25b6" },
+		[FYAI_TODO_MARK_DONE] = { "todo.done", "md.task.done",
+					  "\u2714" },
+		[FYAI_TODO_MARK_CANCELLED] = { "todo.cancelled", NULL,
+					       "\u2013" },
+	};
+	const char *fallback = glyphs[mark].fallback;
+
+	if (glyphs[mark].alt)
+		fallback = markdown_glyph(cfg, glyphs[mark].alt, fallback);
+	return markdown_glyph(cfg, glyphs[mark].name, fallback);
 }
 
 char *fyai_todo_panel_source(fy_generic rows, const char *const *marks)
@@ -336,30 +345,30 @@ char *fyai_todo_format(struct fyai_ctx *ctx)
 	fy_generic stored, item, g;
 	struct fyai_buf out = {0};
 	const char *text, *status;
-	bool first;
-	int rc;
+	int rc = 0;
 
 	stored = todo_stored_generic(ctx);
 	if (fy_is_invalid(stored))
 		return NULL;
-	first = true;
+	/*
+	 * The rows of one paragraph, each led by the glyph of its state in the
+	 * theme, so the text of every row starts in one column. The record
+	 * keeps these glyphs.
+	 */
 	fy_foreach(item, stored) {
 		g = fy_get(item, "content", fy_invalid);
 		text = fy_castp(&g, "");
 		g = fy_get(item, "status", fy_invalid);
 		status = fy_castp(&g, "");
-		rc = fyai_buf_append(&out, first ? "- [" : "\n- [");
-		rc = rc || fyai_buf_append(&out, todo_mark(status));
-		rc = rc || fyai_buf_append(&out, "] ");
-		rc = rc || fyai_buf_append(&out, text ? text : "");
-		if (rc) {
-			free(out.data);
-			return NULL;
-		}
-		first = false;
+		rc = (out.data && fyai_buf_append(&out, "\\\n")) ||
+		     fyai_buf_append(&out, fyai_todo_glyph(ctx->cfg,
+					todo_panel_mark(status))) ||
+		     fyai_buf_append(&out, "  ") ||
+		     fyai_buf_append(&out, text ? text : "");
+		if (rc)
+			break;
 	}
-	rc = fyai_buf_append(&out, "\n");
-	if (rc) {
+	if (rc || fyai_buf_append(&out, "\n")) {
 		free(out.data);
 		return NULL;
 	}
