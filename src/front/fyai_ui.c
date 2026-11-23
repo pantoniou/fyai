@@ -4040,14 +4040,15 @@ int fyai_ui_open(struct fyai_ctx *ctx)
 	/* A fullscreen page takes the alternate screen, where its text is
 	 * selected and copied. A primary page stands on the normal screen
 	 * as a band as tall as the terminal, and the terminal keeps its
-	 * scrollback and its selection. */
+	 * scrollback. Both select the text of the transcript view and copy it
+	 * through the terminal, as a grabbed mouse takes the selection of the
+	 * terminal. */
 	if (ctx->cfg->screen &&
 	    fy_any_equal(ctx->cfg->screen, "fullscreen", "primary")) {
 		ui->primary = !strcmp(ctx->cfg->screen, "primary");
-		if (!ui->primary) {
+		if (!ui->primary)
 			cfg.screen = FYTIM_SCREEN_ALT;
-			cfg.clipboard = true;
-		}
+		cfg.clipboard = true;
 		ui->fullscreen = true;
 		ui->view = fyai_transcript_view_create();
 		if (!ui->view) goto fail;
