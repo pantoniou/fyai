@@ -23,6 +23,8 @@ struct fyai_diag;
  * reads the arena and reports into the diagnostics. The owner is struct
  * fyai_app; a view context keeps a copy of its own.
  */
+struct fyai_project_stat_cache;
+
 struct fyai_branch_state {
 	/* Dependencies. */
 	struct fyai_arena *arena;
@@ -90,6 +92,12 @@ struct fyai_branch_state {
 	 * taken.
 	 */
 	bool tool_diff_tracking;
+	/*
+	 * What the project captures of this run read, so that a later capture
+	 * reads only changed files. Memory of the run only: made by the first
+	 * capture, freed with the application, not kept by a forked child.
+	 */
+	struct fyai_project_stat_cache *stat_cache;
 };
 
 void fyai_branch_state_init(struct fyai_branch_state *bs,

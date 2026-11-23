@@ -23,6 +23,8 @@ struct fyai_project_capture_stats {
 	uint64_t logical_bytes, copied_bytes, reflinked_bytes, borrowed_bytes;
 	uint64_t copies, reflinks, hardlinks, metacopies;
 	uint64_t borrowed_files;
+	/* Files not read: the stat cache had their digest. */
+	uint64_t cached_files;
 	uint64_t elapsed_ms;
 	unsigned int workers;
 	enum fyai_cas_method copy_backend;
@@ -31,6 +33,26 @@ struct fyai_project_capture_stats {
 /* Called only on the capture caller; worker counters are sampled atomically. */
 typedef void (*fyai_project_capture_progress_fn)(void *arg,
 						 const struct fyai_project_capture_stats *stats);
+
+/*
+ * The stat and content digest of the files that a capture read. It is memory
+ * of the caller and is not stored: the first capture with a new cache reads
+ * every file. A file enters the cache only when its mtime and ctime were more
+ * than two seconds old at the capture start, so a change made within the clock
+ * granularity is read by the next capture. The cache is valid for the project
+ * directory and object store of the capture that filled it.
+ */
+struct fyai_project_stat_cache;
+
+struct fyai_project_stat_cache *fyai_project_stat_cache_new(void);
+void fyai_project_stat_cache_free(struct fyai_project_stat_cache *cache);
+
+/*
+ * Set how many seconds before the start of a capture a timestamp is still racy.
+ * The default is two. A test that cannot age the ctime of a file sets a value
+ * below zero.
+ */
+void fyai_project_stat_cache_set_racy(struct fyai_project_stat_cache *cache, long seconds);
 
 struct fyai_project_capture_opts {
 	/* Optional caller-owned result. */
@@ -63,6 +85,12 @@ struct fyai_project_capture_opts {
 	 * result must use what the capture of its baseline used.
 	 */
 	const struct fyai_ignore_spec *ignore;
+	/*
+	 * The files that an earlier capture of the same project read, or NULL to
+	 * read every file. A file whose stat matches the cache is not read, and
+	 * the capture replaces the cache with what it saw.
+	 */
+	struct fyai_project_stat_cache *stat_cache;
 	int source_fd;
 	int objects_fd;
 	int baseline_fd; /* -1 records manifests without materializing files. */

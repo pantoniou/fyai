@@ -101,6 +101,11 @@ struct project_capture {
 	uid_t euid;
 	gid_t egid;
 	struct timespec started;
+	/* The wall clock at the start, against which a timestamp is racy. */
+	struct timespec started_real;
+	/* The cache of the options when it fits this capture, else NULL. */
+	const struct fyai_project_stat_cache *cache;
+	atomic_uint_fast64_t cached;
 	atomic_uint_fast64_t completed, storage[CAPTURE_STORAGE_COUNT];
 	atomic_size_t next;
 	dev_t device;
@@ -135,6 +140,7 @@ static void capture_progress(struct project_capture *capture)
 	stats->elapsed_ms = (now.tv_sec - capture->started.tv_sec) * 1000LL +
 			    (now.tv_nsec - capture->started.tv_nsec) / 1000000LL;
 	stats->completed = atomic_load_explicit(&capture->completed, memory_order_relaxed);
+	stats->cached_files = atomic_load_explicit(&capture->cached, memory_order_relaxed);
 	stats->copied_bytes =
 		atomic_load_explicit(&capture->copy.copied_bytes, memory_order_relaxed);
 	stats->reflinked_bytes =
@@ -1372,6 +1378,233 @@ err_out:
 	return -1;
 }
 
+/*
+ * A timestamp within this many seconds of the capture start is racy: the
+ * timestamp granularity can hide a later change of the file.
+ */
+#define CAPTURE_RACY_SECONDS 2
+
+struct stat_entry {
+	const char *path;
+	dev_t device;
+	ino_t inode;
+	off_t size;
+	mode_t mode;
+	uid_t uid;
+	gid_t gid;
+	struct timespec mtime, ctime;
+	unsigned char digest[FYAI_CAS_HASH_SIZE];
+};
+
+struct fyai_project_stat_cache {
+	struct stat_entry *entries;
+	size_t count;
+	char *names;
+	dev_t root_device, objects_device;
+	ino_t root_inode, objects_inode;
+	bool filled;
+	long racy_seconds;
+};
+
+struct fyai_project_stat_cache *fyai_project_stat_cache_new(void)
+{
+	struct fyai_project_stat_cache *cache = calloc(1, sizeof(*cache));
+
+	if (cache)
+		cache->racy_seconds = CAPTURE_RACY_SECONDS;
+	return cache;
+}
+
+void fyai_project_stat_cache_set_racy(struct fyai_project_stat_cache *cache, long seconds)
+{
+	cache->racy_seconds = seconds;
+}
+
+static void stat_cache_clear(struct fyai_project_stat_cache *cache)
+{
+	free(cache->entries);
+	free(cache->names);
+	cache->entries = NULL;
+	cache->names = NULL;
+	cache->count = 0;
+	cache->filled = false;
+}
+
+void fyai_project_stat_cache_free(struct fyai_project_stat_cache *cache)
+{
+	if (!cache)
+		return;
+	stat_cache_clear(cache);
+	free(cache);
+}
+
+static int stat_entry_compare(const void *a, const void *b)
+{
+	return strcmp(((const struct stat_entry *)a)->path, ((const struct stat_entry *)b)->path);
+}
+
+static const struct stat_entry *stat_cache_find(const struct fyai_project_stat_cache *cache,
+						const char *path)
+{
+	size_t low = 0, high = cache->count, middle;
+	int order;
+
+	while (low < high) {
+		middle = low + (high - low) / 2;
+		order = strcmp(path, cache->entries[middle].path);
+		if (!order)
+			return &cache->entries[middle];
+		if (order < 0)
+			high = middle;
+		else
+			low = middle + 1;
+	}
+	return NULL;
+}
+
+static bool stat_timespec_equal(const struct timespec *a, const struct timespec *b)
+{
+	return a->tv_sec == b->tv_sec && a->tv_nsec == b->tv_nsec;
+}
+
+/*
+ * The ctime is set by the kernel at every change, so a match also rules
+ * out an edit that keeps the size and the mtime.
+ */
+static bool stat_entry_matches(const struct stat_entry *entry, const struct stat *st)
+{
+	return entry->device == st->st_dev && entry->inode == st->st_ino &&
+	       entry->size == st->st_size && entry->mode == st->st_mode &&
+	       entry->uid == st->st_uid && entry->gid == st->st_gid &&
+	       stat_timespec_equal(&entry->mtime, &fyai_st_mtime(st)) &&
+	       stat_timespec_equal(&entry->ctime, &fyai_st_ctime(st));
+}
+
+static bool capture_stat_racy(const struct project_capture *capture, const struct stat *st)
+{
+	time_t limit = capture->started_real.tv_sec - capture->cache->racy_seconds;
+
+	return fyai_st_mtime(st).tv_sec >= limit || fyai_st_ctime(st).tv_sec >= limit;
+}
+
+/*
+ * The cache serves a capture that reads every file by path into the objects:
+ * not an incremental one, one with a baseline directory, or one that verifies.
+ */
+static void capture_cache_select(struct project_capture *capture)
+{
+	const struct fyai_project_capture_opts *opts = capture->opts;
+	struct fyai_project_stat_cache *cache = opts->stat_cache;
+	struct stat root, objects;
+
+	capture->cache = NULL;
+	if (!cache || opts->incremental || opts->metacopy || opts->verify || opts->baseline_fd >= 0)
+		return;
+	if (fstat(opts->source_fd, &root) || fstat(opts->objects_fd, &objects))
+		return;
+	if (cache->filled && (cache->root_device != root.st_dev || cache->root_inode != root.st_ino ||
+			      cache->objects_device != objects.st_dev ||
+			      cache->objects_inode != objects.st_ino))
+		stat_cache_clear(cache);
+	cache->root_device = root.st_dev;
+	cache->root_inode = root.st_ino;
+	cache->objects_device = objects.st_dev;
+	cache->objects_inode = objects.st_ino;
+	capture->cache = cache;
+}
+
+/*
+ * Give the node the blob of the cache when the file has not changed and the
+ * object is in the store. False means that the file is to be read.
+ */
+static bool capture_cache_hit(struct capture_worker *worker, struct capture_node *node)
+{
+	struct project_capture *capture = worker->capture;
+	const struct stat_entry *entry;
+	struct fyai_project_metadata metadata;
+	struct fyai_cas_blob blob = { 0 };
+	struct stat object;
+	char name[FYAI_CAS_NAME_SIZE];
+
+	if (!capture->cache || node->blob.borrowed || node->staged_fd >= 0 || node->other_root >= 0)
+		return false;
+	entry = stat_cache_find(capture->cache, node->path);
+	if (!entry || !stat_entry_matches(entry, &node->before))
+		return false;
+	memcpy(blob.digest, entry->digest, sizeof(blob.digest));
+	blob.size = (uint64_t)entry->size;
+	if (fyai_cas_name(name, sizeof(name), &blob))
+		return false;
+	/* Same check as fyai_cas_put_sized_state(): regular file, size, mode. */
+	if (fstatat(capture->opts->objects_fd, name, &object, AT_SYMLINK_NOFOLLOW) ||
+	    !S_ISREG(object.st_mode) || (uint64_t)object.st_size != blob.size ||
+	    (object.st_mode & 07777) != 0444)
+		return false;
+	node->blob = blob;
+	metadata = capture_metadata(capture, &node->metadata);
+	if (fyai_project_file_digest(worker->hasher, &metadata, &node->blob, node->entry.digest))
+		return false;
+	atomic_fetch_add_explicit(&capture->cached, 1, memory_order_relaxed);
+	return true;
+}
+
+/* Replace the cache with the files this capture read or found unchanged. */
+static void capture_cache_update(struct project_capture *capture)
+{
+	struct fyai_project_stat_cache *cache = (struct fyai_project_stat_cache *)capture->cache;
+	struct capture_node *node;
+	struct stat_entry *entries;
+	size_t i, count = 0, length = 0, used = 0;
+	char *names;
+
+	if (!cache)
+		return;
+	for (i = 0; i < capture->count; i++) {
+		node = &capture->nodes[i];
+		if (node->reused || node->error || node->entry.kind != FYAI_PROJECT_FILE ||
+		    node->blob.borrowed || capture_stat_racy(capture, &node->before))
+			continue;
+		count++;
+		length += strlen(node->path) + 1;
+	}
+	entries = calloc(count ? count : 1, sizeof(*entries));
+	names = malloc(length ? length : 1);
+	if (!entries || !names) {
+		free(entries);
+		free(names);
+		stat_cache_clear(cache);
+		return;
+	}
+	count = 0;
+	for (i = 0; i < capture->count; i++) {
+		node = &capture->nodes[i];
+		if (node->reused || node->error || node->entry.kind != FYAI_PROJECT_FILE ||
+		    node->blob.borrowed || capture_stat_racy(capture, &node->before))
+			continue;
+		length = strlen(node->path) + 1;
+		memcpy(names + used, node->path, length);
+		entries[count].path = names + used;
+		entries[count].device = node->before.st_dev;
+		entries[count].inode = node->before.st_ino;
+		entries[count].size = node->before.st_size;
+		entries[count].mode = node->before.st_mode;
+		entries[count].uid = node->before.st_uid;
+		entries[count].gid = node->before.st_gid;
+		entries[count].mtime = fyai_st_mtime(&node->before);
+		entries[count].ctime = fyai_st_ctime(&node->before);
+		memcpy(entries[count].digest, node->blob.digest, sizeof(entries[count].digest));
+		used += length;
+		count++;
+	}
+	qsort(entries, count, sizeof(*entries), stat_entry_compare);
+	free(cache->entries);
+	free(cache->names);
+	cache->entries = entries;
+	cache->names = names;
+	cache->count = count;
+	cache->filled = true;
+}
+
 static void capture_files(void *arg)
 {
 	struct capture_worker *worker = arg;
@@ -1387,6 +1620,10 @@ static void capture_files(void *arg)
 		node = &capture->nodes[index];
 		if (node->reused || node->entry.kind != FYAI_PROJECT_FILE)
 			continue;
+		if (capture_cache_hit(worker, node)) {
+			atomic_fetch_add_explicit(&capture->completed, 1, memory_order_relaxed);
+			continue;
+		}
 		source = capture_node_open(node, O_RDONLY | O_NONBLOCK);
 		if (source < 0) {
 			node->error = errno;
@@ -2345,6 +2582,7 @@ static int capture_run_init(struct capture_run *r)
 	int rc;
 
 	clock_gettime(CLOCK_MONOTONIC, &capture->started);
+	clock_gettime(CLOCK_REALTIME, &capture->started_real);
 	capture->euid = geteuid();
 	capture->egid = getegid();
 	rc = fyai_scratch_open(&capture->scratch);
@@ -2367,6 +2605,7 @@ static int capture_run_init(struct capture_run *r)
 		}
 	}
 	atomic_init(&capture->completed, 0);
+	atomic_init(&capture->cached, 0);
 	atomic_init(&capture->copy.copied_bytes, 0);
 	atomic_init(&capture->copy.reflinked_bytes, 0);
 	atomic_init(&capture->copy.backend, FYAI_CAS_METHOD_NONE);
@@ -2387,6 +2626,7 @@ static int capture_run_init(struct capture_run *r)
 		errno = ENOTSUP;
 		return -1;
 	}
+	capture_cache_select(capture);
 	/* The baseline is a manifest, or a snapshot that is converted here. */
 	if (opts->baseline_manifest) {
 		capture->base = opts->baseline_manifest;
@@ -2531,6 +2771,7 @@ static int capture_run_ingest(struct capture_run *r)
 		errno = capture->nodes[i].error;
 		return -1;
 	}
+	capture_cache_update(capture);
 	/* A borrowed blob is linked into the baseline once: its first node does it. */
 	while (capacity < capture->count * 2)
 		capacity *= 2;

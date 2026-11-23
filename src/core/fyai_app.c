@@ -17,6 +17,7 @@
 #include "fyai_app.h"
 #include "fyai_config.h"
 #include "fyai_orphan.h"
+#include "fyai_project_capture.h"
 
 void fyai_scope_state_init(struct fyai_scope *scope, struct fyai_loop *loop,
 			   struct fyai_diag *diag, const struct fyai_cfg *cfg)
@@ -183,6 +184,8 @@ void fyai_app_cleanup(struct fyai_app *app)
 	 * go first. */
 	/* The transient builder stacks on the arena, so it goes first. */
 	fyai_transient_cleanup(&app->transient);
+	fyai_project_stat_cache_free(app->bstate.stat_cache);
+	app->bstate.stat_cache = NULL;
 	fyai_arena_release(&app->arena);
 	fyai_loop_cleanup(&app->loop);
 	fyai_config_cleanup(&app->cfg);
@@ -274,6 +277,7 @@ void fyai_agent_state_abandon(struct fyai_agent_state *as)
 void fyai_branch_state_abandon(struct fyai_branch_state *bs)
 {
 	bs->tool_diff_tracking = false;
+	bs->stat_cache = NULL;
 }
 
 void fyai_mcp_state_abandon(struct fyai_mcp *mcp)

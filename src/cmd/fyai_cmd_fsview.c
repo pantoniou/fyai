@@ -4427,6 +4427,9 @@ int fyai_project_state_capture(struct fyai_ctx *ctx, fy_generic *ref)
 		rc = -1;
 		goto out;
 	}
+	if (!ctx->bstate->stat_cache)
+		ctx->bstate->stat_cache = fyai_project_stat_cache_new();
+	opts.stat_cache = ctx->bstate->stat_cache;
 	for (attempt = 0; attempt < 3; attempt++) {
 		rc = fyai_project_capture_manifest(&opts, &manifest, error, sizeof(error));
 		if (!rc || errno != EAGAIN)
