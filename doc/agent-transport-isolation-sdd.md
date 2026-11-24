@@ -523,9 +523,11 @@ flowchart TD
     K -->|REQUEST fragments| A[Reassemble within message size bound]
     K -->|CREDIT| B[Update credit for request on this channel]
     K -->|CANCEL| D[Cancel request on this channel]
+    K -->|EXCHANGE_END| X[Stop the program session unless it can serve the next exchange]
     A --> G{Profile granted and request contract valid?}
     G -->|no| E[RESP_ERROR for this request, no provider call]
-    G -->|yes| Q[Resolve credential and start configured HTTP request]
+    G -->|yes, endpoint| Q[Resolve credential and start configured HTTP request]
+    G -->|yes, program| Y[Give request to the program session of this channel]
 ```
 
 `SO_PEERCRED` at socket creation is insufficient because a descriptor can be
@@ -633,6 +635,21 @@ not definitions, so a reload of the profiles does not touch the grants. The
 supervisor changes the grant of one execution when its agent changes provider
 or model. An execution with an empty grant can reach nothing. A grant can
 narrow the model of a profile and cannot widen it.
+
+A profile can name a **program** in place of an endpoint: the Claude Code CLI
+of the claude-code backend (`doc/claude-code-backend.md`). Such a profile has
+no URL and no authentication, because the program holds its own login, and an
+`api_billing` flag that lets it bill an API key. The transport, not the agent,
+starts the program, so its login never reaches an agent or a tool. The
+program serves the requests of one exchange of one execution: the channel
+keeps a session across those requests, because the program waits for tool
+results between them. A program request answers with the same frames as an
+HTTP request: `RESP_START` with status 200 and `text/event-stream`, the reply
+bytes in `RESP_BODY` within the credit of the agent, and `RESP_END`, or
+`RESP_ERROR` with the cause. The agent sends `EXCHANGE_END` when its exchange
+ends; the program then stops unless it can serve the next exchange of the
+execution (`doc/claude-code-backend.md`). Retirement of the execution stops it. The program is a name
+or a path from trusted configuration, and a request cannot choose it.
 
 A request names a profile. It never names a URL, a header, or a credential.
 Model provider requests use this path. MCP HTTP and OAuth operations need

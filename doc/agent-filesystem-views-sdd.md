@@ -622,6 +622,16 @@ backing paths, inherited cwd, directory descriptors, proc descriptor paths, and
 other process root links cannot bypass the view. Namespace setup is not a complete
 same-user process-isolation boundary; retained process access needs explicit review.
 
+An agent runtime can need an outside path writable for its model connection: the
+Claude Code CLI keeps its login and state in its configuration directory. The view
+specification carries these grants (`struct fyai_fsview`, `grant`), which the
+grammar states (`doc/provider-grammars.md`). The Linux backend clones the mount of
+each writable grant before the outside becomes read-only and mounts the clone back
+over its path after, as it does for the arena, and adds the path to the Landlock
+grant of the runtime. A grant that holds or lies under the project, the scratch,
+the storage, the runtime or the arena is left out, as is one whose path does not
+exist. A tool of the runtime gets its own confinement and none of these grants.
+
 Give each transaction a private `/tmp`. Do not inherit broad writable `/var/tmp`,
 `/dev`, `/run`, or `/dev/shm` grants. Programs needing scratch outside `/tmp` use an
 explicit private mount or fail with a clear policy error. Provide only necessary

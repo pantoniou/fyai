@@ -10,6 +10,12 @@ not name a grammar.
 | Responses | `src/provider/fyai_grammar_responses.c` | `responses` | `responses` |
 | Chat Completions | `src/provider/fyai_grammar_chat.c` | `chat-completions`, `chat` | `chat_completions` |
 | Anthropic Messages | `src/provider/fyai_grammar_messages.c` | `messages` | `messages` |
+| Claude Code CLI | `src/provider/fyai_grammar_claude_code.c` | `claude-code` | none |
+
+The Claude Code CLI is not a wire grammar. A local program serves it
+(`cli`), so it has no URL, no API key and no catalogue endpoint. Its replies
+are Messages streams (`stream`), and it stores them as Messages replies. See
+`doc/claude-code-backend.md`.
 
 ## The interface
 
@@ -34,7 +40,15 @@ The table holds data and operations:
   that a grammar cannot carry.
 - **Operations:** the input, the split of the input, the tool declarations,
   the image part, the request body, the stream parse, the canonical response, the history, the
-  chain miss and the compact URL.
+  chain miss, the compact URL and the sandbox grants.
+
+`sandbox_grants` states what a process that runs the model connection of the
+grammar needs beyond what a view gives an agent runtime, as a list of
+`{path, mode}`. An HTTP grammar needs nothing. The Claude Code CLI needs its
+configuration directory writable. A view of an agent runtime that runs the
+connection itself takes the grants of the grammar of its configuration and of
+each persona (`fyai_agent_runtime_grants()`); under the credential transport the
+transport runs the connection and the view takes none.
 
 The core calls an operation through its wrapper, such as
 `fyai_grammar_build_request(ctx, req)`. The wrapper takes the grammar from

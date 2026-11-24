@@ -189,6 +189,12 @@ This document gives the owner of each source file and of each shared component. 
   requests and parse the replies of one grammar (`doc/provider-grammars.md`).
   `src/provider/fyai_provider.c` holds what the grammars share and the readers of the
   canonical response. Put grammar code in a grammar file.
+  `src/provider/fyai_grammar_claude_code.c` is the grammar of the Claude Code CLI
+  backend: it reads the Messages stream and builds the request of
+  `src/provider/fyai_claude_cli.c`, which runs the CLI for each exchange and
+  serves the tools of fyai to it (`doc/claude-code-backend.md`). An agent
+  hosts the session, or, under credential isolation, the transport does
+  (`src/transport/fyai_transport_server.c`).
 - `src/auth/fyai_secret.c`: the `secret` verb and the machine-local secrets.
   `src/auth/fyai_secret_store.h` is the interface of the stores: the kernel keyring
   (`fyai_secret_keyctl.c`), the macOS keychain (`fyai_secret_keychain.c`), the
@@ -200,7 +206,8 @@ This document gives the owner of each source file and of each shared component. 
   `prepare` before a request, `reject` after a 401 and the scheduled refresh
   (`doc/credential-sources-plan.md`). The agent, the model discovery and the
   transport all use it; do not refresh a login anywhere else.
-- `src/provider/fyai_xfer.c`: a model request over curl or the transport. It builds the
+- `src/provider/fyai_xfer.c`: a model request over curl, the transport or the
+  Claude Code CLI (`fyai_claude_cli.c`). It builds the
   headers for each send and holds back a 401 that a renewal can answer.
 - `src/auth/fyai_mcp_oauth.c`: the refresh request of an MCP OAuth server.
 - `src/net/fyai_jsonrpc.c`: JSON-RPC over standard I/O and HTTP, and the image
