@@ -675,7 +675,8 @@ static int sink_term_render_finish(struct fyai_sink *s)
 	end = terminal_trim_blank_rows(rendered.data, rendered.len);
 	line_start = terminal_text_at_line_start(rendered.data, end);
 	if (fyai_ui_active(fyai_sink_ctx(s))) {
-		fyai_ui_tail_finish(fyai_sink_ctx(s), rendered.data, end);
+		fyai_ui_tail_finish(fyai_sink_ctx(s), rendered.data, end,
+				    t->source.len ? t->source.data : NULL);
 		if (!line_start)
 			(void)fyai_ui_commit(fyai_sink_ctx(s), "\n", 1);
 	} else {
@@ -1320,7 +1321,10 @@ static int sink_term_markdown_ui(struct fyai_sink *s,
 	rc = fclose(mf);
 	fyai_error_check(fyai_sink_ctx(s), !rc, err,
 			 "could not render output for the display");
-	rc = sink_term_put(s, stream, text, len);
+	/* The display keeps @md: it renders the rows again at another width. */
+	rc = len && sink_term_via_ui(s, stream) ?
+		fyai_ui_present_markdown(fyai_sink_ctx(s), text, len, md) :
+		sink_term_put(s, stream, text, len);
 	free(text);
 	return rc;
 err:

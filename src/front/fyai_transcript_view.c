@@ -46,6 +46,16 @@ struct view_exchange {
 	struct view_rows rows;
 };
 
+/* Live rows that a renderer made from the Markdown @md at @width: they are
+ * made again at another width. @trim: blank rows at the end were dropped. */
+struct view_source {
+	size_t row;
+	size_t count;
+	int width;
+	bool trim;
+	char *md;
+};
+
 /* The rows of a call in flight, which its owner replaces as they change. */
 struct view_block {
 	uintptr_t key;
@@ -57,6 +67,8 @@ struct fyai_transcript_view {
 	size_t nexchanges;
 	size_t stored;		/* the rows of every exchange */
 	struct view_rows live;
+	struct view_source *source;	/* in the order of their rows */
+	size_t nsources;
 	struct view_block *block;	/* in the order they opened */
 	size_t nblocks;
 	size_t block_rows;	/* the rows of every block */
@@ -183,6 +195,17 @@ static int view_rows_parse(struct view_rows *r, const char *text, size_t len)
 static size_t view_after(const struct fyai_transcript_view *v)
 {
 	return v->live.count + v->block_rows + v->tail.count;
+}
+
+static void view_sources_clear(struct fyai_transcript_view *v)
+{
+	size_t i;
+
+	for (i = 0; i < v->nsources; i++)
+		free(v->source[i].md);
+	free(v->source);
+	v->source = NULL;
+	v->nsources = 0;
 }
 
 /* Move the offset of a view scrolled back by @delta rows that arrived or
@@ -350,6 +373,7 @@ void fyai_transcript_view_destroy(struct fyai_transcript_view *v)
 		return;
 	view_exchanges_free(v->exchange, v->nexchanges);
 	view_rows_free(&v->live);
+	view_sources_clear(v);
 	for (i = 0; i < v->nblocks; i++)
 		view_rows_free(&v->block[i].rows);
 	free(v->block);
@@ -667,11 +691,57 @@ int fyai_transcript_view_append_live(struct fyai_transcript_view *v,
 	return rc;
 }
 
+size_t fyai_transcript_view_live_mark(const struct fyai_transcript_view *v)
+{
+	return v && !v->live_open ? v->live.count : SIZE_MAX;
+}
+
+int fyai_transcript_view_source_live(struct fyai_transcript_view *v,
+				     size_t mark, const char *md, int width,
+				     bool trim)
+{
+	struct view_source *source;
+	size_t from;
+
+	if (!v || !md)
+		return -1;
+	from = v->nsources ? v->source[v->nsources - 1].row +
+			     v->source[v->nsources - 1].count : 0;
+	/* Only whole rows that no other source holds are made again. */
+	if (mark == SIZE_MAX || mark < from || mark >= v->live.count ||
+	    v->live_open || width < 1)
+		return 0;
+	source = realloc(v->source, (v->nsources + 1) * sizeof(*source));
+	if (!source)
+		return -1;
+	v->source = source;
+	source = &v->source[v->nsources];
+	source->md = strdup(md);
+	if (!source->md)
+		return -1;
+	source->row = mark;
+	source->count = v->live.count - mark;
+	source->width = width;
+	source->trim = trim;
+	v->nsources++;
+	return 0;
+}
+
+size_t fyai_transcript_view_live_sourced(const struct fyai_transcript_view *v)
+{
+	size_t i, rows = 0;
+
+	for (i = 0; v && i < v->nsources; i++)
+		rows += v->source[i].count;
+	return rows;
+}
+
 void fyai_transcript_view_clear_live(struct fyai_transcript_view *v)
 {
 	if (!v)
 		return;
 	view_rows_clear(&v->live);
+	view_sources_clear(v);
 	v->live_open = false;
 	if (v->sent > v->stored)
 		v->sent = v->stored;
@@ -1069,7 +1139,86 @@ void fyai_transcript_view_invalidate(struct fyai_transcript_view *v)
 	/* No render is at a width of -1, so every exchange is made again. */
 	for (i = 0; i < v->nexchanges; i++)
 		v->exchange[i].width = -1;
+	for (i = 0; i < v->nsources; i++)
+		v->source[i].width = -1;
 	v->rendered = false;
+}
+
+/* The rows of @md at @width, as its renderer made them. */
+static int view_render_md(struct fyai_ctx *ctx, const char *md, int width,
+			  bool trim, struct view_rows *rows)
+{
+	struct fyai_cfg cfg;
+	char *text = NULL;
+	size_t len = 0;
+	FILE *fp;
+	int rc;
+
+	memset(rows, 0, sizeof(*rows));
+	fyai_cfg_copy_muted(&cfg, ctx->cfg);
+	cfg.render_width = width;
+	fp = open_memstream(&text, &len);
+	if (!fp)
+		return -1;
+	if (fyai_fprint_markdown(fp, md, &cfg, 0))
+		fputs(md, fp);
+	rc = fclose(fp);
+	if (!rc && trim)
+		len = terminal_trim_blank_rows(text, len);
+	if (!rc)
+		rc = view_rows_parse(rows, text, len);
+	free(text);
+	return rc ? -1 : 0;
+}
+
+/*
+ * Make the live rows that have a source again at @width. Rows the owner took
+ * out stay as they are: the scrollback has them.
+ */
+static int view_live_reflow(struct fyai_ctx *ctx,
+			    struct fyai_transcript_view *v, int width)
+{
+	struct view_source *src;
+	struct view_rows rows;
+	char **row;
+	size_t i, j, count, keep;
+	long long delta;
+
+	for (i = 0; i < v->nsources; i++) {
+		src = &v->source[i];
+		if (src->width == width)
+			continue;
+		if (v->stored + src->row < v->sent)
+			continue;
+		if (view_render_md(ctx, src->md, width, src->trim, &rows))
+			return -1;
+		/* The rows of the source go, and the new rows stand there. */
+		count = v->live.count - src->count + rows.count;
+		row = malloc((count ? count : 1) * sizeof(*row));
+		if (!row) {
+			view_rows_free(&rows);
+			return -1;
+		}
+		memcpy(row, v->live.row, src->row * sizeof(*row));
+		memcpy(row + src->row, rows.row, rows.count * sizeof(*row));
+		keep = v->live.count - src->row - src->count;
+		memcpy(row + src->row + rows.count,
+		       v->live.row + src->row + src->count, keep * sizeof(*row));
+		for (j = 0; j < src->count; j++)
+			free(v->live.row[src->row + j]);
+		free(v->live.row);
+		free(rows.row);
+		v->live.row = row;
+		v->live.alloc = count ? count : 1;
+		v->live.count = count;
+		delta = (long long)rows.count - (long long)src->count;
+		for (j = i + 1; j < v->nsources; j++)
+			v->source[j].row = (size_t)((long long)v->source[j].row +
+						    delta);
+		src->count = rows.count;
+		src->width = width;
+	}
+	return 0;
 }
 
 int fyai_transcript_view_refresh(struct fyai_ctx *ctx,
@@ -1087,6 +1236,7 @@ int fyai_transcript_view_refresh(struct fyai_ctx *ctx,
 
 	if (!ctx || !v || width < 1)
 		return 0;
+	memset(&stack, 0, sizeof(stack));
 	head_changed = !v->rendered || v->head.v != ctx->turn->last_message.v;
 	/*
 	 * A head stored while a document is live does not hold the rows of
@@ -1096,12 +1246,14 @@ int fyai_transcript_view_refresh(struct fyai_ctx *ctx,
 	 */
 	in_flight = head_changed && fy_is_valid(v->head) &&
 		    fyai_uitranscript_live(ctx);
+	rc = view_live_reflow(ctx, v, width);
+	fyai_error_check(ctx, !rc, out,
+			 "cannot make the live rows at the width of the view");
 	/* A region scrolled onto an exchange that is only measured renders
 	 * it. */
 	if ((!head_changed || in_flight) && v->width == width &&
 	    !fyai_transcript_view_needs_render(v, height))
 		return 0;
-	memset(&stack, 0, sizeof(stack));
 	rc = fyai_turn_stack_init(&stack, ctx->turn->last_message, fy_invalid);
 	fyai_error_check(ctx, !rc, out, "could not read the conversation");
 	rc = -1;

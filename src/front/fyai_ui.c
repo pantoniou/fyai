@@ -1483,9 +1483,25 @@ void fyai_ui_drain_output(struct fyai_ctx *ctx)
 		fyai_warning(ctx, "could not commit transcript output");
 }
 
-int fyai_ui_present(struct fyai_ctx *ctx, const char *buf, size_t len)
+/* The rows from @mark were made from @md: a change of width makes them
+ * again. */
+static void ui_source_live(struct fyai_ui *ui, size_t mark, const char *md,
+			   bool trim)
+{
+	struct fyai_ctx *ctx = fyai_ui_ctx(ui);
+
+	if (!ui->fullscreen || !md)
+		return;
+	if (fyai_transcript_view_source_live(ui->view, mark, md,
+			markdown_effective_width(ctx->cfg), trim))
+		fyai_warning(ctx, "cannot keep the source of the transcript rows");
+}
+
+static int ui_present_input(struct fyai_ctx *ctx, const char *buf, size_t len,
+			    const char *md)
 {
 	struct fyai_ui *ui;
+	size_t mark;
 	int rc;
 
 	if (!fyai_ui_active(ctx))
@@ -1504,12 +1520,25 @@ int fyai_ui_present(struct fyai_ctx *ctx, const char *buf, size_t len)
 	fflush(stderr);
 	spool_drain(ui, &ui->out);
 	spool_drain(ui, &ui->err);
+	mark = fyai_transcript_view_live_mark(ui->view);
 	rc = ui_present(ui, buf, len);
 	fyai_error_check(ctx, !rc, err_out, "could not present output");
+	ui_source_live(ui, mark, md, false);
 	return 0;
 
 err_out:
 	return -1;
+}
+
+int fyai_ui_present(struct fyai_ctx *ctx, const char *buf, size_t len)
+{
+	return ui_present_input(ctx, buf, len, NULL);
+}
+
+int fyai_ui_present_markdown(struct fyai_ctx *ctx, const char *buf,
+			     size_t len, const char *md)
+{
+	return ui_present_input(ctx, buf, len, md);
 }
 
 static void ui_queue(struct fyai_ui *ui, const char *text)
@@ -5232,12 +5261,16 @@ err_out:
 	return -1;
 }
 
-void fyai_ui_tail_finish(struct fyai_ctx *ctx, const char *buf, size_t len)
+void fyai_ui_tail_finish(struct fyai_ctx *ctx, const char *buf, size_t len,
+			 const char *md)
 {
 	struct fyai_ui *ui;
+	size_t mark;
 
 	if (!fyai_ui_active(ctx)) return;
 	ui = ctx->screen->ui;
+	mark = ui->fullscreen ? fyai_transcript_view_live_mark(ui->view) :
+				SIZE_MAX;
 	/*
 	 * The rows the renderer froze are not in the healed render. The
 	 * terminal library commits them to the scrollback; a fullscreen page
@@ -5255,6 +5288,8 @@ void fyai_ui_tail_finish(struct fyai_ctx *ctx, const char *buf, size_t len)
 		(void)ui_present(ctx->screen->ui, buf, len);
 		fyai_flow_observe(fyai_sink_flow(ctx->out->sink), buf, len);
 	}
+	/* The frozen rows and the healed rows are the render of @md. */
+	ui_source_live(ui, mark, md, true);
 	(void)fytim_tail_set(ctx->screen->ui->ft, NULL, 0);
 	ctx->screen->ui->stream_rows.len = 0;
 	if (ctx->screen->ui->stream_rows.data)

@@ -71,6 +71,22 @@ bool fyai_transcript_view_needs_render(const struct fyai_transcript_view *v,
 int fyai_transcript_view_append_live(struct fyai_transcript_view *v,
 				     const char *text, size_t len);
 
+/* The live row that the next append starts, or SIZE_MAX when it continues
+ * a row. */
+size_t fyai_transcript_view_live_mark(const struct fyai_transcript_view *v);
+
+/*
+ * The live rows from @mark were made from the Markdown @md at @width, with
+ * the blank rows at the end dropped when @trim. A change of width makes them
+ * again. Rows that do not end, or that another source holds, keep no source.
+ * The view keeps a copy of @md. Returns 0, or -1.
+ */
+int fyai_transcript_view_source_live(struct fyai_transcript_view *v,
+				     size_t mark, const char *md, int width,
+				     bool trim);
+/* The live rows that a source makes again. */
+size_t fyai_transcript_view_live_sourced(const struct fyai_transcript_view *v);
+
 /* Drop the live rows, as when the turn they belong to is stored. */
 void fyai_transcript_view_clear_live(struct fyai_transcript_view *v);
 

@@ -70,10 +70,17 @@ int fyai_ui_commit(struct fyai_ctx *ctx, const char *buf, size_t len);
  * does both.
  */
 int fyai_ui_present(struct fyai_ctx *ctx, const char *buf, size_t len);
+/* The same, for the rows that @md rendered to: a change of width renders @md
+ * again. */
+int fyai_ui_present_markdown(struct fyai_ctx *ctx, const char *buf,
+			     size_t len, const char *md);
 int fyai_ui_tail_apply(struct fyai_ctx *ctx, const struct markdown_update *upd);
 /* Discard rendered stream rows before a full-width rerender. */
 void fyai_ui_tail_reflow_reset(struct fyai_ctx *ctx);
-void fyai_ui_tail_finish(struct fyai_ctx *ctx, const char *buf, size_t len);
+/* Present the rows of the tail that ends: the frozen rows and the healed
+ * render @buf of @len bytes. @md is the source of both, or NULL. */
+void fyai_ui_tail_finish(struct fyai_ctx *ctx, const char *buf, size_t len,
+			 const char *md);
 void fyai_ui_set_busy(struct fyai_ctx *ctx, bool busy);
 bool fyai_ui_busy(const struct fyai_ctx *ctx);
 void fyai_ui_repaint(struct fyai_ctx *ctx);
