@@ -266,6 +266,29 @@ int fyai_session_clear(struct fyai_ctx *ctx)
 	return 0;
 }
 
+/*
+ * What a compacted turn shows: the card of the command and, when the model
+ * wrote one, the summary. Replay draws these in place of the messages of the
+ * turn, which are the input of the model and not a user line.
+ */
+static fy_generic session_compact_display(struct fyai_ctx *ctx, fy_generic turn,
+					  const char *hint, const char *summary)
+{
+	struct fy_generic_builder *gb = fyai_ctx_transient_gb(ctx);
+	fy_generic record;
+	const char *line;
+
+	line = hint && *hint ? fy_sprintfa("/compact %s", hint) : "/compact";
+	record = fy_mapping(gb, "tag", "command", "markdown", line,
+			    "output", "conversation compacted");
+	turn = fyai_turn_append_display_output(ctx, turn, record);
+	if (fy_str_empty(summary))
+		return turn;
+	record = fy_mapping(gb, "tag", "assistant", "markdown", summary,
+			    "state", "finalized", "fragments", fy_seq_empty);
+	return fyai_turn_append_display_output(ctx, turn, record);
+}
+
 static int session_compact_responses(struct fyai_ctx *ctx, const char *hint)
 {
 	struct fyai_cfg *cfg = ctx->cfg;
@@ -377,6 +400,7 @@ restore:
 		meta = fy_assoc(meta, "compact_instructions", hint);
 	fyai_branch_op_set(ctx, FYAI_BRANCH_OP_COMPACT, NULL);
 	turn = fy_assoc(turn, "metadata", meta);
+	turn = session_compact_display(ctx, turn, hint, NULL);
 	turn = fy_gb_internalize(ctx->arena->gb, turn);
 	fyai_error_check(ctx, fy_is_valid(turn), out,
 			 "compact: cannot store the compacted turn");
@@ -476,6 +500,7 @@ static int session_compact_responses_v2(struct fyai_ctx *ctx,
 		meta = fy_assoc(meta, "compact_instructions", hint);
 	fyai_branch_op_set(ctx, FYAI_BRANCH_OP_COMPACT, NULL);
 	turn = fy_assoc(turn, "metadata", meta);
+	turn = session_compact_display(ctx, turn, hint, NULL);
 	turn = fy_gb_internalize(ctx->arena->gb, turn);
 	fyai_error_check(ctx, fy_is_valid(turn), out,
 			 "compact: cannot store the compacted turn");
@@ -604,6 +629,7 @@ int fyai_session_compact(struct fyai_ctx *ctx, const char *hint)
 		meta = fy_assoc(meta, "compact_instructions", hint);
 	fyai_branch_op_set(ctx, FYAI_BRANCH_OP_COMPACT, NULL);
 	turn = fy_assoc(turn, "metadata", meta);
+	turn = session_compact_display(ctx, turn, hint, summary);
 
 	turn = fy_gb_internalize(ctx->arena->gb, turn);
 	if (fy_is_invalid(turn))

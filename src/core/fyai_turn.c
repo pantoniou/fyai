@@ -359,12 +359,22 @@ fy_generic fyai_make_system_message(struct fyai_ctx *ctx, const char *text)
  * calls, which the tool rows replay from. The provider stream, the
  * configuration and the credentials stay here.
  */
+bool fyai_turn_compacted(fy_generic turn)
+{
+	return fy_is_valid(fy_get(fyai_turn_meta(turn), "compacted_from",
+				  fy_invalid));
+}
+
 fy_generic fyai_turn_wire(struct fy_generic_builder *gb, fy_generic turn)
 {
 	fy_generic outputs, output, messages, message, type;
 	const char *user = "";
 
 	outputs = fy_get(turn, "display_outputs", fy_seq_empty);
+	/* A compacted turn is its display records: it has no user line. */
+	if (fyai_turn_compacted(turn))
+		return fy_mapping(gb, "messages", fy_seq_empty,
+				  "display_outputs", outputs);
 	fy_foreach(output, outputs)
 		if (fy_any_equal(fy_get(output, "tag", fy_invalid),
 				 "user", "agent"))

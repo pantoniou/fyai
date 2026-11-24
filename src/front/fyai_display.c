@@ -3450,7 +3450,12 @@ static bool fyai_display_outputs_complete(struct fyai_ctx *ctx,
 	size_t i;
 
 	for (i = lo; i < hi; i++) {
-		msgs = fy_get(stack->items[i], "messages", fy_seq_empty);
+		/*
+		 * A compacted turn shows its stored outputs alone: its messages
+		 * are the input of the model, not a user line.
+		 */
+		msgs = fyai_turn_compacted(stack->items[i]) ? fy_seq_empty :
+		       fy_get(stack->items[i], "messages", fy_seq_empty);
 		fy_foreach(msg, msgs) {
 			if (fy_any_equal(fy_get(msg, "role"), "user", "agent"))
 				users++;

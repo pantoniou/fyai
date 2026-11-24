@@ -86,6 +86,12 @@ bool fyai_turn_continuable(fy_generic head);
 bool fyai_turn_is_system_only(fy_generic turn);
 
 /*
+ * True when @turn starts the chain that a compaction made. Its messages are
+ * the input of the model, and its display records show it.
+ */
+bool fyai_turn_compacted(fy_generic turn);
+
+/*
  * What a client that has no arena needs of one stored turn, as a mapping in
  * @gb: its display records, its user message as the card shows it, and the
  * outputs of its calls, which the tool rows replay from. The provider
