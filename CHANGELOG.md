@@ -1,5 +1,43 @@
 # Changelog
 
+## 0.5.0 - 2026-11-24
+
+### Added
+
+- **Interactive sessions run in a split worker.** The terminal is a client and
+  the model, tools and arena are in a local worker. The worker keeps durable
+  turns, restarts with the view, and ends when no client keeps it. The client
+  has a resume picker, a branch browser, completion from the worker, skills,
+  sub-agent tiles, image attachments, and its own prompt history.
+- **A fleet of sessions.** `fyai fleet` scans nested projects, lists and
+  creates members, and `fleet kill` stops them. A root session supervises
+  its members, restarts crashed ones, and queues starts over `fleet/max_live`.
+  The `fleet` model tool and `/jump`, `/root`, `/split` and `session adopt`
+  work with `PROJECT:BRANCH` names. The fleet panel shows the members and the work.
+- **`/title`, `/work-height`, `/tool-display`**, the `title/auto` key, and the
+  keys `display/tool_command_lines` and `display/tile_live_rows`.
+- **`branch/on_conflict=fork`** keeps the work of a concurrent writer on a new
+  branch.
+- **`sandbox enter` and `sandbox profiles`**, native macOS confinement and
+  project capture, and a seccomp filter for UDP below Landlock ABI 10.
+- **Static and Fil-C builds**: scripts, CMake targets that run the cases against
+  them, a static build under ASAN, and a Fil-C build in the release.
+
+### Changed
+
+- **The alternate screen is the default page**, and a page can take the whole
+  normal screen. Frozen rows of a streaming answer go to the scrollback.
+- **Each turn records the project, and tool calls show diffs by default.**
+- **The platform code of the host, sandbox and view is in backends.**
+- **The catalogue has new models**, among them `gemini-4-neon`.
+
+### Fixed
+
+- A call that ended stays on the screen until its rows commit, and live rows
+  render again at a new width.
+- Command-line overrides stay when a session changes branch.
+- Refresh storage of credentials no longer waits for an active turn.
+
 ## 0.4.2 - 2026-10-26
 
 ### Added
