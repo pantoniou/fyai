@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.5.2 - 2026-11-24
+
+### Changed
+
+- **The catalogue lists the models of the Claude Code CLI.** The key
+  `claude_code/catalog_provider` names the provider, `anthropic` by default.
+  `/model claude-code/<Tab>` completes its models, and a catalogue name, such
+  as `claude-sonnet-5.5`, goes to the CLI as the id of that provider, with
+  the context window and output limit of the catalogue.
+
+### Fixed
+
+- After `/compact` the transcript shows the command and the summary. It
+  showed an empty user card.
+
 ## 0.5.1 - 2026-11-24
 
 ### Added
