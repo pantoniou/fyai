@@ -29,6 +29,7 @@ FYAI_TEST_ENTRY(transport_cfg, refuses_what_it_cannot_isolate, transport_cfg_ref
 FYAI_TEST_ENTRY(transport_cfg, providers_share_a_set, transport_cfg_providers_share_a_set)
 FYAI_TEST_ENTRY(transport_cfg, isolation_change_restarts, transport_cfg_isolation_change_restarts)
 FYAI_TEST_ENTRY(transport_cfg, secret_stays_at_the_transport, transport_cfg_secret_stays_at_the_transport)
+FYAI_TEST_ENTRY(transport_cfg, program_profile, transport_cfg_program_profile)
 
 static struct fy_generic_builder *new_gb(void)
 {
@@ -344,5 +345,51 @@ int transport_cfg_isolation_change_restarts(void)
 	cfg.agent_transport_isolation = "none";
 	FYAI_TCHECK(fyai_transport_config_changed(ctx.transport, &why) == -1 && why);
 	unsetenv("FYAI_TRANSPORT_FORCED");
+	return 0;
+}
+
+/*
+ * A grammar that a local program serves states one program profile: no URL,
+ * no credential, no compact profile. Its name follows the program and the
+ * billing choice, and it is the profile that the agent is granted.
+ */
+int transport_cfg_program_profile(void)
+{
+	struct fy_generic_builder *gb = new_gb();
+	struct fyai_transport_grant g = { 0 };
+	const struct fyai_transport_profile *pr;
+	struct fyai_transport_allow allow[FYAI_TPC_KINDS];
+	char names[FYAI_TPC_KINDS][FYAI_TPC_NAME_MAX];
+	char a[FYAI_TPC_NAME_MAX], b[FYAI_TPC_NAME_MAX];
+	struct fyai_cfg cfg;
+	const char *why = NULL;
+
+	memset(&cfg, 0, sizeof(cfg));
+	cfg.gb = gb;
+	cfg.api_mode = FYAI_API_CLAUDE_CODE;
+	cfg.provider = "claude-code";
+	cfg.claude_code_command = "/opt/bin/claude";
+
+	FYAI_TCHECK(fyai_transport_profile_name(&cfg, FYAI_TPC_MODEL, a, sizeof(a)));
+	FYAI_TCHECK(!fyai_transport_profile_name(&cfg, FYAI_TPC_COMPACT, b, sizeof(b)));
+	FYAI_TCHECK(!fyai_transport_profiles_add(&g, &cfg, &why));
+	FYAI_TCHECK(g.count == 1);
+	pr = fyai_transport_grant_find(&g, a);
+	FYAI_TCHECK(pr && !pr->url && !pr->credential && pr->auth == FYAI_TA_NONE);
+	FYAI_TCHECK(!strcmp(pr->program, "/opt/bin/claude") && !pr->api_billing);
+	FYAI_TCHECK(fyai_transport_allow_for(&cfg, names, allow) == 1 &&
+		    !strcmp(allow[0].profile, a));
+
+	/* Another program, or billing, is another profile. */
+	cfg.claude_code_api_billing = true;
+	FYAI_TCHECK(fyai_transport_profile_name(&cfg, FYAI_TPC_MODEL, b, sizeof(b)));
+	FYAI_TCHECK(strcmp(a, b));
+	cfg.claude_code_api_billing = false;
+	cfg.claude_code_command = "claude";
+	FYAI_TCHECK(fyai_transport_profile_name(&cfg, FYAI_TPC_MODEL, b, sizeof(b)));
+	FYAI_TCHECK(strcmp(a, b));
+
+	fyai_transport_grant_clear(&g);
+	fy_generic_builder_destroy(gb);
 	return 0;
 }

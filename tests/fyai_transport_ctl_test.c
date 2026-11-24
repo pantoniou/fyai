@@ -42,6 +42,10 @@ int transport_ctl_profiles_roundtrip(void)
 		.name = "local", .url = "http://ollama.lan:11434/v1/chat",
 		.auth = FYAI_TA_NONE, .plain_http = true, .tag = "chat",
 	};
+	struct fyai_transport_profile_spec cli = {
+		.name = "cli", .program = "/opt/bin/claude", .api_billing = true,
+		.auth = FYAI_TA_NONE,
+	};
 	struct fy_generic_builder *gb = new_gb();
 	const struct fyai_transport_profile *p;
 	const char *why = "";
@@ -55,9 +59,10 @@ int transport_ctl_profiles_roundtrip(void)
 	FYAI_TCHECK(!fyai_transport_grant_add_header(&in, "anthropic",
 						     "anthropic-version", "2023-06-01"));
 	FYAI_TCHECK(!fyai_transport_grant_add_spec(&in, &lan));
+	FYAI_TCHECK(!fyai_transport_grant_add_spec(&in, &cli));
 
 	FYAI_TCHECK(!fyai_ctl_profiles_parse(fyai_ctl_profiles_encode(gb, &in), &out, &why));
-	FYAI_TCHECK(out.count == 3);
+	FYAI_TCHECK(out.count == 4);
 	p = fyai_transport_grant_find(&out, "main");
 	FYAI_TCHECK(p && p->auth == FYAI_TA_BEARER && !strcmp(p->model, "m1"));
 	FYAI_TCHECK(!strcmp(p->credential, "env:KEY") && !strcmp(p->tag, "responses"));
@@ -65,7 +70,10 @@ int transport_ctl_profiles_roundtrip(void)
 	FYAI_TCHECK(p && p->auth == FYAI_TA_HEADER && !strcmp(p->header, "x-api-key"));
 	FYAI_TCHECK(p->nheaders == 1 && !strcmp(p->headers[0], "anthropic-version: 2023-06-01"));
 	p = fyai_transport_grant_find(&out, "local");
-	FYAI_TCHECK(p && p->plain_http && p->auth == FYAI_TA_NONE);
+	FYAI_TCHECK(p && p->plain_http && p->auth == FYAI_TA_NONE && !p->program);
+	p = fyai_transport_grant_find(&out, "cli");
+	FYAI_TCHECK(p && !p->url && p->api_billing && p->auth == FYAI_TA_NONE &&
+		    !strcmp(p->program, "/opt/bin/claude"));
 
 	fyai_transport_grant_clear(&in);
 	fyai_transport_grant_clear(&out);
@@ -109,6 +117,14 @@ int transport_ctl_profiles_rejected(void)
 	FYAI_TCHECK(parse_json("[{\"name\":\"a\",\"url\":\"https://x.example/\",\"auth\":\"none\",\"headers\":{\"X-A\":1}}]", &why) == -EINVAL);
 	FYAI_TCHECK(parse_json("[{\"name\":\"a\",\"url\":\"https://x.example/\",\"auth\":\"none\",\"headers\":[1]}]", &why) == -EINVAL);
 	FYAI_TCHECK(!parse_json("[{\"name\":\"a\",\"url\":\"https://x.example/\",\"auth\":\"none\",\"headers\":{\"X-A\":\"1\"}}]", &why));
+
+	/* A program profile has no URL and no credential. */
+	FYAI_TCHECK(!parse_json("[{\"name\":\"a\",\"program\":\"claude\",\"auth\":\"none\"}]", &why));
+	FYAI_TCHECK(parse_json("[{\"name\":\"a\",\"program\":\"claude\",\"url\":\"https://x.example/\",\"auth\":\"none\"}]", &why) == -EINVAL);
+	FYAI_TCHECK(parse_json("[{\"name\":\"a\",\"program\":\"claude\",\"auth\":\"bearer\",\"credential\":\"env:K\"}]", &why) == -EINVAL);
+	FYAI_TCHECK(parse_json("[{\"name\":\"a\",\"program\":\"\",\"auth\":\"none\"}]", &why) == -EINVAL);
+	FYAI_TCHECK(parse_json("[{\"name\":\"a\",\"program\":\"cl\\naude\",\"auth\":\"none\"}]", &why) == -EINVAL);
+	FYAI_TCHECK(parse_json("[{\"name\":\"a\",\"program\":\"claude\",\"auth\":\"none\",\"api_billing\":1}]", &why) == -EINVAL);
 	return 0;
 }
 
