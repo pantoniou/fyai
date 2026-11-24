@@ -35,5 +35,8 @@ void fyai_uitranscript_pause(struct fyai_ctx *ctx, bool paused);
 void fyai_uitranscript_fragment(struct fyai_ctx *ctx, fy_generic fragment);
 void fyai_uitranscript_end(struct fyai_ctx *ctx, const char *state);
 void fyai_uitranscript_release(struct fyai_ctx *ctx);
+/* The store holds a live document. It reads the store, so it also answers for
+ * the store that a client mirrors from its worker. */
+bool fyai_uitranscript_live(struct fyai_ctx *ctx);
 
 #endif

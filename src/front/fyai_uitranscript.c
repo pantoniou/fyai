@@ -162,6 +162,17 @@ void fyai_uitranscript_end(struct fyai_ctx *ctx, const char *state)
 	uitranscript_publish(ctx);
 }
 
+bool fyai_uitranscript_live(struct fyai_ctx *ctx)
+{
+	fy_generic root, live;
+
+	if (!ctx)
+		return false;
+	root = fyai_uimodel_get(ctx, FYAI_UI_TRANSCRIPT);
+	live = fy_get(root, "live", fy_invalid);
+	return fy_get(live, "source", 0LL) != 0;
+}
+
 void fyai_uitranscript_release(struct fyai_ctx *ctx)
 {
 	struct fyai_uitranscript *t = ctx ? ctx->uistores->uitranscript : NULL;

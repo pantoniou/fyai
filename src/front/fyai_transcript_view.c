@@ -26,6 +26,7 @@
 #include "fyai_sink.h"
 #include "fyai_terminal.h"
 #include "fyai_transcript_view.h"
+#include "fyai_uitranscript.h"
 #include "fyai_turn.h"
 
 /* Rows: owned strings, without their newlines. */
@@ -1081,15 +1082,23 @@ int fyai_transcript_view_refresh(struct fyai_ctx *ctx,
 	size_t *starts = NULL;
 	uintptr_t *keys = NULL;
 	size_t count, exchanges = 0, i;
-	bool head_changed;
+	bool head_changed, in_flight;
 	int rc = -1;
 
 	if (!ctx || !v || width < 1)
 		return 0;
 	head_changed = !v->rendered || v->head.v != ctx->turn->last_message.v;
+	/*
+	 * A head stored while a document is live does not hold the rows of
+	 * that document: a client learns of the turns of its worker after it
+	 * presented them. The view keeps its exchanges and the live rows, and
+	 * takes the head when the document ends.
+	 */
+	in_flight = head_changed && fy_is_valid(v->head) &&
+		    fyai_uitranscript_live(ctx);
 	/* A region scrolled onto an exchange that is only measured renders
 	 * it. */
-	if (!head_changed && v->width == width &&
+	if ((!head_changed || in_flight) && v->width == width &&
 	    !fyai_transcript_view_needs_render(v, height))
 		return 0;
 	memset(&stack, 0, sizeof(stack));
@@ -1111,6 +1120,9 @@ int fyai_transcript_view_refresh(struct fyai_ctx *ctx,
 	else if (count)
 		starts[exchanges++] = 0;
 	starts[exchanges] = count;
+	/* The exchanges the view shows lead the head. */
+	if (in_flight && exchanges > v->nexchanges)
+		exchanges = v->nexchanges;
 	/* An exchange is the turns it stored: its last turn names it. */
 	for (i = 0; i < exchanges; i++)
 		keys[i] = (uintptr_t)stack.items[starts[i + 1] - 1].v;
@@ -1130,7 +1142,7 @@ int fyai_transcript_view_refresh(struct fyai_ctx *ctx,
 	 * they do, and the separation before the next unit is counted from
 	 * there.
 	 */
-	if (head_changed) {
+	if (head_changed && !in_flight) {
 		r.measurer = NULL;
 		r.measurer_width = 0;
 		rc = fyai_transcript_view_replace_live(v, width, height, keys,
@@ -1148,7 +1160,8 @@ int fyai_transcript_view_refresh(struct fyai_ctx *ctx,
 		}
 	}
 	v->rendered = true;
-	v->head = ctx->turn->last_message;
+	if (!in_flight)
+		v->head = ctx->turn->last_message;
 out:
 	free(keys);
 	free(starts);
