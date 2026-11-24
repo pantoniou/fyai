@@ -25,6 +25,7 @@
 #include "fyai_sandbox_profile.h"
 #include "fyai_skill.h"
 #include "fyai_cmd_int.h"
+#include "fyai_grammar.h"
 #include "fyai_branch.h"
 #include "fyai_catalog.h"
 #include "fyai_config.h"
@@ -203,8 +204,57 @@ static void kind_provider(struct complete_req *r)
 }
 
 /*
+ * The models of a grammar that a local program serves, as provider/MODEL: its
+ * default, and the offerings of the catalogue provider that lists its models.
+ * With @prefix NULL, the provider of each such grammar.
+ */
+static void model_programs(struct complete_req *r, const char *prefix)
+{
+	const struct fyai_grammar *grammar;
+	struct fyai_ctx *ctx = complete_req_ctx(r);
+	struct fyai_cfg defaults;
+	const struct fyai_cfg *cfg;
+	fy_generic o, canon;
+	const char *listed;
+
+	/* With no arena, the configuration is the default one. */
+	cfg = ctx ? ctx->cfg : NULL;
+	if (!cfg) {
+		memset(&defaults, 0, sizeof(defaults));
+		fyai_config_set_defaults(&defaults);
+		cfg = &defaults;
+	}
+
+	fyai_grammar_foreach(grammar) {
+		if (!grammar->cli)
+			continue;
+		if (!prefix) {
+			cand(r, fy_sprintfa("%s/", grammar->default_provider),
+			     "program");
+			continue;
+		}
+		if (strcmp(prefix, grammar->default_provider))
+			continue;
+		cand(r, fy_sprintfa("%s/%s", prefix, grammar->default_model),
+		     NULL);
+		listed = fyai_grammar_catalog_provider(grammar, cfg);
+		if (!listed)
+			continue;
+		fy_foreach(o, fy_get(fyai_catalog_provider(complete_catalog(r),
+							   listed),
+				     "models", fy_invalid)) {
+			canon = fy_get(o, "canonical_id", fy_invalid);
+			if (*gstr(&canon))
+				cand(r, fy_sprintfa("%s/%s", prefix,
+						    gstr(&canon)), NULL);
+		}
+	}
+}
+
+/*
  * A model name, or provider/model for the offering of one provider. A bare
- * provider completes to "provider/" to reach that form.
+ * provider completes to "provider/" to reach that form. A program that serves
+ * models names its own.
  */
 static void kind_model(struct complete_req *r)
 {
@@ -225,6 +275,7 @@ static void kind_model(struct complete_req *r)
 				cand(r, fy_sprintfa("%s/%s", pfx,
 						    gstr(&canon)), NULL);
 		}
+		model_programs(r, pfx);
 		free(pfx);
 		return;
 	}
@@ -237,6 +288,7 @@ static void kind_model(struct complete_req *r)
 		if (*gstr(&name))
 			cand(r, fy_sprintfa("%s/", gstr(&name)), "provider");
 	}
+	model_programs(r, NULL);
 }
 
 static void kind_theme(struct complete_req *r)

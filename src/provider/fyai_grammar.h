@@ -176,6 +176,13 @@ struct fyai_grammar {
 	 * no catalogue endpoint, and every reply is streamed.
 	 */
 	bool cli;
+	/*
+	 * The catalogue provider whose offerings name the models that the
+	 * program takes, from the configuration @cfg, or NULL. Completion
+	 * offers them as default_provider/MODEL, and model resolution maps
+	 * a catalogue name to the id that the provider gives it.
+	 */
+	const char *(*catalog_provider)(const struct fyai_cfg *cfg);
 };
 
 extern const struct fyai_grammar fyai_grammar_responses;
@@ -281,6 +288,13 @@ fy_generic fyai_grammar_history(const struct fyai_grammar *grammar,
  */
 fy_generic fyai_grammar_sandbox_grants(const struct fyai_cfg *cfg,
 				       struct fy_generic_builder *gb);
+
+/*
+ * The catalogue provider of the models of @grammar, a grammar that a local
+ * program serves, for @cfg; NULL when it names none or @cfg is NULL.
+ */
+const char *fyai_grammar_catalog_provider(const struct fyai_grammar *grammar,
+					  const struct fyai_cfg *cfg);
 
 /* True when an endpoint of the grammar can offer /compact. */
 bool fyai_grammar_compacts(const struct fyai_cfg *cfg);

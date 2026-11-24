@@ -162,6 +162,14 @@ fy_generic fyai_grammar_sandbox_grants(const struct fyai_cfg *cfg,
 	return fy_is_sequence(grants) ? grants : fy_seq_empty;
 }
 
+const char *fyai_grammar_catalog_provider(const struct fyai_grammar *grammar,
+					  const struct fyai_cfg *cfg)
+{
+	if (!grammar || !cfg || !grammar->catalog_provider)
+		return NULL;
+	return grammar->catalog_provider(cfg);
+}
+
 bool fyai_grammar_compacts(const struct fyai_cfg *cfg)
 {
 	return fyai_grammar(cfg)->compact_url != NULL;

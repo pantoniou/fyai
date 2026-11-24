@@ -259,6 +259,17 @@ static fy_generic cc_sandbox_grants(const struct fyai_cfg *cfg,
 	return fy_sequence(gb, grant);
 }
 
+/*
+ * The CLI takes the model ids of the Messages API, so a catalogue provider of
+ * that API lists its models; the configuration names it. The CLI also takes
+ * aliases, such as sonnet, which go to it as they are.
+ */
+static const char *cc_catalog_provider(const struct fyai_cfg *cfg)
+{
+	return fy_str_empty(cfg->claude_code_provider) ? NULL :
+	       cfg->claude_code_provider;
+}
+
 /* The CLI is not reached over HTTP. */
 static const struct fyai_grammar_header cc_headers[] = {
 	{ NULL, NULL },
@@ -283,4 +294,5 @@ const struct fyai_grammar fyai_grammar_claude_code = {
 	.history		= cc_history,
 	.sandbox_grants		= cc_sandbox_grants,
 	.cli			= true,
+	.catalog_provider	= cc_catalog_provider,
 };

@@ -554,6 +554,9 @@ static void config_apply_media(struct fyai_cfg *cfg, fy_generic root)
 					   cfg->claude_code_command : "");
 	cfg->claude_code_api_billing = fy_get(fy_get(root, "claude_code"),
 				"api_billing", cfg->claude_code_api_billing);
+	cfg->claude_code_provider = fy_get(fy_get(root, "claude_code"),
+				"catalog_provider", cfg->claude_code_provider ?
+					   cfg->claude_code_provider : "");
 }
 
 
@@ -3250,6 +3253,7 @@ void fyai_config_set_defaults(struct fyai_cfg *cfg)
 	cfg->shell_shell = "";
 	cfg->catalog_update_command = DEFAULT_CATALOG_UPDATE_COMMAND;
 	cfg->claude_code_command = "claude";
+	cfg->claude_code_provider = "anthropic";
 	cfg->catalog_update_timeout_ms = DEFAULT_CATALOG_UPDATE_TIMEOUT_MS;
 	cfg->catalog_update_credentials = fy_invalid;
 	cfg->shell_login = false;
@@ -3638,15 +3642,16 @@ static int config_resolve_catalog_model(struct fyai_cfg *cfg,
 
 /*
  * A model of a grammar that a local program serves: `PROVIDER/MODEL` with the
- * default provider of that grammar selects it, as does `api`. The program
- * resolves the model name itself, and owns its login; nothing of the
- * catalogue but the model limits applies. True when @cfg is such a model.
+ * default provider of that grammar selects it, as does `api`. The program owns
+ * its login. A model that the catalogue provider of the grammar offers goes
+ * to the program as the id of that provider, with the limits of the
+ * catalogue; another name goes as it is. True when @cfg is such a model.
  */
 static bool config_resolve_local_model(struct fyai_cfg *cfg, fy_generic catalog)
 {
 	const struct fyai_grammar *grammar;
-	fy_generic cat_model;
-	const char *slash;
+	fy_generic cat_model, offer;
+	const char *slash, *listed, *pmid;
 	size_t len;
 	long long max_out;
 
@@ -3681,6 +3686,15 @@ static bool config_resolve_local_model(struct fyai_cfg *cfg, fy_generic catalog)
 		cfg->model = grammar->default_model;
 	cfg->provider = grammar->default_provider;
 	cfg->api_url = grammar->default_url;
+	/* A catalogue name goes to the program as the id of its provider. */
+	listed = fyai_grammar_catalog_provider(grammar, cfg);
+	if (listed) {
+		fyai_catalog_offering(fyai_catalog_provider(catalog, listed),
+				      cfg->model, &offer);
+		pmid = fy_get(offer, "provider_model_id", "");
+		if (*pmid)
+			cfg->model = fy_gb_intern_string(cfg->gb, pmid);
+	}
 	cfg->shell_tool_supported = false;
 	cfg->web_search_supported = false;
 	cfg->web_search_type = NULL;

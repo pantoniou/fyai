@@ -431,8 +431,12 @@ struct fyai_cfg {
 	const char *catalog_update_command;
 	unsigned int catalog_update_timeout_ms;
 	fy_generic catalog_update_credentials;	/* variable names */
-	/* The claude-code backend: its CLI, and whether it may bill an API key. */
+	/*
+	 * The claude-code backend: its CLI, whether it may bill an API key, and
+	 * the catalogue provider that lists its models.
+	 */
 	const char *claude_code_command;
+	const char *claude_code_provider;
 	bool claude_code_api_billing;
 	bool shell_login;		/* run a shell call under a login shell */
 	int shell_tty_rows;		/* PTY rows (0 = follow the terminal) */

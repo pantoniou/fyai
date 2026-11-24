@@ -87,6 +87,7 @@ retry:
 claude_code:
   command: claude
   api_billing: false
+  catalog_provider: anthropic
 
 # `fyai catalog update` runs a scrape-providers-compatible command with
 # --format yaml and selection options. Only listed credentials are retained.

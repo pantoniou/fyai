@@ -353,6 +353,14 @@ properties:
           Allow a CLI that bills an API key. When false, a run stops before
           it sends the conversation if the CLI does not use a Claude
           subscription.
+      catalog_provider:
+        type: string
+        default: anthropic
+        description: >-
+          Name the catalogue provider whose models the CLI takes. Completion
+          offers them as claude-code/MODEL, a catalogue name goes to the CLI
+          as the id of that provider, and the catalogue gives the limits of
+          the model. Empty lists none.
   catalog_update:
     x-fyai-model: read
     type: object
