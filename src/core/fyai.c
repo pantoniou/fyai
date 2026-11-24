@@ -356,7 +356,7 @@ static fy_generic fyai_finish_tool_call(struct fyai_ctx *ctx, fy_generic turn,
 	 * tool-result fragment; after it closes, the same Markdown is appended
 	 * silently to the durable document and assistant rendering resumes.
 	 */
-	rc = isolated_tool ? fyai_output_checkpoint(ctx) : 0;
+	rc = fyai_output_checkpoint(ctx);
 	fyai_error_check(ctx, !rc, err,
 		"could not checkpoint output before tool call");
 	/* Do not repeat a job invocation after its live output. */
@@ -396,7 +396,7 @@ static fy_generic fyai_finish_tool_call(struct fyai_ctx *ctx, fy_generic turn,
 		fyai_record_tool_exchange(ctx, tool_call, tool_result, tool_ok);
 	fyai_error_check(ctx, !rc, err_resume,
 		"could not record tool display output");
-	rc = isolated_tool ? fyai_output_resume(ctx) : 0;
+	rc = fyai_output_resume(ctx);
 	fyai_error_check(ctx, !rc, err,
 		"could not resume output after tool call");
 
@@ -440,8 +440,7 @@ static fy_generic fyai_finish_tool_call(struct fyai_ctx *ctx, fy_generic turn,
 			 "could not append the tool result");
 	return out;
 err_resume:
-	if (isolated_tool)
-		(void)fyai_output_resume(ctx);
+	(void)fyai_output_resume(ctx);
 err:
 	return fy_invalid;
 }
@@ -707,7 +706,7 @@ static void fyai_stream_tool_ready(fyai_stream_request *request,
 	rc = 0;
 	if (!sink->separated) {
 		rc = fyai_output_start_block(fyai_stream_tool_sink_ctx(sink));
-		if (!rc && fyai_output_renders_live(fyai_stream_tool_sink_ctx(sink))) {
+		if (!rc) {
 			rc = fyai_output_checkpoint(fyai_stream_tool_sink_ctx(sink));
 			checkpointed = !rc;
 		}

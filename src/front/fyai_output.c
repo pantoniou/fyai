@@ -318,9 +318,14 @@ err:
 	return -1;
 }
 
+/*
+ * The display that follows the transcript store pauses the document. That
+ * display can be in another process: the sink of a worker is not live, but
+ * the page of its client is.
+ */
 int fyai_output_checkpoint(struct fyai_ctx *ctx)
 {
-	if (!fyai_output_renders_live(ctx))
+	if (!ctx || !ctx->out->display_output)
 		return 0;
 	ctx->out->display_output->paused = true;
 	fyai_uitranscript_pause(ctx, true);
@@ -330,7 +335,7 @@ int fyai_output_checkpoint(struct fyai_ctx *ctx)
 int fyai_output_resume(struct fyai_ctx *ctx)
 {
 	if (!ctx || !ctx->out->display_output)
-		return -1;
+		return 0;
 	if (!ctx->out->display_output->paused)
 		return 0;
 	ctx->out->display_output->paused = false;

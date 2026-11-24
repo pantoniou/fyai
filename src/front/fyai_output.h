@@ -30,6 +30,7 @@ bool fyai_output_reasoning_open(const struct fyai_ctx *ctx);
 const char *fyai_output_markdown(const struct fyai_ctx *ctx, size_t *len);
 long long fyai_output_estimated_tokens(const struct fyai_ctx *ctx);
 bool fyai_output_renders_live(const struct fyai_ctx *ctx);
+/* Close the rows presented so far, ahead of a tool block. */
 int fyai_output_checkpoint(struct fyai_ctx *ctx);
 int fyai_output_resume(struct fyai_ctx *ctx);
 int fyai_output_add_fragment(struct fyai_ctx *ctx, const char *kind,
