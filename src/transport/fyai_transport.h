@@ -61,6 +61,7 @@ enum fyai_transport_kind {
 	FYAI_TK_RESP_BODY,		/* transport: exact response bytes */
 	FYAI_TK_RESP_END,		/* transport: terminal frame */
 	FYAI_TK_RESP_ERROR,		/* transport: terminal error */
+	FYAI_TK_EXCHANGE_END,		/* agent: its exchange ended */
 	FYAI_TK_COUNT,
 };
 
@@ -101,7 +102,14 @@ enum fyai_transport_auth {
  */
 struct fyai_transport_profile {
 	char *name;
-	char *url;			/* exact endpoint */
+	char *url;			/* exact endpoint; NULL for a program */
+	/*
+	 * A local program that serves the requests in place of an endpoint:
+	 * the Claude Code CLI of the claude-code backend (fyai_claude_cli.c).
+	 * The program holds its own login, so the profile has no credential.
+	 */
+	char *program;
+	bool api_billing;		/* the program may bill an API key */
 	char *tag;			/* may be NULL */
 	char *model;			/* may be NULL */
 	enum fyai_transport_auth auth;
@@ -120,7 +128,9 @@ struct fyai_transport_grant {
 /* The input of one profile. Strings are copied. */
 struct fyai_transport_profile_spec {
 	const char *name;
-	const char *url;
+	const char *url;		/* NULL with @program */
+	const char *program;		/* a program profile, with FYAI_TA_NONE */
+	bool api_billing;
 	const char *tag;		/* may be NULL */
 	const char *model;		/* may be NULL */
 	enum fyai_transport_auth auth;
@@ -130,7 +140,9 @@ struct fyai_transport_profile_spec {
 };
 
 /*
- * Add a profile. The endpoint must be https with a host and no userinfo, with
+ * Add a profile. A program profile names an absolute path or a name on PATH,
+ * with no control character, and has no URL and no authentication. Any other
+ * profile has an endpoint, which must be https with a host and no userinfo, with
  * two exceptions. A loopback endpoint can use http, with or without
  * authentication: the credential does not leave the host. Any other http
  * endpoint needs @spec->plain_http, which the trusted configuration sets when

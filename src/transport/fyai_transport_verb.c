@@ -348,7 +348,9 @@ static int op_describe(struct fyai_transport_conn *c, struct fy_generic_builder 
 	for (i = 0; set && i < set->count; i++) {
 		p = &set->profiles[i];
 		granted = fyai_transport_exec_allows(ex, p->name, &narrow);
-		row = fy_null_filtered_mapping(gb, "name", p->name, "url", p->url,
+		row = fy_null_filtered_mapping(gb, "name", p->name,
+			"url", p->url ? fy_value(gb, p->url) : fy_null,
+			"program", p->program ? fy_value(gb, p->program) : fy_null,
 			"auth", p->auth == FYAI_TA_NONE ? "none" :
 				p->auth == FYAI_TA_BEARER ? "bearer" : "header",
 			"tag", p->tag ? fy_value(gb, p->tag) : fy_null,

@@ -194,7 +194,7 @@ static const char *opt_string(struct fy_generic_builder *gb, fy_generic m,
 static int profile_validate(fy_generic profiles, const char **why)
 {
 	static const char *const optional[] = {
-		"tag", "model", "header", "credential"
+		"tag", "model", "header", "credential", "url", "program"
 	};
 	fy_generic item, hdrs, key, val, field;
 	const char *auth;
@@ -214,9 +214,11 @@ static int profile_validate(fy_generic profiles, const char **why)
 			*why = "a profile needs a name, a url, and an auth";
 			return -EINVAL;
 		}
+		/* A profile has an endpoint or a program, not both. */
 		field = fy_get(item, "url", fy_invalid);
-		if (!fy_is_string(field) || fy_empty(field)) {
-			*why = "a profile needs a name, a url, and an auth";
+		if ((!fy_is_string(field) || fy_empty(field)) ==
+		    !fy_is_string(fy_get(item, "program", fy_invalid))) {
+			*why = "a profile needs a name, a url or a program, and an auth";
 			return -EINVAL;
 		}
 		field = fy_get(item, "auth", fy_invalid);
@@ -241,6 +243,11 @@ static int profile_validate(fy_generic profiles, const char **why)
 		field = fy_get(item, "plain_http", fy_invalid);
 		if (!fy_is_invalid(field) && !fy_generic_is_bool(field)) {
 			*why = "plain_http is not a boolean";
+			return -EINVAL;
+		}
+		field = fy_get(item, "api_billing", fy_invalid);
+		if (!fy_is_invalid(field) && !fy_generic_is_bool(field)) {
+			*why = "api_billing is not a boolean";
 			return -EINVAL;
 		}
 		hdrs = fy_get(item, "headers", fy_invalid);
@@ -268,7 +275,8 @@ int fyai_ctl_profiles_parse(fy_generic profiles, struct fyai_transport_grant *ou
 	struct fy_generic_builder *gb;
 	fy_generic item, hdrs, key, val;
 	enum fyai_transport_auth auth;
-	const char *name, *url, *tag, *model, *header, *cred, *as, *k, *v;
+	const char *name, *url, *program, *tag, *model, *header, *cred, *as;
+	const char *k, *v;
 	struct fyai_transport_profile_spec spec;
 	int rc = 0;
 
@@ -284,12 +292,13 @@ int fyai_ctl_profiles_parse(fy_generic profiles, struct fyai_transport_grant *ou
 	fy_foreach(item, profiles) {
 		name = opt_string(gb, item, "name", NULL);
 		url = opt_string(gb, item, "url", NULL);
+		program = opt_string(gb, item, "program", NULL);
 		tag = opt_string(gb, item, "tag", NULL);
 		model = opt_string(gb, item, "model", NULL);
 		header = opt_string(gb, item, "header", NULL);
 		cred = opt_string(gb, item, "credential", NULL);
 		as = opt_string(gb, item, "auth", NULL);
-		if (!name || !url || !as) {
+		if (!name || (!url && !program) || !as) {
 			*why = "out of memory";
 			rc = -ENOMEM;
 			goto err_out;
@@ -308,8 +317,9 @@ int fyai_ctl_profiles_parse(fy_generic profiles, struct fyai_transport_grant *ou
 		spec = (struct fyai_transport_profile_spec) {
 			.name = name, .url = url, .tag = tag,
 			.model = model, .auth = auth, .header = header,
-			.credential = cred,
+			.credential = cred, .program = program,
 			.plain_http = fy_get(item, "plain_http", (_Bool)false),
+			.api_billing = fy_get(item, "api_billing", (_Bool)false),
 		};
 		rc = fyai_transport_grant_add_spec(out, &spec);
 		if (rc) {
@@ -366,7 +376,10 @@ fy_generic fyai_ctl_profiles_encode(struct fy_generic_builder *gb,
 				hm = fy_assoc(gb, hm, name, fy_value(gb, colon));
 			}
 		}
-		m = fy_null_filtered_mapping(gb, "name", p->name, "url", p->url,
+		m = fy_null_filtered_mapping(gb, "name", p->name,
+			"url", p->url ? fy_value(gb, p->url) : fy_null,
+			"program", p->program ? fy_value(gb, p->program) : fy_null,
+			"api_billing", p->api_billing ? fy_value(gb, true) : fy_null,
 			"auth", p->auth == FYAI_TA_NONE ? "none" :
 				p->auth == FYAI_TA_BEARER ? "bearer" : "header",
 			"plain_http", p->plain_http ? fy_value(gb, true) : fy_null,

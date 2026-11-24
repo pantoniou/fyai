@@ -332,11 +332,25 @@ static void profile_clear(struct fyai_transport_profile *pr)
 	free(pr->headers);
 	free(pr->name);
 	free(pr->url);
+	free(pr->program);
 	free(pr->tag);
 	free(pr->model);
 	free(pr->header);
 	free(pr->credential);
 	memset(pr, 0, sizeof(*pr));
+}
+
+/* A program: a name or a path, with no control character. */
+static bool program_ok(const char *program)
+{
+	const char *p;
+
+	if (!program || !*program || strlen(program) > 4096)
+		return false;
+	for (p = program; *p; p++)
+		if ((unsigned char)*p < ' ')
+			return false;
+	return true;
 }
 
 int fyai_transport_grant_add_spec(struct fyai_transport_grant *grant,
@@ -349,9 +363,14 @@ int fyai_transport_grant_add_spec(struct fyai_transport_grant *grant,
 	struct fyai_transport_profile pr = { .auth = auth }, *np;
 	size_t i;
 
-	if (!name_ok(name) || !url || !url_allowed(url, spec->plain_http))
+	if (!name_ok(name))
+		return -EINVAL;
+	if (spec->program ? url || auth != FYAI_TA_NONE || spec->plain_http ||
+			    !program_ok(spec->program) :
+			    !url || !url_allowed(url, spec->plain_http))
 		return -EINVAL;
 	pr.plain_http = spec->plain_http;
+	pr.api_billing = spec->api_billing;
 	if (auth == FYAI_TA_NONE) {
 		if (header || credential)
 			return -EINVAL;
@@ -369,13 +388,15 @@ int fyai_transport_grant_add_spec(struct fyai_transport_grant *grant,
 			return -EEXIST;
 
 	pr.name = strdup(name);
-	pr.url = strdup(url);
+	pr.url = dup_opt(url);
+	pr.program = dup_opt(spec->program);
 	pr.tag = dup_opt(tag);
 	pr.model = dup_opt(model);
 	pr.header = dup_opt(header);
 	pr.credential = dup_opt(credential);
 	np = realloc(grant->profiles, (grant->count + 1) * sizeof(*np));
-	if (!pr.name || !pr.url || (tag && !pr.tag) || (model && !pr.model) ||
+	if (!pr.name || (url && !pr.url) ||
+	    (spec->program && !pr.program) || (tag && !pr.tag) || (model && !pr.model) ||
 	    (header && !pr.header) || (credential && !pr.credential) || !np) {
 		profile_clear(&pr);
 		if (np)
@@ -444,7 +465,8 @@ static int grant_copy_profile(struct fyai_transport_grant *dst,
 	struct fyai_transport_profile_spec spec = {
 		.name = p->name, .url = p->url, .tag = p->tag, .model = p->model,
 		.auth = p->auth, .header = p->header, .credential = p->credential,
-		.plain_http = p->plain_http,
+		.plain_http = p->plain_http, .program = p->program,
+		.api_billing = p->api_billing,
 	};
 	size_t i;
 	int rc;
@@ -1031,7 +1053,7 @@ fyai_transport_recv(struct fyai_transport_registry *reg, int channel,
 		goto err_out;
 	}
 	if (hdr.kind != FYAI_TK_REQUEST && hdr.kind != FYAI_TK_CANCEL &&
-	    hdr.kind != FYAI_TK_CREDIT) {
+	    hdr.kind != FYAI_TK_CREDIT && hdr.kind != FYAI_TK_EXCHANGE_END) {
 		verdict = FYAI_TV_BAD_KIND;
 		goto err_out;
 	}

@@ -100,6 +100,12 @@ static void client_send_simple(struct fyai_tclient *c, uint16_t kind,
 		c->lost = true;
 }
 
+void fyai_tclient_exchange_end(struct fyai_tclient *client)
+{
+	if (client && !client->lost)
+		client_send_simple(client, FYAI_TK_EXCHANGE_END, 0, NULL, 0);
+}
+
 static void call_credit(struct fyai_tcall *call, size_t consumed)
 {
 	uint8_t b[4];

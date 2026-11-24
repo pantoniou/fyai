@@ -93,6 +93,12 @@ struct fyai_tcall *fyai_tclient_submit(struct fyai_tclient *client,
 				       const struct fyai_transport_request *rq,
 				       const struct fyai_tcall_callbacks *cb);
 
+/*
+ * The exchange of this execution ended. A program that served it stops unless
+ * it can serve the next exchange (fyai_claude_cli.h).
+ */
+void fyai_tclient_exchange_end(struct fyai_tclient *client);
+
 /* Ask the transport to stop the call. Its end callback still runs. */
 void fyai_tcall_cancel(struct fyai_tcall *call);
 
