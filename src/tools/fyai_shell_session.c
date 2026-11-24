@@ -1853,11 +1853,17 @@ int fyai_tools_split(struct fyai_ctx *ctx, const char *command,
 {
 	struct fy_generic_builder *gb = fyai_ctx_transient_gb(ctx);
 	const char *ref = ctx->cfg->api_key_ref;
+	const char *env = NULL;
 	fy_generic keep = fy_seq_empty;
 
 	/* Unconfined: pass through only this session's API key env var. */
-	if (gb && ref && !strncmp(ref, "env:", 4) && ref[4])
-		keep = fy_sequence(gb, ref + 4);
+	if (ref && !strncmp(ref, "env:", 4) && ref[4])
+		env = ref + 4;
+	else if (!ref && ctx->cfg->api_key_auto && ctx->cfg->provider)
+		env = fyai_config_provider_env_key(ctx->cfg->gb,
+						   ctx->cfg->provider);
+	if (gb && env)
+		keep = fy_sequence(gb, env);
 	return fyai_tools_bang_start(ctx, command, "split", "split",
 				     keep, title, 0, 0);
 }
