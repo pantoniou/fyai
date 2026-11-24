@@ -1144,7 +1144,9 @@ int markdown_renderer_finish(struct markdown_renderer *renderer,
 		return -1;
 	if (fyai_buf_reserve(out, out->len + len + 1))
 		return -1;
-	memcpy(out->data + out->len, s, len);
+	/* An empty finish may give no pointer: memcpy takes none that is NULL. */
+	if (len)
+		memcpy(out->data + out->len, s, len);
 	out->len += len;
 	out->data[out->len] = '\0';
 	renderer->active = false;
