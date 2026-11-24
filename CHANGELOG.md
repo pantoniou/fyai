@@ -1,9 +1,16 @@
 # Changelog
 
-## 0.5.0 - 2026-11-24
+## 0.5.1 - 2026-11-24
 
 ### Added
 
+- **The Claude Code CLI as a model backend.** `api: claude-code`, or the model
+  `claude-code/MODEL`, runs the installed CLI with its own login, such as a
+  Claude subscription. fyai runs each tool call through its own tools, keeps
+  one CLI for the exchanges of a session, and starts it again after a crash.
+  Under credential isolation the transport runs the CLI, and a sub-agent in a
+  view gets the configuration directory of the CLI. See
+  `doc/claude-code-backend.md`.
 - **Interactive sessions run in a split worker.** The terminal is a client and
   the model, tools and arena are in a local worker. The worker keeps durable
   turns, restarts with the view, and ends when no client keeps it. The client
@@ -39,6 +46,9 @@
 - Refresh storage of credentials no longer waits for an active turn.
 - The split client no longer stops under UBSAN when a Markdown block ends
   with no text.
+- The context figure no longer counts the output allowance as used.
+- `/split` passes the provider key variable to the tile when the API key is
+  `auto`.
 
 ## 0.4.2 - 2026-10-26
 
