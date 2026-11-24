@@ -28,6 +28,8 @@
 #include <strings.h>
 
 #include "fyai.h"
+#include "fyai_buf.h"
+#include "fyai_claude_cli.h"
 #include "fyai_curl.h"
 #include "fyai_event.h"
 #include "fyai_log.h"
@@ -41,6 +43,8 @@
 #define REQ_PENDING_MAX		2
 #define REQ_PENDING_DATA	4096
 #define MAX_MESSAGES_PER_WAKE	64
+/* The reply bytes of a program that may wait for the credit of the agent. */
+#define REQ_PROGRAM_BUFFER_MAX	(8u << 20)
 
 struct chan;
 
@@ -105,6 +109,14 @@ struct req {
 	struct fyai_transport_ratelimit rl;
 	struct pframe pending[REQ_PENDING_MAX];
 	unsigned int npending;
+
+	/* A request of a program profile (fyai_claude_cli.h). */
+	struct fyai_claude_cli_call *program;
+	struct fyai_buf program_out;	/* reply bytes not yet sent */
+	bool program_ended;
+	enum fyai_claude_cli_end program_end;
+	long program_status;
+	char *program_error;
 };
 
 struct chan {
@@ -114,6 +126,8 @@ struct chan {
 	int fd;
 	struct fyai_event_source *src;
 	struct req *reqs;
+	/* The program session of this execution: one exchange at a time. */
+	struct fyai_claude_cli *program;
 	bool want_write;
 	bool doomed;
 };
@@ -312,6 +326,9 @@ static int req_queue(struct req *rq, uint16_t kind, const char *json)
 
 static void req_free(struct req *rq)
 {
+	fyai_claude_cli_call_destroy(rq->program);
+	fyai_buf_free(&rq->program_out);
+	free(rq->program_error);
 	if (rq->xfer)
 		fyai_curl_transfer_destroy(rq->xfer);
 	if (rq->easy)
@@ -862,6 +879,148 @@ static void req_setup_curl(struct req *rq, const struct fyai_transport_request *
 	}
 }
 
+/*
+ * Send what a program request has: its start, the reply bytes that the credit
+ * of the agent allows, and its end once the bytes are out. The caller must not
+ * use @rq after this call: an ended request is freed.
+ */
+static void req_program_pump(struct req *rq)
+{
+	struct fy_generic_builder_cfg cfg = { .flags = FYGBCF_SCOPE_LEADER };
+	struct fyai_transport_response rs = {
+		.retry_after_s = -1, .content_type = "text/event-stream",
+		.tag = rq->profile->tag, .model = rq->profile->model,
+	};
+	struct fy_generic_builder *gb;
+	const char *json;
+	size_t n;
+	int rc;
+
+	if (rq->finished)
+		return;
+	if (rq->npending && !req_flush(rq))
+		return;
+	/* A failure that no reply byte came before is the answer. */
+	if (!rq->started && rq->program_ended &&
+	    rq->program_end != FYAI_CLAUDE_CLI_OK) {
+		req_fail(rq, rq->program_end == FYAI_CLAUDE_CLI_CANCELLED ? -2 :
+			 rq->program_end == FYAI_CLAUDE_CLI_LOST ?
+			 CURLE_RECV_ERROR : -1, rq->program_error,
+			 rq->program_end == FYAI_CLAUDE_CLI_LOST);
+		return;
+	}
+	if (!rq->started) {
+		rs.status = rq->program_status ? rq->program_status : 200;
+		gb = fy_generic_builder_create(&cfg);
+		json = gb ? fyai_transport_response_encode(gb, &rs) : NULL;
+		rc = json ? req_send(rq, FYAI_TK_RESP_START, rq->seq, json,
+				     strlen(json)) : -ENOMEM;
+		if (gb)
+			fy_generic_builder_destroy(gb);
+		if (rc == -EAGAIN) {
+			chan_want_write(rq->chan, true);
+			return;
+		}
+		if (rc) {
+			chan_doom(rq->chan, "send failed");
+			return;
+		}
+		rq->seq++;
+		rq->started = true;
+	}
+	while (fyai_buf_pending(&rq->program_out)) {
+		n = fyai_buf_pending(&rq->program_out);
+		if (n > FYAI_TRANSPORT_MAX_PAYLOAD)
+			n = FYAI_TRANSPORT_MAX_PAYLOAD;
+		if (n > rq->credit)
+			n = rq->credit;
+		if (!n)
+			return;		/* CREDIT resumes it */
+		rc = req_send(rq, FYAI_TK_RESP_BODY, rq->seq,
+			      rq->program_out.data + rq->program_out.off, n);
+		if (rc == -EAGAIN) {
+			chan_want_write(rq->chan, true);
+			return;
+		}
+		if (rc) {
+			chan_doom(rq->chan, "send failed");
+			return;
+		}
+		rq->seq++;
+		rq->credit -= n;
+		fyai_buf_consume(&rq->program_out, n);
+	}
+	if (!rq->program_ended)
+		return;
+	if (rq->program_end != FYAI_CLAUDE_CLI_OK) {
+		req_fail(rq, rq->program_end == FYAI_CLAUDE_CLI_CANCELLED ? -2 :
+			 rq->program_end == FYAI_CLAUDE_CLI_LOST ?
+			 CURLE_RECV_ERROR : -1, rq->program_error,
+			 rq->program_end == FYAI_CLAUDE_CLI_LOST);
+		return;
+	}
+	req_queue(rq, FYAI_TK_RESP_END, NULL);
+	rq->finished = true;
+	srv_event(rq->chan->srv, rq->chan->id, rq->id, "end", "");
+	req_flush(rq);
+}
+
+static size_t req_program_body(const void *data, size_t len, void *ud)
+{
+	struct req *rq = ud;
+
+	if (rq->cancelled || rq->finished ||
+	    fyai_buf_pending(&rq->program_out) + len > REQ_PROGRAM_BUFFER_MAX ||
+	    fyai_buf_append_data(&rq->program_out, data, len))
+		return 0;
+	req_program_pump(rq);
+	return len;
+}
+
+static void req_program_end(enum fyai_claude_cli_end end, long status,
+			    const char *error, void *ud)
+{
+	struct req *rq = ud;
+
+	rq->program_ended = true;
+	rq->program_end = end;
+	rq->program_status = status;
+	free(rq->program_error);
+	rq->program_error = strdup(error ? error : "the program failed");
+	req_program_pump(rq);
+}
+
+/*
+ * Run a request of a program profile in the program session of the channel.
+ * The program holds its own login: no credential is resolved here.
+ */
+static void req_run_program(struct req *rq,
+			    const struct fyai_transport_request *r)
+{
+	struct chan *ch = rq->chan;
+	struct fyai_ctx *ctx = fyai_transport_server_ctx(ch->srv);
+	struct fyai_claude_cli_opts opts = {
+		.command = rq->profile->program,
+		.api_billing = rq->profile->api_billing,
+	};
+	struct fyai_claude_cli_callbacks cb = {
+		.body = req_program_body, .end = req_program_end, .userdata = rq,
+	};
+	char *why;
+
+	rq->program = fyai_claude_cli_submit(ctx, &ch->program, &opts,
+					     (const char *)r->body,
+					     r->body_len, &cb);
+	if (rq->program)
+		return;
+	/* The diagnostic is the answer of the agent, not of the transport. */
+	why = fyai_diag_string(fyai_ctx_diag(ctx));
+	fyai_diag_reset(fyai_ctx_diag(ctx));
+	req_fail(rq, -1, why && *why ? why : "the program could not start",
+		 false);
+	free(why);
+}
+
 static void req_run(struct req *rq, const uint8_t *payload, size_t len,
 		    bool resumed);
 
@@ -944,6 +1103,10 @@ static void req_run(struct req *rq, const uint8_t *payload, size_t plen,
 	why = model_check(rq->profile, narrow, &r);
 	if (why) {
 		req_fail(rq, -1, why, false);
+		goto out;
+	}
+	if (rq->profile->program) {
+		req_run_program(rq, &r);
 		goto out;
 	}
 
@@ -1033,7 +1196,10 @@ static void req_cancel(struct req *rq)
 		return;
 	srv_event(rq->chan->srv, rq->chan->id, rq->id, "cancel", "");
 	rq->cancelled = true;
-	if (rq->xfer)
+	/* The program stops with its reply; the end callback fails @rq. */
+	if (rq->program)
+		fyai_claude_cli_cancel(rq->program);
+	else if (rq->xfer)
 		fyai_curl_cancel(rq->xfer);
 	else if (rq->park)
 		req_fail(rq, -2, "cancelled", false);
@@ -1041,6 +1207,10 @@ static void req_cancel(struct req *rq)
 
 static void req_resume(struct req *rq)
 {
+	if (rq->program) {
+		req_program_pump(rq);
+		return;
+	}
 	if (rq->npending) {
 		req_flush(rq);
 		return;
@@ -1094,6 +1264,7 @@ static void chan_free(struct chan *ch)
 		req_free(rq);
 		ch->srv->active--;
 	}
+	fyai_claude_cli_release(&ch->program);
 	fyai_transport_retire(ch->srv->reg, ch->id);
 	free(ch);
 }
@@ -1121,6 +1292,11 @@ static void chan_dispatch(struct chan *ch, const struct fyai_transport_msg *msg)
 			return;
 		}
 		req_start(ch, msg);
+		break;
+	case FYAI_TK_EXCHANGE_END:
+		/* The program stops unless it can serve the next exchange. */
+		srv_event(ch->srv, ch->id, 0, "exchange-end", "");
+		fyai_claude_cli_exchange_end(&ch->program);
 		break;
 	case FYAI_TK_CANCEL:
 		rq = req_find(ch, msg->hdr.request_id);

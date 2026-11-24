@@ -59,12 +59,30 @@ static uint32_t fnv(uint32_t h, const char *s)
 	return (h ^ 0xff) * 16777619u;	/* a separator between fields */
 }
 
+/* The program of a grammar that a local program serves. */
+static const char *profile_program(const struct fyai_cfg *cfg)
+{
+	return fy_str_empty(cfg->claude_code_command) ? "claude" :
+	       cfg->claude_code_command;
+}
+
 bool fyai_transport_profile_name(const struct fyai_cfg *cfg, const char *kind,
 				 char *out, size_t size)
 {
 	char url[1024], cred[512];
 	uint32_t h = 2166136261u;
 	bool compact = !strcmp(kind, FYAI_TPC_COMPACT);
+
+	/* A program serves only the model request. */
+	if (fyai_grammar(cfg)->cli) {
+		if (compact)
+			return false;
+		h = fnv(h, fyai_grammar(cfg)->name);
+		h = fnv(h, profile_program(cfg));
+		h = fnv(h, cfg->claude_code_api_billing ? "billing" : "");
+		snprintf(out, size, "p-%08x", h);
+		return true;
+	}
 
 	if (compact) {
 		if (!fyai_transport_compact_url(cfg, url, sizeof(url)))
@@ -81,6 +99,34 @@ bool fyai_transport_profile_name(const struct fyai_cfg *cfg, const char *kind,
 	h = fnv(h, cred);
 	snprintf(out, size, "%s-%08x", compact ? "c" : "m", h);
 	return true;
+}
+
+/*
+ * The profile of a grammar that a local program serves. The transport runs
+ * the program, so the program and its login stay out of every agent.
+ */
+static int add_program(struct fyai_transport_grant *grant,
+		       const struct fyai_cfg *cfg, const char **why)
+{
+	struct fyai_transport_profile_spec spec = { 0 };
+	char name[FYAI_TPC_NAME_MAX];
+	int rc;
+
+	if (!fyai_transport_profile_name(cfg, FYAI_TPC_MODEL, name, sizeof(name)))
+		return 0;
+	if (fyai_transport_grant_find(grant, name))
+		return 0;
+	spec.name = name;
+	spec.program = profile_program(cfg);
+	spec.api_billing = cfg->claude_code_api_billing;
+	spec.auth = FYAI_TA_NONE;
+	rc = fyai_transport_grant_add_spec(grant, &spec);
+	if (rc) {
+		*why = rc == -ENOMEM ? "out of memory" :
+		       "the program is not one that the transport runs";
+		return rc == -ENOMEM ? rc : -EINVAL;
+	}
+	return 0;
 }
 
 static int add_one(struct fyai_transport_grant *grant, const struct fyai_cfg *cfg,
@@ -141,6 +187,8 @@ int fyai_transport_profiles_add(struct fyai_transport_grant *grant,
 {
 	int rc;
 
+	if (fyai_grammar(cfg)->cli)
+		return add_program(grant, cfg, why);
 	if (!cfg->api_url || !*cfg->api_url) {
 		*why = "the configuration has no API URL";
 		return -EINVAL;

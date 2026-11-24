@@ -434,6 +434,7 @@ static inline bool transport_wants_chatgpt(const struct fyai_cfg *cfg)
 
 	return cfg->auth_mode == FYAI_AUTH_CHATGPT ||
 	       (cfg->auth_mode == FYAI_AUTH_AUTO && !cfg->no_auth &&
+		!fyai_api_local(cfg->api_mode) &&
 		fy_str_empty(cfg->api_key) && !fyai_auth_chatgpt_eligible(cfg, &why));
 }
 
@@ -475,6 +476,7 @@ int fyai_transport_bootstrap(struct fyai_cfg *cfg, int argc, char **argv)
 		return 0;
 	/* An idle interactive run can wait for a provider key. */
 	if (cfg->interactive && !cfg->no_auth &&
+	    !fyai_api_local(cfg->api_mode) &&
 	    fy_str_empty(cfg->api_key) && !transport_wants_chatgpt(cfg))
 		return 0;
 	/* The host is asked for the best it has; a level that it lacks is an error. */
@@ -493,7 +495,9 @@ int fyai_transport_bootstrap(struct fyai_cfg *cfg, int argc, char **argv)
 		cfg->api_url = fyai_auth_chatgpt_url();
 		login = true;
 	} else {
-		has_credential = cfg->no_auth || !fy_str_empty(cfg->api_key);
+		/* A local program holds its own login (fyai_claude_cli.c). */
+		has_credential = cfg->no_auth || !fy_str_empty(cfg->api_key) ||
+				 fyai_api_local(cfg->api_mode);
 		fyai_cfg_error_check(cfg, has_credential,
 				     err, "no API key: credential isolation needs "
 				     "an API key, a login, or a provider that takes none");
@@ -980,7 +984,9 @@ bool fyai_transport_have_credential(struct fyai_transport_state *tp, const struc
 	bool found = false;
 	const char *why;
 
-	if (cfg->no_auth || (cfg->api_key && *cfg->api_key))
+	/* A local program holds its own login (fyai_claude_cli.c). */
+	if (cfg->no_auth || (cfg->api_key && *cfg->api_key) ||
+	    fyai_api_local(cfg->api_mode))
 		return true;
 	if (!tp->client || !fyai_transport_credential_source(cfg, src, sizeof(src)))
 		return false;
@@ -1204,7 +1210,8 @@ int fyai_transport_preflight(struct fyai_transport_state *tp)
 		rc = fyai_auth_chatgpt_eligible(cfg, &why);
 		fyai_cfg_error_check(cfg, !rc, err, "credential isolation: %s", why);
 	} else {
-		fyai_cfg_error_check(cfg, cfg->no_auth || !fy_str_empty(cfg->api_key), err,
+		fyai_cfg_error_check(cfg, cfg->no_auth || !fy_str_empty(cfg->api_key) ||
+				     fyai_api_local(cfg->api_mode), err,
 				     "credential isolation: no API key; it needs a key, "
 				     "a login, or a provider that takes none");
 	}

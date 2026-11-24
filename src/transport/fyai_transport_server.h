@@ -8,6 +8,8 @@
  * context. It turns an authenticated request into a curl transfer to the
  * endpoint of the granted profile, adds the credential, and streams the
  * response back in bounded frames. A slow agent pauses only its own transfer.
+ * A request of a program profile goes to the program session of its channel
+ * instead (fyai_claude_cli.h), which holds its own login.
  * See doc/agent-transport-isolation-sdd.md.
  */
 
