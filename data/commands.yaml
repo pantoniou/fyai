@@ -880,7 +880,7 @@ commands:
       properties:
         mode:
           type: string
-          enum: [responses, chat-completions, chat, messages]
+          enum: [responses, chat-completions, chat, messages, claude-code]
           description: the API grammar
           x-fyai-positional: 0
           x-fyai-meta: MODE

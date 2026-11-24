@@ -15,6 +15,7 @@
 #include <string.h>
 
 #include "fyai_app.h"
+#include "fyai_claude_cli.h"
 #include "fyai_config.h"
 #include "fyai_orphan.h"
 #include "fyai_project_capture.h"
@@ -247,6 +248,7 @@ void fyai_usage_abandon(struct fyai_usage *usage)
 
 void fyai_link_abandon(struct fyai_link *link)
 {
+	fyai_claude_cli_abandon(&link->cli);	/* the CLI of the parent */
 	link->status = 0;
 	link->retry_after = 0;
 	link->error[0] = '\0';

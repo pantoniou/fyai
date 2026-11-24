@@ -549,6 +549,11 @@ static void config_apply_media(struct fyai_cfg *cfg, fy_generic root)
 				"timeout_ms", cfg->catalog_update_timeout_ms);
 	cfg->catalog_update_credentials = fy_get(fy_get(root, "catalog_update"),
 				"credentials", cfg->catalog_update_credentials);
+	cfg->claude_code_command = fy_get(fy_get(root, "claude_code"),
+				"command", cfg->claude_code_command ?
+					   cfg->claude_code_command : "");
+	cfg->claude_code_api_billing = fy_get(fy_get(root, "claude_code"),
+				"api_billing", cfg->claude_code_api_billing);
 }
 
 
@@ -3244,6 +3249,7 @@ void fyai_config_set_defaults(struct fyai_cfg *cfg)
 	cfg->shell_tty = false;
 	cfg->shell_shell = "";
 	cfg->catalog_update_command = DEFAULT_CATALOG_UPDATE_COMMAND;
+	cfg->claude_code_command = "claude";
 	cfg->catalog_update_timeout_ms = DEFAULT_CATALOG_UPDATE_TIMEOUT_MS;
 	cfg->catalog_update_credentials = fy_invalid;
 	cfg->shell_login = false;
@@ -3630,6 +3636,67 @@ static int config_resolve_catalog_model(struct fyai_cfg *cfg,
 	return 0;
 }
 
+/*
+ * A model of a grammar that a local program serves: `PROVIDER/MODEL` with the
+ * default provider of that grammar selects it, as does `api`. The program
+ * resolves the model name itself, and owns its login; nothing of the
+ * catalogue but the model limits applies. True when @cfg is such a model.
+ */
+static bool config_resolve_local_model(struct fyai_cfg *cfg, fy_generic catalog)
+{
+	const struct fyai_grammar *grammar;
+	fy_generic cat_model;
+	const char *slash;
+	size_t len;
+	long long max_out;
+
+	/*
+	 * A model that a catalogue provider pins leaves a local program: the
+	 * catalogue then selects the grammar of that provider.
+	 */
+	slash = strchr(cfg->model, '/');
+	if (fyai_grammar(cfg)->cli && slash &&
+	    fy_is_valid(fyai_catalog_provider(catalog,
+			fy_sprintfa("%.*s", (int)(slash - cfg->model),
+				    cfg->model)))) {
+		cfg->api_mode = fyai_grammar_next(NULL)->mode;
+		cfg->api_url = NULL;
+		return false;
+	}
+	fyai_grammar_foreach(grammar) {
+		if (!grammar->cli)
+			continue;
+		len = strlen(grammar->default_provider);
+		if (strncmp(cfg->model, grammar->default_provider, len) ||
+		    cfg->model[len] != '/')
+			continue;
+		cfg->api_mode = grammar->mode;
+		cfg->model = fy_gb_intern_string(cfg->gb, cfg->model + len + 1);
+		break;
+	}
+	grammar = fyai_grammar(cfg);
+	if (!grammar->cli)
+		return false;
+	if (!*cfg->model)
+		cfg->model = grammar->default_model;
+	cfg->provider = grammar->default_provider;
+	cfg->api_url = grammar->default_url;
+	cfg->shell_tool_supported = false;
+	cfg->web_search_supported = false;
+	cfg->web_search_type = NULL;
+	/* The CLI has no hosted search: the request is the CLI's, not ours. */
+	cfg->web_search = false;
+	cfg->response_compaction_supported = false;
+	cat_model = fyai_catalog_resolved_model(catalog, cfg->model);
+	cfg->image_input_supported = true;
+	if (fy_is_valid(cat_model) && cfg->max_tokens == DEFAULT_MAX_TOKENS) {
+		max_out = fy_get(cat_model, "max_output_tokens", 0LL);
+		if (max_out > 0)
+			cfg->max_tokens = (int)max_out;
+	}
+	return true;
+}
+
 /* Resolve model settings from the catalogue and provider defaults. */
 int fyai_config_resolve_model(struct fyai_cfg *cfg)
 {
@@ -3645,6 +3712,9 @@ int fyai_config_resolve_model(struct fyai_cfg *cfg)
 		cfg->model = fyai_grammar(cfg)->default_model;
 
 	catalog = fyai_catalog_effective(cfg->catalog, cfg->gb);
+
+	if (config_resolve_local_model(cfg, catalog))
+		return 0;
 
 	/* Resolve catalogue data even when the endpoint is overridden. */
 	if (config_resolve_catalog_model(cfg, catalog, &cat_prov))

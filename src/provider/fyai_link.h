@@ -9,6 +9,7 @@
 
 #include <curl/curl.h>
 
+struct fyai_claude_cli;
 struct fyai_cred;
 struct fyai_diag;
 struct fyai_curl_state;
@@ -34,6 +35,8 @@ struct fyai_link {
 	char *user_agent;
 	/* The curl multi state of this run; it stands on the loop. */
 	struct fyai_curl_state *curl_state;
+	/* The Claude Code CLI of this exchange (fyai_claude_cli.c), or NULL. */
+	struct fyai_claude_cli *cli;
 	/* The body of the last request, kept for the next (fyai_reqcache.c). */
 	struct fyai_request_cache *request_cache;
 	/* The model transfer in progress. */

@@ -81,6 +81,13 @@ retry:
   initial_delay_ms: 500
   max_delay_ms: 30000
 
+# The claude-code backend (api: claude-code, or model claude-code/MODEL) runs
+# this Claude Code CLI with its own login and no API key. api_billing allows a
+# CLI that bills an API key instead of a Claude subscription.
+claude_code:
+  command: claude
+  api_billing: false
+
 # `fyai catalog update` runs a scrape-providers-compatible command with
 # --format yaml and selection options. Only listed credentials are retained.
 # timeout_ms limits the run; 0 disables the limit.

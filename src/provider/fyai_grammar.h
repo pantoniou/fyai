@@ -16,9 +16,10 @@
  *   Responses          fyai_grammar_responses.c
  *   Chat Completions   fyai_grammar_chat.c
  *   Anthropic Messages fyai_grammar_messages.c
+ *   Claude Code CLI    fyai_grammar_claude_code.c
  *
  * A grammar is selected at run time by the `api` configuration key, so all
- * three are linked into every build.
+ * of them are linked into every build.
  */
 
 struct fyai_grammar;
@@ -118,6 +119,11 @@ struct fyai_grammar {
 	/* The body of a model request, in the transient builder. */
 	fy_generic (*build_request)(struct fyai_ctx *ctx,
 				    const struct fyai_grammar_request *req);
+	/*
+	 * The grammar that reads the streamed reply of this one, or NULL for
+	 * this one. Its stream operations below are then not used.
+	 */
+	const struct fyai_grammar *stream;
 	/* The size of the stream state of the grammar, and its setup. */
 	size_t stream_state_size;
 	void (*stream_init)(struct fyai_stream_parse *p);
@@ -157,11 +163,17 @@ struct fyai_grammar {
 	bool builtin_shell;		/* a provider can accept the native shell */
 	bool chaining;			/* a request can name the previous response */
 	bool chatgpt;			/* a ChatGPT subscription can serve it */
+	/*
+	 * A local program serves it (fyai_claude_cli.c): no URL, no API key,
+	 * no catalogue endpoint, and every reply is streamed.
+	 */
+	bool cli;
 };
 
 extern const struct fyai_grammar fyai_grammar_responses;
 extern const struct fyai_grammar fyai_grammar_chat;
 extern const struct fyai_grammar fyai_grammar_messages;
+extern const struct fyai_grammar fyai_grammar_claude_code;
 
 /* The grammar of @mode. Never NULL for a valid mode. */
 const struct fyai_grammar *fyai_grammar_get(enum fyai_api_mode mode);
@@ -341,7 +353,7 @@ fy_generic fyai_wire_calls(struct fyai_ctx *ctx, fy_generic messages);
  */
 fy_generic fyai_messages_blocks(struct fyai_ctx *ctx, fy_generic messages);
 
-/* "responses|chat-completions|messages", for a message. */
-#define FYAI_GRAMMAR_NAMES "responses|chat-completions|messages"
+/* The names of the grammars, for a message. */
+#define FYAI_GRAMMAR_NAMES "responses|chat-completions|messages|claude-code"
 
 #endif

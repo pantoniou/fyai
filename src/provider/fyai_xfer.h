@@ -55,6 +55,13 @@ struct fyai_xfer *fyai_xfer_submit(struct fyai_ctx *ctx, fyai_xfer_write_fn writ
 				   void *write_userdata, fyai_xfer_done_fn done,
 				   void *done_userdata);
 
+/*
+ * The exchange of @ctx ended. A program that served its model requests stops
+ * unless it can serve the next exchange: the link decides, or tells the
+ * transport that runs it.
+ */
+void fyai_link_exchange_end(struct fyai_ctx *ctx);
+
 /* Stop a transfer; @done still runs, with CURLE_ABORTED_BY_CALLBACK. */
 void fyai_xfer_cancel(struct fyai_xfer *xfer);
 

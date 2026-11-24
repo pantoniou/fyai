@@ -587,7 +587,7 @@ store it in the configuration.
 
 | Argument | Description |
 | --- | --- |
-| `MODE` | the API grammar (responses, chat-completions, chat, messages) |
+| `MODE` | the API grammar (responses, chat-completions, chat, messages, claude-code) |
 
 ### Options
 
@@ -4617,7 +4617,7 @@ store it in the configuration.
 
 | Argument | Description |
 | --- | --- |
-| `MODE` | the API grammar (responses, chat-completions, chat, messages) |
+| `MODE` | the API grammar (responses, chat-completions, chat, messages, claude-code) |
 
 ### Options
 

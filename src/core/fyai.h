@@ -231,10 +231,11 @@ enum fyai_api_mode {
 	FYAI_API_RESPONSES,
 	FYAI_API_CHAT_COMPLETIONS,
 	FYAI_API_MESSAGES,
+	FYAI_API_CLAUDE_CODE,
 };
 
 /* The number of grammars. Keep it outside the enum: a switch need not name it. */
-#define FYAI_API_COUNT (FYAI_API_MESSAGES + 1)
+#define FYAI_API_COUNT (FYAI_API_CLAUDE_CODE + 1)
 
 struct fypal_ctx;
 
@@ -430,6 +431,9 @@ struct fyai_cfg {
 	const char *catalog_update_command;
 	unsigned int catalog_update_timeout_ms;
 	fy_generic catalog_update_credentials;	/* variable names */
+	/* The claude-code backend: its CLI, and whether it may bill an API key. */
+	const char *claude_code_command;
+	bool claude_code_api_billing;
 	bool shell_login;		/* run a shell call under a login shell */
 	int shell_tty_rows;		/* PTY rows (0 = follow the terminal) */
 	int shell_tty_cols;		/* PTY columns (0 = follow the terminal) */
@@ -883,6 +887,8 @@ fyai_mkdir_p(const char *path);
 int fyai_prompt(struct fyai_ctx *ctx);
 
 const char *fyai_api_to_string(enum fyai_api_mode api);
+/* True when a local program serves @api: it needs no key and no URL. */
+bool fyai_api_local(enum fyai_api_mode api);
 
 void fyai_cleanup_transient_builder(struct fyai_ctx *ctx);
 int fyai_setup_transient_builder(struct fyai_ctx *ctx);
@@ -1009,7 +1015,8 @@ static inline bool fyai_credential_available(const struct fyai_ctx *ctx)
 	const struct fyai_cfg *cfg = ctx->cfg;
 
 	return (cfg->api_key && *cfg->api_key) || cfg->chatgpt_auth ||
-	       cfg->no_auth || ctx->transport->client;
+	       cfg->no_auth || ctx->transport->client ||
+	       fyai_api_local(cfg->api_mode);
 }
 
 #endif

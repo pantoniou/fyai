@@ -14,6 +14,7 @@
 #include "fyai.h"
 #include "fyai_auth.h"
 #include "fyai_buf.h"
+#include "fyai_claude_cli.h"
 #include "fyai_cred.h"
 #include "fyai_curl.h"
 #include "fyai_event.h"
@@ -67,6 +68,7 @@ struct fyai_xfer {
 	struct fyai_buf held;
 
 	struct fyai_tcall *call;		/* the transport backend */
+	struct fyai_claude_cli_call *cli;	/* the Claude Code CLI backend */
 	long status;
 	long retry_after;
 };
@@ -483,6 +485,65 @@ static struct fyai_xfer *xfer_tp_submit(struct fyai_ctx *ctx, struct fyai_xfer *
 	return x;
 }
 
+/* The Claude Code CLI backend. */
+
+static size_t xfer_cli_body(const void *data, size_t len, void *ud)
+{
+	struct fyai_xfer *x = ud;
+
+	return x->write((void *)data, 1, len, x->write_ud);
+}
+
+/* Say how the request ended in the terms of a curl transfer. */
+static void xfer_cli_end(enum fyai_claude_cli_end end, long status,
+			 const char *error, void *ud)
+{
+	struct fyai_xfer *x = ud;
+	CURLcode res;
+
+	switch (end) {
+	case FYAI_CLAUDE_CLI_OK:
+		res = CURLE_OK;
+		break;
+	case FYAI_CLAUDE_CLI_CANCELLED:
+		res = CURLE_ABORTED_BY_CALLBACK;
+		break;
+	case FYAI_CLAUDE_CLI_LOST:
+		/* As a lost connection: a new CLI can answer. */
+		res = CURLE_RECV_ERROR;
+		break;
+	case FYAI_CLAUDE_CLI_FAILED:
+	default:
+		/* The cause, before the stream core says that the request failed. */
+		if (error)
+			fyai_error(fyai_xfer_ctx(x), "claude-code: %s", error);
+		res = CURLE_FAILED_INIT;
+		break;
+	}
+	xfer_finish(x, res, status, 0, error);
+}
+
+static struct fyai_xfer *xfer_cli_submit(struct fyai_ctx *ctx,
+					 struct fyai_xfer *x)
+{
+	struct fyai_claude_cli_callbacks cb = {
+		.body = xfer_cli_body, .end = xfer_cli_end, .userdata = x,
+	};
+	struct fyai_claude_cli_opts opts = {
+		.command = ctx->cfg->claude_code_command,
+		.api_billing = ctx->cfg->claude_code_api_billing,
+	};
+	const char *body = ctx->link->body ? ctx->link->body : "";
+
+	x->cli = fyai_claude_cli_submit(ctx, &ctx->link->cli, &opts, body,
+					strlen(body), &cb);
+	if (!x->cli) {
+		free(x);
+		return NULL;
+	}
+	return x;
+}
+
 /* Submit. */
 
 struct fyai_xfer *fyai_xfer_submit(struct fyai_ctx *ctx, fyai_xfer_write_fn write,
@@ -500,8 +561,11 @@ struct fyai_xfer *fyai_xfer_submit(struct fyai_ctx *ctx, fyai_xfer_write_fn writ
 	x->done = done;
 	x->done_ud = done_userdata;
 
+	/* The transport runs a program too, so that its login stays there. */
 	if (ctx->transport->client)
 		return xfer_tp_submit(ctx, x);
+	if (fyai_grammar(ctx->cfg)->cli)
+		return xfer_cli_submit(ctx, x);
 	x->waiter.run = xfer_waiter_run;
 	x->waiter.userdata = x;
 	x->login = xfer_uses_login(ctx);
@@ -522,6 +586,14 @@ err:
 	return NULL;
 }
 
+void fyai_link_exchange_end(struct fyai_ctx *ctx)
+{
+	if (ctx->transport->client)
+		fyai_tclient_exchange_end(ctx->transport->client);
+	else
+		fyai_claude_cli_exchange_end(&ctx->link->cli);
+}
+
 void fyai_xfer_cancel(struct fyai_xfer *x)
 {
 	if (!x)
@@ -537,6 +609,8 @@ void fyai_xfer_cancel(struct fyai_xfer *x)
 	}
 	if (x->call)
 		fyai_tcall_cancel(x->call);
+	if (x->cli)
+		fyai_claude_cli_cancel(x->cli);
 }
 
 CURLcode fyai_xfer_result(const struct fyai_xfer *x)
@@ -556,6 +630,7 @@ void fyai_xfer_destroy(struct fyai_xfer *x)
 		fyai_curl_transfer_destroy(x->curl);
 	if (x->call)
 		fyai_tcall_destroy(x->call);
+	fyai_claude_cli_call_destroy(x->cli);
 	xfer_headers_free(x);
 	fyai_buf_free(&x->held);
 	free(x);

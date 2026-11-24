@@ -21,6 +21,7 @@ static const struct fyai_grammar *const grammars[] = {
 	[FYAI_API_RESPONSES]		= &fyai_grammar_responses,
 	[FYAI_API_CHAT_COMPLETIONS]	= &fyai_grammar_chat,
 	[FYAI_API_MESSAGES]		= &fyai_grammar_messages,
+	[FYAI_API_CLAUDE_CODE]		= &fyai_grammar_claude_code,
 	[FYAI_API_COUNT]		= NULL,
 };
 
@@ -56,7 +57,7 @@ bool fyai_grammar_default_url(const char *url)
 	if (!url)
 		return false;
 	fyai_grammar_foreach(grammar)
-		if (!strcmp(url, grammar->default_url))
+		if (*grammar->default_url && !strcmp(url, grammar->default_url))
 			return true;
 	return false;
 }
@@ -101,6 +102,8 @@ fy_generic fyai_grammar_build_request(struct fyai_ctx *ctx,
 int fyai_grammar_stream_open(struct fyai_ctx *ctx, struct fyai_stream_parse *p)
 {
 	p->grammar = fyai_grammar(ctx->cfg);
+	if (p->grammar->stream)
+		p->grammar = p->grammar->stream;
 	p->state = calloc(1, p->grammar->stream_state_size ?
 			     p->grammar->stream_state_size : 1);
 	if (!p->state)
@@ -190,4 +193,9 @@ const char *fyai_api_to_string(enum fyai_api_mode api)
 	if ((unsigned int)api >= FYAI_API_COUNT)
 		return NULL;
 	return grammars[api]->name;
+}
+
+bool fyai_api_local(enum fyai_api_mode api)
+{
+	return (unsigned int)api < FYAI_API_COUNT && grammars[api]->cli;
 }

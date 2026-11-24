@@ -621,6 +621,8 @@ set(FYAI_SOURCES
     src/provider/fyai_grammar.c
     src/provider/fyai_grammar_chat.c
     src/provider/fyai_grammar_messages.c
+    src/provider/fyai_grammar_claude_code.c
+    src/provider/fyai_claude_cli.c
     src/provider/fyai_grammar_responses.c
     src/provider/fyai_provider.c
     src/core/fyai_render.c

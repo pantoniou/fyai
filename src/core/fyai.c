@@ -31,6 +31,7 @@
 #include "fyai_pending.h"
 #include "fyai_tool_registry.h"
 #include "fyai_catalog.h"
+#include "fyai_claude_cli.h"
 #include "fyai_config.h"
 #include "fyai_grammar.h"
 #include "fyai_crash.h"
@@ -875,6 +876,9 @@ static int fyai_model_step_start(struct fyai_model_step *step)
 			"ChatGPT plan usage requires the public, stateless Responses endpoint");
 		cfg->stream = true;
 	}
+	/* A local program answers only as a stream. */
+	if (grammar->cli)
+		cfg->stream = true;
 
 	rc = fyai_model_step_context_check(ctx, turn);
 	fyai_error_check(ctx, !rc, out,
@@ -2526,6 +2530,8 @@ static void fyai_turn_run_destroy(struct fyai_turn_run *run)
 	fyai_diag_tracef("turn", "end, %s, %d rounds",
 			 fyai_turn_run_state_name(run->state), run->iteration);
 	fyai_scope_exchange(fyai_turn_run_ctx(run)->scope, false);
+	/* A CLI that serves the model serves one exchange. */
+	fyai_link_exchange_end(fyai_turn_run_ctx(run));
 	free(run);
 }
 
@@ -2680,6 +2686,7 @@ void fyai_cleanup(struct fyai_ctx *ctx)
 
 	/* Before the easy handle: the multi still references it. */
 	fyai_transport_detach(ctx->transport);
+	fyai_claude_cli_cleanup(&ctx->link->cli);
 	fyai_curl_cleanup(ctx->link);
 	if (ctx->link->curl) {
 		curl_easy_cleanup(ctx->link->curl);
@@ -2757,6 +2764,7 @@ int fyai_request_state_apply(struct fyai_ctx *ctx)
 
 	/* A local server without authentication gets no API-key header. */
 	if (!cfg->chatgpt_auth && !cfg->no_auth && !ctx->transport->client &&
+	    !grammar->cli &&
 	    (!cfg->interactive || (cfg->api_key && *cfg->api_key))) {
 		ctx->link->auth_header = grammar->key_header ?
 			make_header(fy_sprintfa("%s: ", grammar->key_header),

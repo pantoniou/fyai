@@ -954,9 +954,10 @@ static void session_persist_model(struct fyai_ctx *ctx)
 	if (!cfg->model || !*cfg->model)
 		return;
 	catalog = fyai_catalog_effective(cfg->catalog, cfg->gb);
+	/* The provider of a local program names it: claude-code/MODEL. */
 	pin = cfg->provider && *cfg->provider &&
-	      fy_is_valid(fyai_catalog_provider(catalog,
-							cfg->provider));
+	      (fyai_api_local(cfg->api_mode) ||
+	       fy_is_valid(fyai_catalog_provider(catalog, cfg->provider)));
 	session_persist(ctx, "model", pin ?
 			fy_sprintfa("'%s/%s'", cfg->provider, cfg->model) :
 			fy_sprintfa("'%s'", cfg->model));
@@ -1026,6 +1027,8 @@ int fyai_session_model(struct fyai_ctx *ctx, const char *name, bool live)
 {
 	struct fyai_cfg *cfg = ctx->cfg;
 	struct fyai_cfg tmp;
+	const struct fyai_grammar *stored;
+	bool grammar_changed;
 
 	/*
 	 * Resolve into a scratch copy so a failed switch leaves the session
@@ -1056,6 +1059,14 @@ int fyai_session_model(struct fyai_ctx *ctx, const char *name, bool live)
 	}
 
 	session_switch_estimate(ctx, &tmp);
+	/*
+	 * A switch to or from a local program changes the grammar with the
+	 * model; the stored grammar follows, or the next run keeps the old one.
+	 */
+	stored = fyai_grammar_find(fy_get(cfg->config_doc, "api", ""));
+	grammar_changed = (fyai_api_local(tmp.api_mode) ||
+			   (stored && stored->cli)) &&
+			  (!stored || stored->mode != tmp.api_mode);
 	*cfg = tmp;
 
 	/* Re-derive ChatGPT subscription routing (endpoint + token) for the
@@ -1070,6 +1081,8 @@ int fyai_session_model(struct fyai_ctx *ctx, const char *name, bool live)
 		return -1;
 
 	session_persist_model(ctx);
+	if (grammar_changed)
+		session_persist(ctx, "api", fyai_api_to_string(cfg->api_mode));
 	return 0;
 }
 

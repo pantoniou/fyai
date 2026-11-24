@@ -139,13 +139,15 @@ properties:
   api:
     x-fyai-model: review
     type: string
-    enum: [responses, chat-completions, chat, messages]
+    enum: [responses, chat-completions, chat, messages, claude-code]
     default: responses
     description: >-
       Select the provider API grammar. Valid grammars are responses,
-      chat-completions, and messages; chat is an alias. The grammar is
-      re-derived alongside api_url when `model` changes to a
-      known catalogue entry.
+      chat-completions, messages, and claude-code; chat is an alias. The
+      grammar is re-derived alongside api_url when `model` changes to a
+      known catalogue entry. claude-code runs the installed Claude Code CLI
+      with its own login (see `claude_code`); the model
+      `claude-code/MODEL` also selects it.
   api_url:
     x-fyai-model: read
     type: string
@@ -330,6 +332,27 @@ properties:
         description: >-
           Limit the delay between retry attempts. This also caps a
           `Retry-After` value. 0 removes the bound.
+  claude_code:
+    x-fyai-model: read
+    type: object
+    additionalProperties: false
+    description: >-
+      Configure the claude-code backend, which runs the Claude Code CLI for
+      each exchange. The CLI uses its own login; fyai removes API keys from
+      its environment and runs the tools of each call itself.
+    properties:
+      command:
+        type: string
+        default: claude
+        description: >-
+          Set the Claude Code CLI program, as a name on PATH or a path.
+      api_billing:
+        type: boolean
+        default: false
+        description: >-
+          Allow a CLI that bills an API key. When false, a run stops before
+          it sends the conversation if the CLI does not use a Claude
+          subscription.
   catalog_update:
     x-fyai-model: read
     type: object
