@@ -211,6 +211,13 @@ struct fyai_ui {
 	/* The live blocks of an inline page, which draws them under the tail;
 	 * a fullscreen page keeps them in @view. */
 	struct fyai_transcript_view *blocks;
+	/*
+	 * The blocks whose calls ended while a turn runs. They keep their rows
+	 * until the rows that take their place are presented, in the same
+	 * frame, so the transcript under them does not move twice.
+	 */
+	uintptr_t *leaving;
+	size_t nleaving;
 	/* The live block that holds the keys, or 0: the canvas of the page
 	 * takes them for it, since a block has no surface of its own. */
 	uintptr_t inline_focus;
@@ -1365,8 +1372,37 @@ static int ui_commit_open_row(struct fyai_ui *ui)
  * fullscreen page, which has none. */
 static void ui_rearm(struct fyai_ui *ui);
 
+static struct fyai_transcript_view *ui_blocks(struct fyai_ui *ui, bool make);
+
+/* Drop the blocks that wait for their rows. */
+static void ui_blocks_leave(struct fyai_ui *ui)
+{
+	size_t i;
+
+	for (i = 0; i < ui->nleaving; i++)
+		fyai_transcript_view_block_drop(ui_blocks(ui, false),
+						ui->leaving[i]);
+	if (ui->nleaving)
+		ui->frame_pending = true;
+	ui->nleaving = 0;
+}
+
+/* The block of @key no longer waits: it is live again, or it goes now. */
+static void ui_block_stays(struct fyai_ui *ui, uintptr_t key)
+{
+	size_t i;
+
+	for (i = 0; i < ui->nleaving; i++)
+		if (ui->leaving[i] == key) {
+			ui->leaving[i] = ui->leaving[--ui->nleaving];
+			return;
+		}
+}
+
 static int ui_present(struct fyai_ui *ui, const char *buf, size_t len)
 {
+	/* The rows that take the place of the blocks that ended. */
+	ui_blocks_leave(ui);
 	if (!ui->fullscreen)
 		return ui_commit_rows(ui, buf, len);
 	if (fyai_transcript_view_append_live(ui->view, buf, len))
@@ -4226,6 +4262,9 @@ void fyai_ui_close(struct fyai_ctx *ctx)
 	fyai_transcript_view_destroy(ui->view);
 	ui->view = NULL;
 	fyai_transcript_view_destroy(ui->blocks);
+	free(ui->leaving);
+	ui->leaving = NULL;
+	ui->nleaving = 0;
 	ui->blocks = NULL;
 	ui_popup_close(ui);
 	ui_note_clear(ui);
@@ -5339,6 +5378,9 @@ void fyai_ui_set_busy(struct fyai_ctx *ctx, bool busy)
 	if (!fyai_ui_active(ctx)) return;
 	ui = ctx->screen->ui;
 	ui->busy = busy;
+	/* The turn presented what it had: a block that waits goes. */
+	if (!busy)
+		ui_blocks_leave(ui);
 	if (busy) {
 		ui->activity_paused = false;
 		ui->activity_phase = -1;
@@ -5785,6 +5827,7 @@ static int ui_inline_set(struct fyai_ui *ui, uintptr_t key, const char *head,
 			fyai_flow_observe(flow, out.data, out.len);
 		goto out;
 	}
+	ui_block_stays(ui, key);
 	rc = fyai_transcript_view_block_set(ui_blocks(ui, true), key, out.data,
 					    out.len);
 	if (rc)
@@ -6161,13 +6204,32 @@ const char *fyai_ui_inline_margin(struct fyai_ctx *ctx, const char *margin,
 
 void fyai_ui_inline_drop(struct fyai_ctx *ctx, uintptr_t key)
 {
-	if (!ctx || !ctx->screen->ui)
+	struct fyai_ui *ui = ctx ? ctx->screen->ui : NULL;
+	uintptr_t *leaving;
+
+	if (!ui)
 		return;
-	if (ctx->screen->ui->inline_focus == key)
+	if (ui->inline_focus == key)
 		(void)fyai_ui_inline_keys(ctx, 0, NULL, NULL);
-	fyai_transcript_view_block_drop(ui_blocks(ctx->screen->ui, false), key);
-	ui_live_forget(ctx->screen->ui, key);
-	ctx->screen->ui->frame_pending = true;
+	ui_live_forget(ui, key);
+	/*
+	 * The rows of a call that ended are presented after its block goes:
+	 * the block keeps its place until they come, or the turn ends.
+	 */
+	if (ui->busy && fyai_transcript_view_has_block(ui_blocks(ui, false), key)) {
+		ui_block_stays(ui, key);
+		leaving = realloc(ui->leaving,
+				  (ui->nleaving + 1) * sizeof(*leaving));
+		if (leaving) {
+			ui->leaving = leaving;
+			ui->leaving[ui->nleaving++] = key;
+			fyai_diag_tracef("ui", "block ends, waits for its rows");
+			return;
+		}
+	}
+	fyai_diag_tracef("ui", "block ends");
+	fyai_transcript_view_block_drop(ui_blocks(ui, false), key);
+	ui->frame_pending = true;
 }
 
 void fyai_ui_tool_begin(struct fyai_ctx *ctx, const char *title)
