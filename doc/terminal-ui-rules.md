@@ -914,6 +914,10 @@ display without one uses the pane.
 - A live block takes the separation that the flow would draw, and changes
   no flow state. Its commit drops the block and presents the band as a tile
   commit does, so the stored exchange replaces the same rows.
+- A block whose call ends while the turn runs keeps its rows until the rows
+  that take its place are presented, or the turn ends
+  (`fyai_ui_inline_drop()`). Its call is committed later, by the turn, and a
+  frame between the two would show the transcript without it.
 - A block shows the last `display/tool_preview_lines` rows. The transcript
   scrolls it, so the stream keeps no history for it, and the band opens at
   once: `display/work_open_delay_ms` hides a jump that a block does not make.
