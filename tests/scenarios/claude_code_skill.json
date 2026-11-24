@@ -1,0 +1,9 @@
+{"processes": [
+  {"replies": [
+    {"blocks": [{"tool": "skill", "id": "toolu_greet",
+                 "input": {"skill": "greet", "args": "Ada Lovelace"}}]},
+    {"blocks": [{"tool": "skill", "id": "toolu_review",
+                 "input": {"skill": "review", "args": "main"}}]},
+    {"blocks": [{"text": "Skills work through the CLI."}]}]},
+  {"replies": [{"blocks": [{"text": "CHILD_REPORT reviewed main"}]}]}
+]}

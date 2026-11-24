@@ -1,0 +1,6 @@
+{"processes": [
+  {"replies": [
+    {"blocks": [{"tool": "mcp__beta__echo", "id": "toolu_mcp",
+                 "input": {"text": "hello"}}]},
+    {"blocks": [{"text": "MCP works through the CLI."}]}]}
+]}

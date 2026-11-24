@@ -43,6 +43,7 @@ FYAI_TEST_ENTRY(cmd, rest_array_option, cmd_rest_array_option)
 FYAI_TEST_ENTRY(cmd, history_args, cmd_history_args)
 FYAI_TEST_ENTRY(cmd, complete_config, cmd_complete_config)
 FYAI_TEST_ENTRY(cmd, complete_catalog, cmd_complete_catalog)
+FYAI_TEST_ENTRY(cmd, complete_program_models, cmd_complete_program_models)
 FYAI_TEST_ENTRY(cmd, surfaces, cmd_surfaces)
 FYAI_TEST_ENTRY(cmd, setting_scope, cmd_setting_scope)
 
@@ -756,6 +757,29 @@ int cmd_complete_catalog(void)
 	complete(FYAI_CMD_CLI, "catalog set models/gpt-5.4-mini/modalities/0 ",
 		 &c);
 	FYAI_TCHECK(strstr(c.buf, "text\n") && strstr(c.buf, "image\n"));
+	return 0;
+}
+
+/*
+ * The models of the Claude Code CLI complete behind its provider: its default
+ * and the models of the catalogue provider that the configuration names.
+ */
+int cmd_complete_program_models(void)
+{
+	struct cands c;
+	unsigned int d;
+
+	d = complete(FYAI_CMD_CLI, "model claude-c", &c);
+	FYAI_TCHECK(!strcmp(c.buf, "claude-code/\n"));
+	FYAI_TCHECK(d & FYAI_CMD_COMPLETE_NOSPACE);
+	complete(FYAI_CMD_CLI, "model claude-code/", &c);
+	FYAI_TCHECK(strstr(c.buf, "claude-code/default\n") &&
+		    strstr(c.buf, "claude-code/claude-sonnet-5.5\n") &&
+		    strstr(c.buf, "claude-code/claude-opus-5.5\n"));
+	complete(FYAI_CMD_CLI, "model claude-code/claude-ha", &c);
+	FYAI_TCHECK(!strcmp(c.buf, "claude-code/claude-haiku-5.5\n"));
+	complete(FYAI_CMD_SESSION, "model claude-code/claude-so", &c);
+	FYAI_TCHECK(!strcmp(c.buf, "claude-code/claude-sonnet-5.5\n"));
 	return 0;
 }
 

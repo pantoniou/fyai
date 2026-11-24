@@ -2,8 +2,9 @@
 # SPDX-License-Identifier: MIT
 # The model selects the Claude Code CLI: `model claude-code/MODEL` switches to
 # it and stores the grammar with the model, a bare model keeps it, the CLI
-# gets the model, and a model that a catalogue provider pins leaves it, also
-# when the grammar was set by hand.
+# gets the model, a catalogue name goes to it as the id of the provider that
+# lists its models, and a model that a catalogue provider pins leaves it,
+# also when the grammar was set by hand.
 set -eu
 . "$(dirname "$0")/../harness.sh"
 
@@ -44,6 +45,15 @@ stored model "'claude-code/opus'"
 run_fyai "hello"
 assert_status 0
 cli_model opus
+
+# A catalogue name of the provider of its models.
+run_fyai model claude-code/claude-sonnet-5.5
+assert_status 0
+assert_stdout_contains "model: claude-sonnet-5-5 (provider claude-code"
+stored model "'claude-code/claude-sonnet-5-5'"
+run_fyai "hello"
+assert_status 0
+cli_model claude-sonnet-5-5
 
 run_fyai model openai/gpt-5.4-mini
 assert_status 0
