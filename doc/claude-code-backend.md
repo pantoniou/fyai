@@ -21,14 +21,20 @@ serves the session, a bare model, such as `/model opus`, stays with it. A
 model that a catalogue provider pins, such as `/model openai/gpt-5.4`, leaves
 it. A change of model starts a new CLI.
 
-The CLI resolves MODEL: an alias (`sonnet`, `opus`, `haiku`, `fable`) or a
-full model name, such as `claude-sonnet-5-5`. `default` lets the CLI choose. The configuration key
+The CLI takes the model ids of the Messages API, so the catalogue lists its
+models: those of the provider that `claude_code/catalog_provider` names,
+`anthropic` by default. Completion offers them, and a catalogue name, such
+as `claude-sonnet-5.5`, goes to the CLI as the id of that provider,
+`claude-sonnet-5-5`, with the context window and output limit of the
+catalogue. Another name, such as the alias `sonnet`, goes to the CLI as it
+is. `default` lets the CLI choose. The configuration key
 `claude_code` sets the program:
 
 | Key | Default | Effect |
 | --- | --- | --- |
 | `claude_code/command` | `claude` | The CLI, as a name on `PATH` or a path. |
 | `claude_code/api_billing` | `false` | Allow a CLI that bills an API key. |
+| `claude_code/catalog_provider` | `anthropic` | The catalogue provider that lists the models of the CLI. |
 
 ## Authentication
 
