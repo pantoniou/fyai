@@ -109,6 +109,16 @@ display makes them again.
   screen and paints the newest exchanges from the stored transcript, through
   `fyai_display_repaint()`. It waits for a turn in flight to finish: only what
   is stored can be made again. Ctrl-L asks for the same repaint.
+- On a page, the live rows of a turn in flight are made again from their
+  source. The sink gives the Markdown of the rows it renders with
+  `fyai_ui_present_markdown()`, and the source of a finished tail with
+  `fyai_ui_tail_finish()`. The transcript view keeps the source of whole
+  rows, and renders it again at the new width. Rows without a source, and
+  rows already sent to the scrollback of a primary page, stay as they are.
+  The stored exchange replaces all of them when the turn ends.
+- A head stored while the document of a turn is live does not hold the rows
+  of that document. The view keeps its live rows, and takes the head when the
+  document ends.
 - The repaint takes whole exchanges until the screen is full, so it must
   measure what it draws. A tool fragment is drawn bounded by its preview
   limit: the thousand lines a call printed are the eight rows of them the
