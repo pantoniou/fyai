@@ -37,6 +37,8 @@
   render again at a new width.
 - Command-line overrides stay when a session changes branch.
 - Refresh storage of credentials no longer waits for an active turn.
+- The split client no longer stops under UBSAN when a Markdown block ends
+  with no text.
 
 ## 0.4.2 - 2026-10-26
 
