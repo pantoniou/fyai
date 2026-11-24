@@ -19,6 +19,7 @@ FYAI_TEST_ENTRY(transcript_view, scroll_stops_at_the_ends, transcript_view_scrol
 FYAI_TEST_ENTRY(transcript_view, live_rows_follow_the_stored, transcript_view_live_rows_follow_the_stored)
 FYAI_TEST_ENTRY(transcript_view, tail_scrolls_with_transcript, transcript_view_tail_scrolls_with_transcript)
 FYAI_TEST_ENTRY(transcript_view, frozen_tail_rows_are_final, transcript_view_frozen_tail_rows_are_final)
+FYAI_TEST_ENTRY(transcript_view, live_rows_keep_whole_sources, transcript_view_live_rows_keep_whole_sources)
 FYAI_TEST_ENTRY(transcript_view, scrolled_view_keeps_its_top, transcript_view_scrolled_view_keeps_its_top)
 FYAI_TEST_ENTRY(transcript_view, copy_reads_the_selected_cells, transcript_view_copy_reads_the_selected_cells)
 FYAI_TEST_ENTRY(transcript_view, update_renders_what_changed, transcript_view_update_renders_what_changed)
@@ -185,6 +186,40 @@ int transcript_view_frozen_tail_rows_are_final(void)
 	FYAI_TCHECK(!fyai_transcript_view_append_live(v, "\n", 1));
 	FYAI_TCHECK(!fyai_transcript_view_set_tail(v, "t1\n", 3));
 	FYAI_TCHECK(fyai_transcript_view_final_rows(v) == 3);
+	fyai_transcript_view_destroy(v);
+	return 0;
+}
+
+/* Live rows keep their source only when they are whole rows that no other
+ * source holds; dropping the live rows drops the sources. */
+int transcript_view_live_rows_keep_whole_sources(void)
+{
+	struct fyai_transcript_view *v = fyai_transcript_view_create();
+	size_t mark;
+
+	FYAI_TCHECK(v != NULL);
+	mark = fyai_transcript_view_live_mark(v);
+	FYAI_TCHECK(mark == 0);
+	FYAI_TCHECK(!fyai_transcript_view_append_live(v, "a\nb\n", 4));
+	FYAI_TCHECK(!fyai_transcript_view_source_live(v, mark, "a b", 80, false));
+	FYAI_TCHECK(fyai_transcript_view_live_sourced(v) == 2);
+	/* A source that starts in rows another holds is not kept. */
+	FYAI_TCHECK(!fyai_transcript_view_append_live(v, "c\n", 2));
+	FYAI_TCHECK(!fyai_transcript_view_source_live(v, 1, "b c", 80, false));
+	FYAI_TCHECK(fyai_transcript_view_live_sourced(v) == 2);
+	/* Rows that do not end keep no source. */
+	mark = fyai_transcript_view_live_mark(v);
+	FYAI_TCHECK(!fyai_transcript_view_append_live(v, "d", 1));
+	FYAI_TCHECK(fyai_transcript_view_live_mark(v) == SIZE_MAX);
+	FYAI_TCHECK(!fyai_transcript_view_source_live(v, mark, "d", 80, false));
+	FYAI_TCHECK(fyai_transcript_view_live_sourced(v) == 2);
+	FYAI_TCHECK(!fyai_transcript_view_append_live(v, "\n", 1));
+	mark = fyai_transcript_view_live_mark(v);
+	FYAI_TCHECK(!fyai_transcript_view_append_live(v, "e\n", 2));
+	FYAI_TCHECK(!fyai_transcript_view_source_live(v, mark, "e", 80, true));
+	FYAI_TCHECK(fyai_transcript_view_live_sourced(v) == 3);
+	fyai_transcript_view_clear_live(v);
+	FYAI_TCHECK(fyai_transcript_view_live_sourced(v) == 0);
 	fyai_transcript_view_destroy(v);
 	return 0;
 }
