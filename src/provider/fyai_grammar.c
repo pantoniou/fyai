@@ -150,6 +150,18 @@ fy_generic fyai_grammar_history(const struct fyai_grammar *grammar,
 	return grammar->history(ctx, wire, lossesp);
 }
 
+fy_generic fyai_grammar_sandbox_grants(const struct fyai_cfg *cfg,
+				       struct fy_generic_builder *gb)
+{
+	const struct fyai_grammar *grammar = fyai_grammar(cfg);
+	fy_generic grants;
+
+	if (!grammar->sandbox_grants)
+		return fy_seq_empty;
+	grants = grammar->sandbox_grants(cfg, gb);
+	return fy_is_sequence(grants) ? grants : fy_seq_empty;
+}
+
 bool fyai_grammar_compacts(const struct fyai_cfg *cfg)
 {
 	return fyai_grammar(cfg)->compact_url != NULL;

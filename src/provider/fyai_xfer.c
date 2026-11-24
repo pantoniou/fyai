@@ -532,6 +532,7 @@ static struct fyai_xfer *xfer_cli_submit(struct fyai_ctx *ctx,
 	struct fyai_claude_cli_opts opts = {
 		.command = ctx->cfg->claude_code_command,
 		.api_billing = ctx->cfg->claude_code_api_billing,
+		.in_view = !fy_str_empty(ctx->cfg->view_project),
 	};
 	const char *body = ctx->link->body ? ctx->link->body : "";
 

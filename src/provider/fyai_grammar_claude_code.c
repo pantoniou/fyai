@@ -22,6 +22,7 @@
 #include <string.h>
 
 #include "fyai_buf.h"
+#include "fyai_claude_cli.h"
 #include "fyai_grammar.h"
 #include "fyai_media.h"
 #include "fyai_provider.h"
@@ -240,6 +241,24 @@ out:
 	return request;
 }
 
+/*
+ * The CLI reads its login and writes its state and the renewed token in its
+ * configuration directory. In a view the CLI is told to keep `.claude.json`
+ * there too (fyai_claude_cli.c), so the home itself stays read-only.
+ */
+static fy_generic cc_sandbox_grants(const struct fyai_cfg *cfg,
+				    struct fy_generic_builder *gb)
+{
+	char dir[4096];
+	fy_generic grant;
+
+	(void)cfg;
+	if (!fyai_claude_cli_config_dir(dir, sizeof(dir)))
+		return fy_seq_empty;
+	grant = fy_mapping(gb, "path", fy_value(gb, dir), "mode", "rw");
+	return fy_sequence(gb, grant);
+}
+
 /* The CLI is not reached over HTTP. */
 static const struct fyai_grammar_header cc_headers[] = {
 	{ NULL, NULL },
@@ -262,5 +281,6 @@ const struct fyai_grammar fyai_grammar_claude_code = {
 	.stream			= &fyai_grammar_messages,
 	.response		= cc_response,
 	.history		= cc_history,
+	.sandbox_grants		= cc_sandbox_grants,
 	.cli			= true,
 };

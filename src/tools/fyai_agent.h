@@ -21,6 +21,20 @@ int fyai_agent_verb(struct fyai_ctx *ctx);
 int fyai_agent_persona_cfg(struct fyai_ctx *ctx, fy_generic persona,
 			   bool fork_mode, struct fyai_cfg *out);
 
+struct fyai_sandbox_path;
+
+/*
+ * The paths that an agent runtime of @ctx needs beyond its view: the sandbox
+ * grants of the grammar of its configuration and of each persona, since a
+ * sub-agent picks its persona after it enters the view. Each path is given
+ * once. *@out is a malloc'd array of malloc'd paths, NULL when there is none;
+ * free it with fyai_agent_runtime_grants_free(). Return 0, or -1 with a
+ * diagnostic.
+ */
+int fyai_agent_runtime_grants(struct fyai_ctx *ctx,
+			      struct fyai_sandbox_path **out, size_t *n);
+void fyai_agent_runtime_grants_free(struct fyai_sandbox_path *grants, size_t n);
+
 /*
  * Adopt the configuration that a parent sent to an executed sub-agent child.
  * The call arguments are parsed in the grammar of that configuration.

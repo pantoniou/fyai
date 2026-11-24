@@ -72,6 +72,7 @@ struct fyai_claude_cli {
 	struct fyai_ctx *ctx;
 	struct fyai_claude_cli **slot;	/* of the host; NULL once retired */
 	char *command;
+	char *config_dir;	/* CLAUDE_CONFIG_DIR of the CLI, or NULL */
 	bool api_billing;
 	pid_t pid;
 	int in_fd;		/* the standard input of the CLI */
@@ -716,6 +717,7 @@ static void ccli_free(struct fyai_claude_cli *cli, bool sync)
 	ccli_seen_free(cli);
 	fyai_buf_free(&cli->err);
 	free(cli->command);
+	free(cli->config_dir);
 	if (cli->gb)
 		fy_generic_builder_destroy(cli->gb);
 	free(cli);
@@ -925,6 +927,9 @@ static int ccli_spawn(struct fyai_claude_cli *cli, fy_generic req)
 		rc = fyai_child_exec_prepare(ctx, &spec);
 		if (rc)
 			_exit(rc);
+		/* The home of a view is read-only; the granted directory is not. */
+		if (cli->config_dir && setenv("CLAUDE_CONFIG_DIR", cli->config_dir, 1))
+			_exit(126);
 		execvp(command, (char *const *)argv);
 		_exit(127);
 	}
@@ -982,6 +987,13 @@ ccli_start(struct fyai_ctx *ctx, const struct fyai_claude_cli_opts *opts,
 			      opts->command);
 	fyai_error_check(ctx, cli->command, err_free,
 			 "claude-code: cannot allocate the session");
+	if (opts->in_view) {
+		cli->config_dir = malloc(4096);
+		fyai_error_check(ctx, cli->config_dir &&
+				 fyai_claude_cli_config_dir(cli->config_dir, 4096),
+				 err_free, "claude-code: the CLI has no "
+				 "configuration directory in this view");
+	}
 	cli->gb = fy_generic_builder_create(&gb_cfg);
 	fyai_error_check(ctx, cli->gb, err_free,
 			 "claude-code: cannot create the session builder");
@@ -1222,6 +1234,21 @@ void fyai_claude_cli_call_destroy(struct fyai_claude_cli_call *call)
 					ccli_call_end_cb, call);
 	free(call->error);
 	free(call);
+}
+
+bool fyai_claude_cli_config_dir(char *out, size_t size)
+{
+	const char *dir = getenv("CLAUDE_CONFIG_DIR");
+	const char *home = getenv("HOME");
+	int n;
+
+	if (dir && dir[0] == '/')
+		n = snprintf(out, size, "%s", dir);
+	else if (home && home[0] == '/')
+		n = snprintf(out, size, "%s/.claude", home);
+	else
+		return false;
+	return n > 0 && (size_t)n < size;
 }
 
 void fyai_claude_cli_release(struct fyai_claude_cli **slot)

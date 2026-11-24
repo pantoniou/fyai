@@ -43,7 +43,18 @@ struct fyai_fsview {
 	 * descriptor. No projection mounts the arena at a path.
 	 */
 	bool agent;
+	/*
+	 * Outside paths that an agent runtime needs with the access of @mode,
+	 * where the view would leave them read-only: the sandbox grants of the
+	 * model connection that it runs (fyai_grammar_sandbox_grants()). A
+	 * path that does not exist is left out.
+	 */
+	const struct fyai_sandbox_path *grant;
+	size_t grant_n;
 };
+
+/* The most grants that a view applies; the rest are left out. */
+#define FYAI_FSVIEW_GRANT_MAX	8
 
 struct fyai_fsview_mount {
 	uint64_t namespace_device;

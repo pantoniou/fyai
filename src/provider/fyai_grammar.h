@@ -157,6 +157,14 @@ struct fyai_grammar {
 			      fy_generic *lossesp);
 	/* The compact URL of the endpoint; NULL when there is none. */
 	bool (*compact_url)(const struct fyai_cfg *cfg, char *out, size_t size);
+	/*
+	 * What a process that runs the model connection of this grammar needs
+	 * beyond what a view gives an agent runtime: a sequence of {path, mode}
+	 * in @gb, mode "rw" or "ro". NULL when it needs nothing: an HTTP
+	 * grammar reaches its provider over the network alone.
+	 */
+	fy_generic (*sandbox_grants)(const struct fyai_cfg *cfg,
+				     struct fy_generic_builder *gb);
 
 	bool reasoning;			/* reasoning options are sent */
 	bool logprobs;			/* token log probabilities are returned */
@@ -266,6 +274,13 @@ bool fyai_grammar_chain_miss(struct fyai_ctx *ctx, long status,
 fy_generic fyai_grammar_history(const struct fyai_grammar *grammar,
 				struct fyai_ctx *ctx, fy_generic wire,
 				fy_generic *lossesp);
+
+/*
+ * The sandbox grants of the grammar of @cfg, as its operation states them;
+ * an empty sequence when it has none.
+ */
+fy_generic fyai_grammar_sandbox_grants(const struct fyai_cfg *cfg,
+				       struct fy_generic_builder *gb);
 
 /* True when an endpoint of the grammar can offer /compact. */
 bool fyai_grammar_compacts(const struct fyai_cfg *cfg);

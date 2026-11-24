@@ -1026,16 +1026,42 @@ static int linux_arena_pass(const struct fyai_cfg *cfg)
 	return fcntl(cfg->view_arena_fd, F_SETFD, 0);
 }
 
+/*
+ * Whether the grant @path can be mounted writable in @view: it holds neither
+ * the project nor the storage of the view nor the arena, and none of them
+ * holds it, so the grant never exposes or hides what the view controls.
+ */
+static bool view_grant_usable(const struct fyai_fsview *view, const char *path)
+{
+	const char *const controlled[] = {
+		view->project, view->scratch, view->storage, view->arena,
+		view->runtime,
+	};
+	size_t i;
+
+	if (!path || path[0] != '/' || !strcmp(path, "/"))
+		return false;
+	for (i = 0; i < sizeof(controlled) / sizeof(controlled[0]); i++) {
+		if (!controlled[i])
+			continue;
+		if (fyai_path_beneath(controlled[i], path) ||
+		    fyai_path_beneath(path, controlled[i]))
+			return false;
+	}
+	return true;
+}
+
 static int linux_enter(struct fyai_cfg *cfg, const struct fyai_fsview *view,
 		      int status_fd, int announce_fd)
 {
 	const char *backing = fy_sprintfa("%s/" FYAI_FSVIEW_BACKING_NAME, view->scratch);
 	struct sigaction ignore = { .sa_handler = SIG_IGN }, previous;
 	struct mount_attr attrs = { .attr_set = MOUNT_ATTR_RDONLY };
-	struct fyai_sandbox_path allowed[2] = {
+	struct fyai_sandbox_path allowed[2 + FYAI_FSVIEW_GRANT_MAX] = {
 		{ .path = view->scratch, .mode = FYAI_SB_RW },
 		{ .path = NULL, .mode = FYAI_SB_RW },
 	};
+	int grant_tree[FYAI_FSVIEW_GRANT_MAX];
 	struct fyai_sandbox_spec sandbox = {
 		.strict = true, .read_all = true, .allow = allowed, .allow_n = 1
 	};
@@ -1043,8 +1069,13 @@ static int linux_enter(struct fyai_cfg *cfg, const struct fyai_fsview *view,
 	struct stat project_stat;
 	struct timespec project_times[2];
 	int runtime, rc, saved, status, tree = -1, arena_tree = -1;
-	size_t denied = 0;
+	size_t denied = 0, i, grant_n;
 	pid_t child, waited, parent = getppid();
+
+	grant_n = view->grant_n < FYAI_FSVIEW_GRANT_MAX ? view->grant_n :
+							  FYAI_FSVIEW_GRANT_MAX;
+	for (i = 0; i < FYAI_FSVIEW_GRANT_MAX; i++)
+		grant_tree[i] = -1;
 
 	rc = fyai_fsview_verify(view, NULL, 0);
 	if (rc)
@@ -1116,12 +1147,41 @@ static int linux_enter(struct fyai_cfg *cfg, const struct fyai_fsview *view,
 			goto out;
 		}
 	}
+	/*
+	 * A writable grant is taken before the outside mounts become read-only,
+	 * as the arena is, and mounted back over its own path after. A read-only
+	 * grant needs nothing: the runtime reads every outside path.
+	 */
+	for (i = 0; view->agent && i < grant_n; i++) {
+		if (view->grant[i].mode == FYAI_SB_RO ||
+		    !view_grant_usable(view, view->grant[i].path))
+			continue;
+		grant_tree[i] = syscall(SYS_open_tree, AT_FDCWD, view->grant[i].path,
+					OPEN_TREE_CLONE | OPEN_TREE_CLOEXEC);
+		if (grant_tree[i] < 0 && errno != ENOENT) {
+			rc = -1;
+			goto out;
+		}
+	}
 	rc = mount("/", "/", NULL, MS_BIND | MS_REC, NULL);
 	if (rc)
 		goto out;
 	rc = syscall(SYS_mount_setattr, AT_FDCWD, "/", AT_RECURSIVE, &attrs, sizeof(attrs));
 	if (rc)
 		goto out;
+	for (i = 0; i < grant_n; i++) {
+		if (grant_tree[i] < 0)
+			continue;
+		rc = syscall(SYS_move_mount, grant_tree[i], "", AT_FDCWD,
+			     view->grant[i].path, MOVE_MOUNT_F_EMPTY_PATH);
+		if (rc)
+			goto out;
+		close(grant_tree[i]);
+		grant_tree[i] = -1;
+		/* Held after the scratch and arena slots until the grant is made. */
+		allowed[2 + i].path = view->grant[i].path;
+		allowed[2 + i].mode = view->grant[i].mode;
+	}
 	rc = mount("tmpfs", view->scratch, "tmpfs", MS_NOSUID | MS_NODEV, "mode=1777,size=1G");
 	if (rc)
 		goto out;
@@ -1185,6 +1245,12 @@ static int linux_enter(struct fyai_cfg *cfg, const struct fyai_fsview *view,
 		arena_tree = -1;
 		allowed[1].path = cfg->view_arena;
 		sandbox.allow_n = 2;
+	}
+	/* The grants that were mounted, after the scratch and the arena. */
+	for (i = 0; i < grant_n; i++) {
+		if (!allowed[2 + i].path)
+			continue;
+		allowed[sandbox.allow_n++] = allowed[2 + i];
 	}
 	cfg->view_project = fy_gb_intern_string(cfg->gb, view->project);
 	cfg->view_scratch = fy_gb_intern_string(cfg->gb, view->scratch);
@@ -1250,6 +1316,9 @@ static int linux_enter(struct fyai_cfg *cfg, const struct fyai_fsview *view,
 	}
 out:
 	saved = errno;
+	for (i = 0; i < FYAI_FSVIEW_GRANT_MAX; i++)
+		if (grant_tree[i] >= 0)
+			close(grant_tree[i]);
 	if (tree >= 0)
 		close(tree);
 	if (arena_tree >= 0)

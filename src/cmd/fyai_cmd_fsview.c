@@ -44,6 +44,7 @@
 #include "fyai_branch.h"
 #include "fyai_config.h"
 #include "fyai_fsview.h"
+#include "fyai_agent.h"
 #include "fyai_sandbox.h"
 #include "fyai_sandbox_profile.h"
 #include "fyai_view_apply.h"
@@ -2061,6 +2062,7 @@ struct fyai_view_run {
 	 */
 	fy_generic project, runtime, storage;
 	char *scratch, *execution;
+	struct fyai_sandbox_path *grant;	/* what spec.grant names */
 	int lock;
 	bool started;
 };
@@ -2072,6 +2074,10 @@ static void view_run_release(struct fyai_view_run *run)
 	free(run->name);
 	free(run->scratch);
 	free(run->execution);
+	fyai_agent_runtime_grants_free(run->grant, run->spec.grant_n);
+	run->grant = NULL;
+	run->spec.grant = NULL;
+	run->spec.grant_n = 0;
 }
 
 
@@ -3359,6 +3365,14 @@ err:
 	}
 	run->started = true;
 	run->spec.agent = true;
+	/*
+	 * A runtime that runs its model connection itself gets what that needs.
+	 * Under the credential transport the transport runs it.
+	 */
+	if (!ctx->transport->client &&
+	    fyai_agent_runtime_grants(ctx, &run->grant, &run->spec.grant_n))
+		goto fail;
+	run->spec.grant = run->grant;
 	*out = run;
 	return 0;
 fail:

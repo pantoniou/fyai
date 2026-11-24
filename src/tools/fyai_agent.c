@@ -8,6 +8,8 @@
 #include "fyai_sink.h"
 #include "fyai.h"
 #include "fyai_agent.h"
+#include "fyai_grammar.h"
+#include "fyai_sandbox.h"
 #include "fyai_skill.h"
 #include "fyai_agents.h"
 #include "fyai_ui.h"
@@ -123,6 +125,88 @@ static char *fyai_agent_persona_names(struct fyai_ctx *ctx)
 		len += name_len;
 	}
 	return out ? out : strdup("none configured");
+}
+
+/* Add the grants of the grammar of @cfg to @grants, each path once. */
+static int agent_grants_add(struct fyai_ctx *ctx, const struct fyai_cfg *cfg,
+			    struct fyai_sandbox_path **grants, size_t *n)
+{
+	struct fy_generic_builder *gb = fyai_ctx_transient_gb(ctx);
+	struct fyai_sandbox_path *more;
+	enum fyai_sandbox_mode mode;
+	fy_generic grant;
+	const char *path;
+	size_t i;
+	bool known;
+
+	fy_foreach(grant, fyai_grammar_sandbox_grants(cfg, gb)) {
+		path = fy_get(grant, "path", "");
+		fyai_error_check(ctx, path[0] == '/' &&
+				 !fyai_sandbox_mode_parse(fy_get(grant, "mode", ""),
+							  &mode), err,
+				 "the %s grammar states a bad sandbox grant '%s'",
+				 fyai_grammar(cfg)->name, path);
+		known = false;
+		for (i = 0; i < *n; i++)
+			known |= !strcmp((*grants)[i].path, path);
+		if (known)
+			continue;
+		more = realloc(*grants, (*n + 1) * sizeof(**grants));
+		fyai_error_check(ctx, more, err, "out of memory");
+		*grants = more;
+		more[*n].path = strdup(path);
+		more[*n].mode = mode;
+		fyai_error_check(ctx, more[*n].path, err, "out of memory");
+		(*n)++;
+	}
+	return 0;
+err:
+	return -1;
+}
+
+int fyai_agent_runtime_grants(struct fyai_ctx *ctx,
+			      struct fyai_sandbox_path **out, size_t *n)
+{
+	fy_generic personas = fy_get(fy_get(ctx->cfg->config_doc, "agent"),
+				     "personas", fy_invalid);
+	struct fyai_diag *diag = ctx->cfg->diag;
+	fy_generic key, persona;
+	struct fyai_cfg pc;
+	int rc;
+
+	*out = NULL;
+	*n = 0;
+	if (agent_grants_add(ctx, ctx->cfg, out, n))
+		goto err;
+	if (!fy_is_mapping(personas))
+		return 0;
+	fy_foreach_key_value(key, persona, personas) {
+		if (!fy_is_mapping(persona))
+			continue;
+		/* A persona that does not resolve fails when a sub-agent uses it. */
+		ctx->cfg->diag = NULL;
+		rc = fyai_agent_persona_cfg(ctx, persona, false, &pc);
+		ctx->cfg->diag = diag;
+		if (rc)
+			continue;
+		if (agent_grants_add(ctx, &pc, out, n))
+			goto err;
+	}
+	return 0;
+err:
+	fyai_agent_runtime_grants_free(*out, *n);
+	*out = NULL;
+	*n = 0;
+	return -1;
+}
+
+void fyai_agent_runtime_grants_free(struct fyai_sandbox_path *grants, size_t n)
+{
+	size_t i;
+
+	for (i = 0; i < n; i++)
+		free((char *)grants[i].path);
+	free(grants);
 }
 
 /*

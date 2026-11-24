@@ -38,11 +38,22 @@ struct fyai_ctx;
 struct fyai_claude_cli;
 struct fyai_claude_cli_call;
 
-/* What the host gives a session: the CLI, and whether it may bill a key. */
+/*
+ * What the host gives a session: the CLI, whether it may bill a key, and
+ * whether the host runs in a view, where the home is read-only and the CLI
+ * keeps all its state in its configuration directory.
+ */
 struct fyai_claude_cli_opts {
 	const char *command;		/* NULL or "": claude */
 	bool api_billing;
+	bool in_view;
 };
+
+/*
+ * The configuration directory of the CLI: $CLAUDE_CONFIG_DIR, else
+ * $HOME/.claude. False when neither names an absolute path.
+ */
+bool fyai_claude_cli_config_dir(char *out, size_t size);
 
 /* How a request ended. */
 enum fyai_claude_cli_end {
