@@ -1369,14 +1369,6 @@ const char *fyai_context_source_name(enum fyai_context_source source)
 	}
 }
 
-/* Add the output allowance to the best available prompt size. */
-static long long session_projected_tokens(struct fyai_ctx *ctx,
-					  const struct fyai_context_prompt *p)
-{
-	return p->prompt + fyai_context_output_tokens(ctx, p->prompt,
-						      fyai_context_window(ctx));
-}
-
 long long fyai_context_output_tokens(struct fyai_ctx *ctx, long long prompt,
 				     long long window)
 {
@@ -1402,14 +1394,6 @@ void fyai_context_prompt_at(struct fyai_ctx *ctx, fy_generic head,
 	out->from_estimate = out->source == FYAICS_NONE ||
 			     out->estimated > out->measured;
 	out->prompt = out->from_estimate ? out->estimated : out->measured;
-}
-
-long long fyai_context_projected_at(struct fyai_ctx *ctx, fy_generic head)
-{
-	struct fyai_context_prompt p;
-
-	fyai_context_prompt_at(ctx, head, &p);
-	return session_projected_tokens(ctx, &p);
 }
 
 /* Render the measured and estimated prompt sizes. */
@@ -1455,7 +1439,7 @@ fy_generic fyai_session_status_data(struct fyai_ctx *ctx,
 	fyai_transport_status_text(ctx->transport, iso, sizeof(iso));
 	window = fyai_context_window(ctx);
 	fyai_context_prompt_at(ctx, ctx->turn->last_message, &p);
-	shown = session_projected_tokens(ctx, &p);
+	shown = p.prompt;
 	out_tokens = fyai_context_output_tokens(ctx, p.prompt, window);
 	if (cfg->reasoning_effort && *cfg->reasoning_effort)
 		reasoning = fy_stringf(gb, "%s%s%s", cfg->reasoning_effort,
@@ -1495,7 +1479,7 @@ fy_generic fyai_session_context_data(struct fyai_ctx *ctx,
 
 	window = fyai_context_window(ctx);
 	fyai_context_prompt_at(ctx, ctx->turn->last_message, &p);
-	projected = session_projected_tokens(ctx, &p);
+	projected = p.prompt;
 	out_tokens = fyai_context_output_tokens(ctx, p.prompt, window);
 
 	/* Report both token sources and mark the source used. */
@@ -1908,7 +1892,7 @@ fy_generic fyai_session_values(struct fyai_ctx *ctx,
 		fyai_context_prompt_at(ctx, ctx->turn->last_message, &prompt);
 		/* Streamed bytes are already in the estimate; do not add them twice. */
 		v = session_put(gb, v, "context", fy_mapping(gb,
-			"used", session_projected_tokens(ctx, &prompt),
+			"used", prompt.prompt,
 			"window", window));
 	} else {
 		v = session_drop(gb, v, "context");

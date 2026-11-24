@@ -84,9 +84,6 @@ fy_generic fyai_session_context_data(struct fyai_ctx *ctx,
 /* Return the active context window, or zero if it is not specified. */
 long long fyai_context_window(struct fyai_ctx *ctx);
 
-/* As above, measuring the turn chain that ends at @head. */
-long long fyai_context_projected_at(struct fyai_ctx *ctx, fy_generic head);
-
 /* Where a measured prompt size came from. */
 enum fyai_context_source {
 	FYAICS_NONE,		/* nothing measured yet */
