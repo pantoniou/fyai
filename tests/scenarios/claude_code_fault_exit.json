@@ -1,0 +1,8 @@
+{"processes": [
+  {"replies": [
+    {"blocks": [{"text": "Running."},
+                {"tool": "exec_command", "id": "toolu_f",
+                 "input": {"command": "echo exit >> ran.txt"}}],
+     "fault": "exit"}]},
+  {"replies": [{"blocks": [{"text": "Done exit."}]}]}
+]}

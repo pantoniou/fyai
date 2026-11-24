@@ -23,6 +23,7 @@
 
 FYAI_TEST_ENTRY(grammar, request_cache_bench, grammar_request_cache_bench)
 FYAI_TEST_ENTRY(grammar, lookup, grammar_lookup)
+FYAI_TEST_ENTRY(grammar, claude_code_request, grammar_claude_code_request)
 FYAI_TEST_ENTRY(grammar, canonical, grammar_canonical)
 FYAI_TEST_ENTRY(grammar, reply_round_trip, grammar_reply_round_trip)
 FYAI_TEST_ENTRY(grammar, result_round_trip, grammar_result_round_trip)
@@ -326,7 +327,9 @@ static void test_lookup(void)
 		fail("grammar names do not resolve%s%s", "", "");
 	i = 0;
 	fyai_grammar_foreach(grammar) {
-		if (i >= GRAMMARS || grammar != test_grammars[i] ||
+		/* The wire grammars, then the CLI that reads Messages streams. */
+		if ((i < GRAMMARS ? grammar != test_grammars[i] :
+		     grammar != &fyai_grammar_claude_code) ||
 		    fyai_grammar_get(grammar->mode) != grammar ||
 		    strcmp(fyai_api_to_string(grammar->mode), grammar->name))
 			fail("%s: the table is out of order%s",
@@ -342,6 +345,57 @@ static void test_lookup(void)
 	    compacts(&fyai_grammar_chat) ||
 	    fyai_grammar_messages.reasoning || fyai_grammar_messages.logprobs)
 		fail("grammar properties are wrong%s%s", "", "");
+	if (fyai_grammar_find("claude-code") != &fyai_grammar_claude_code ||
+	    !fyai_grammar_claude_code.cli ||
+	    fyai_grammar_claude_code.stream != &fyai_grammar_messages ||
+	    !fyai_api_local(FYAI_API_CLAUDE_CODE) ||
+	    fyai_api_local(FYAI_API_MESSAGES) || fyai_grammar_default_url(""))
+		fail("the claude-code grammar is wrong%s%s", "", "");
+}
+
+/*
+ * A claude-code request: a new CLI reads the turns before the last user
+ * message as a transcript and that message as the prompt; a CLI that waits
+ * takes the tool results at the end.
+ */
+static void test_claude_code_request(void)
+{
+	struct fyai_grammar_request req = {};
+	fy_generic r;
+	const char *history, *progress;
+
+	use_grammar(&fyai_grammar_claude_code);
+	test_cfg.model = "sonnet";
+	req.instructions = "be brief";
+	req.previous_response_id = fy_invalid;
+	req.max_tokens = 100;
+	req.messages = parse("[{\"role\":\"system\",\"content\":\"sys\"},"
+		"{\"role\":\"user\",\"content\":\"first\"},"
+		"{\"type\":\"function_call\",\"call_id\":\"c1\","
+		"\"name\":\"exec_command\",\"arguments\":\"{}\"},"
+		"{\"type\":\"function_call_output\",\"call_id\":\"c1\","
+		"\"output\":\"out-1\"},"
+		"{\"role\":\"assistant\",\"content\":\"answer-1\"},"
+		"{\"role\":\"user\",\"content\":\"second\"},"
+		"{\"type\":\"function_call\",\"call_id\":\"c2\","
+		"\"name\":\"read_file\",\"arguments\":\"{}\"},"
+		"{\"type\":\"function_call_output\",\"call_id\":\"c2\","
+		"\"output\":\"out-2\"}]");
+	r = parse(emit(fyai_grammar_build_request(&test_ctx, &req)));
+	history = fy_get(r, "history", "");
+	progress = fy_get(r, "progress", "");
+	if (strcmp(fy_get(r, "system", ""), "be brief") ||
+	    strcmp(fy_get(r, "model", ""), "sonnet") ||
+	    strcmp(fy_get(r, "prompt", ""), "second") ||
+	    strstr(history, "sys") || !strstr(history, "[user]\nfirst") ||
+	    !strstr(history, "out-1") || !strstr(history, "answer-1") ||
+	    strstr(history, "second") || !strstr(progress, "read_file") ||
+	    fy_len(fy_get(r, "results", fy_seq_empty)) != 1 ||
+	    strcmp(fy_get(fy_get_at(fy_get(r, "results"), 0), "call_id", ""),
+		   "c2") ||
+	    strcmp(fy_get(fy_get_at(fy_get(r, "results"), 0), "output", ""),
+		   "out-2"))
+		fail("wrong claude-code request %s%s", emit(r), "");
 }
 
 /* The replies of every grammar read as the same canonical response. */
@@ -1161,6 +1215,11 @@ static int grammar_run(void (*testfn)(void))
 
 	fy_generic_builder_destroy(fyai_test_transient_of(&test_ctx)->gb);
 	return 0;
+}
+
+int grammar_claude_code_request(void)
+{
+	return grammar_run(test_claude_code_request);
 }
 
 int grammar_lookup(void)

@@ -1,0 +1,7 @@
+{"processes": [{"replies": [
+  {"blocks": [{"text": "Running."},
+              {"tool": "exec_command", "id": "toolu_f",
+               "input": {"command": "echo garbage >> ran.txt"}}],
+   "fault": "garbage"},
+  {"blocks": [{"text": "Done garbage."}]}
+]}]}

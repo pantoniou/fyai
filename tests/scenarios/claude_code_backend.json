@@ -1,0 +1,13 @@
+{
+  "processes": [
+    {"replies": [
+      {"blocks": [{"text": "Let me run it."},
+                  {"tool": "exec_command", "id": "toolu_a",
+                   "input": {"command": "pwd >> ran.txt; printf fyai-bridge-ok"}}]},
+      {"blocks": [{"text": "It printed fyai-bridge-ok."}]}
+    ]},
+    {"replies": [
+      {"blocks": [{"text": "fyai-bridge-ok"}]}
+    ]}
+  ]
+}

@@ -358,6 +358,25 @@ mock_stop_quiet() {
 	wait "$pid" 2>/dev/null || true
 }
 
+# fake_claude_install SCENARIO [NAME [LOG]]: make $TEST_DIR/bin/NAME (claude),
+# a Claude Code CLI of tests/fake_claude.py that plays SCENARIO (in
+# tests/scenarios, or a path) and logs to $FAKE_CLAUDE_LOG: LOG, else
+# $TEST_DIR/NAME.log. fyai gives the CLI no environment of the case, so the
+# wrapper names both files.
+fake_claude_install() {
+	local scenario="$1" name="${2:-claude}"
+
+	[ -f "$scenario" ] || scenario="$SCENARIOS_DIR/$1"
+	[ -f "$scenario" ] || fail "scenario not found: $1"
+	FAKE_CLAUDE_LOG="${3:-$TEST_DIR/$name.log}"
+	FAKE_CLAUDE="$TEST_DIR/bin/$name"
+	mkdir -p "$TEST_DIR/bin"
+	printf '#!/bin/sh\nexec %s %s %s %s "$@"\n' "$(command -v "$PYTHON")" \
+		"$TESTS_DIR/fake_claude.py" "$scenario" "$FAKE_CLAUDE_LOG" \
+		> "$FAKE_CLAUDE"
+	chmod +x "$FAKE_CLAUDE"
+}
+
 # run_fyai [args...]: run fyai with the invariant test flags; capture output.
 # The exit status lands in FYAI_STATUS (never aborts the case by itself).
 run_fyai() {

@@ -1,0 +1,19 @@
+{"processes": [
+  {"turns": [
+    {"replies": [
+      {"blocks": [{"tool": "exec_command", "id": "toolu_y",
+                   "input": {"command": "pwd >> ran.txt; printf approved-ok"}}]},
+      {"blocks": [{"text": "first done"}]}]},
+    {"replies": [
+      {"blocks": [{"tool": "exec_command", "id": "toolu_n",
+                   "input": {"command": "echo no >> denied.txt"}}]},
+      {"blocks": [{"text": "second done"}]}]},
+    {"replies": [
+      {"blocks": [{"tool": "exec_command", "id": "toolu_s",
+                   "input": {"command": "echo $$ > started.tmp; mv started.tmp started.txt; exec sleep 300"}}]},
+      {"blocks": [{"text": "never"}]}]}]},
+  {"turns": [
+    {"replies": [{"blocks": [{"text": "after the interrupt"}]}]},
+    {"replies": [{"blocks": [{"text": "WRONG resumed"}]}]}]},
+  {"replies": [{"blocks": [{"text": "after clear"}]}]}
+]}

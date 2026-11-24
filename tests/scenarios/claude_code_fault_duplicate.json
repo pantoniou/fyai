@@ -1,0 +1,7 @@
+{"processes": [{"replies": [
+  {"blocks": [{"text": "Running."},
+              {"tool": "exec_command", "id": "toolu_f",
+               "input": {"command": "echo duplicate >> ran.txt"}}],
+   "fault": "duplicate"},
+  {"blocks": [{"text": "Done duplicate."}]}
+]}]}

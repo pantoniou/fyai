@@ -1,0 +1,10 @@
+{"processes": [
+  {"replies": [
+    {"blocks": [{"text": "Running."},
+                {"tool": "exec_command", "id": "toolu_c",
+                 "input": {"command": "echo once >> ran.txt; printf tool-ok"}}],
+     "fault": "crash"}]},
+  {"turns": [
+    {"replies": [{"blocks": [{"text": "recovered"}]}]}]},
+  {"replies": [{"blocks": [{"text": "relaunched"}]}]}
+]}

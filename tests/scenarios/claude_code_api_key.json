@@ -1,0 +1,3 @@
+{"account": {"tokenSource": "claude.ai", "apiKeySource": "ANTHROPIC_API_KEY",
+             "apiProvider": "firstParty"},
+ "processes": [{"replies": [{"blocks": [{"text": "billed"}]}]}]}

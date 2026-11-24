@@ -1,0 +1,9 @@
+{"processes": [
+  {"replies": [
+    {"blocks": [{"tool": "agent", "id": "toolu_agent",
+                 "input": {"name": "worker", "description": "check the view",
+                           "task": "say done", "isolated": true}}]},
+    {"blocks": [{"text": "parent done"}]}]},
+  {"replies": [
+    {"blocks": [{"text": "child done"}]}]}
+]}
