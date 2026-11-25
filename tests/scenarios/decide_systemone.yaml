@@ -1,0 +1,94 @@
+# SPDX-License-Identifier: MIT
+# fyai decide on a decision model of the System One API (case
+# decide_systemone): each step answers the input whose marker it names.
+steps:
+  # A1: the option and its typed arguments, in one request.
+  - match: {path: /v1/systemone, body_contains: A1}
+    response:
+      model: jev-latest
+      answers:
+        decision:
+          type: choice
+          choice: billing
+          confidence: 0.85
+          probabilities: {billing: 0.9, other: 0.1}
+        a1: {type: noul, noul: 0.8}
+        a2:
+          type: choice
+          choice: high
+          confidence: 0.6
+          probabilities: {low: 0.2, high: 0.8}
+      usage: {input_tokens: 120, output_tokens: 0}
+  # B2: too unsure; the fallback, a chat model, decides.
+  - match: {path: /v1/systemone, body_contains: B2}
+    response:
+      answers:
+        decision:
+          type: choice
+          choice: billing
+          confidence: 0.2
+          probabilities: {billing: 0.6, other: 0.4}
+        a1: {type: noul, noul: 0.1}
+        a2: {type: choice, choice: low, probabilities: {low: 0.9, high: 0.1}}
+  - match: {path: /v1/chat/completions, body_contains: B2}
+    response:
+      choices:
+        - message:
+            role: assistant
+            content: null
+            tool_calls:
+              - id: call_b2
+                type: function
+                function:
+                  name: structured_output
+                  arguments: '{"decision":"other","arguments":{}}'
+          finish_reason: tool_calls
+      usage: {prompt_tokens: 10, completion_tokens: 5, total_tokens: 15}
+  # C3: triage on the decision model picks wake, which needs a summary.
+  - match: {path: /v1/systemone, body_contains: C3}
+    response:
+      answers:
+        decision:
+          type: choice
+          choice: wake
+          confidence: 0.9
+          probabilities: {drop: 0.02, wake: 0.95, defer: 0.03}
+        a1: {type: choice, choice: high, probabilities: {low: 0, normal: 0.1, high: 0.9}}
+  # D4: decisions-api.dev wraps the result.
+  - match: {path: /v1/systemone, body_contains: D4}
+    response:
+      code: 0
+      message: ok
+      data:
+        requestId: r-d4
+        creditsUsed: 1
+        result:
+          model: typesafe/jev-1.13
+          answers:
+            decision:
+              type: choice
+              choice: other
+              confidence: 0.7
+              probabilities: {billing: 0.15, other: 0.85}
+  # E5: a wrapped failure.
+  - match: {path: /v1/systemone, body_contains: E5}
+    response: {code: 402, message: insufficient credits}
+  # F6: more questions than a request carries: the choice, then the rest.
+  - match: {path: /v1/systemone, body_contains: F6}
+    response:
+      answers:
+        decision:
+          type: choice
+          choice: many
+          probabilities: {many: 0.99, none: 0.01}
+  - match: {path: /v1/systemone, body_contains: F6}
+    response:
+      answers:
+        a1: {type: noul, noul: 0.9}
+        a2: {type: noul, noul: 0.1}
+        a3: {type: noul, noul: 0.9}
+        a4: {type: noul, noul: 0.1}
+        a5: {type: noul, noul: 0.9}
+        a6: {type: noul, noul: 0.1}
+        a7: {type: noul, noul: 0.9}
+        a8: {type: noul, noul: 0.1}
