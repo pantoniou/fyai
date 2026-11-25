@@ -56,6 +56,8 @@ api_key: { type: auto }
 system_prompt: You are a concise assistant.
 web_search: true
 parallel_tool_calls: true
+# What the model must do with its tools: auto, required, none, or a tool name.
+tool_choice: auto
 parallel_tool_calls_prompt: >-
   Independent tool calls may be issued together in one response and will
   execute in parallel. Keep dependent or potentially conflicting tool calls
