@@ -60,3 +60,9 @@ src/core/fyai_crash.c
 # client on the other side parses, not presentation.
 src/remote/fyai_remote.c
 src/remote/fyai_remote_relay.c
+
+# The source verbs speak a protocol (MCP with fyai/events) on standard output
+# to their client, as a JSON-RPC peer does; nothing there is for a person. A
+# forked child reports that it could not run its program before exec, where
+# no sink exists.
+src/cmd/fyai_cmd_source.c

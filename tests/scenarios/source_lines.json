@@ -1,0 +1,10 @@
+{
+  "steps": [
+    {
+      "response": {"choices":[{"message":{"role":"assistant","content":"First seen."},"finish_reason":"stop"}],"usage":{"prompt_tokens":10,"completion_tokens":3,"total_tokens":13}}
+    },
+    {
+      "response": {"choices":[{"message":{"role":"assistant","content":"Second seen."},"finish_reason":"stop"}],"usage":{"prompt_tokens":10,"completion_tokens":3,"total_tokens":13}}
+    }
+  ]
+}
