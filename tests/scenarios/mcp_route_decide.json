@@ -1,0 +1,119 @@
+{
+ "steps": [
+  {
+   "match": {
+    "last_contains": "chose wake"
+   },
+   "response": {
+    "choices": [
+     {
+      "message": {
+       "role": "assistant",
+       "content": "Woken."
+      },
+      "finish_reason": "stop"
+     }
+    ],
+    "usage": {
+     "prompt_tokens": 10,
+     "completion_tokens": 3,
+     "total_tokens": 13
+    }
+   }
+  },
+  {
+   "match": {
+    "last_contains": "spam text"
+   },
+   "response": {
+    "choices": [
+     {
+      "message": {
+       "role": "assistant",
+       "content": null,
+       "tool_calls": [
+        {
+         "id": "call_r1",
+         "type": "function",
+         "function": {
+          "name": "structured_output",
+          "arguments": "{\"decision\": \"drop\", \"arguments\": {\"reason\": \"spam\"}}"
+         }
+        }
+       ]
+      },
+      "finish_reason": "tool_calls"
+     }
+    ],
+    "usage": {
+     "prompt_tokens": 10,
+     "completion_tokens": 5,
+     "total_tokens": 15
+    }
+   }
+  },
+  {
+   "match": {
+    "last_contains": "question text"
+   },
+   "response": {
+    "choices": [
+     {
+      "message": {
+       "role": "assistant",
+       "content": null,
+       "tool_calls": [
+        {
+         "id": "call_r2",
+         "type": "function",
+         "function": {
+          "name": "structured_output",
+          "arguments": "{\"decision\": \"reply\", \"arguments\": {\"text\": \"Answered by the decider.\"}}"
+         }
+        }
+       ]
+      },
+      "finish_reason": "tool_calls"
+     }
+    ],
+    "usage": {
+     "prompt_tokens": 10,
+     "completion_tokens": 5,
+     "total_tokens": 15
+    }
+   }
+  },
+  {
+   "match": {
+    "last_contains": "build text"
+   },
+   "response": {
+    "choices": [
+     {
+      "message": {
+       "role": "assistant",
+       "content": null,
+       "tool_calls": [
+        {
+         "id": "call_r3",
+         "type": "function",
+         "function": {
+          "name": "structured_output",
+          "arguments": "{\"decision\": \"wake\", \"arguments\": {\"summary\": \"a build request\", \"priority\": \"high\"}}"
+         }
+        }
+       ]
+      },
+      "finish_reason": "tool_calls"
+     }
+    ],
+    "usage": {
+     "prompt_tokens": 10,
+     "completion_tokens": 5,
+     "total_tokens": 15
+    }
+   },
+   "wait_for": "acked"
+  }
+ ]
+}

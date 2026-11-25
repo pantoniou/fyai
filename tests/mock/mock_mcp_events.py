@@ -9,6 +9,11 @@ a ping request. Every frame it reads is logged to MCP_EVENTS_LOG.
 
 With MCP_EVENTS_FIFO, it also sends one event for each line written to that
 FIFO, so a test can make an event arrive while a turn waits.
+
+With MCP_EVENTS_ON_LIST, a file of JSON lines {kind, id, cursor, data}, it
+sends those events once fyai has listed the kinds. With MCP_EVENTS_MARKER,
+it creates that file once it has an acknowledgement of each way an event
+is handled without the model, `dropped` and `answered`.
 """
 
 import json
@@ -75,10 +80,16 @@ if os.environ.get("MCP_EVENTS_FIFO"):
                      args=(os.environ["MCP_EVENTS_FIFO"],)).start()
 
 offered = False
+handled = set()
 for line in sys.stdin:
     frame = json.loads(line)
     record(frame)
     method = frame.get("method")
+    if method == "notifications/fyai/ack" and os.environ.get("MCP_EVENTS_MARKER"):
+        handled.update(k for k in ("dropped", "answered")
+                       if frame["params"].get(k))
+        if handled == {"dropped", "answered"}:
+            open(os.environ["MCP_EVENTS_MARKER"], "w").close()
     if method is None or method.startswith("notifications/"):
         continue
     if method == "initialize":
@@ -139,5 +150,10 @@ for line in sys.stdin:
     else:
         result = {}
     send({"id": frame["id"], "result": result})
+    if (method == "fyai/events/list" and
+            frame["params"].get("cursor") == "page-2" and
+            os.environ.get("MCP_EVENTS_ON_LIST")):
+        for ev in map(json.loads, open(os.environ["MCP_EVENTS_ON_LIST"])):
+            event(ev["kind"], ev["id"], ev["cursor"], ev["data"])
 
 record({"eof": True})
