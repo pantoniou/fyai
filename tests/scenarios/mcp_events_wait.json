@@ -1,0 +1,13 @@
+{
+  "steps": [
+    {
+      "response": {"choices":[{"message":{"role":"assistant","content":null,"tool_calls":[{"id":"call_poke","type":"function","function":{"name":"exec_command","arguments":"{\"command\":\"echo poked > events.fifo\"}"}},{"id":"call_wait","type":"function","function":{"name":"wait","arguments":"{\"for\":\"src\",\"seconds\":20}"}}]},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":10,"completion_tokens":5,"total_tokens":15}}
+    },
+    {
+      "response": {"choices":[{"message":{"role":"assistant","content":null,"tool_calls":[{"id":"call_list","type":"function","function":{"name":"list","arguments":"{\"kind\":\"sources\"}"}}]},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":20,"completion_tokens":5,"total_tokens":25}}
+    },
+    {
+      "response": {"choices":[{"message":{"role":"assistant","content":"Sources listed."},"finish_reason":"stop"}],"usage":{"prompt_tokens":30,"completion_tokens":4,"total_tokens":34}}
+    }
+  ]
+}

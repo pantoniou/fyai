@@ -6,14 +6,19 @@ It declares the capability when fyai offers it, lists its event kinds over
 two pages, and sends events while it answers a tool call: a good one, one
 that fails its schema, a resend of the good one, one of an unknown kind, and
 a ping request. Every frame it reads is logged to MCP_EVENTS_LOG.
+
+With MCP_EVENTS_FIFO, it also sends one event for each line written to that
+FIFO, so a test can make an event arrive while a turn waits.
 """
 
 import json
 import os
 import sys
+import threading
 
 
 log_path = os.environ["MCP_EVENTS_LOG"]
+out_lock = threading.Lock()
 
 
 def record(value):
@@ -23,7 +28,8 @@ def record(value):
 
 def send(frame):
     frame["jsonrpc"] = "2.0"
-    print(json.dumps(frame), flush=True)
+    with out_lock:
+        print(json.dumps(frame), flush=True)
 
 
 def event(kind, ident, cursor, data):
@@ -47,6 +53,22 @@ MESSAGE = {
     },
 }
 NOTE = {"name": "note", "schema": {"type": "string"}}
+
+
+def fifo_events(path):
+    """One event for each line of the FIFO; the open blocks for a writer."""
+    n = 0
+    while True:
+        with open(path, encoding="utf-8") as fifo:
+            for line in fifo:
+                n += 1
+                event("note", "fifo-%d" % n, "fifo-cursor-%d" % n,
+                      line.strip())
+
+
+if os.environ.get("MCP_EVENTS_FIFO"):
+    threading.Thread(target=fifo_events, daemon=True,
+                     args=(os.environ["MCP_EVENTS_FIFO"],)).start()
 
 offered = False
 for line in sys.stdin:
