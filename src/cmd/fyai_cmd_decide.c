@@ -54,6 +54,8 @@ int fyai_cmd_decide_prepare(struct fyai_cfg *cfg, fy_generic args)
 	/* One call answers: no prompt about calls side by side. */
 	cfg->parallel_tool_calls = false;
 	cfg->tool_choice = "structured_output";
+	/* Nothing is shown: one reply whole is simpler than a stream. */
+	cfg->stream = false;
 	return 0;
 }
 
@@ -213,6 +215,7 @@ int fyai_cmd_decide(struct fyai_cmd_call *call, fy_generic *result)
 	const char *options_file = fyai_cmd_arg_str(call, "options");
 	const char *instructions = fyai_cmd_arg_str(call, "instructions");
 	const char *input = fyai_cmd_arg_str(call, "input");
+	const char *spec = fyai_cmd_arg_str(call, "spec");
 	fy_generic decider = fy_map_empty, options, schema, v;
 	const char *why = NULL;
 	char *text, *line = NULL;
@@ -225,7 +228,12 @@ int fyai_cmd_decide(struct fyai_cmd_call *call, fy_generic *result)
 		*result = fyai_deciders_rows(cfg, gb);
 		return 0;
 	}
-	if (name && *name) {
+	if (spec) {
+		/* A decider that a parent resolved, given whole. */
+		decider = parse_json_string(gb, spec);
+		fyai_error_check(ctx, fy_is_mapping(decider), err,
+				 "decide: --spec is not a decider");
+	} else if (name && *name) {
 		decider = fyai_decider_get(cfg, gb, name, &why);
 		fyai_error_check(ctx, fy_is_mapping(decider), err,
 				 "decide: %s", why ? why : "no such decider");

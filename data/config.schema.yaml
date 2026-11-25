@@ -2118,11 +2118,12 @@ properties:
                 Route each event with rules, in order: the first whose when,
                 a JSON Schema of the record {source, kind, id, principal,
                 trust, data}, matches decides. drop acknowledges the event
-                and wakes nobody; wake delivers it. No match wakes.
+                and wakes nobody; wake delivers it; decide asks a decider.
+                No match wakes.
               items:
                 type: object
-                required: [do]
-                description: One rule of the route.
+                description: >-
+                  One rule of the route: do, or decide.
                 properties:
                   when:
                     description: The JSON Schema that the record matches.
@@ -2130,6 +2131,19 @@ properties:
                     type: string
                     enum: [drop, wake]
                     description: What to do with a matching event.
+                  decide:
+                    type: string
+                    description: >-
+                      Let this decider of fyai decide choose: drop drops
+                      the event, defer delivers it after its seconds, reply
+                      answers with the reply action of its kind, and any
+                      other option wakes the model with the decision. A
+                      decision that fails wakes.
+                  timeout:
+                    type: integer
+                    minimum: 1
+                    default: 120
+                    description: The seconds a decision may take.
             auth:
               type: object
               description: Configure authentication for this MCP server.

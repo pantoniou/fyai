@@ -869,6 +869,11 @@ commands:
         list:
           type: boolean
           description: list the deciders, canned and configured
+        spec:
+          type: string
+          description: the resolved decider, as JSON, from a parent
+          x-fyai-hidden: true
+          x-fyai-meta: JSON
 
   - command: source
     title: run an adapter that is an event source
