@@ -597,6 +597,10 @@ static void config_apply_flags(struct fyai_cfg *cfg, fy_generic root)
 				cfg->web_search);
 	cfg->parallel_tool_calls = apply_bool(root, "parallel_tool_calls",
 					     cfg->parallel_tool_calls);
+	v = fy_get(root, "tool_choice", fy_invalid);
+	if (fy_is_string(v))
+		cfg->tool_choice = fy_gb_intern_string(cfg->gb,
+						       fy_castp(&v, "auto"));
 	cfg->enable_builtin_shell = apply_bool(root, "builtin_shell",
 					       cfg->enable_builtin_shell);
 	v = fy_get(root, "model_access", fy_invalid);
@@ -3314,6 +3318,7 @@ void fyai_config_set_defaults(struct fyai_cfg *cfg)
 	cfg->model_access = FYAI_MODEL_REVIEW;
 	cfg->markdown = true;
 	cfg->parallel_tool_calls = true;
+	cfg->tool_choice = "auto";
 	cfg->stream = true;
 	cfg->thinking = DEFAULT_THINKING;
 	cfg->wire_logging = false;

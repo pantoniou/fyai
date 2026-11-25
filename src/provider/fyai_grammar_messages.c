@@ -345,6 +345,7 @@ static fy_generic messages_build_request(struct fyai_ctx *ctx,
 	struct fy_generic_builder *gb = ctx->transient->gb;
 	struct fyai_cfg *cfg = ctx->cfg;
 	fy_generic request, cache, block, system, choice;
+	const char *forced;
 
 	/* Each level is built apart: a nested builder call expands to megabytes. */
 	cache = fy_mapping(gb, "type", "ephemeral");
@@ -360,10 +361,25 @@ static fy_generic messages_build_request(struct fyai_ctx *ctx,
 	/* Messages spells tool_choice as an object, not a string. */
 	if (fyai_grammar_tools_wanted(ctx) ||
 	    fyai_provider_native_web_search(cfg)) {
-		choice = fy_mapping(gb,
-			"type", "auto",
-			"disable_parallel_tool_use",
-			cfg->parallel_tool_calls ? fy_false : fy_true);
+		/* Messages spells required "any", and a name as a tool. */
+		switch (fyai_grammar_tool_choice(ctx, &forced)) {
+		case FYAI_TOOL_CHOICE_REQUIRED:
+			choice = fy_mapping(gb, "type", "any");
+			break;
+		case FYAI_TOOL_CHOICE_NONE:
+			choice = fy_mapping(gb, "type", "none");
+			break;
+		case FYAI_TOOL_CHOICE_NAMED:
+			choice = fy_mapping(gb, "type", "tool", "name", forced);
+			break;
+		default:
+			choice = fy_mapping(gb, "type", "auto");
+			break;
+		}
+		if (!fy_equal(fy_get(choice, "type", fy_invalid), "none"))
+			choice = fy_assoc(gb, choice,
+				"disable_parallel_tool_use",
+				cfg->parallel_tool_calls ? fy_false : fy_true);
 		request = fy_assoc(gb, request, "tools", ctx->tools,
 				   "tool_choice", choice);
 	}

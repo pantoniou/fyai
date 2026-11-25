@@ -195,6 +195,17 @@ properties:
     description: >-
       Run independent built-in tool calls concurrently. Calls returned in
       one model response can run together.
+  tool_choice:
+    x-fyai-model: review
+    type: string
+    default: auto
+    minLength: 1
+    description: >-
+      Say what the model must do with its tools in each request: auto
+      decides, required calls one of them, none calls none, and the name of
+      a tool calls that tool. A provider that cannot force a choice gets
+      auto. With required or a name the model never answers in text alone,
+      so a turn ends only by a tool that ends it, such as structured_output.
   web_search:
     x-fyai-model: review
     type: boolean

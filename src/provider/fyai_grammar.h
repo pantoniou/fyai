@@ -309,6 +309,19 @@ bool fyai_grammar_compact_url(const struct fyai_cfg *cfg, char *out,
 
 /* True when the request declares function tools. */
 bool fyai_grammar_tools_wanted(struct fyai_ctx *ctx);
+/*
+ * The tool choice of a request in the terms of every grammar: auto,
+ * required or none, or the name of a tool that the request offers in
+ * @namep. A name the request does not offer is auto.
+ */
+enum fyai_tool_choice {
+	FYAI_TOOL_CHOICE_AUTO,
+	FYAI_TOOL_CHOICE_REQUIRED,
+	FYAI_TOOL_CHOICE_NONE,
+	FYAI_TOOL_CHOICE_NAMED,
+};
+enum fyai_tool_choice fyai_grammar_tool_choice(struct fyai_ctx *ctx,
+					       const char **namep);
 
 /* @request with "stream" and @options, when the configuration streams. */
 fy_generic fyai_grammar_add_stream(struct fyai_ctx *ctx, fy_generic request,

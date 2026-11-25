@@ -189,6 +189,38 @@ bool fyai_grammar_tools_wanted(struct fyai_ctx *ctx)
 	       fyai_mcp_enabled(ctx->mcp);
 }
 
+/* The wire name of a tool definition of any grammar. */
+static bool grammar_tool_named(fy_generic tool, const char *name)
+{
+	fy_generic n = fy_get(fy_get(tool, "function", fy_invalid), "name",
+			      fy_invalid);
+
+	if (!fy_is_string(n))
+		n = fy_get(tool, "name", fy_invalid);
+	return fy_is_string(n) && !strcmp(fy_castp(&n, ""), name);
+}
+
+enum fyai_tool_choice fyai_grammar_tool_choice(struct fyai_ctx *ctx,
+					       const char **namep)
+{
+	const char *choice = ctx->cfg->tool_choice;
+	fy_generic tool;
+
+	*namep = NULL;
+	if (!choice || !*choice || !strcmp(choice, "auto"))
+		return FYAI_TOOL_CHOICE_AUTO;
+	if (!strcmp(choice, "required"))
+		return FYAI_TOOL_CHOICE_REQUIRED;
+	if (!strcmp(choice, "none"))
+		return FYAI_TOOL_CHOICE_NONE;
+	fy_foreach(tool, ctx->tools)
+		if (grammar_tool_named(tool, choice)) {
+			*namep = choice;
+			return FYAI_TOOL_CHOICE_NAMED;
+		}
+	return FYAI_TOOL_CHOICE_AUTO;
+}
+
 bool fyai_grammar_reasoning_set(const struct fyai_cfg *cfg)
 {
 	return !fy_str_empty(cfg->reasoning_effort) ||

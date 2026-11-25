@@ -458,6 +458,11 @@ struct fyai_cfg {
 	/* Opt in to the selected provider's native web search facility. */
 	bool web_search;
 	bool parallel_tool_calls;
+	/*
+	 * What the model must do with its tools: "auto", "required" (call
+	 * one), "none", or the name of the one tool to call.
+	 */
+	const char *tool_choice;
 	bool enable_builtin_shell;
 	/* The ceiling of model_access: an enum fyai_model_access, or -1 for
 	 * none, which offers no settings tool. */

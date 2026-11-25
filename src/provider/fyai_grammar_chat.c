@@ -187,6 +187,25 @@ static fy_generic chat_input_split(struct fyai_ctx *ctx, fy_generic messages,
 	return out;
 }
 
+/* The tool choice as Chat Completions spells it. */
+static fy_generic chat_tool_choice(struct fyai_ctx *ctx,
+				   struct fy_generic_builder *gb)
+{
+	const char *name;
+
+	switch (fyai_grammar_tool_choice(ctx, &name)) {
+	case FYAI_TOOL_CHOICE_REQUIRED:
+		return fy_value(gb, "required");
+	case FYAI_TOOL_CHOICE_NONE:
+		return fy_value(gb, "none");
+	case FYAI_TOOL_CHOICE_NAMED:
+		return fy_mapping(gb, "type", "function",
+				  "function", fy_mapping(gb, "name", name));
+	default:
+		return fy_value(gb, "auto");
+	}
+}
+
 static fy_generic chat_build_request(struct fyai_ctx *ctx,
 				     const struct fyai_grammar_request *req)
 {
@@ -226,7 +245,7 @@ static fy_generic chat_build_request(struct fyai_ctx *ctx,
 		request = fy_assoc(gb, request, "tools", tools);
 	if (fyai_grammar_tools_wanted(ctx)) {
 		request = fy_assoc(gb, request, "tools", tools,
-				   "tool_choice", "auto");
+				   "tool_choice", chat_tool_choice(ctx, gb));
 		if (cfg->parallel_tool_calls)
 			request = fy_assoc(gb, request,
 					   "parallel_tool_calls", true);

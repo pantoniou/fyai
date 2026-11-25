@@ -256,6 +256,24 @@ static fy_generic responses_image_part(struct fyai_ctx *ctx, fy_generic part)
 	return out;
 }
 
+/* The tool choice as Responses spells it. */
+static fy_generic responses_tool_choice(struct fyai_ctx *ctx,
+					struct fy_generic_builder *gb)
+{
+	const char *name;
+
+	switch (fyai_grammar_tool_choice(ctx, &name)) {
+	case FYAI_TOOL_CHOICE_REQUIRED:
+		return fy_value(gb, "required");
+	case FYAI_TOOL_CHOICE_NONE:
+		return fy_value(gb, "none");
+	case FYAI_TOOL_CHOICE_NAMED:
+		return fy_mapping(gb, "type", "function", "name", name);
+	default:
+		return fy_value(gb, "auto");
+	}
+}
+
 static fy_generic responses_build_request(struct fyai_ctx *ctx,
 					  const struct fyai_grammar_request *req)
 {
@@ -287,7 +305,7 @@ static fy_generic responses_build_request(struct fyai_ctx *ctx,
 	if (fyai_grammar_tools_wanted(ctx) ||
 	    fyai_provider_native_web_search(cfg)) {
 		request = fy_assoc(gb, request, "tools", ctx->tools,
-				   "tool_choice", "auto");
+				   "tool_choice", responses_tool_choice(ctx, gb));
 		if (cfg->parallel_tool_calls)
 			request = fy_assoc(gb, request,
 					   "parallel_tool_calls", true);
