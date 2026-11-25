@@ -515,6 +515,59 @@ Run a shell, or COMMAND, in a full-screen terminal that fyai draws.
 | `--output FORMAT` | write the result as markdown, json, or yaml; see `help output` |
 | `-h`, `--help` | show this help |
 
+## fyai source
+
+run an adapter that is an event source
+
+**Usage:** `fyai source {lines} ...`
+
+Run an adapter that is an MCP server with the fyai/events extension on
+standard input and output. Name it as the command of an MCP server
+with `events: true`. See doc/event-sources-sdd.md.
+
+
+### Commands
+
+| Command | Description |
+| --- | --- |
+| `lines` | serve the lines of a command as events |
+
+## fyai source lines
+
+serve the lines of a command as events
+
+**Usage:** `fyai source lines [--kind KIND] [--json] [--schema FILE] [--cursor-file FILE] COMMAND...`
+
+Run COMMAND once the client lists the kinds, and serve each line
+that it prints as an event of KIND (default `line`). With `--json`
+each line is parsed as JSON and, with `--schema`, checked against
+that JSON Schema; a line that fails is skipped with a warning. An
+event is sent only while the client gives credit, so a fast command
+waits on its pipe. With `--cursor-file`, the offset of the output
+that the client acknowledged is kept in FILE, and the next run skips
+that much of the output of the command: a command that prints a
+file from its start, such as `tail -c +0 -F FILE`, resumes where
+the last run was acknowledged. When the command ends, the server
+reports it in its log and stays until the client goes.
+
+
+### Arguments
+
+| Argument | Description |
+| --- | --- |
+| `COMMAND` | the command and its arguments |
+
+### Options
+
+| Option | Description |
+| --- | --- |
+| `--kind KIND` | the kind of the events |
+| `--json` | parse each line as JSON |
+| `--schema FILE` | check each JSON line against this JSON Schema |
+| `--cursor-file FILE` | keep the acknowledged offset of the output in FILE |
+| `--output FORMAT` | write the result as markdown, json, or yaml; see `help output` |
+| `-h`, `--help` | show this help |
+
 ## fyai reset
 
 move the head of the branch to a reference

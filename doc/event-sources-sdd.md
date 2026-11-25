@@ -2,8 +2,13 @@
 
 ## Status
 
-Design. Nothing here is implemented. It builds on `doc/events.md` and closes
-its gaps "Structured events" and "Other event sources".
+Design, in part implemented. It builds on `doc/events.md` and closes its
+gaps "Structured events" and "Other event sources".
+
+Implemented: the wire of the extension for stdio servers (handshake, kinds,
+events, rejections, acknowledgement on publish, credits; `mcp/servers/NAME/
+events`), `list` and `wait` on sources, the live panel line, and
+`fyai source lines`. The rest is design.
 
 ## Problem
 
@@ -404,6 +409,14 @@ command that reads a file, so the watcher script of "Problem" becomes:
 fyai source lines --json --schema slack-message.json \
     --cursor-file inbox.offset -- tail -c +0 -F inbox.jsonl
 ```
+
+The cursor is a byte offset in the output of the command: the end of the
+last line that fyai acknowledged. A run skips that much output, so the
+command must print the same bytes from the start each time, as `cat` or
+`tail -c +0 -F` of an append-only file does. The id of an event is
+`line-OFFSET`, the offset of its line, so a resend has the same id. The
+command starts when fyai lists the kinds. Its end is reported as an MCP
+`notifications/message`, and the server stays until fyai goes.
 
 The config form `lines:` in "Line sources" is this verb, started in process.
 
