@@ -157,6 +157,62 @@
      "total_tokens": 15
     }
    }
+  },
+  {
+   "response": {
+    "choices": [
+     {
+      "message": {
+       "role": "assistant",
+       "content": null,
+       "tool_calls": [
+        {
+         "id": "call_c7",
+         "type": "function",
+         "function": {
+          "name": "structured_output",
+          "arguments": "{\"decision\": \"wake\", \"arguments\": {\"summary\": \"a build request\", \"priority\": \"high\"}}"
+         }
+        }
+       ]
+      },
+      "finish_reason": "tool_calls"
+     }
+    ],
+    "usage": {
+     "prompt_tokens": 10,
+     "completion_tokens": 5,
+     "total_tokens": 15
+    }
+   }
+  },
+  {
+   "response": {
+    "choices": [
+     {
+      "message": {
+       "role": "assistant",
+       "content": null,
+       "tool_calls": [
+        {
+         "id": "call_c8",
+         "type": "function",
+         "function": {
+          "name": "structured_output",
+          "arguments": "{\"decision\": \"drop\", \"arguments\": {\"why\": \"spam\"}}"
+         }
+        }
+       ]
+      },
+      "finish_reason": "tool_calls"
+     }
+    ],
+    "usage": {
+     "prompt_tokens": 10,
+     "completion_tokens": 5,
+     "total_tokens": 15
+    }
+   }
   }
  ]
 }

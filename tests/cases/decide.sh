@@ -57,10 +57,10 @@ PY
 # A decider of the configuration, by name, on one input.
 "$FYAI_BIN" -k test-key --color off --set api=chat-completions \
 	--set display/stream=false --set "api_url=$MOCK_URL/v1/chat/completions" \
-	--set "decisions/triage={instructions: Sort the inbox., options: {now: {description: act now}, later: {description: act later}}}" \
-	-m mock-model decide triage --input '{"text": "next week"}' \
+	--set "decisions/sorter={instructions: Sort the inbox., options: {now: {description: act now}, later: {description: act later}}}" \
+	-m mock-model decide sorter --input '{"text": "next week"}' \
 	>"$TEST_DIR/stdout2" 2>"$TEST_DIR/stderr2" </dev/null ||
-	fail "decide triage failed: $(cat "$TEST_DIR/stderr2")"
+	fail "decide sorter failed: $(cat "$TEST_DIR/stderr2")"
 "$PYTHON" - "$TEST_DIR/stdout2" "$TEST_DIR/requests.jsonl" <<'PY' || fail "the decider of the configuration"
 import json, sys
 assert [json.loads(l) for l in open(sys.argv[1])] == [
@@ -71,5 +71,45 @@ params = req["tools"][0]["function"]["parameters"]
 assert params["properties"]["decision"]["enum"] == ["now", "later"], params
 PY
 
-mock_stop 6
+# The canned triage decider, by name, with nothing configured.
+"$FYAI_BIN" -k test-key --color off --set api=chat-completions \
+	--set display/stream=false --set "api_url=$MOCK_URL/v1/chat/completions" \
+	-m mock-model decide triage --input '{"text": "build it"}' \
+	>"$TEST_DIR/stdout3" 2>"$TEST_DIR/stderr3" </dev/null ||
+	fail "decide canned triage failed: $(cat "$TEST_DIR/stderr3")"
+# A configured decider that extends it and changes the schema of drop.
+"$FYAI_BIN" -k test-key --color off --set api=chat-completions \
+	--set display/stream=false --set "api_url=$MOCK_URL/v1/chat/completions" \
+	--set "decisions/inbox={use: triage, options: {wake: wake, drop: {use: drop, schema: {type: object, required: [why], properties: {why: {type: string}}}}}}" \
+	-m mock-model decide inbox --input '{"text": "buy now"}' \
+	>"$TEST_DIR/stdout4" 2>"$TEST_DIR/stderr4" </dev/null ||
+	fail "decide inbox failed: $(cat "$TEST_DIR/stderr4")"
+"$PYTHON" - "$TEST_DIR/stdout3" "$TEST_DIR/stdout4" "$TEST_DIR/requests.jsonl" <<'PY' || fail "the canned deciders"
+import json, sys
+assert [json.loads(l) for l in open(sys.argv[1])] == [
+    {"decision": "wake", "arguments": {"summary": "a build request", "priority": "high"}}]
+assert [json.loads(l) for l in open(sys.argv[2])] == [
+    {"decision": "drop", "arguments": {"why": "spam"}}]
+reqs = [json.loads(l)["body"] for l in open(sys.argv[3])]
+canned, inbox = reqs[-2], reqs[-1]
+p = canned["tools"][0]["function"]["parameters"]
+assert p["properties"]["decision"]["enum"] == ["drop", "wake", "defer"], p
+assert "triage events" in canned["messages"][0]["content"], canned["messages"][0]
+p = inbox["tools"][0]["function"]["parameters"]
+# Only the options it lists; the instructions of triage are kept.
+assert p["properties"]["decision"]["enum"] == ["wake", "drop"], p
+assert "triage events" in inbox["messages"][0]["content"]
+drop = [r["then"]["properties"]["arguments"] for r in p["allOf"]
+        if r["if"]["properties"]["decision"]["const"] == "drop"][0]
+assert drop["required"] == ["why"], drop
+PY
+
+# The list names the canned deciders and a configured one.
+"$FYAI_BIN" -k test-key --color off --set api=chat-completions \
+	--set "api_url=$MOCK_URL/v1/chat/completions" -m mock-model decide --list \
+	>"$TEST_DIR/list" 2>&1 </dev/null || fail "decide --list failed"
+grep -q "triage.*canned" "$TEST_DIR/list" && grep -q "inbox.*configuration" "$TEST_DIR/list" ||
+	fail "decide --list: $(cat "$TEST_DIR/list")"
+
+mock_stop 8
 pass
