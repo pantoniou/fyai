@@ -843,6 +843,16 @@ commands:
       which decides on `{"input": ..., "steps": [...]}`, the decisions so
       far; an option without it ends the chain, and the line adds `steps`.
       `max_steps` of the first decider bounds the chain (8).
+
+      An option with `tool: NAME` runs that tool with the arguments of the
+      decision, as a model's tool call runs: through the tool gate, the
+      allow list and the sandbox. The step records the result, and the
+      decider of `then`, else the same one, decides again.
+
+      A decision model answers an integer argument with `minimum` and
+      `maximum` 2 to 10 apart with a score question (`x-levels` names the
+      levels). `--image FILE` shows an image to each decision; the decider's
+      `images: KEY` takes the data URLs of that key of the input.
     surfaces: [cli]
     handler: decide
     prepare: decide
@@ -879,6 +889,13 @@ commands:
           type: string
           description: decide on this one JSON value, not on standard input
           x-fyai-meta: JSON
+        image:
+          type: array
+          items: {type: string}
+          description: show this image file with each decision
+          x-fyai-repeat: true
+          x-fyai-meta: FILE
+          x-fyai-complete: file
         list:
           type: boolean
           description: list the deciders, canned and configured

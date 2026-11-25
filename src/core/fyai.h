@@ -927,6 +927,15 @@ const char *fyai_ctx_keep_str(struct fyai_ctx *ctx, const char *s);
  * wrapped value is the partial turn, otherwise fy_invalid.
  */
 fy_generic fyai_run_turn(struct fyai_ctx *ctx, fy_generic turn);
+/*
+ * Run @calls, tool calls of the shape that a response gives
+ * ({type: function_call, call_id, name, arguments}), as the calls of a
+ * response in a turn on @turn: through the tool gate, the allow lists and
+ * the sandbox, in parallel where they may be. No model request is made.
+ * The calls answered, [{call, result, ok}], in the arena, or fy_invalid.
+ */
+fy_generic fyai_run_tool_calls(struct fyai_ctx *ctx, fy_generic turn,
+			       fy_generic calls);
 
 /*
  * A policy that a protocol front end puts on the tool calls of a turn. The

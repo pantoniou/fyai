@@ -14,13 +14,16 @@
 # The providers of the System One API: POST of {model, state, questions}.
 # `key_env` names the variable of the key; the secret is
 # fyai:api-key/PROVIDER. `envelope` is where the result lies in the answer,
-# and `max_questions` how many questions one request may carry.
+# and `max_questions` how many questions one request may carry. `images`
+# says how images go: `parts`, image_url parts of a state array, or
+# `assets`, TypeSafe's assets that the state names.
 systemone:
   typesafe:
     description: TypeSafe, the makers of Jev.
     url: https://api.typesafe.ai/v1/systemone
     key_env: TYPESAFE_API_KEY
     max_questions: 8
+    images: assets
   decisions-api:
     description: >-
       decisions-api.dev, a workbench that serves Jev and other decision
@@ -29,6 +32,18 @@ systemone:
     key_env: DECISIONS_API_KEY
     envelope: data/result
     max_questions: 8
+
+# The images that a decision model takes, by the name of the model on the
+# wire (a shell pattern on what follows its last '/'); the first that fits
+# applies. A model takes images of `types`, each side `min_side` to
+# `max_side` pixels; nothing is resized, so an image out of range goes to
+# the fallback with the reason. A model that no entry fits is not checked.
+image_limits:
+  # TypeSafe's Jev: docs.typesafe.ai/images, "Limits".
+  - model: "jev-*"
+    types: [image/png, image/jpeg]
+    min_side: 280
+    max_side: 1568
 
 options:
   drop:

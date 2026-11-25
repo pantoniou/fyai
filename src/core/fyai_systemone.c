@@ -192,7 +192,10 @@ fy_generic fyai_systemone_ask(struct fyai_ctx *ctx,
 	if (append_header(&headers, "Content-Type: application/json") ||
 	    append_header(&headers, "Accept: application/json") ||
 	    (key && append_header(&headers, fy_sprintfa(
-			"Authorization: Bearer %s", key)))) {
+			"Authorization: Bearer %s", key))) ||
+	    /* TypeSafe takes assets only behind this header. */
+	    (fy_is_mapping(fy_get(request, "assets", fy_invalid)) &&
+	     append_header(&headers, "TypeSafe-Danger-Zone-Images: true"))) {
 		*whyp = "out of memory";
 		goto out;
 	}

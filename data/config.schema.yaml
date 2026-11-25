@@ -243,6 +243,13 @@ properties:
             Take the choice of a decision model only at this probability or
             more; a less sure answer goes to the fallback. An option may set
             its own.
+        images:
+          type: string
+          description: >-
+            The key of the input whose value, a data URL of an image or a
+            list of them, is shown to each decision as images, and leaves
+            the state. Only data URLs: an input cannot name a file. The
+            command line adds images with --image FILE.
         max_steps:
           type: integer
           minimum: 1
@@ -282,6 +289,15 @@ properties:
                       description:
                         type: string
                         description: Say when to choose this option.
+                      tool:
+                        type: string
+                        description: >-
+                          Run this tool with the arguments of the decision,
+                          as a tool call of a turn runs: through the tool
+                          gate, the allow list and the sandbox. The schema of
+                          the option is that of the tool unless it gives one.
+                          The result joins the steps, and the decider of
+                          then, else this one, decides again.
                       then:
                         type: string
                         description: >-

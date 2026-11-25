@@ -8,6 +8,7 @@
 #include "config.h"
 #endif
 
+#include <fnmatch.h>
 #include <string.h>
 
 #include "fyai.h"
@@ -221,6 +222,24 @@ fy_generic fyai_deciders_rows(struct fyai_cfg *cfg,
 		}
 	}
 	return rows;
+}
+
+fy_generic fyai_decider_image_limits(struct fyai_cfg *cfg, const char *wire)
+{
+	const char *base = wire ? strrchr(wire, '/') : NULL;
+	fy_generic e, pat;
+
+	base = base ? base + 1 : wire;
+	if (!base)
+		return fy_invalid;
+	fy_foreach(e, fy_get(decider_canned(cfg), "image_limits",
+			     fy_seq_empty)) {
+		pat = fy_get(e, "model", fy_invalid);
+		if (fy_is_string(pat) &&
+		    !fnmatch(fy_castp(&pat, ""), base, 0))
+			return e;
+	}
+	return fy_invalid;
 }
 
 /* The decisions endpoint of a catalogue provider, else its System One one. */

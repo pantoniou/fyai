@@ -37,6 +37,13 @@ fy_generic fyai_deciders_rows(struct fyai_cfg *cfg,
 			      struct fy_generic_builder *gb);
 
 /*
+ * The image limits of the decision model @wire, from the `image_limits`
+ * table of data/decisions.yaml: {model, types, min_side, max_side}, or
+ * fy_invalid when no entry fits it.
+ */
+fy_generic fyai_decider_image_limits(struct fyai_cfg *cfg, const char *wire);
+
+/*
  * The System One provider of @model, PROVIDER/ID with PROVIDER one of the
  * `systemone` table of data/decisions.yaml: {name, url, key_env, envelope,
  * max_questions}, in @gb, with the model of the wire, ID, in *@wirep. A

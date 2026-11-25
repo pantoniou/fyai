@@ -128,6 +128,12 @@ struct fyai_turnstate {
 	 */
 	bool relay_gate;
 	bool relay_steps;
+	/*
+	 * While set, each tool call that the turn answers adds {call, result,
+	 * ok} to tool_results (fyai_run_tool_calls).
+	 */
+	bool collect_tool_results;
+	fy_generic tool_results;
 	/* Index of the next pre-supplied --answer to hand to ask_user. */
 	size_t answer_next;
 	/* Set when ask_user needs an answer but none can be obtained

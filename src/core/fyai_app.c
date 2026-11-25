@@ -217,6 +217,8 @@ void fyai_turnstate_abandon(struct fyai_turnstate *turn)
 	turn->gate_relays = NULL;
 	turn->relay_gate = false;
 	turn->relay_steps = false;
+	turn->collect_tool_results = false;
+	turn->tool_results = fy_invalid;
 	turn->output_schema = fy_invalid;
 	turn->structured_output = fy_invalid;
 	/* The observers are pointers of the parent, a stream to its peer. */

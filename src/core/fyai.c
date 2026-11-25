@@ -325,6 +325,14 @@ static fy_generic fyai_finish_tool_call(struct fyai_ctx *ctx, fy_generic turn,
 
 	assert(ctx->transient->gb);
 
+	if (ctx->turn->collect_tool_results)
+		ctx->turn->tool_results = fy_gb_internalize(ctx->arena->gb,
+			fy_append(ctx->transient->gb, ctx->turn->tool_results,
+				  fy_mapping(ctx->transient->gb,
+					"call", tool_call,
+					"result", tool_result,
+					"ok", (_Bool)tool_ok)));
+
 	tool_call_type = fy_get(tool_call, "type");
 	name = fyai_tool_call_name(ctx, tool_call);
 	shell = fy_equal(name, "shell");
@@ -1243,6 +1251,8 @@ struct fyai_turn_run {
 	bool group_parallel;
 	bool cancel_requested;
 	bool accept_pending_user;
+	/* The turn runs given calls and ends with them: no model request. */
+	bool tools_only;
 	const char *histfile;
 	/* The project state before the next group of tool calls, when the diffs are shown. */
 	fy_generic diff_before;
@@ -1311,7 +1321,9 @@ fyai_turn_run_transition_valid(enum fyai_turn_run_state from,
 {
 	switch (from) {
 	case FYAITRS_NEW:
-		return to == FYAITRS_MODEL || to == FYAITRS_FAILED;
+		/* A tools-only turn starts at its calls (fyai_run_tool_calls). */
+		return to == FYAITRS_MODEL || to == FYAITRS_TOOLS ||
+		       to == FYAITRS_GATE || to == FYAITRS_FAILED;
 	case FYAITRS_MODEL:
 	case FYAITRS_TOOLS:
 	case FYAITRS_GATE:
@@ -1649,6 +1661,11 @@ static int fyai_turn_run_submit_model(struct fyai_turn_run *run)
 	if (fy_is_valid(run->turn))
 		run->settled = run->turn;
 	fyai_turn_run_checkpoint(run);
+	/* The calls of a tools-only turn have run: it ends here. */
+	if (run->tools_only) {
+		fyai_turn_run_finish(run, run->turn, true);
+		return 0;
+	}
 	/* Test hook for the failure of a turn after a round of tools. */
 	test_abort = getenv("FYAI_TEST_TURN_ABORT");
 	if (test_abort && run->iteration == atoi(test_abort)) {
@@ -2415,15 +2432,21 @@ static int fyai_turn_run_process_model(struct fyai_turn_run *run)
 	return fyai_turn_run_submit_model(run);
 }
 
+/*
+ * Start a turn at its model request, or, with @calls, at its tool calls: the
+ * calls go before the gate and run as the calls of a response do, and the
+ * turn ends when they have.
+ */
 static struct fyai_turn_run *
-fyai_turn_run_submit(struct fyai_ctx *ctx, fy_generic turn)
+fyai_turn_run_submit_calls(struct fyai_ctx *ctx, fy_generic turn,
+			   fy_generic calls)
 {
 	struct fyai_turn_run *run;
 	int rc;
 
 	fyai_ui_marker(ctx, "turn");
 
-	if (!fyai_credential_available(ctx)) {
+	if (fy_is_invalid(calls) && !fyai_credential_available(ctx)) {
 		fyai_error(ctx, "no API key or ChatGPT login is available");
 		return NULL;
 	}
@@ -2450,7 +2473,15 @@ fyai_turn_run_submit(struct fyai_ctx *ctx, fy_generic turn)
 	if (fyai_tool_diff_enabled(ctx)) {
 		fyai_turn_run_diff_begin(run);
 	}
-	rc = fyai_turn_run_submit_model(run);
+	if (fy_is_valid(calls)) {
+		run->tools_only = true;
+		run->tool_calls = calls;
+		rc = ctx->turn->gate ?
+		     fyai_turn_run_gate_open(run, calls, false, 0) :
+		     fyai_turn_run_dispatch_tools(run);
+	} else {
+		rc = fyai_turn_run_submit_model(run);
+	}
 	fyai_error_check(ctx, !rc, err_free,
 			 "could not submit turn");
 	return run;
@@ -2536,7 +2567,8 @@ static void fyai_turn_run_destroy(struct fyai_turn_run *run)
 }
 
 /* Drive an asynchronous turn from a caller that owns the top-level pump. */
-fy_generic fyai_run_turn(struct fyai_ctx *ctx, fy_generic turn)
+static fy_generic run_turn(struct fyai_ctx *ctx, fy_generic turn,
+			   fy_generic calls)
 {
 	struct fyai_turn_run *run;
 	struct fyai_event_loop *el;
@@ -2544,7 +2576,7 @@ fy_generic fyai_run_turn(struct fyai_ctx *ctx, fy_generic turn)
 	int rc;
 
 	result = fy_invalid;
-	run = fyai_turn_run_submit(ctx, turn);
+	run = fyai_turn_run_submit_calls(ctx, turn, calls);
 	if (!run)
 		return fy_invalid;
 	/* A worker takes the events that came during its turn, as a local
@@ -2572,6 +2604,25 @@ done:
 		fyai_error(ctx, "the turn did not complete");
 	fyai_turn_run_destroy(run);
 	return result;
+}
+
+fy_generic fyai_run_turn(struct fyai_ctx *ctx, fy_generic turn)
+{
+	return run_turn(ctx, turn, fy_invalid);
+}
+
+fy_generic fyai_run_tool_calls(struct fyai_ctx *ctx, fy_generic turn,
+			       fy_generic calls)
+{
+	fy_generic result, results;
+
+	ctx->turn->collect_tool_results = true;
+	ctx->turn->tool_results = fy_seq_empty;
+	result = run_turn(ctx, turn, calls);
+	results = ctx->turn->tool_results;
+	ctx->turn->collect_tool_results = false;
+	ctx->turn->tool_results = fy_invalid;
+	return fy_is_valid(result) ? results : fy_invalid;
 }
 
 /* The request cache keeps the body of the last request beside the builder. */
