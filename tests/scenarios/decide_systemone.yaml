@@ -92,3 +92,13 @@ steps:
         a6: {type: noul, noul: 0.1}
         a7: {type: noul, noul: 0.9}
         a8: {type: noul, noul: 0.1}
+  # G7, H8: a decision model of the catalogue, served by OpenRouter.
+  - match: {path: /v1/systemone, body_contains: G7}
+    response:
+      model: typesafe/jev-1.14
+      answers:
+        decision: {type: choice, choice: other, probabilities: {billing: 0.3, other: 0.7}}
+  - match: {path: /v1/systemone, body_contains: H8}
+    response:
+      answers:
+        decision: {type: choice, choice: other, probabilities: {billing: 0.2, other: 0.8}}

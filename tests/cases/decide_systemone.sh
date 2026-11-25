@@ -6,6 +6,8 @@
 # too unsure goes to the fallback, a chat model; an option that needs text
 # without a fallback is an error that carries the choice; decisions-api.dev
 # wraps the result; too many questions take a second request.
+# A decision model of the catalogue goes through its provider, OpenRouter,
+# and cannot be the chat model.
 set -eu
 . "$(dirname "$0")/../harness.sh"
 
@@ -123,6 +125,40 @@ assert list(f6[0]["questions"]) == ["decision"], f6[0]["questions"]
 assert sorted(f6[1]["questions"]) == ["a%d" % i for i in range(1, 9)], f6[1]["questions"]
 PY
 
+# A decision model of the catalogue: OpenRouter serves it, with its key.
+for spec in "G7 openrouter/typesafe/jev-1.14" "H8 jev-1.14"; do
+	set -- $spec
+	OPENROUTER_API_KEY=or-key run_decide cat "out-$1" \
+		--set "decisions/cat={model: $2, url: '$MOCK_URL/v1/systemone', $OPTS}" \
+		-- --input "{\"text\": \"$1\"}" </dev/null ||
+		fail "decide $2 failed: $(cat "$TEST_DIR/out-$1.err")"
+	grep -q '"decision": "other"' "$TEST_DIR/out-$1" ||
+		fail "decide $2: $(cat "$TEST_DIR/out-$1")"
+done
+"$PYTHON" - "$TEST_DIR/requests.jsonl" <<'PY' || fail "the catalogue decision model"
+import json, sys
+reqs = [json.loads(l) for l in open(sys.argv[1])]
+for marker in ("G7", "H8"):
+    r = [r for r in reqs if marker in json.dumps(r["body"])][0]
+    assert r["auth"] == "Bearer or-key", r["auth"]
+    # The model of OpenRouter's offering goes on the wire.
+    assert r["body"]["model"] == "typesafe/jev-1.14", r["body"]["model"]
+PY
+
+# A decision model cannot be the chat model.
+"$FYAI_BIN" -k test-key --color off -m jev-1.14 --set display/stream=false \
+	"hello" </dev/null >"$TEST_DIR/out6" 2>&1 &&
+	fail "a decision model was taken for chat"
+grep -q "model 'typesafe/jev-1.14' is a decision model" "$TEST_DIR/out6" ||
+	fail "the chat refusal: $(cat "$TEST_DIR/out6")"
+
+# Completion offers no decision model for chat.
+"$FYAI_BIN" __complete -- -m gpt-6-lu >"$TEST_DIR/words" 2>&1 </dev/null
+grep -qx "gpt-6-luna" "$TEST_DIR/words" && ! grep -q "decisions" "$TEST_DIR/words" ||
+	fail "completion: $(cat "$TEST_DIR/words")"
+"$FYAI_BIN" __complete -- -m openrouter/jev >"$TEST_DIR/words" 2>&1 </dev/null
+! grep -q "jev" "$TEST_DIR/words" || fail "completion: $(cat "$TEST_DIR/words")"
+
 # No key: the decider says which variable to set.
 env -u TYPESAFE_API_KEY "$FYAI_BIN" -k test-key --color off \
 	--set "decisions/nokey={model: typesafe/jev-latest, $OPTS}" \
@@ -131,5 +167,5 @@ env -u TYPESAFE_API_KEY "$FYAI_BIN" -k test-key --color off \
 grep -q "no key for typesafe: set TYPESAFE_API_KEY" "$TEST_DIR/out5" ||
 	fail "the missing key: $(cat "$TEST_DIR/out5")"
 
-mock_stop 8
+mock_stop 10
 pass
