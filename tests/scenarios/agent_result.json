@@ -1,0 +1,9 @@
+{
+  "steps": [
+    {"response": {"choices":[{"message":{"role":"assistant","content":null,"tool_calls":[{"id":"call_agent","type":"function","function":{"name":"agent","arguments":"{\"name\":\"judge\",\"description\":\"judge it\",\"task\":\"Judge the change.\",\"persona\":\"judge\",\"context\":\"fresh\"}"}}]},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":10,"completion_tokens":5,"total_tokens":15}}},
+    {"response": {"choices":[{"message":{"role":"assistant","content":"It looks fine to me."},"finish_reason":"stop"}],"usage":{"prompt_tokens":10,"completion_tokens":5,"total_tokens":15}}},
+    {"response": {"choices":[{"message":{"role":"assistant","content":null,"tool_calls":[{"id":"call_bad","type":"function","function":{"name":"structured_output","arguments":"{\"verdict\":\"maybe\"}"}}]},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":10,"completion_tokens":5,"total_tokens":15}}},
+    {"response": {"choices":[{"message":{"role":"assistant","content":null,"tool_calls":[{"id":"call_result","type":"function","function":{"name":"structured_output","arguments":"{\"verdict\":\"pass\",\"reason\":\"fine\"}"}}]},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":10,"completion_tokens":5,"total_tokens":15}}},
+    {"response": {"choices":[{"message":{"role":"assistant","content":"Judged."},"finish_reason":"stop"}],"usage":{"prompt_tokens":10,"completion_tokens":3,"total_tokens":13}}}
+  ]
+}
