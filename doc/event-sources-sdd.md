@@ -11,8 +11,9 @@ events`), `list` and `wait` on sources, the live panel line,
 `fyai source lines`, bound actions, trust levels, route rules that drop
 or wake, and the decision primitives: `tool_choice`, `fyai decide`, and
 personas with a result schema, canned deciders, route `decide:` steps,
-`fyai source decide`, and deciders on decision models (System One API)
-with a fallback to a chat model. The rest is design.
+`fyai source decide`, deciders on decision models (System One API)
+with a fallback to a chat model, with scores and images, and chains of
+deciders with tool steps. The rest is design.
 
 ## Problem
 
@@ -477,9 +478,63 @@ decisions:
   the model of a decider is not stored.
 - Routes and `fyai source decide` see only the last decision.
 
-Not yet: options that run a tool and decide again on its result. Tools in
-fyai run behind approval and the sandbox, which a decide child does not
-have; a tool step will go through them, or be limited to read-only tools.
+### Tool steps, as built
+
+An option with `tool: NAME` runs that tool with the arguments of the
+decision, and the decider of `then`, else the same one, decides again on
+`{input, steps}`; the step adds `tool: {name, ok, result}`.
+
+```yaml
+decisions:
+  probe:
+    max_steps: 6
+    options:
+      look: {description: Run a command to learn more, tool: exec_command}
+      done: {description: Enough is known, schema: {...}}
+```
+
+- The schema of the option is the tool's parameters unless it gives one.
+  The tool must be one that the configuration offers (the allow lists of
+  skills apply); anything else fails before the first input.
+- The call runs as a tool call of a turn: `fyai_run_tool_calls` starts a
+  turn at its tool stage, with no model request, so the call goes through
+  the tool gate when one is in force, the allow list (narrowed to the one
+  tool for the call), the sandbox, and the parallel or exclusive dispatch
+  of a response. The decider's chat model is never offered the tool.
+- A decision model can choose such an option, but a tool that needs text
+  (a command) goes to its fallback, as any text argument does.
+
+### Scores and images on decision models, as built
+
+- An `integer` argument with `minimum` and `maximum` 2 to 10 apart is a
+  `score` question; its levels are the numbers, or `x-levels`. The answer,
+  a fractional level, rounds to the nearest one.
+- `fyai decide --image FILE` shows images to each decision, and a
+  decider's `images: KEY` takes the data URLs of that key of the input,
+  which leave the state. An input cannot name a file: a source must not
+  make fyai read one and send it to a provider.
+- On the wire, TypeSafe (`images: assets` of the provider) takes each image
+  as an asset, `{type: image, format, data_base64}`, named in the state
+  `{input, images: [image1, ...]}`, behind the header
+  `TypeSafe-Danger-Zone-Images: true`. decisions-api.dev and the catalogue
+  (OpenRouter) take a state array: the input as a text part, then
+  `image_url` parts with data URLs.
+- The chat fallback gets the images as parts of its user message; a chat
+  model that takes no images refuses them.
+- fyai does not resize. The `image_limits` table of `data/decisions.yaml`
+  names, by a pattern on the model, the types and the side lengths that a
+  decision model takes (Jev: PNG or JPEG, 280 to 1568 pixels a side); an
+  image out of range is refused before the request, with the reason, and
+  goes to the fallback. A model that no entry names is not checked.
+- Checked live through OpenRouter (2026-11-26): Jev 1.14 and Perplexity's
+  Decider v1.3 answer choice, noul and score questions, and image parts
+  (Jev at 512 pixels; it refuses 256). Checked live against TypeSafe's own
+  API (2026-11-26, key in TYPESAFE_API_KEY): Jev answers choice, noul and
+  score questions, and an image sent as an asset (512 pixels); a 64-pixel
+  image is refused by fyai before the request.
+
+Not yet: images by https URL, and tools of MCP servers in tool steps
+(`fyai decide` starts no MCP servers).
 
 ### Decision models of the System One API, as built
 

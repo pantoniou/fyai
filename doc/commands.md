@@ -519,7 +519,7 @@ Run a shell, or COMMAND, in a full-screen terminal that fyai draws.
 
 let a model choose one option for each input
 
-**Usage:** `fyai decide [--options FILE] [--instructions TEXT] [--input JSON] [--list] [NAME]`
+**Usage:** `fyai decide [--options FILE] [--instructions TEXT] [--input JSON] [--image FILE] [--list] [NAME]`
 
 For each JSON value on standard input, one per line, or for `--input`,
 ask the model to choose one option of a decider and give its arguments,
@@ -549,6 +549,16 @@ which decides on `{"input": ..., "steps": [...]}`, the decisions so
 far; an option without it ends the chain, and the line adds `steps`.
 `max_steps` of the first decider bounds the chain (8).
 
+An option with `tool: NAME` runs that tool with the arguments of the
+decision, as a model's tool call runs: through the tool gate, the
+allow list and the sandbox. The step records the result, and the
+decider of `then`, else the same one, decides again.
+
+A decision model answers an integer argument with `minimum` and
+`maximum` 2 to 10 apart with a score question (`x-levels` names the
+levels). `--image FILE` shows an image to each decision; the decider's
+`images: KEY` takes the data URLs of that key of the input.
+
 
 ### Arguments
 
@@ -563,6 +573,7 @@ far; an option without it ends the chain, and the line adds `steps`.
 | `--options FILE` | the options, a JSON mapping of name to description and schema |
 | `--instructions TEXT` | how to choose, in place of those of the decider |
 | `--input JSON` | decide on this one JSON value, not on standard input |
+| `--image FILE` | show this image file with each decision |
 | `--list` | list the deciders, canned and configured |
 | `--output FORMAT` | write the result as markdown, json, or yaml; see `help output` |
 | `-h`, `--help` | show this help |
