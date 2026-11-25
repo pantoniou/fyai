@@ -8,8 +8,9 @@ gaps "Structured events" and "Other event sources".
 Implemented: the wire of the extension for stdio servers (handshake, kinds,
 events, rejections, acknowledgement on publish, credits; `mcp/servers/NAME/
 events`), `list` and `wait` on sources, the live panel line,
-`fyai source lines`, bound actions, trust levels, and route rules that
-drop or wake. The rest is design.
+`fyai source lines`, bound actions, trust levels, route rules that drop
+or wake, and the decision primitives: `tool_choice`, `fyai decide`, and
+personas with a result schema. The rest is design.
 
 ## Problem
 
@@ -384,6 +385,36 @@ the call. A wrong triage can be audited and turned into a rule.
 A decision step has a cost cap and a timeout; on either it falls through to
 the next step of the route, so a broken triage wakes the agent rather than
 dropping a message.
+
+### Decision models, as built
+
+A decision model is not a kind of model but a way to call one: the model
+must call a tool, and the call is checked. Three pieces carry it, each
+usable alone:
+
+1. **`tool_choice`** (configuration, and a persona key): `auto`,
+   `required`, `none`, or a tool name. Chat and Responses spell it
+   `required` or a function by name; Messages `any` or a tool by name. A
+   name that the request does not offer is `auto`. A provider that cannot
+   force a choice, such as the Claude Code CLI, is asked again in text by
+   the caller.
+2. **`fyai decide`**: the one-shot decision, in a process of its own. A
+   decider (`decisions/NAME`, or `--options` and `--instructions`) is a
+   set of options, each a description and a JSON Schema of its arguments.
+   Each JSON input is a fresh, unpublished conversation whose only tool is
+   `structured_output`, with the schema `{decision, arguments}` and an
+   if/then per option; the choice is forced to it. A call that fails is
+   answered with the problems and tried again; a text answer is asked
+   again twice. One JSON line goes out per input. Standard output carries
+   only the decisions. A route and `fyai source decide` spawn it.
+3. **A persona with `result_schema`**, usually with `tool_choice:
+   required`: an agent on a decision model. It is offered
+   `structured_output` with the schema beside its own tools, ends by
+   calling it, and its report is the result as JSON. One that ends in text
+   is asked again twice, then fails.
+
+A decider in a loop, an agent whose every step is one isolated decision
+over a state, is the next piece on top of `fyai decide`.
 
 ### Conversations
 
