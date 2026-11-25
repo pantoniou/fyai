@@ -109,6 +109,7 @@ static const struct {
 	{ "tool",		fyai_cmd_tool },
 	{ "term",		fyai_cmd_term },
 	{ "source_lines",	fyai_cmd_source_lines },
+	{ "source_decide",	fyai_cmd_source_decide },
 	{ "decide",		fyai_cmd_decide },
 	{ "init",		fyai_cmd_init },
 	{ "mcp_status",		fyai_cmd_mcp_status },

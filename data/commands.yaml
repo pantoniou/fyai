@@ -931,6 +931,42 @@ commands:
               x-fyai-rest: true
               x-fyai-meta: COMMAND
 
+      - command: decide
+        title: put a decider in front of an event source
+        description: |
+          Run COMMAND, an event source, and pass everything between it and
+          the client as it is, but for its events. Each event goes, in
+          order, to one `fyai decide DECIDER` child. A `drop` is acknowledged
+          to COMMAND with `dropped: true`, and the client never sees it; any
+          other decision is passed on with `decision: {decider, decision,
+          arguments}` beside the data, which fyai shows after the data. An
+          event whose decision fails is passed on as it came. The decider
+          reads the configuration of the project, as `fyai decide` does.
+        surfaces: [cli]
+        handler: source_decide
+        flags: [no-storage]
+        arguments:
+          type: object
+          required: [decider, command]
+          additionalProperties: false
+          properties:
+            decider:
+              type: string
+              description: the decider, canned or of the configuration
+              x-fyai-meta: NAME
+            model:
+              type: string
+              description: decide with this model
+              x-fyai-meta: MODEL
+            command:
+              type: array
+              items: {type: string}
+              minItems: 1
+              description: the event source and its arguments
+              x-fyai-positional: 0
+              x-fyai-rest: true
+              x-fyai-meta: COMMAND
+
   - command: reset
     aliases: [rewind]
     title: move the head of the branch to a reference

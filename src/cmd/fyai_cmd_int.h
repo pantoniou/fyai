@@ -164,6 +164,7 @@ int fyai_cmd_dump(struct fyai_cmd_call *call, fy_generic *result);
 int fyai_cmd_import(struct fyai_cmd_call *call, fy_generic *result);
 int fyai_cmd_replay(struct fyai_cmd_call *call, fy_generic *result);
 int fyai_cmd_source_lines(struct fyai_cmd_call *call, fy_generic *result);
+int fyai_cmd_source_decide(struct fyai_cmd_call *call, fy_generic *result);
 int fyai_cmd_decide(struct fyai_cmd_call *call, fy_generic *result);
 int fyai_cmd_decide_prepare(struct fyai_cfg *cfg, fy_generic args);
 int fyai_cmd_tool(struct fyai_cmd_call *call, fy_generic *result);

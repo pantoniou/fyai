@@ -2034,6 +2034,26 @@ lost:
 		       why ? why : "");
 }
 
+/*
+ * A decision that came with the event, from a proxy such as `fyai source
+ * decide`: {decider, decision, arguments}, as one line, or NULL.
+ */
+static const char *mcp_event_decision_line(struct fy_generic_builder *gb,
+					   fy_generic params)
+{
+	fy_generic d = fy_get(params, "decision", fy_invalid);
+	fy_generic who = fy_get(d, "decider", fy_invalid);
+	fy_generic what = fy_get(d, "decision", fy_invalid);
+	const char *args;
+
+	if (!fy_is_mapping(d) || !fy_is_string(what))
+		return NULL;
+	args = emit_json_string(gb, fy_get(d, "arguments", fy_map_empty));
+	return fy_gb_intern_string(gb, fy_sprintfa("The decider %s chose %s: %s",
+			   fy_is_string(who) ? fy_castp(&who, "") : "of the source",
+			   fy_castp(&what, ""), args ? args : "{}"));
+}
+
 /* One notifications/fyai/event: check it, then queue it for the model. */
 static void mcp_event_receive(struct fyai_mcp_ctx *mcp,
 			      struct fy_generic_builder *gb, fy_generic params)
@@ -2125,7 +2145,8 @@ static void mcp_event_receive(struct fyai_mcp_ctx *mcp,
 	mcp->event_received++;
 	mcp_event_last_set(mcp, gb, kind_name, data);
 	mcp_sources_publish(mc);
-	mcp_event_deliver(mcp, gb, record, cursor, NULL);
+	mcp_event_deliver(mcp, gb, record, cursor,
+			  mcp_event_decision_line(gb, params));
 }
 
 /* What a stdio server sends fyai unasked: events, their kinds, and ping. */
