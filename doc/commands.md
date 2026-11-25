@@ -537,7 +537,8 @@ conversation of its own, and nothing is stored. The input is framed as
 data, not as instructions.
 
 A decider whose `model` is a decision model, such as
-`typesafe/jev-latest`, sends one System One request for each input
+`typesafe/jev-latest` or, from the catalogue, `openrouter/typesafe/jev-1.14`,
+sends one System One request for each input
 instead: the options are a choice, and an argument with an enum or a
 boolean is a question of its own. The line adds `probability`,
 `confidence` and `probabilities`. What it cannot decide (too unsure for

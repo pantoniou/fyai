@@ -463,12 +463,23 @@ for input tokens only.
 
 A decider whose `model` is `PROVIDER/ID` with a provider of the
 `systemone` table of `data/decisions.yaml` runs on such a model. The
-table is not the scraped catalogue, which a refresh would overwrite:
+table holds the providers that the catalogue does not scrape:
 
 | Provider | URL | Key | Answer |
 |---|---|---|---|
 | `typesafe` | `api.typesafe.ai/v1/systemone` | `TYPESAFE_API_KEY` | `{answers}` |
 | `decisions-api` | `decisions-api.dev/v1/systemone` | `DECISIONS_API_KEY` | `{code, message, data: {result: {answers}}}` |
+
+Else the model is looked up in the catalogue. scrape-providers lists
+OpenRouter's decision models (`?output_modalities=decisions`) with the
+capability `decisions`, and OpenRouter's endpoints with the protocols
+`decisions` (`/api/alpha/decisions`) and `systemone` (`/api/v1/systemone`).
+`openrouter/typesafe/jev-1.14` pins the provider, and a bare `jev-1.14`
+takes the first that offers it; the request goes to the `decisions`
+endpoint, else the `systemone` one, with the offering's model id and the
+provider's key (`OPENROUTER_API_KEY`). The table wins a name both know:
+`typesafe/jev-1.14` is TypeSafe's own API. A model with the capability
+`decisions` cannot be the chat model, and completion does not offer it.
 
 The secret `fyai:api-key/PROVIDER` serves when the variable is not set;
 under credential isolation only the variable does. The decider's `url`
