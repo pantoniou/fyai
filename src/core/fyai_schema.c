@@ -1004,23 +1004,18 @@ static fy_generic schema_validate_all_of(struct fy_generic_builder *gb,
 					 fy_generic instance, const char *path,
 					 fy_generic problems, unsigned int depth)
 {
-	fy_generic v, sub, rep;
-	int matches;
+	fy_generic v, sub, rep, p;
 
 	v = fy_get(schema, "allOf");
 	if (!fy_is_sequence(v))
 		return problems;
-	matches = 0;
+	/* Every branch must hold: say what each one that fails misses. */
 	fy_foreach(sub, v) {
 		rep = schema_validate(gb, root, sub, instance, path, fy_seq_empty,
 			depth + 1);
-		if (schema_problem_any(rep))
-			break;
-		matches++;
+		fy_foreach(p, rep)
+			problems = fy_append(gb, problems, p);
 	}
-	if (matches != (int)fy_len(v))
-		problems = schema_problem_add(gb, problems,
-			"%s: allOf branch failed", path[0] ? path : "<root>");
 	return problems;
 }
 
