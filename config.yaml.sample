@@ -58,6 +58,15 @@ web_search: true
 parallel_tool_calls: true
 # What the model must do with its tools: auto, required, none, or a tool name.
 tool_choice: auto
+# Deciders for fyai decide: instructions and options, each a description
+# and a JSON Schema of its arguments.
+#   decisions:
+#     triage:
+#       instructions: Triage the messages of the owner.
+#       options:
+#         wake: {description: the owner should see it}
+#         drop: {description: nobody needs it}
+decisions: {}
 parallel_tool_calls_prompt: >-
   Independent tool calls may be issued together in one response and will
   execute in parallel. Keep dependent or potentially conflicting tool calls
