@@ -317,7 +317,20 @@ route:
 - A dropped event is acknowledged with its id, `credits: 0` and
   `dropped: true`, and no cursor: a cursor must not pass an event that is
   still on its way to a publish. `list` counts it as `dropped`.
-- `decide` and the action form of `do` come with the decision step.
+- A rule may name a decider instead: `{when: ..., decide: inbox,
+  timeout: 120}`. The event takes its credit and waits while a `fyai
+  decide` child, given the resolved decider and where the requests of the
+  session go, chooses. `drop` acknowledges it with `dropped: true`;
+  `reply` calls the bound `reply` action of its kind with the arguments
+  and acknowledges it with `answered: true`; `defer` delivers it after its
+  `seconds` (at most a day); any other option wakes the model with
+  "The decider NAME chose OPTION: ARGS" after the data. A decision that
+  fails, times out, or a reply that fails, wakes, so no event is lost to a
+  broken decider. An event that waits for a decision when the server
+  goes is not acknowledged, and the server sends it again. `list` counts
+  `decided` and `deciding`.
+- Without credential isolation the child gets the key of the session in
+  `<PROVIDER>_API_KEY`, in its own environment only.
 
 ## Routing and decision models
 
