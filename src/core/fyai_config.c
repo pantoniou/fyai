@@ -3747,6 +3747,14 @@ int fyai_config_resolve_model(struct fyai_cfg *cfg)
 	 */
 	cat_model = fyai_catalog_resolved_model(catalog, cfg->model);
 	if (fy_is_valid(cat_model)) {
+		/* A decision model answers typed questions; it cannot chat. */
+		if (fyai_catalog_model_has_cap(cat_model, "decisions")) {
+			fyai_cfg_error(cfg, "model '%s' is a decision model: it "
+				       "answers typed questions and cannot "
+				       "chat; name it as the model of a decider "
+				       "(decisions/NAME/model)", cfg->model);
+			return -1;
+		}
 		if (((cfg->reasoning_effort && *cfg->reasoning_effort) ||
 		     (cfg->reasoning_summary && *cfg->reasoning_summary)) &&
 		    fyai_model_supports_temperature(cat_model)) {

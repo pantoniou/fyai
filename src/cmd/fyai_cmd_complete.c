@@ -254,7 +254,8 @@ static void model_programs(struct complete_req *r, const char *prefix)
 /*
  * A model name, or provider/model for the offering of one provider. A bare
  * provider completes to "provider/" to reach that form. A program that serves
- * models names its own.
+ * models names its own. A decision model is not offered: it cannot chat, and
+ * a decider names it.
  */
 static void kind_model(struct complete_req *r)
 {
@@ -271,6 +272,9 @@ static void kind_model(struct complete_req *r)
 		prov = fyai_catalog_provider(cat, pfx);
 		fy_foreach(o, fy_get(prov, "models", fy_invalid)) {
 			canon = fy_get(o, "canonical_id", fy_invalid);
+			if (fyai_catalog_model_has_cap(fyai_catalog_model(cat,
+					gstr(&canon)), "decisions"))
+				continue;
 			if (*gstr(&canon))
 				cand(r, fy_sprintfa("%s/%s", pfx,
 						    gstr(&canon)), NULL);
@@ -280,6 +284,8 @@ static void kind_model(struct complete_req *r)
 		return;
 	}
 	fy_foreach(m, fy_get(cat, "models", fy_invalid)) {
+		if (fyai_catalog_model_has_cap(m, "decisions"))
+			continue;
 		name = fy_get(m, "name", fy_invalid);
 		cand(r, gstr(&name), NULL);
 	}

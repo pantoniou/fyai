@@ -11,6 +11,8 @@
 #include <string.h>
 
 #include "fyai.h"
+#include "fyai_catalog.h"
+#include "fyai_config.h"
 #include "fyai_decider.h"
 #include "fyai_yaml_flags.h"
 
@@ -221,21 +223,84 @@ fy_generic fyai_deciders_rows(struct fyai_cfg *cfg,
 	return rows;
 }
 
+/* The decisions endpoint of a catalogue provider, else its System One one. */
+static fy_generic decider_catalog_endpoint(fy_generic provider)
+{
+	fy_generic e, systemone = fy_invalid;
+
+	fy_foreach(e, fy_get(provider, "endpoints", fy_seq_empty)) {
+		if (fy_equal(fy_get(e, "protocol", fy_invalid), "decisions"))
+			return e;
+		if (fy_equal(fy_get(e, "protocol", fy_invalid), "systemone"))
+			systemone = e;
+	}
+	return systemone;
+}
+
+/*
+ * A decision model of the catalogue: PROVIDER/MODEL pins the provider, else
+ * the first provider that offers MODEL. The model must have the capability
+ * `decisions`, and the provider an endpoint that serves it.
+ */
+static fy_generic decider_catalog(struct fyai_cfg *cfg,
+				  struct fy_generic_builder *gb,
+				  const char *model, const char **wirep)
+{
+	fy_generic cat = fyai_catalog_effective(cfg->catalog, cfg->gb);
+	fy_generic prov = fy_invalid, offer = fy_invalid, entry, ep, name;
+	fy_generic canon, pmid;
+	const char *slash = strchr(model, '/');
+
+	if (slash) {
+		prov = fyai_catalog_provider(cat, fy_sprintfa("%.*s",
+					     (int)(slash - model), model));
+		if (fy_is_valid(prov) &&
+		    fy_is_valid(fyai_catalog_offering(prov, slash + 1, &offer)))
+			model = slash + 1;
+		else
+			prov = fy_invalid;
+	}
+	if (fy_is_invalid(prov))
+		prov = fyai_catalog_provider_for_model(cat, model, &offer);
+	canon = fy_get(offer, "canonical_id", fy_invalid);
+	entry = fyai_catalog_model(cat, fy_castp(&canon, ""));
+	ep = decider_catalog_endpoint(prov);
+	if (!fyai_catalog_model_has_cap(entry, "decisions") ||
+	    fy_is_invalid(ep))
+		return fy_invalid;
+	pmid = fy_get(offer, "provider_model_id", fy_invalid);
+	name = fy_get(prov, "name", fy_invalid);
+	*wirep = fy_gb_intern_string(gb, fy_is_string(pmid) ?
+				     fy_castp(&pmid, "") : model);
+	return fy_mapping(gb,
+		"name", name,
+		"url", fy_stringf(gb, "%s%s", fy_get(prov, "root_url", ""),
+				  fy_get(ep, "endpoint", "")),
+		"key_env", fyai_config_provider_env_key(gb,
+					fy_castp(&name, "")),
+		"max_questions", 8);
+}
+
 fy_generic fyai_decider_systemone(struct fyai_cfg *cfg,
 				  struct fy_generic_builder *gb,
 				  const char *model, const char **wirep)
 {
-	const char *slash = model ? strchr(model, '/') : NULL;
+	const char *slash;
 	fy_generic name, provider;
 
 	*wirep = NULL;
-	if (!slash || slash == model || !slash[1])
+	if (!model || !*model)
 		return fy_invalid;
-	name = fy_stringf(gb, "%.*s", (int)(slash - model), model);
-	provider = fy_get(fy_get(decider_canned(cfg), "systemone",
-				 fy_map_empty), name, fy_invalid);
-	if (!fy_is_mapping(provider))
-		return fy_invalid;
-	*wirep = fy_gb_intern_string(gb, slash + 1);
-	return fy_assoc(gb, provider, "name", name);
+	/* A provider of the System One table first: it is named on purpose. */
+	slash = strchr(model, '/');
+	if (slash && slash != model && slash[1]) {
+		name = fy_stringf(gb, "%.*s", (int)(slash - model), model);
+		provider = fy_get(fy_get(decider_canned(cfg), "systemone",
+					 fy_map_empty), name, fy_invalid);
+		if (fy_is_mapping(provider)) {
+			*wirep = fy_gb_intern_string(gb, slash + 1);
+			return fy_assoc(gb, provider, "name", name);
+		}
+	}
+	return decider_catalog(cfg, gb, model, wirep);
 }
