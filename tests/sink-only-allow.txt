@@ -66,3 +66,4 @@ src/remote/fyai_remote_relay.c
 # forked child reports that it could not run its program before exec, where
 # no sink exists.
 src/cmd/fyai_cmd_source.c
+src/cmd/fyai_cmd_source_decide.c
