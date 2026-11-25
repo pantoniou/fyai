@@ -34,6 +34,7 @@ FYAI_TEST_ENTRY(grammar, chat_openrouter_search, grammar_chat_openrouter_search)
 FYAI_TEST_ENTRY(grammar, history_round_trip, grammar_history_round_trip)
 FYAI_TEST_ENTRY(grammar, history_losses, grammar_history_losses)
 FYAI_TEST_ENTRY(grammar, temperature, grammar_temperature)
+FYAI_TEST_ENTRY(grammar, tool_choice, grammar_tool_choice)
 FYAI_TEST_ENTRY(grammar, paused_turn, grammar_paused_turn)
 FYAI_TEST_ENTRY(grammar, request_cache, grammar_request_cache)
 FYAI_TEST_ENTRY(grammar, chain_miss_needs_link, grammar_chain_miss_needs_link)
@@ -793,6 +794,70 @@ static void test_temperature(void)
 	}
 }
 
+/* The tool choice of one request of @grammar, as JSON. */
+static const char *tool_choice_of(const struct fyai_grammar *grammar,
+				  const char *choice)
+{
+	struct fyai_grammar_request req = { 0 };
+
+	use_grammar(grammar);
+	test_cfg.model = "mock-model";
+	test_cfg.top_logprobs = -1;
+	test_cfg.web_search = false;
+	test_cfg.enable_tools = true;
+	test_cfg.tool_choice = choice;
+	test_ctx.tools = parse(
+		"[{\"type\":\"function\",\"function\":{\"name\":\"read_file\","
+		"\"description\":\"read\",\"parameters\":{}}}]");
+	req.messages = parse("[{\"role\":\"user\",\"content\":\"hi\"}]");
+	req.instructions = "be brief";
+	req.previous_response_id = fy_invalid;
+	return emit(fy_get(fyai_grammar_build_request(&test_ctx, &req),
+			   "tool_choice", fy_invalid));
+}
+
+/*
+ * Each grammar spells the tool choice its own way. A name that the request
+ * does not offer is auto, so the provider is not asked for a missing tool.
+ */
+static void test_tool_choice(void)
+{
+	static const struct {
+		const struct fyai_grammar *grammar;
+		const char *choice, *want;
+	} cases[] = {
+		{ &fyai_grammar_chat, "auto", "\"auto\"" },
+		{ &fyai_grammar_chat, "required", "\"required\"" },
+		{ &fyai_grammar_chat, "none", "\"none\"" },
+		{ &fyai_grammar_chat, "read_file",
+		  "{\"type\":\"function\",\"function\":{\"name\":\"read_file\"}}" },
+		{ &fyai_grammar_chat, "missing", "\"auto\"" },
+		{ &fyai_grammar_responses, "required", "\"required\"" },
+		{ &fyai_grammar_responses, "read_file",
+		  "{\"type\":\"function\",\"name\":\"read_file\"}" },
+		{ &fyai_grammar_messages, "required",
+		  "{\"type\":\"any\",\"disable_parallel_tool_use\":true}" },
+		{ &fyai_grammar_messages, "none", "{\"type\":\"none\"}" },
+		{ &fyai_grammar_messages, "read_file",
+		  "{\"type\":\"tool\",\"name\":\"read_file\","
+		  "\"disable_parallel_tool_use\":true}" },
+		{ &fyai_grammar_messages, "missing",
+		  "{\"type\":\"auto\",\"disable_parallel_tool_use\":true}" },
+	};
+	const char *got;
+	size_t i;
+
+	for (i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
+		got = tool_choice_of(cases[i].grammar, cases[i].choice);
+		if (strcmp(got, emit(parse(cases[i].want))))
+			fail("%s: tool_choice %s", cases[i].grammar->name,
+			     fy_sprintfa("%s gave %s, not %s", cases[i].choice,
+					 got, cases[i].want));
+	}
+	test_cfg.tool_choice = NULL;
+	test_ctx.tools = fy_seq_empty;
+}
+
 /*
  * A paused Messages turn keeps its content blocks and stores its call as a
  * call item too. Messages sends the blocks and the call once; the other
@@ -1275,6 +1340,11 @@ int grammar_history_losses(void)
 int grammar_temperature(void)
 {
 	return grammar_run(test_temperature);
+}
+
+int grammar_tool_choice(void)
+{
+	return grammar_run(test_tool_choice);
 }
 
 int grammar_paused_turn(void)
