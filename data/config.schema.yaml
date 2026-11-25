@@ -195,6 +195,43 @@ properties:
     description: >-
       Run independent built-in tool calls concurrently. Calls returned in
       one model response can run together.
+  decisions:
+    x-fyai-model: review
+    type: object
+    default: {}
+    description: >-
+      Name deciders for fyai decide and for the route of an event source.
+      A decider gives a model instructions and options, and the model
+      chooses one option for each input and gives its arguments.
+    additionalProperties:
+      type: object
+      required: [options]
+      description: Configure one decider.
+      properties:
+        description:
+          type: string
+          description: Say what the decider is for.
+        instructions:
+          type: string
+          description: Tell the model how to choose.
+        model:
+          type: string
+          description: Choose with this model, in place of the session model.
+        options:
+          type: object
+          minProperties: 1
+          description: The options, by name.
+          additionalProperties:
+            type: object
+            description: One option.
+            properties:
+              description:
+                type: string
+                description: Say when to choose this option.
+              schema:
+                description: >-
+                  The JSON Schema of the arguments of the option; an object
+                  of any arguments when it is not given.
   tool_choice:
     x-fyai-model: review
     type: string

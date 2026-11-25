@@ -109,6 +109,7 @@ static const struct {
 	{ "tool",		fyai_cmd_tool },
 	{ "term",		fyai_cmd_term },
 	{ "source_lines",	fyai_cmd_source_lines },
+	{ "decide",		fyai_cmd_decide },
 	{ "init",		fyai_cmd_init },
 	{ "mcp_status",		fyai_cmd_mcp_status },
 	{ "mcp_login",		fyai_cmd_mcp_login },
@@ -244,6 +245,7 @@ static const struct {
 	fyai_cmd_prepare_fn fn;
 } cmd_prepares[] = {
 	{ "term",		fyai_cmd_term_prepare },
+	{ "decide",		fyai_cmd_decide_prepare },
 	{ "remote_connect",	fyai_cmd_remote_connect_prepare },
 	{ "remote_serve",	fyai_cmd_remote_serve_prepare },
 	{ "remote_run",		fyai_cmd_remote_run_prepare },

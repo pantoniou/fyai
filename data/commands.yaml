@@ -813,6 +813,46 @@ commands:
           x-fyai-meta: FILE
           x-fyai-complete: file
 
+  - command: decide
+    title: let a model choose one option for each input
+    description: |
+      For each JSON value on standard input, one per line, or for `--input`,
+      ask the model to choose one option of a decider and give its arguments,
+      and write one JSON line: `{"decision": NAME, "arguments": {...}}`, or
+      `{"error": TEXT}`. A decider is `decisions/NAME` of the configuration,
+      or `--options FILE`, a JSON mapping of option names to `{description,
+      schema}`, with `--instructions`. The model must call one tool whose
+      arguments the schema of the option checks; a call that fails it is
+      answered with the problems, and the model tries again. Each input is a
+      conversation of its own, and nothing is stored. The input is framed as
+      data, not as instructions.
+    surfaces: [cli]
+    handler: decide
+    prepare: decide
+    flags: [model]
+    arguments:
+      type: object
+      additionalProperties: false
+      properties:
+        decider:
+          type: string
+          description: the decider, a key of decisions
+          x-fyai-positional: 0
+          x-fyai-meta: NAME
+        options:
+          type: string
+          description: the options, a JSON mapping of name to description and schema
+          x-fyai-meta: FILE
+          x-fyai-complete: file
+        instructions:
+          type: string
+          description: how to choose, in place of those of the decider
+          x-fyai-meta: TEXT
+        input:
+          type: string
+          description: decide on this one JSON value, not on standard input
+          x-fyai-meta: JSON
+
   - command: source
     title: run an adapter that is an event source
     description: |

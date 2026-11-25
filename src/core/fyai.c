@@ -2741,6 +2741,7 @@ int fyai_curl_easy_reinit(struct fyai_ctx *ctx)
 int fyai_request_state_apply(struct fyai_ctx *ctx)
 {
 	struct fyai_cfg *cfg = ctx->cfg;
+	struct fy_generic_builder *scratch;
 	const struct fyai_grammar *grammar = fyai_grammar(cfg);
 	const struct fyai_grammar_header *hdr;
 	struct curl_slist *login_check = NULL;
@@ -2750,7 +2751,9 @@ int fyai_request_state_apply(struct fyai_ctx *ctx)
 
 	if (!ctx->link->curl)
 		return 0;
-	assert(ctx->transient->gb);
+	scratch = fyai_ctx_transient_gb(ctx);
+	fyai_error_check(ctx, scratch, err,
+			 "cannot allocate scratch storage for the model request");
 
 	if (ctx->link->headers) {
 		curl_slist_free_all(ctx->link->headers);
