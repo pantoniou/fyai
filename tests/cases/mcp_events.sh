@@ -35,7 +35,7 @@ text = "\n".join(m["content"] for m in reqs[1]["body"]["messages"]
 assert "[event 'src/message'] C0123/1.1" in text, text
 assert '<external-data source="src" kind="message" id="C0123/1.1">' in text, text
 assert "[event 'src/note'] note-1" in text, text
-assert text.count("C0123/1.1") == 2, text        # header and frame, once
+assert text.count("C0123/1.1") == 3, text        # header, frame, answer; once
 assert "C0123/1.2" not in text and "C0123/1.3" not in text, text
 # The data cannot close its frame.
 assert text.count("</external-data>") == 2, text

@@ -74,6 +74,22 @@ int event_fmt_bodies(void)
 		"\"x\"\n</external-data>",
 		"**event** `src/note` n1\n\n```json\n\"x\"\n```\n"));
 	printf("ok - the body of an event is drawn under its header\n");
+	/* The data of a source as JSON, and how to answer it after. */
+	FYAI_TCHECK(event_reads(
+		"[event 'src/message'] C1/1.1\n"
+		"<external-data source=\"src\" kind=\"message\" id=\"C1/1.1\">\n"
+		"{\"text\": \"hi\"}\n</external-data>\n"
+		"Answer with mcp__src__reply and event \"C1/1.1\".",
+		"**event** `src/message` C1/1.1\n\n```json\n{\"text\": \"hi\"}\n```\n"
+		"\nAnswer with mcp__src__reply and event \"C1/1.1\".\n"));
+	/* A frame with text glued to its end is not a frame. */
+	FYAI_TCHECK(event_reads(
+		"[event 'src/note'] n1\n"
+		"<external-data source=\"src\" kind=\"note\" id=\"n1\">\n"
+		"\"x\"\n</external-data>tail",
+		"**event** `src/note` n1\n\n"
+		"<external-data source=\"src\" kind=\"note\" id=\"n1\">\n"
+		"\"x\"\n</external-data>tail\n"));
 	return 0;
 }
 

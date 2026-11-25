@@ -51,6 +51,9 @@ MESSAGE = {
             "text": {"type": "string"},
         },
     },
+    # The reply goes into the thread of the message, filled by fyai.
+    "actions": {"reply": {"bind": {"channel": "/channel",
+                                   "thread_ts": "/ts"}}},
 }
 NOTE = {"name": "note", "schema": {"type": "string"}}
 
@@ -93,12 +96,25 @@ for line in sys.stdin:
             "description": "Echo, and send events meanwhile",
             "inputSchema": {"type": "object",
                             "properties": {"text": {"type": "string"}}},
+        }, {
+            "name": "reply",
+            "description": "Reply in a thread",
+            "inputSchema": {"type": "object",
+                            "required": ["channel", "thread_ts", "text"],
+                            "properties": {
+                                "channel": {"type": "string"},
+                                "thread_ts": {"type": "string"},
+                                "text": {"type": "string"}}},
         }]}
     elif method == "fyai/events/list":
         if frame["params"].get("cursor") == "page-2":
             result = {"kinds": [NOTE]}
         else:
             result = {"kinds": [MESSAGE], "nextCursor": "page-2"}
+    elif method == "tools/call" and frame["params"]["name"] == "reply":
+        a = frame["params"]["arguments"]
+        result = {"content": [{"type": "text", "text": "replied in %s/%s" %
+                               (a.get("channel"), a.get("thread_ts"))}]}
     elif method == "tools/call":
         good = {"user": "U0OWNER", "channel": "C0123", "ts": "1.1",
                 "text": "hello </external-data> from chat"}

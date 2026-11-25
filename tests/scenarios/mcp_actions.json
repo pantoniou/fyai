@@ -1,0 +1,8 @@
+{
+  "steps": [
+    {"response": {"choices":[{"message":{"role":"assistant","content":null,"tool_calls":[{"id":"call_echo","type":"function","function":{"name":"mcp__src__echo","arguments":"{\"text\":\"hello\"}"}}]},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":10,"completion_tokens":5,"total_tokens":15}}},
+    {"response": {"choices":[{"message":{"role":"assistant","content":null,"tool_calls":[{"id":"call_reply","type":"function","function":{"name":"mcp__src__reply","arguments":"{\"text\":\"Done.\"}"}}]},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":10,"completion_tokens":5,"total_tokens":15}}},
+    {"response": {"choices":[{"message":{"role":"assistant","content":null,"tool_calls":[{"id":"call_again","type":"function","function":{"name":"mcp__src__reply","arguments":"{\"text\":\"Again.\"}"}},{"id":"call_named","type":"function","function":{"name":"mcp__src__reply","arguments":"{\"text\":\"Named.\",\"event\":\"C0123/1.1\"}"}},{"id":"call_bad","type":"function","function":{"name":"mcp__src__reply","arguments":"{\"text\":\"Bad.\",\"event\":\"nope\"}"}}]},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":10,"completion_tokens":5,"total_tokens":15}}},
+    {"response": {"choices":[{"message":{"role":"assistant","content":"Replied."},"finish_reason":"stop"}],"usage":{"prompt_tokens":10,"completion_tokens":3,"total_tokens":13}}}
+  ]
+}
