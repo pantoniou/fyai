@@ -411,6 +411,9 @@ display:
   # Live rows under the head of each tile when tiles share the work pane;
   # tiles that cannot all have them collapse to a line in a panel.
   tile_live_rows: 5
+  # A line in the live panel for each MCP event source that is up; one that
+  # starts or is down has a line anyway.
+  live_sources: false
   # Minimum period between tool redraws; 0 redraws every update.
   tool_update_interval_ms: 33
   # Interval at which an idle UI wakes to look for changes that no component

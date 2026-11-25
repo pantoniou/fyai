@@ -642,15 +642,15 @@ List the configured providers, the models of the catalogue, the
 stored turns, the exchanges, or the ref log of the branch.
 
 In a session, `sessions` lists the live shells and sub-agents, and
-`shells`, `agents`, `waits`, `monitors`, `daemons`, `questions` and
-`messages` list one kind of live work. A verb has no live work and lists none.
+`shells`, `agents`, `waits`, `monitors`, `daemons`, `questions`,
+`messages` and `sources` list one kind of live work. A verb has no live work and lists none.
 
 
 ### Arguments
 
 | Argument | Description |
 | --- | --- |
-| `WHAT` | what to list (providers, models, turns, exchanges, reflog, sessions, shells, agents, waits, monitors, daemons, questions, messages); default providers |
+| `WHAT` | what to list (providers, models, turns, exchanges, reflog, sessions, shells, agents, waits, monitors, daemons, questions, messages, sources); default providers |
 
 ### Options
 
@@ -4668,15 +4668,15 @@ List the configured providers, the models of the catalogue, the
 stored turns, the exchanges, or the ref log of the branch.
 
 In a session, `sessions` lists the live shells and sub-agents, and
-`shells`, `agents`, `waits`, `monitors`, `daemons`, `questions` and
-`messages` list one kind of live work. A verb has no live work and lists none.
+`shells`, `agents`, `waits`, `monitors`, `daemons`, `questions`,
+`messages` and `sources` list one kind of live work. A verb has no live work and lists none.
 
 
 ### Arguments
 
 | Argument | Description |
 | --- | --- |
-| `WHAT` | what to list (providers, models, turns, exchanges, reflog, sessions, shells, agents, waits, monitors, daemons, questions, messages); default providers |
+| `WHAT` | what to list (providers, models, turns, exchanges, reflog, sessions, shells, agents, waits, monitors, daemons, questions, messages, sources); default providers |
 
 ### Options
 
