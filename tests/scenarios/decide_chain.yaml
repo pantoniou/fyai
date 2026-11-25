@@ -1,0 +1,34 @@
+# SPDX-License-Identifier: MIT
+# fyai decide along a chain of deciders (case decide_chain): a decision
+# model screens, a chat model routes what it hands on.
+steps:
+  # I1: noise ends the chain at the screen.
+  - match: {path: /v1/systemone, body_contains: I1}
+    response:
+      answers:
+        decision: {type: choice, choice: noise, probabilities: {noise: 0.9, real: 0.1}}
+  # I2: real hands on to the chat decider route.
+  - match: {path: /v1/systemone, body_contains: I2}
+    response:
+      answers:
+        decision: {type: choice, choice: real, probabilities: {noise: 0.2, real: 0.8}}
+  - match: {path: /v1/chat/completions, body_contains: I2}
+    response:
+      choices:
+        - message:
+            role: assistant
+            content: null
+            tool_calls:
+              - id: call_i2
+                type: function
+                function:
+                  name: structured_output
+                  arguments: '{"decision":"billing","arguments":{"urgent":true}}'
+          finish_reason: tool_calls
+      usage: {prompt_tokens: 10, completion_tokens: 5, total_tokens: 15}
+  # L3: a decider that hands on to itself, until max_steps.
+  - match: {path: /v1/systemone, body_contains: L3}
+    repeat: true
+    response:
+      answers:
+        decision: {type: choice, choice: more, probabilities: {more: 0.9, done: 0.1}}
