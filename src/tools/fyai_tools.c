@@ -1791,7 +1791,7 @@ static char *tool_list_format(struct fyai_ctx *ctx,
 {
 	static const char *const kinds[] = {
 		"agents", "views", "shells", "waits", "monitors",
-		"daemons", "questions", "messages",
+		"daemons", "questions", "messages", "sources",
 	};
 	fy_generic data, rows, shown, row, opts;
 	char *out = NULL, *table;
@@ -2520,9 +2520,11 @@ static fy_generic fyai_list_tool(struct fyai_ctx *ctx, fy_generic args, bool *ok
 
 	*okp = false;
 	if (!all && !fy_any_equal(kind, "agents", "views", "shells", "waits",
-				  "monitors", "daemons", "questions", "messages"))
+				  "monitors", "daemons", "questions", "messages",
+				  "sources"))
 		return fy_value(gb, "tool error: kind is agents, views, shells, "
-				"waits, monitors, daemons, questions or messages");
+				"waits, monitors, daemons, questions, messages "
+				"or sources");
 	if (all || !strcmp(kind, "agents"))
 		result = fy_assoc(gb, result, "agents", fyai_list_agents(ctx, gb));
 	if (all || !strcmp(kind, "views"))
@@ -2544,6 +2546,9 @@ static fy_generic fyai_list_tool(struct fyai_ctx *ctx, fy_generic args, bool *ok
 	if (all || !strcmp(kind, "messages"))
 		result = fy_assoc(gb, result, "messages",
 				  fyai_agents_message_rows(ctx, gb));
+	if (all || !strcmp(kind, "sources"))
+		result = fy_assoc(gb, result, "sources",
+				  fyai_mcp_sources_rows(ctx->mcp, gb));
 	*okp = true;
 	return fy_gb_internalize(gb, result);
 }

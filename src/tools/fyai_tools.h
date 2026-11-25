@@ -357,6 +357,26 @@ void fyai_mcp_publish_tools(struct fyai_ctx *ctx);
  */
 fy_generic fyai_mcp_status_data(struct fyai_mcp *mc,
 				struct fy_generic_builder *gb);
+/*
+ * The event sources, the servers configured with events: name, state
+ * (starting, up, down, failed, no-events), credits, the counts of received,
+ * delivered, rejected and resent events, the number of kinds, and the last
+ * event as one line.
+ */
+fy_generic fyai_mcp_sources_rows(struct fyai_mcp *mc,
+				 struct fy_generic_builder *gb);
+/* Whether @name is a server configured with events. */
+bool fyai_mcp_source_known(struct fyai_mcp *mc, const char *name);
+/* Whether the source @name starts or is up, so it can still send an event. */
+bool fyai_mcp_source_up(struct fyai_mcp *mc, const char *name);
+/*
+ * The lines of the live panel for the MCP servers: {title, mark, last,
+ * quiet}, mark one of running, ok, failed. A server that starts or is down
+ * always has one; a source that is up has one, quiet, when @sources. The
+ * client puts them in the panels store of the UI model as "mcp".
+ */
+fy_generic fyai_mcp_live_rows(struct fyai_mcp *mc,
+			      struct fy_generic_builder *gb, bool sources);
 int fyai_mcp_login(struct fyai_mcp *mc, const char *name);
 int fyai_mcp_logout(struct fyai_mcp *mc, const char *name);
 fy_generic fyai_mcp_tools(struct fyai_mcp *mc);

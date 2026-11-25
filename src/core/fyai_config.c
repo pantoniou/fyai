@@ -864,6 +864,7 @@ static void config_apply_display_text(struct fyai_cfg *cfg, fy_generic v)
 	cfg->tool_history_lines = fy_get(v, "tool_history_lines",
 					 cfg->tool_history_lines);
 	cfg->tile_live_rows = fy_get(v, "tile_live_rows", cfg->tile_live_rows);
+	cfg->live_sources = fy_get(v, "live_sources", cfg->live_sources);
 	cfg->tool_command_lines = fy_get(v, "tool_command_lines",
 					 cfg->tool_command_lines);
 }

@@ -360,6 +360,7 @@ struct fyai_cfg {
 	int top_logprobs;
 	int tool_preview_lines;
 	int tile_live_rows;	/* live rows of a tile in a shared pane */
+	bool live_sources;	/* an event source that is up has a live line */
 	int tool_command_lines;	/* rows of a shell command; 0 for all */
 	int tool_history_lines;		/* rows of a live tool tile to scroll back */
 	int recap_exchanges;		/* interactive history recap exchanges */

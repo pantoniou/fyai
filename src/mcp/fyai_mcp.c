@@ -40,6 +40,7 @@
 #include "fyai_skill.h"
 #include "fyai_tools.h"
 #include "fyai_tool_registry.h"
+#include "fyai_uimodel.h"
 #include "fyai_waitq.h"
 #include "utils.h"
 #include "fyai_shell_capture.h"
@@ -118,6 +119,12 @@ struct fyai_mcp_ctx {
 	unsigned int event_seen_next;
 	struct jsonrpc_request *event_relist;
 	fy_generic event_relist_kinds;
+	/* What the live view counts, and the last event, one line. */
+	unsigned long event_received;	/* checked and queued */
+	unsigned long event_delivered;	/* published and acknowledged */
+	unsigned long event_rejected;
+	unsigned long event_resent;	/* dropped as a resend */
+	char *event_last;
 	enum mcp_server_state state;
 	enum mcp_transport transport;
 	enum mcp_auth_mode auth_mode;
@@ -750,6 +757,8 @@ struct mcp_startup {
 	int attempt;
 };
 
+/* Give the live view the state of the servers; defined with the rows. */
+static void mcp_sources_publish(struct fyai_mcp *mc);
 static void mcp_startup_step(struct mcp_startup *su);
 static void mcp_startup_enter(struct mcp_startup *su,
 			      enum mcp_startup_phase phase);
@@ -782,6 +791,8 @@ static void mcp_startup_settle(struct mcp_startup *su,
 				    fy_len(mcp->tools) : 0)));
 	if (state == MCP_SRV_FAILED)
 		fyai_diag_type(mc->diag, FYAIET_WARNING, "MCP server '%s' is unavailable", mcp->name);
+	/* The live view shows a server that starts or is down. */
+	mcp_sources_publish(mc);
 }
 
 static const char *mcp_startup_phase_name(enum mcp_startup_phase phase)
@@ -994,6 +1005,8 @@ static void mcp_events_release(struct fyai_mcp_ctx *mcp)
 	}
 	free(mcp->event_cursor);
 	mcp->event_cursor = NULL;
+	free(mcp->event_last);
+	mcp->event_last = NULL;
 }
 
 /* Tell the server that fyai does not take its event, and why. */
@@ -1012,6 +1025,8 @@ static void mcp_event_reject(struct fyai_mcp_ctx *mcp,
 		       "MCP server '%s' sent an event that was rejected: %s%s",
 		       mcp->name, fy_castp(&first, "?"),
 		       fy_len(problems) > 1 ? " (and more)" : "");
+	mcp->event_rejected++;
+	mcp_sources_publish(mc);
 }
 
 /* What a source waits for after an event: its acknowledgement. */
@@ -1046,6 +1061,7 @@ static void mcp_event_ack(void *data, bool published)
 		mcp->event_credits++;
 	params = fy_mapping(gb, "credits", 1LL);
 	if (published) {
+		mcp->event_delivered++;
 		params = fy_assoc(gb, params, "id", (const char *)ack->id);
 		if (ack->cursor) {
 			params = fy_assoc(gb, params, "cursor",
@@ -1055,6 +1071,7 @@ static void mcp_event_ack(void *data, bool published)
 		}
 	}
 	(void)jsonrpc_notify(mcp->conn, "notifications/fyai/ack", params);
+	mcp_sources_publish(ack->mc);
 out:
 	free(ack->server);
 	free(ack->id);
@@ -1098,6 +1115,27 @@ static char *mcp_event_text(struct fyai_mcp_ctx *mcp,
 	return out;
 }
 
+/*
+ * The last event of a source, one line for the live view: its kind and the
+ * start of its data. A string is shown as it is; any other value as JSON.
+ */
+static void mcp_event_last_set(struct fyai_mcp_ctx *mcp,
+			       struct fy_generic_builder *gb, const char *kind,
+			       fy_generic data)
+{
+	const char *text = fy_is_string(data) ? fy_castp(&data, "") :
+			   emit_json_string(gb, data);
+	char *line, *p;
+
+	if (asprintf(&line, "%s: %.120s", kind, text ? text : "") < 0)
+		return;
+	for (p = line; *p; p++)
+		if (*p == '\n' || *p == '\r' || *p == '\t')
+			*p = ' ';
+	free(mcp->event_last);
+	mcp->event_last = line;
+}
+
 /* One notifications/fyai/event: check it, then queue it for the model. */
 static void mcp_event_receive(struct fyai_mcp_ctx *mcp,
 			      struct fy_generic_builder *gb, fy_generic params)
@@ -1133,6 +1171,7 @@ static void mcp_event_receive(struct fyai_mcp_ctx *mcp,
 	if (mcp_event_seen(mcp, id)) {
 		fyai_diag_tracef("event", "dropped a resend of '%s' from '%s'",
 				 id, mcp->name);
+		mcp->event_resent++;
 		return;
 	}
 	if (!mcp->event_credits) {
@@ -1167,6 +1206,9 @@ static void mcp_event_receive(struct fyai_mcp_ctx *mcp,
 	}
 	mcp_event_remember(mcp, id);
 	mcp->event_credits--;
+	mcp->event_received++;
+	mcp_event_last_set(mcp, gb, kind_name, data);
+	mcp_sources_publish(mc);
 	if (fyai_event_inject_acked(ctx->waitq, text, mcp_event_ack, ack))
 		fyai_diag_type(mc->diag, FYAIET_WARNING,
 			       "an event of MCP server '%s' was lost; the "
@@ -2963,6 +3005,124 @@ fy_generic fyai_mcp_status_data(struct fyai_mcp *mc,
 				fy_value(gb, mcp->last_error) : fy_null));
 	}
 	return rows;
+}
+
+/* The state of an event source, as the live view and `list` name it. */
+static const char *mcp_source_state(const struct fyai_mcp_ctx *mcp)
+{
+	if (mcp->state == MCP_SRV_CONNECTING)
+		return "starting";
+	if (mcp->state == MCP_SRV_FAILED)
+		return "failed";
+	if (!mcp->conn || jsonrpc_conn_closed(mcp->conn))
+		return "down";
+	if (!mcp->events_supported)
+		return "no-events";
+	return "up";
+}
+
+fy_generic fyai_mcp_sources_rows(struct fyai_mcp *mc,
+				 struct fy_generic_builder *gb)
+{
+	struct fyai_mcp_ctx *mcp;
+	fy_generic rows = fy_seq_empty;
+
+	for (mcp = mc ? mc->conns : NULL; mcp; mcp = mcp->next) {
+		if (!mcp->events_wanted)
+			continue;
+		rows = fy_append(gb, rows, fy_null_filtered_mapping(gb,
+			"name", mcp->name,
+			"state", mcp_source_state(mcp),
+			"credits", (long long)mcp->event_credits,
+			"received", (long long)mcp->event_received,
+			"delivered", (long long)mcp->event_delivered,
+			"rejected", (long long)mcp->event_rejected,
+			"resent", (long long)mcp->event_resent,
+			"kinds", (long long)(fy_is_mapping(mcp->event_kinds) ?
+					     fy_len(mcp->event_kinds) : 0),
+			"last", mcp->event_last ?
+				fy_value(gb, (const char *)mcp->event_last) :
+				fy_null));
+	}
+	return rows;
+}
+
+bool fyai_mcp_source_known(struct fyai_mcp *mc, const char *name)
+{
+	struct fyai_mcp_ctx *mcp = mc ? mcp_find_server(mc, name) : NULL;
+
+	return mcp && mcp->events_wanted;
+}
+
+bool fyai_mcp_source_up(struct fyai_mcp *mc, const char *name)
+{
+	struct fyai_mcp_ctx *mcp = mc ? mcp_find_server(mc, name) : NULL;
+
+	if (!mcp || !mcp->events_wanted)
+		return false;
+	return mcp->state == MCP_SRV_CONNECTING ||
+	       !strcmp(mcp_source_state(mcp), "up");
+}
+
+fy_generic fyai_mcp_live_rows(struct fyai_mcp *mc,
+			      struct fy_generic_builder *gb, bool sources)
+{
+	struct fyai_mcp_ctx *mcp;
+	fy_generic rows = fy_seq_empty;
+	const char *state, *mark, *title, *last;
+
+	for (mcp = mc ? mc->conns : NULL; mcp; mcp = mcp->next) {
+		state = mcp_source_state(mcp);
+		title = fy_sprintfa("**%s** `%s`",
+				    mcp->events_wanted ? "source" : "mcp",
+				    mcp->name);
+		if (mcp->state == MCP_SRV_CONNECTING) {
+			mark = "running";
+			last = "starting";
+		} else if (!strcmp(state, "failed") || !strcmp(state, "down")) {
+			mark = "failed";
+			last = mcp->last_error ?
+			       fy_sprintfa("%s: %s", state, mcp->last_error) :
+			       state;
+		} else if (mcp->events_wanted && sources) {
+			/* A source that is up shows only when asked. */
+			mark = "ok";
+			last = fy_sprintfa("%lu in, %lu done, %lu rejected%s%s",
+				mcp->event_received, mcp->event_delivered,
+				mcp->event_rejected,
+				mcp->event_last ? " \u00b7 " : "",
+				mcp->event_last ? mcp->event_last : "");
+		} else {
+			continue;
+		}
+		rows = fy_append(gb, rows, fy_mapping(gb,
+			"title", fy_value(gb, title),
+			"mark", mark,
+			"last", fy_value(gb, last),
+			"quiet", !strcmp(mark, "ok") ? fy_true : fy_false));
+	}
+	return rows;
+}
+
+/*
+ * Put the live lines of the servers in the panels store of the UI model, as
+ * "mcp": the display may be the front of a remote worker, which sees the
+ * model and not the connections. A source that is up is there too, marked
+ * "quiet", and the display shows it when display/live_sources asks.
+ */
+static void mcp_sources_publish(struct fyai_mcp *mc)
+{
+	struct fyai_ctx *ctx = fyai_mcp_state_ctx(mc);
+	struct fy_generic_builder *gb = fyai_uimodel_begin(ctx);
+	fy_generic rows;
+
+	if (!gb)
+		return;
+	rows = fyai_mcp_live_rows(mc, gb, true);
+	if (!fy_is_valid(rows) ||
+	    fyai_uimodel_set_member(ctx, FYAI_UI_PANELS, "mcp", rows) < 0)
+		fyai_warning(ctx, "mcp: cannot keep the servers for the display");
+	fyai_uimodel_end(ctx);
 }
 
 int fyai_mcp_login(struct fyai_mcp *mc, const char *name)

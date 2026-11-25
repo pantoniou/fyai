@@ -429,6 +429,7 @@ enum fyai_wait_for_kind {
 	FYAI_WAIT_FOR_QUESTION,
 	FYAI_WAIT_FOR_PARENT_ASK,
 	FYAI_WAIT_FOR_AGENT_MESSAGE,
+	FYAI_WAIT_FOR_SOURCE,		/* the next event of an MCP source */
 };
 
 struct fyai_wait_for_item {
@@ -514,6 +515,9 @@ static char *fyai_wait_for_check(struct fyai_ctx *ctx,
 	case FYAI_WAIT_FOR_AGENT_MESSAGE:
 		return fyai_event_peek_prefix(ctx->waitq,
 				fy_sprintfa("[agent_message '%s' ", it->name));
+	case FYAI_WAIT_FOR_SOURCE:
+		return fyai_event_peek_prefix(ctx->waitq,
+				fy_sprintfa("[event '%s/", it->name));
 	default:
 		return NULL;
 	}
@@ -541,6 +545,8 @@ static bool fyai_wait_for_alive(struct fyai_ctx *ctx,
 		return fyai_agents_parent_ask_pending(ctx, it->name);
 	case FYAI_WAIT_FOR_AGENT_MESSAGE:
 		return fyai_agents_message_pending(ctx, it->name);
+	case FYAI_WAIT_FOR_SOURCE:
+		return fyai_mcp_source_up(ctx->mcp, it->name);
 	default:
 		return false;
 	}
@@ -579,6 +585,10 @@ static enum fyai_wait_for_kind fyai_wait_for_resolve(struct fyai_ctx *ctx,
 	    fyai_event_pending_prefix(ctx->waitq, fy_sprintfa("[agent_message '%s' ",
 						       target)))
 		return FYAI_WAIT_FOR_AGENT_MESSAGE;
+	if (fyai_mcp_source_known(ctx->mcp, target) ||
+	    fyai_event_pending_prefix(ctx->waitq, fy_sprintfa("[event '%s/",
+						       target)))
+		return FYAI_WAIT_FOR_SOURCE;
 	return FYAI_WAIT_FOR_NONE;
 }
 

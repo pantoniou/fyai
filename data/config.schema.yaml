@@ -1303,6 +1303,14 @@ properties:
           several run at once. Those that cannot all have them collapse to
           one line each in the live panel; the tile with the focus stays a
           tile.
+      live_sources:
+        x-fyai-model: write
+        type: boolean
+        default: false
+        description: >-
+          Give each MCP event source that is up a line in the live panel:
+          its counts of events and its last event. A server that starts or
+          is down has a line whatever this says.
       tool_history_lines:
         type: integer
         minimum: 0

@@ -346,7 +346,7 @@ static fy_generic list_renderopts(struct fy_generic_builder *gb,
 	    !strcmp(what, "agents") || !strcmp(what, "waits") ||
 	    !strcmp(what, "monitors") || !strcmp(what, "daemons") ||
 	    !strcmp(what, "questions") ||
-	    !strcmp(what, "messages"))
+	    !strcmp(what, "messages") || !strcmp(what, "sources"))
 		return fy_mapping(gb, "empty", "none");
 	return fy_mapping(gb, "empty", "no providers configured",
 		"keys", fy_sequence(gb, "name", "models"),
@@ -365,6 +365,8 @@ static fy_generic list_live(struct fyai_ctx *ctx, struct fy_generic_builder *gb,
 		return fyai_waits_rows(ctx->waitq, gb);
 	if (!strcmp(what, "monitors"))
 		return fyai_monitors_rows(ctx, gb);
+	if (!strcmp(what, "sources"))
+		return fyai_mcp_sources_rows(ctx->mcp, gb);
 	if (!strcmp(what, "daemons"))
 		return fyai_scope_rows(ctx->scope, gb);
 	if (!strcmp(what, "questions"))

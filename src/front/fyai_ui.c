@@ -3150,6 +3150,37 @@ static int ui_live_panel_add(struct fyai_ui *ui, bool agents,
 	return rc;
 }
 
+/*
+ * The MCP servers in the live panel, after the shells: a server that starts
+ * or is down, and an event source that is up when display/live_sources asks.
+ */
+static int ui_mcp_panel_add(struct fyai_ui *ui, struct fyai_panel_list *pl)
+{
+	struct fyai_ctx *ctx = fyai_ui_ctx(ui);
+	fy_generic rows, row;
+	const char *mark;
+	char *last;
+	int rc = 0;
+
+	/* The MCP panel reads connection state from the UI model. */
+	rows = fy_get(fyai_uimodel_get(ctx, FYAI_UI_PANELS), "mcp",
+		      fy_seq_empty);
+	fy_foreach(row, rows) {
+		if (rc)
+			break;
+		if (fy_get(row, "quiet", false) && !ctx->cfg->live_sources)
+			continue;
+		mark = fy_get(row, "mark", "");
+		last = strdup(fy_get(row, "last", ""));
+		rc = fyai_panel_list_add(pl,
+			!strcmp(mark, "running") ? FYAI_UI_MARK_RUNNING :
+			!strcmp(mark, "failed") ? FYAI_UI_MARK_FAILED :
+			FYAI_UI_MARK_OK, fy_get(row, "title", ""), last);
+		free(last);
+	}
+	return rc;
+}
+
 /* The most work lines of the live panel: a quarter of the page. */
 static int ui_work_panel_max(int rows)
 {
@@ -3200,7 +3231,8 @@ static int ui_work_panels(struct fyai_ui *ui, struct fyai_page_state *st,
 	rc = fyai_workpane_panel_add(wm, true, &pl) ||
 	     ui_live_panel_add(ui, true, &pl) ||
 	     fyai_workpane_panel_add(wm, false, &pl) ||
-	     ui_live_panel_add(ui, false, &pl);
+	     ui_live_panel_add(ui, false, &pl) ||
+	     ui_mcp_panel_add(ui, &pl);
 	ui->work_blink = pl.blinks;
 	ui->work_source = fyai_panel_list_finish(&pl);
 	if (rc)
