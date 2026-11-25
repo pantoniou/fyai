@@ -43,6 +43,7 @@
 #include "fyai_media.h"
 #include "fyai_pending.h"
 #include "fyai_turn.h"
+#include "fyai_waitq.h"
 #include "fyai_tool_spec.h"
 
 /* FYAI_EMBEDDED_CONFIG[] / FYAI_EMBEDDED_CONFIG_LEN - the config.yaml.sample
@@ -1892,14 +1893,19 @@ int fyai_publish_state(struct fyai_ctx *ctx)
 	const char *op, *from;
 	int rc, tries;
 
-	if (!ctx->arena->durable_allocator || !ctx->arena->durable_gb)
+	/* With no arena to write, the state is as published as it gets. */
+	if (!ctx->arena->durable_allocator || !ctx->arena->durable_gb) {
+		fyai_waitq_published(ctx->waitq);
 		return 0;
+	}
 	/* Skip a branch that has no state. */
 	if (fy_is_invalid(ctx->turn->last_message) &&
 	    fy_is_invalid(ctx->bstate->config) &&
 	    fy_is_invalid(ctx->bstate->catalog) &&
-	    fy_is_invalid(ctx->bstate->prev))
+	    fy_is_invalid(ctx->bstate->prev)) {
+		fyai_waitq_published(ctx->waitq);
 		return 0;
+	}
 
 	/*
 	 * The publish consumes the operation label, so keep a copy: a retry
@@ -1924,6 +1930,8 @@ int fyai_publish_state(struct fyai_ctx *ctx)
 			ctx->bstate->pending = fy_invalid;
 			ctx->bstate->fleet = fy_invalid;
 			ctx->bstate->tasks = fy_invalid;
+			/* The events that the turn took are stored now. */
+			fyai_waitq_published(ctx->waitq);
 			return 0;
 		}
 		if (rc < 0)

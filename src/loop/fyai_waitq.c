@@ -46,22 +46,27 @@ struct fyai_pending_event {
 	char *owner;
 	enum fyai_event_owner_kind owner_kind;
 	bool seen;		/* a waiter has it: the turn loop leaves it */
+	fyai_event_ack_fn ack;	/* the source that waits for its delivery */
+	void *ack_data;
 };
 
-/* The context takes @text and @owner; both are freed on every path. */
+/*
+ * The context takes @text and @owner; both are freed on every path. A
+ * failure calls @ack with false, so its data is freed too.
+ */
 static int fyai_event_inject_queue(struct fyai_waitq *q, char *text,
 				   enum fyai_event_owner_kind owner_kind,
 				   char *owner, const char *from,
 				   long long execution,
 				   const char *message_id,
-				   const char *reply_to)
+				   const char *reply_to,
+				   fyai_event_ack_fn ack, void *ack_data)
 {
 	struct fyai_pending_event *ev;
 
 	if (!q || !text) {
-		free(text);
-		free(owner);
-		return -1;
+		ev = NULL;
+		goto err;
 	}
 	ev = calloc(1, sizeof(*ev));
 	fyai_diag_check(q->diag, ev, err, "could not queue event");
@@ -76,6 +81,8 @@ static int fyai_event_inject_queue(struct fyai_waitq *q, char *text,
 	}
 	ev->owner_kind = owner_kind;
 	ev->owner = owner;
+	ev->ack = ack;
+	ev->ack_data = ack_data;
 	if (!q->events_tail)
 		q->events_tail = &q->events;
 	*q->events_tail = ev;
@@ -91,13 +98,15 @@ err_event:
 err:
 	free(text);
 	free(owner);
+	if (ack)
+		ack(ack_data, false);
 	return -1;
 }
 
 int fyai_event_inject(struct fyai_waitq *q, char *text)
 {
 	return fyai_event_inject_queue(q, text, FYAI_EVENT_OWNER_NONE,
-				       NULL, NULL, 0, NULL, NULL);
+				       NULL, NULL, 0, NULL, NULL, NULL, NULL);
 }
 
 int fyai_event_inject_agent(struct fyai_waitq *q, const char *text,
@@ -107,7 +116,7 @@ int fyai_event_inject_agent(struct fyai_waitq *q, const char *text,
 	char *copy = text ? strdup(text) : NULL;
 
 	return fyai_event_inject_queue(q, copy, FYAI_EVENT_OWNER_NONE,
-		NULL, from, execution, message_id, reply_to);
+		NULL, from, execution, message_id, reply_to, NULL, NULL);
 }
 
 int fyai_event_vinjectf(struct fyai_waitq *q, const char *fmt, va_list ap)
@@ -139,7 +148,14 @@ int fyai_event_inject_owned(struct fyai_waitq *q, char *text,
 			    char *owner)
 {
 	return fyai_event_inject_queue(q, text, owner_kind, owner,
-		NULL, 0, NULL, NULL);
+		NULL, 0, NULL, NULL, NULL, NULL);
+}
+
+int fyai_event_inject_acked(struct fyai_waitq *q, char *text,
+			    fyai_event_ack_fn ack, void *data)
+{
+	return fyai_event_inject_queue(q, text, FYAI_EVENT_OWNER_NONE, NULL,
+				       NULL, 0, NULL, NULL, ack, data);
 }
 
 void fyai_event_input_clear(struct fyai_event_input *input)
@@ -157,12 +173,55 @@ static void fyai_pending_event_free(struct fyai_pending_event *ev)
 {
 	if (!ev)
 		return;
+	/* An event dropped unpublished stays with its source. */
+	if (ev->ack)
+		ev->ack(ev->ack_data, false);
 	free(ev->text);
 	free(ev->from);
 	free(ev->message_id);
 	free(ev->reply_to);
 	free(ev->owner);
 	free(ev);
+}
+
+/*
+ * A turn took @ev: an event with an acknowledgement waits for the publish
+ * of the turn, any other is freed.
+ */
+static void fyai_pending_event_delivered(struct fyai_waitq *q,
+					 struct fyai_pending_event *ev)
+{
+	if (!ev->ack) {
+		fyai_pending_event_free(ev);
+		return;
+	}
+	free(ev->text);
+	ev->text = NULL;
+	ev->next = q->delivered;
+	q->delivered = ev;
+}
+
+void fyai_waitq_published(struct fyai_waitq *q)
+{
+	struct fyai_pending_event *ev, *list, *prev = NULL;
+
+	if (!q || !q->delivered)
+		return;
+	/* The list is newest first; acknowledge in delivery order. */
+	list = q->delivered;
+	q->delivered = NULL;
+	while (list) {
+		ev = list;
+		list = ev->next;
+		ev->next = prev;
+		prev = ev;
+	}
+	while ((ev = prev)) {
+		prev = ev->next;
+		ev->ack(ev->ack_data, true);
+		ev->ack = NULL;
+		fyai_pending_event_free(ev);
+	}
 }
 
 char *fyai_event_take(struct fyai_waitq *q)
@@ -253,7 +312,8 @@ void fyai_events_purge_seen(struct fyai_waitq *q)
 		*link = ev->next;
 		if (!*link)
 			q->events_tail = link;
-		fyai_pending_event_free(ev);
+		/* A waiter gave it to the model. */
+		fyai_pending_event_delivered(q, ev);
 	}
 }
 
@@ -292,7 +352,8 @@ fy_generic fyai_events_pending(struct fyai_waitq *q, struct fy_generic_builder *
 	for (ev = q ? q->events : NULL; ev && n < FYAI_EVENTS_PENDING_MAX;
 	     ev = ev->next) {
 		/* Skip seen, agent, and live-owner events. */
-		if (ev->seen || ev->from || ev->owner_kind != FYAI_EVENT_OWNER_NONE)
+		if (ev->seen || ev->from || ev->ack ||
+		    ev->owner_kind != FYAI_EVENT_OWNER_NONE)
 			continue;
 		rows = fy_append(gb, rows, fy_mapping(gb, "kind", "event",
 						      "text", fy_value(gb, ev->text)));
@@ -303,10 +364,16 @@ fy_generic fyai_events_pending(struct fyai_waitq *q, struct fy_generic_builder *
 
 void fyai_events_release(struct fyai_waitq *q)
 {
+	struct fyai_pending_event *ev;
 	char *text;
 
 	while ((text = fyai_event_take(q)))
 		free(text);
+	/* Delivered but never published: the sources send them again. */
+	while ((ev = q ? q->delivered : NULL)) {
+		q->delivered = ev->next;
+		fyai_pending_event_free(ev);
+	}
 }
 
 /* Drop the queued wait events of the sub-agent on @branch. */
@@ -352,7 +419,7 @@ bool fyai_event_take_live_input(struct fyai_waitq *q,
 			input->reply_to = ev->reply_to;
 			input->execution = ev->execution;
 			ev->text = ev->from = ev->message_id = ev->reply_to = NULL;
-			fyai_pending_event_free(ev);
+			fyai_pending_event_delivered(q, ev);
 			return true;
 		}
 		fyai_diag_tracef("event", "dropped stale %s wait from '%s'",

@@ -40,6 +40,11 @@ struct fyai_waitq {
 	struct fyai_pending_event *events;
 	struct fyai_pending_event **events_tail;
 	/*
+	 * Events with an acknowledgement that a turn took, waiting for the
+	 * publish of that turn: fyai_waitq_published() acknowledges them.
+	 */
+	struct fyai_pending_event *delivered;
+	/*
 	 * Called up: a queued event wakes the waiters that hold a call, and
 	 * @owner_live says whether the job or session that an event names is
 	 * still there. Without them the queue wakes nobody and takes every
@@ -80,6 +85,22 @@ enum fyai_event_owner_kind {
 int fyai_event_inject_owned(struct fyai_waitq *q, char *text,
 			    enum fyai_event_owner_kind owner_kind,
 			    char *owner);
+/*
+ * The acknowledgement of an event from a source outside fyai. It is called
+ * once: with @published true after the turn that holds the event is
+ * published, or false when the event is dropped unpublished, so the source
+ * keeps it and sends it again. It owns @data and frees it in both cases. It
+ * must not queue an event or touch the queue.
+ */
+typedef void (*fyai_event_ack_fn)(void *data, bool published);
+/*
+ * Queue owned @text with an acknowledgement. On failure the queue calls
+ * @ack(@data, false) before returning. The callback releases @data.
+ */
+int fyai_event_inject_acked(struct fyai_waitq *q, char *text,
+			    fyai_event_ack_fn ack, void *data);
+/* The turn that took the delivered events is published: acknowledge them. */
+void fyai_waitq_published(struct fyai_waitq *q);
 /* Agent input keeps its sender separate from model-visible text. */
 struct fyai_event_input {
 	char *text;
@@ -113,7 +134,8 @@ char *fyai_event_take_live(struct fyai_waitq *q);
 void fyai_events_release(struct fyai_waitq *q);
 /*
  * Serialize up to FYAI_EVENTS_PENDING_MAX unowned pending events into @gb
- * for branch persistence: [{kind: "event", text}].
+ * for branch persistence: [{kind: "event", text}]. An event with an
+ * acknowledgement is not kept: its source sends it again.
  */
 #define FYAI_EVENTS_PENDING_MAX 64
 fy_generic fyai_events_pending(struct fyai_waitq *q, struct fy_generic_builder *gb);
