@@ -1,0 +1,66 @@
+# SPDX-License-Identifier: MIT
+# fyai decide with tool steps, score questions and images (case
+# decide_steps).
+steps:
+  # T1: the chat decider runs a command, then decides on its result.
+  - match: {path: /v1/chat/completions, body_contains: T1}
+    response:
+      choices:
+        - message:
+            role: assistant
+            content: null
+            tool_calls:
+              - id: call_t1a
+                type: function
+                function:
+                  name: structured_output
+                  arguments: '{"decision":"run","arguments":{"command":"echo TOOLRAN-$((6*7))"}}'
+          finish_reason: tool_calls
+      usage: {prompt_tokens: 10, completion_tokens: 5, total_tokens: 15}
+  - match: {path: /v1/chat/completions, body_contains: T1}
+    response:
+      choices:
+        - message:
+            role: assistant
+            content: null
+            tool_calls:
+              - id: call_t1b
+                type: function
+                function:
+                  name: structured_output
+                  arguments: '{"decision":"done","arguments":{}}'
+          finish_reason: tool_calls
+      usage: {prompt_tokens: 10, completion_tokens: 5, total_tokens: 15}
+  # S2: a score question answers an integer range.
+  - match: {path: /v1/systemone, body_contains: S2}
+    response:
+      answers:
+        decision: {type: choice, choice: rate, probabilities: {rate: 0.9, skip: 0.1}}
+        a1: {type: score, score: 1.6, confidence: 0.5, probabilities: {"0": 0.1, "1": 0.2, "2": 0.7}}
+  # P3: images as assets (TypeSafe).
+  - match: {path: /v1/systemone, body_contains: P3}
+    response:
+      answers:
+        decision: {type: choice, choice: skip, probabilities: {rate: 0.1, skip: 0.9}}
+  # Q4: images as parts (decisions-api); too unsure, so the chat fallback.
+  - match: {path: /v1/systemone, body_contains: Q4}
+    response:
+      code: 0
+      data:
+        result:
+          answers:
+            decision: {type: choice, choice: rate, probabilities: {rate: 0.55, skip: 0.45}}
+  - match: {path: /v1/chat/completions, body_contains: Q4}
+    response:
+      choices:
+        - message:
+            role: assistant
+            content: null
+            tool_calls:
+              - id: call_q4
+                type: function
+                function:
+                  name: structured_output
+                  arguments: '{"decision":"skip","arguments":{}}'
+          finish_reason: tool_calls
+      usage: {prompt_tokens: 10, completion_tokens: 5, total_tokens: 15}
