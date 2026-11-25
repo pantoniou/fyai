@@ -35,16 +35,27 @@
 #include "fyai_oauth.h"
 #include "fyai_render.h"
 #include "fyai_sandbox.h"
+#include "fyai_schema.h"
 #include "fyai_secret.h"
 #include "fyai_skill.h"
 #include "fyai_tools.h"
 #include "fyai_tool_registry.h"
+#include "fyai_waitq.h"
 #include "utils.h"
 #include "fyai_shell_capture.h"
 
 #define MCP_PREFIX "mcp__"
 #define MCP_DIRECT_TOOL_LIMIT 8
 #define MCP_SEARCH_RESULT_LIMIT 8
+/* The fyai/events extension: see doc/event-sources-sdd.md. */
+#define MCP_EVENTS_CAP		"fyai/events"
+#define MCP_EVENTS_VERSION	1LL
+/* Events a source may send that fyai has not acknowledged yet. */
+#define MCP_EVENTS_CREDITS	16
+/* Ids of the last events, to drop a resend of one fyai already has. */
+#define MCP_EVENTS_SEEN		256
+#define MCP_EVENT_ID_MAX	128
+#define MCP_EVENT_KIND_MAX	64
 
 enum mcp_transport {
 	MCP_TRANSPORT_HTTP,
@@ -90,6 +101,23 @@ struct fyai_mcp_ctx {
 	struct fyai_event_source *oauth_refresh_timer;
 	fy_generic tools;
 	bool resources_supported;
+	/*
+	 * The event source. The configuration asks for events, the server
+	 * declared them, and fyai listed the kinds (name -> kind, in the arena
+	 * builder). The cursor is the last that fyai acknowledged; the credits
+	 * are what the server may still send. A relist after list_changed
+	 * collects the kinds of its pages until the last one.
+	 */
+	bool events_wanted;
+	bool events_supported;
+	bool events_listed;
+	fy_generic event_kinds;
+	char *event_cursor;
+	unsigned int event_credits;
+	char *event_seen[MCP_EVENTS_SEEN];
+	unsigned int event_seen_next;
+	struct jsonrpc_request *event_relist;
+	fy_generic event_relist_kinds;
 	enum mcp_server_state state;
 	enum mcp_transport transport;
 	enum mcp_auth_mode auth_mode;
@@ -705,11 +733,13 @@ enum mcp_startup_phase {
 	MCP_SU_INIT,
 	MCP_SU_NOTIFY,
 	MCP_SU_DISCOVER,
+	MCP_SU_EVENTS,		/* fyai/events/list, when the server has events */
 };
 
-/* One server's asynchronous startup handshake: initialize, initialized, then
- * paginated tools/list. It settles the server READY or FAILED and drives the
- * next step from each request completion. */
+/* One server's asynchronous startup handshake: initialize, initialized,
+ * paginated tools/list, then paginated fyai/events/list for an event source.
+ * It settles the server READY or FAILED and drives the next step from each
+ * request completion. */
 struct mcp_startup {
 	struct fyai_mcp_ctx *mcp;
 	struct jsonrpc_request *req;
@@ -752,6 +782,424 @@ static void mcp_startup_settle(struct mcp_startup *su,
 				    fy_len(mcp->tools) : 0)));
 	if (state == MCP_SRV_FAILED)
 		fyai_diag_type(mc->diag, FYAIET_WARNING, "MCP server '%s' is unavailable", mcp->name);
+}
+
+static const char *mcp_startup_phase_name(enum mcp_startup_phase phase)
+{
+	switch (phase) {
+	case MCP_SU_INIT:
+		return "initialize";
+	case MCP_SU_NOTIFY:
+		return "initialized";
+	case MCP_SU_DISCOVER:
+		return "tools/list";
+	case MCP_SU_EVENTS:
+		return "fyai/events/list";
+	}
+	return "startup";
+}
+
+/*
+ * The event source: the fyai/events extension of MCP. A server that the
+ * configuration lets send events declares the capability, lists its kinds,
+ * and sends each event as notifications/fyai/event. fyai checks the event
+ * against the schema of its kind and queues it for the model. When the turn
+ * that takes it is published, fyai acknowledges it with the cursor that the
+ * server gave and returns the credit. See doc/event-sources-sdd.md.
+ */
+
+static struct fyai_mcp_ctx *mcp_find_server(struct fyai_mcp *mc,
+					    const char *name);
+
+/* What fyai offers in initialize: events, to a server allowed to send them. */
+static fy_generic mcp_client_capabilities(struct fyai_mcp_ctx *mcp,
+					  struct fy_generic_builder *gb)
+{
+	fy_generic events;
+
+	if (!mcp->events_wanted)
+		return fy_map_empty;
+	events = fy_mapping(gb, "version", MCP_EVENTS_VERSION,
+			    "credits", (long long)MCP_EVENTS_CREDITS);
+	if (mcp->event_cursor)
+		events = fy_assoc(gb, events, "cursor",
+				  (const char *)mcp->event_cursor);
+	return fy_mapping(gb, "experimental",
+			  fy_mapping(gb, MCP_EVENTS_CAP, events));
+}
+
+/* The answer to initialize: does the server send events, and in our version. */
+static void mcp_events_negotiated(struct fyai_mcp_ctx *mcp, fy_generic result)
+{
+	struct fyai_mcp *mc = mcp_owner(mcp);
+	fy_generic caps, events;
+	long long version;
+
+	mcp->events_supported = false;
+	mcp->events_listed = false;
+	mcp->event_kinds = fy_map_empty;
+	if (!mcp->events_wanted)
+		return;
+	caps = fy_get(fy_get(result, "capabilities", fy_map_empty),
+		      "experimental", fy_map_empty);
+	events = fy_get(caps, MCP_EVENTS_CAP, fy_invalid);
+	if (!fy_is_mapping(events)) {
+		fyai_diag_type(mc->diag, FYAIET_WARNING,
+			       "MCP server '%s' is configured for events, "
+			       "but it does not declare %s", mcp->name,
+			       MCP_EVENTS_CAP);
+		return;
+	}
+	version = fy_get(events, "version", 0LL);
+	if (version != MCP_EVENTS_VERSION) {
+		fyai_diag_type(mc->diag, FYAIET_WARNING,
+			       "MCP server '%s' speaks %s version %lld; fyai "
+			       "speaks %lld, so it sends no events", mcp->name,
+			       MCP_EVENTS_CAP, version, MCP_EVENTS_VERSION);
+		return;
+	}
+	mcp->events_supported = true;
+	mcp->event_credits = MCP_EVENTS_CREDITS;
+}
+
+/* A name of a kind or the id of an event: short, and safe to quote. */
+static bool mcp_event_word_valid(const char *s, size_t max, const char *extra)
+{
+	size_t i;
+
+	if (!s || !*s || strlen(s) > max)
+		return false;
+	for (i = 0; s[i]; i++)
+		if (!isalnum((unsigned char)s[i]) && !strchr(extra, s[i]))
+			return false;
+	return true;
+}
+
+/* Add the kinds of one page of fyai/events/list to @kinds. */
+static fy_generic mcp_events_collect(struct fyai_mcp_ctx *mcp,
+				     fy_generic kinds, fy_generic result)
+{
+	struct fyai_mcp *mc = mcp_owner(mcp);
+	fy_generic list, kind, schema;
+	const char *name;
+
+	list = fy_get(result, "kinds", fy_seq_empty);
+	fy_foreach(kind, list) {
+		name = fy_get(kind, "name", "");
+		schema = fy_get(kind, "schema", fy_invalid);
+		if (!mcp_event_word_valid(name, MCP_EVENT_KIND_MAX, "-_") ||
+		    !(fy_is_mapping(schema) || fy_is_bool(schema))) {
+			fyai_diag_type(mc->diag, FYAIET_WARNING,
+				       "MCP server '%s' lists an event kind "
+				       "'%.64s' without a valid name or schema; "
+				       "it is ignored", mcp->name, name);
+			continue;
+		}
+		kinds = fy_assoc(mc->arena->gb, kinds, name, kind);
+	}
+	return kinds;
+}
+
+static void mcp_events_relist_submit(struct fyai_mcp_ctx *mcp,
+				     const char *cursor);
+
+static void mcp_events_relist_done(struct jsonrpc_request *req,
+				   void *userdata)
+{
+	struct fyai_mcp_ctx *mcp = userdata;
+	struct fyai_mcp *mc = mcp_owner(mcp);
+	fy_generic result = jsonrpc_request_result(req);
+	char *cursor = NULL;
+	bool ok = jsonrpc_request_ok(req);
+
+	if (ok) {
+		mcp->event_relist_kinds = mcp_events_collect(mcp,
+			mcp->event_relist_kinds, result);
+		cursor = strdup(fy_get(result, "nextCursor", ""));
+	}
+	jsonrpc_request_destroy(req);
+	mcp->event_relist = NULL;
+	if (ok && cursor && *cursor) {
+		mcp_events_relist_submit(mcp, cursor);
+		free(cursor);
+		return;
+	}
+	free(cursor);
+	if (ok)
+		mcp->event_kinds = mcp->event_relist_kinds;
+	else
+		fyai_diag_type(mc->diag, FYAIET_WARNING,
+			       "MCP server '%s' changed its event kinds, but "
+			       "they could not be listed; the old ones stay",
+			       mcp->name);
+	mcp->event_relist_kinds = fy_invalid;
+}
+
+static void mcp_events_relist_submit(struct fyai_mcp_ctx *mcp,
+				     const char *cursor)
+{
+	struct fyai_mcp *mc = mcp_owner(mcp);
+	struct fy_generic_builder *gb = fyai_transient_get(mc->transient);
+	fy_generic params;
+
+	if (!gb)
+		return;
+	params = cursor ? fy_mapping(gb, "cursor", cursor) : fy_map_empty;
+	mcp->event_relist = jsonrpc_request_submit(mcp->conn,
+		"fyai/events/list", params, jsonrpc_conn_next_id(mcp->conn),
+		false, mcp_events_relist_done, mcp);
+}
+
+/* The server changed its kinds: list them again, from the first page. */
+static void mcp_events_relist(struct fyai_mcp_ctx *mcp)
+{
+	/* A relist in flight reads the kinds as they are when it reaches them. */
+	if (mcp->event_relist || !mcp->events_listed)
+		return;
+	mcp->event_relist_kinds = fy_map_empty;
+	mcp_events_relist_submit(mcp, NULL);
+}
+
+static bool mcp_event_seen(const struct fyai_mcp_ctx *mcp, const char *id)
+{
+	unsigned int i;
+
+	for (i = 0; i < MCP_EVENTS_SEEN; i++)
+		if (mcp->event_seen[i] && !strcmp(mcp->event_seen[i], id))
+			return true;
+	return false;
+}
+
+static void mcp_event_remember(struct fyai_mcp_ctx *mcp, const char *id)
+{
+	char **slot = &mcp->event_seen[mcp->event_seen_next++ %
+				       MCP_EVENTS_SEEN];
+
+	free(*slot);
+	*slot = strdup(id);
+}
+
+/* Release what the event source holds, before the connection goes. */
+static void mcp_events_release(struct fyai_mcp_ctx *mcp)
+{
+	unsigned int i;
+
+	if (mcp->event_relist) {
+		jsonrpc_request_destroy(mcp->event_relist);
+		mcp->event_relist = NULL;
+	}
+	for (i = 0; i < MCP_EVENTS_SEEN; i++) {
+		free(mcp->event_seen[i]);
+		mcp->event_seen[i] = NULL;
+	}
+	free(mcp->event_cursor);
+	mcp->event_cursor = NULL;
+}
+
+/* Tell the server that fyai does not take its event, and why. */
+static void mcp_event_reject(struct fyai_mcp_ctx *mcp,
+			     struct fy_generic_builder *gb, fy_generic params,
+			     fy_generic problems)
+{
+	struct fyai_mcp *mc = mcp_owner(mcp);
+	fy_generic first = fy_get_at(problems, 0, fy_invalid);
+
+	(void)jsonrpc_notify(mcp->conn, "notifications/fyai/rejected",
+		fy_mapping(gb, "id", fy_get(params, "id", fy_null),
+			   "kind", fy_get(params, "kind", fy_null),
+			   "problems", problems));
+	fyai_diag_type(mc->diag, FYAIET_WARNING,
+		       "MCP server '%s' sent an event that was rejected: %s%s",
+		       mcp->name, fy_castp(&first, "?"),
+		       fy_len(problems) > 1 ? " (and more)" : "");
+}
+
+/* What a source waits for after an event: its acknowledgement. */
+struct mcp_event_ack {
+	struct fyai_mcp *mc;
+	char *server;
+	char *id;
+	char *cursor;
+};
+
+/*
+ * The turn that took the event is published, or the event was dropped
+ * unpublished. Either way the credit returns; only a published event is
+ * acknowledged, so the source keeps a dropped one and sends it again.
+ */
+static void mcp_event_ack(void *data, bool published)
+{
+	struct mcp_event_ack *ack = data;
+	struct fyai_mcp_ctx *mcp;
+	struct fy_generic_builder *gb;
+	fy_generic params;
+
+	/* The server is looked up by name: it may be gone, or started again. */
+	mcp = mcp_find_server(ack->mc, ack->server);
+	if (!mcp || !mcp->events_supported || !mcp->conn ||
+	    jsonrpc_conn_closed(mcp->conn))
+		goto out;
+	gb = fyai_transient_get(ack->mc->transient);
+	if (!gb)
+		goto out;
+	if (mcp->event_credits < MCP_EVENTS_CREDITS)
+		mcp->event_credits++;
+	params = fy_mapping(gb, "credits", 1LL);
+	if (published) {
+		params = fy_assoc(gb, params, "id", (const char *)ack->id);
+		if (ack->cursor) {
+			params = fy_assoc(gb, params, "cursor",
+					  (const char *)ack->cursor);
+			free(mcp->event_cursor);
+			mcp->event_cursor = strdup(ack->cursor);
+		}
+	}
+	(void)jsonrpc_notify(mcp->conn, "notifications/fyai/ack", params);
+out:
+	free(ack->server);
+	free(ack->id);
+	free(ack->cursor);
+	free(ack);
+}
+
+/*
+ * The text of an event for the model: a header for the card, then the data
+ * framed as external. "</" is written "<\/", which is the same JSON, so the
+ * data cannot close its frame.
+ */
+static char *mcp_event_text(struct fyai_mcp_ctx *mcp,
+			    struct fy_generic_builder *gb, const char *kind,
+			    const char *id, fy_generic data)
+{
+	const char *json = emit_json_string(gb, data), *p;
+	char *out = NULL;
+	size_t len = 0;
+	FILE *mf;
+
+	if (!json)
+		return NULL;
+	mf = open_memstream(&out, &len);
+	if (!mf)
+		return NULL;
+	fprintf(mf, "[event '%s/%s'] %s\n"
+		"<external-data source=\"%s\" kind=\"%s\" id=\"%s\">\n",
+		mcp->name, kind, id, mcp->name, kind, id);
+	for (p = json; *p; p++) {
+		if (p[0] == '<' && p[1] == '/')
+			fputs("<\\", mf);
+		else if (*p != '\n' || p[1])
+			fputc(*p, mf);
+	}
+	fputs("\n</external-data>", mf);
+	if (fclose(mf)) {
+		free(out);
+		return NULL;
+	}
+	return out;
+}
+
+/* One notifications/fyai/event: check it, then queue it for the model. */
+static void mcp_event_receive(struct fyai_mcp_ctx *mcp,
+			      struct fy_generic_builder *gb, fy_generic params)
+{
+	struct fyai_mcp *mc = mcp_owner(mcp);
+	struct fyai_ctx *ctx = fyai_mcp_state_ctx(mc);
+	struct mcp_event_ack *ack;
+	fy_generic kind, data, report;
+	const char *kind_name, *id, *cursor, *problem = NULL;
+	char *text;
+
+	kind_name = fy_get(params, "kind", "");
+	id = fy_get(params, "id", "");
+	cursor = fy_get(params, "cursor", "");
+	data = fy_get(params, "data", fy_invalid);
+	kind = *kind_name ? fy_get(mcp->event_kinds, kind_name, fy_invalid) :
+			    fy_invalid;
+	if (!mcp->events_listed)
+		problem = "an event before fyai listed the kinds";
+	else if (!fy_is_mapping(kind))
+		problem = fy_sprintfa("unknown kind '%.64s'", kind_name);
+	else if (!mcp_event_word_valid(id, MCP_EVENT_ID_MAX, "-_.:/@+="))
+		problem = "the id is missing, too long, or has a character "
+			  "outside letters, digits and \"-_.:/@+=\"";
+	else if (fy_is_invalid(data))
+		problem = "the event has no data";
+	if (problem) {
+		mcp_event_reject(mcp, gb, params,
+				 fy_sequence(gb, fy_value(gb, problem)));
+		return;
+	}
+	/* A resend of an event that fyai already has. */
+	if (mcp_event_seen(mcp, id)) {
+		fyai_diag_tracef("event", "dropped a resend of '%s' from '%s'",
+				 id, mcp->name);
+		return;
+	}
+	if (!mcp->event_credits) {
+		mcp_event_reject(mcp, gb, params, fy_sequence(gb,
+			"no credit: wait for an acknowledgement"));
+		return;
+	}
+	report = fyai_schema_validate(gb, fy_get(kind, "schema", fy_true),
+				      data);
+	if (!fyai_schema_valid(report)) {
+		mcp_event_reject(mcp, gb, params,
+				 fy_get(report, "problems", fy_seq_empty));
+		return;
+	}
+	text = mcp_event_text(mcp, gb, kind_name, id, data);
+	ack = calloc(1, sizeof(*ack));
+	if (ack) {
+		ack->mc = mc;
+		ack->server = strdup(mcp->name);
+		ack->id = strdup(id);
+		ack->cursor = *cursor ? strdup(cursor) : NULL;
+	}
+	if (!text || !ack || !ack->server || !ack->id ||
+	    (*cursor && !ack->cursor)) {
+		free(text);
+		if (ack)
+			mcp_event_ack(ack, false);
+		fyai_diag_type(mc->diag, FYAIET_WARNING,
+			       "an event of MCP server '%s' was lost; the "
+			       "server sends it again", mcp->name);
+		return;
+	}
+	mcp_event_remember(mcp, id);
+	mcp->event_credits--;
+	if (fyai_event_inject_acked(ctx->waitq, text, mcp_event_ack, ack))
+		fyai_diag_type(mc->diag, FYAIET_WARNING,
+			       "an event of MCP server '%s' was lost; the "
+			       "server sends it again", mcp->name);
+}
+
+/* What a stdio server sends fyai unasked: events, their kinds, and ping. */
+static fy_generic mcp_serve(struct jsonrpc_conn *conn, const char *method,
+			    fy_generic params, fy_generic id, void *userdata,
+			    fy_generic *errorp)
+{
+	struct fyai_mcp_ctx *mcp = userdata;
+	struct fyai_mcp *mc = mcp_owner(mcp);
+	struct fy_generic_builder *gb = fyai_transient_get(mc->transient);
+
+	(void)conn;
+	if (!strcmp(method, "ping"))
+		return fy_map_empty;
+	if (gb && mcp->events_supported &&
+	    !strcmp(method, "notifications/fyai/event")) {
+		mcp_event_receive(mcp, gb, params);
+		return fy_invalid;
+	}
+	if (mcp->events_supported &&
+	    !strcmp(method, "notifications/fyai/events/list_changed")) {
+		mcp_events_relist(mcp);
+		return fy_invalid;
+	}
+	/* Any other notification is ignored; any other request is unknown. */
+	if (fy_is_valid(id) && gb)
+		*errorp = fy_mapping(gb, "code", -32601LL,
+				     "message", "method not found");
+	return fy_invalid;
 }
 
 enum mcp_oauth_discovery_state {
@@ -1969,15 +2417,11 @@ static void mcp_startup_req_done(struct jsonrpc_request *req, void *userdata)
 	if (!ok) {
 		if (response_body && *response_body)
 			mcp_set_error(mcp, "%s failed (HTTP %ld): %.512s",
-				      su->phase == MCP_SU_INIT ? "initialize" :
-				      su->phase == MCP_SU_NOTIFY ?
-				      "initialized" : "tools/list",
+				      mcp_startup_phase_name(su->phase),
 				      status, response_body);
 		else
 			mcp_set_error(mcp, "%s failed: %s (HTTP %ld)",
-				      su->phase == MCP_SU_INIT ? "initialize" :
-				      su->phase == MCP_SU_NOTIFY ?
-				      "initialized" : "tools/list",
+				      mcp_startup_phase_name(su->phase),
 				      curl_easy_strerror(code), status);
 	}
 	jsonrpc_request_destroy(req);
@@ -2023,6 +2467,7 @@ static void mcp_startup_req_done(struct jsonrpc_request *req, void *userdata)
 		mcp->resources_supported = fy_is_mapping(fy_get(
 			fy_get(result, "capabilities", fy_map_empty),
 			"resources", fy_invalid));
+		mcp_events_negotiated(mcp, result);
 		if (*protocol)
 			mcp->protocol_version =
 				fy_gb_intern_string(mc->cfg->gb, protocol);
@@ -2038,8 +2483,23 @@ static void mcp_startup_req_done(struct jsonrpc_request *req, void *userdata)
 		su->cursor = *cursor ? strdup(cursor) : NULL;
 		if (su->cursor)
 			mcp_startup_enter(su, MCP_SU_DISCOVER);
+		else if (mcp->events_supported)
+			mcp_startup_enter(su, MCP_SU_EVENTS);
 		else
 			mcp_startup_settle(su, MCP_SRV_READY);
+		break;
+	case MCP_SU_EVENTS:
+		mcp->event_kinds = mcp_events_collect(mcp, mcp->event_kinds,
+						      result);
+		cursor = fy_get(result, "nextCursor", "");
+		free(su->cursor);
+		su->cursor = *cursor ? strdup(cursor) : NULL;
+		if (su->cursor) {
+			mcp_startup_enter(su, MCP_SU_EVENTS);
+			break;
+		}
+		mcp->events_listed = true;
+		mcp_startup_settle(su, MCP_SRV_READY);
 		break;
 	}
 }
@@ -2070,7 +2530,7 @@ static void mcp_startup_step(struct mcp_startup *su)
 		method = "initialize";
 		params = fy_mapping(gb,
 			"protocolVersion", mcp->protocol_version,
-			"capabilities", fy_map_empty,
+			"capabilities", mcp_client_capabilities(mcp, gb),
 			"clientInfo", fy_mapping("name", "fyai",
 						 "version", VERSION));
 		break;
@@ -2081,6 +2541,11 @@ static void mcp_startup_step(struct mcp_startup *su)
 		break;
 	case MCP_SU_DISCOVER:
 		method = "tools/list";
+		params = su->cursor ? fy_mapping(gb,
+				"cursor", su->cursor) : fy_map_empty;
+		break;
+	case MCP_SU_EVENTS:
+		method = "fyai/events/list";
 		params = su->cursor ? fy_mapping(gb,
 				"cursor", su->cursor) : fy_map_empty;
 		break;
@@ -2308,6 +2773,14 @@ static int mcp_create_server(struct fyai_mcp *mc, const char *server_name,
 	mcp->timeout = fy_get(config, "timeout", mc->cfg->mcp_timeout);
 	if (mcp->timeout <= 0)
 		mcp->timeout = mc->cfg->mcp_timeout;
+	/* Not the all-zero word: that is an empty sequence. */
+	mcp->event_kinds = fy_map_empty;
+	mcp->event_relist_kinds = fy_invalid;
+	mcp->events_wanted = fy_get(config, "events", false);
+	fyai_diag_check(mc->diag, !mcp->events_wanted ||
+			 mcp->transport == MCP_TRANSPORT_STDIO, err_out,
+			 "MCP server '%s' can send events only over stdio",
+			 server_name);
 
 	if (mcp->transport == MCP_TRANSPORT_HTTP)
 		mcp->curl = curl_easy_init();
@@ -2329,6 +2802,9 @@ static int mcp_create_server(struct fyai_mcp *mc, const char *server_name,
 	if (mcp->transport == MCP_TRANSPORT_STDIO) {
 		mcp->conn = jsonrpc_conn_stdio(fyai_mcp_state_ctx(mc), mcp->stdin_fd,
 				mcp->stdout_fd, mcp->timeout, mcp->name, "mcp");
+		/* Events, their kinds and ping arrive unasked. */
+		if (mcp->conn)
+			(void)jsonrpc_conn_serve(mcp->conn, mcp_serve, mcp);
 	} else {
 		struct jsonrpc_http_hooks hooks = {
 			.userdata = mcp,
@@ -2368,6 +2844,7 @@ err_out:
 		if (prev)
 			prev->next = mcp->next;
 	}
+	mcp_events_release(mcp);
 	jsonrpc_conn_destroy(mcp->conn);
 	if (mcp->curl)
 		curl_easy_cleanup(mcp->curl);
@@ -2846,7 +3323,8 @@ fyai_mcp_call_submit_phase(struct fyai_mcp_call_request *request)
 		id = jsonrpc_conn_next_id(request->mcp->conn);
 		params = fy_mapping(mc->transient->gb,
 			"protocolVersion", request->mcp->protocol_version,
-			"capabilities", fy_map_empty,
+			"capabilities", mcp_client_capabilities(request->mcp,
+						mc->transient->gb),
 			"clientInfo", fy_mapping("name", "fyai",
 						 "version", VERSION));
 		break;
@@ -3463,6 +3941,7 @@ void fyai_mcp_stop_finish(struct fyai_mcp *mc)
 				"event", "disconnect", "server", mcp->name));
 		curl_slist_free_all(mcp->del_headers);
 		free(mcp->del_resp.data);
+		mcp_events_release(mcp);
 		jsonrpc_conn_destroy(mcp->conn);
 		if (mcp->curl)
 			curl_easy_cleanup(mcp->curl);

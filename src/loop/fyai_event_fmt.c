@@ -40,10 +40,34 @@ static char *event_answers(const char *body)
 	return s;
 }
 
+/*
+ * The data of a source event, inside its external-data frame: the JSON
+ * between the first line and the closing tag, or NULL when @body has no
+ * frame. The length goes to @lenp.
+ */
+static const char *event_external_data(const char *body, size_t *lenp)
+{
+	static const char close[] = "\n</external-data>";
+	const char *start, *end;
+
+	if (strncmp(body, "<external-data ", 15))
+		return NULL;
+	start = strchr(body, '\n');
+	if (!start)
+		return NULL;
+	start++;
+	end = strstr(start, close);
+	if (!end || end[sizeof(close) - 1])
+		return NULL;
+	*lenp = (size_t)(end - start);
+	return start;
+}
+
 char *fyai_event_pretty(const char *text)
 {
-	const char *kind, *name, *tail, *body, *close, *p;
-	size_t klen, nlen, tlen;
+	const char *kind, *name, *tail, *body, *close, *p, *data;
+	const char *id = NULL;
+	size_t klen, nlen, tlen, dlen, idlen;
 	char *out = NULL, *answers;
 	size_t len = 0;
 	FILE *mf;
@@ -77,20 +101,37 @@ char *fyai_event_pretty(const char *text)
 		tlen--;
 	}
 
+	/* A source event has its id after the header: it is the header too. */
+	idlen = 0;
+	if (event_kind_is(kind, klen, "event") && *body != '<') {
+		id = body;
+		idlen = strcspn(body, "\n");
+		body += idlen;
+		if (*body == '\n')
+			body++;
+	}
+
 	mf = open_memstream(&out, &len);
 	if (!mf)
 		return NULL;
 	fprintf(mf, "**%.*s** `%.*s`", (int)klen, kind, (int)nlen, name);
 	if (tlen)
 		fprintf(mf, " %.*s", (int)tlen, tail);
+	if (idlen)
+		fprintf(mf, " %.*s", (int)idlen, id);
 	fprintf(mf, "\n");
 	if (*body) {
 		fprintf(mf, "\n");
 		answers = event_kind_is(kind, klen, "question") ?
 			  event_answers(body) : NULL;
+		data = event_kind_is(kind, klen, "event") ?
+		       event_external_data(body, &dlen) : NULL;
 		if (answers) {
 			fprintf(mf, "%s", answers);
 			free(answers);
+		} else if (data) {
+			/* The data of a source, shown as the JSON it is. */
+			fprintf(mf, "```json\n%.*s\n```\n", (int)dlen, data);
 		} else if (event_kind_is(kind, klen, "monitor")) {
 			/* The lines that a monitor reports keep their breaks. */
 			fprintf(mf, "```\n%s\n```\n", body);

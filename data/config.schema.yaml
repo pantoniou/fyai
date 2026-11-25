@@ -2005,6 +2005,14 @@ properties:
             endpoint:
               type: string
               description: Set this MCP server's endpoint URL.
+            events:
+              type: boolean
+              default: false
+              description: >-
+                Let this stdio server send events with the fyai/events
+                extension. Each event that passes the schema of its kind
+                reaches the model as external data and can start a turn.
+                See doc/event-sources-sdd.md.
             auth:
               type: object
               description: Configure authentication for this MCP server.
