@@ -68,6 +68,11 @@ int event_fmt_bodies(void)
 		"the user did not provide an answer",
 		"**question** `bg` declined\n\n"
 		"the user did not provide an answer\n"));
+	FYAI_TCHECK(event_reads(
+		"[event 'src/note'] n1\n"
+		"<external-data source=\"src\" kind=\"note\" id=\"n1\">\n"
+		"\"x\"\n</external-data>",
+		"**event** `src/note` n1\n\n```json\n\"x\"\n```\n"));
 	printf("ok - the body of an event is drawn under its header\n");
 	return 0;
 }
