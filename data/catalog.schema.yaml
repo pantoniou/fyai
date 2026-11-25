@@ -61,7 +61,7 @@ $defs:
         description: "What the model can do, in the controlled vocabulary (see capabilities.py). Restricted to abilities that change what you can build: request knobs that tune an ability every model has (temperature, max_tokens, tool_choice) are excluded, as are properties of the route rather than the model. Distinct from `endpointCapabilities`, which describes a provider's API surface. Providers' own words are preserved verbatim in each offering's `reported_capabilities`."
         type: array
         items:
-          description: "tool_calling: caller-defined tools the model can invoke. parallel_tool_calls: several tool calls in one turn. structured_outputs: output constrained to a caller-supplied JSON schema. json_mode: valid JSON, without a schema guarantee. reasoning: produces a reasoning trace. reasoning_effort: that trace's depth is tunable. logprobs: returns token probabilities. predicted_outputs: a draft completion can be supplied to speed decoding. prefix_completion: continues a caller-supplied assistant prefix. web_search: model-side web search. code_execution: model-side code execution. citations: cites supplied documents. context_management: provider-side context editing/compaction. batch: asynchronous batch submission at reduced cost."
+          description: "tool_calling: caller-defined tools the model can invoke. parallel_tool_calls: several tool calls in one turn. structured_outputs: output constrained to a caller-supplied JSON schema. json_mode: valid JSON, without a schema guarantee. reasoning: produces a reasoning trace. reasoning_effort: that trace's depth is tunable. logprobs: returns token probabilities. predicted_outputs: a draft completion can be supplied to speed decoding. prefix_completion: continues a caller-supplied assistant prefix. web_search: model-side web search. code_execution: model-side code execution. citations: cites supplied documents. context_management: provider-side context editing/compaction. batch: asynchronous batch submission at reduced cost. decisions: a decision model, which answers typed questions about a state with probabilities instead of writing text, on a `decisions` endpoint; it cannot chat."
           type: string
           enum:
           - tool_calling
@@ -78,6 +78,7 @@ $defs:
           - citations
           - context_management
           - batch
+          - decisions
       open_source:
         description: "True when some provider evidences open weights (e.g. a HuggingFace link on the model page). An OR across all providers including the vendor: a provider that never mentions weights leaves this at its False default, which is an absent claim rather than a claim of closedness."
         type: boolean
@@ -177,7 +178,7 @@ $defs:
         items:
           $ref: "#/$defs/offering"
       personas:
-        description: This provider's own models ranked for each orchestration persona, best first, by the persona's strength/cost trade-off. Values are `provider_model_id`s, so a list can be dispatched as-is. Every priced model is ranked, weakest and dearest last, so the whole lineup is tiered rather than filtered. Strength is the merged entry's LMArena Elo, or the Elo of the model an offering is a variant of (`-contributor`, `-pro`, `-latest`) or the strongest scored member of its family; models with no such evidence rank below all of them, ordered by price alone. Cost is this provider's prices, so the same model may rank differently elsewhere. Models tied on both axes are ordered newest first. Only a model with no usable price is left out.
+        description: Provider model IDs ranked for each orchestration persona. First-party lineups use the latest served model in each capability tier and return up to three nearby tiers per persona. Reseller offerings retain strength and cost rankings based on LMArena Elo and the provider's prices.
         type: object
         additionalProperties: false
         properties:
@@ -220,7 +221,7 @@ $defs:
     additionalProperties: false
     properties:
       protocol:
-        description: "Wire format of a model surface (OpenAI chat/completions, OpenAI Responses, Anthropic Messages, Google generateContent), or of a standalone tool API that takes no model in the request: `search` and `fetch` are DeepSeek's raw JSON web-search and page-fetch endpoints, billed per request and callable beside any model."
+        description: "Wire format of a model surface (OpenAI chat/completions, OpenAI Responses, Anthropic Messages, Google generateContent), or of a standalone tool API that takes no model in the request: `search` and `fetch` are DeepSeek's raw JSON web-search and page-fetch endpoints, billed per request and callable beside any model. `decisions` is the API of decision models (OpenRouter's /api/alpha/decisions): {model, state, questions} in, typed answers with probabilities out; `systemone` is the same envelope in TypeSafe's dialect (System One). Only models with the capability `decisions` are served there, and only there."
         type: string
         enum:
         - chat_completions
@@ -229,6 +230,8 @@ $defs:
         - generate_content
         - search
         - fetch
+        - decisions
+        - systemone
       endpoint:
         description: Request path relative to the provider's `root_url`.
         type: string

@@ -166,6 +166,41 @@ models:
   - reasoning_effort
   open_source: false
   introduced: 2026-04-27
+- name: clef
+  display_name: 'Cloudflare: Clef'
+  context_window: 65537
+  max_output_tokens: 58983
+  modalities:
+  - text
+  - image
+  capabilities:
+  - decisions
+  open_source: false
+  introduced: 2026-10-01
+- name: clef-flash
+  display_name: 'Cloudflare: Clef Flash'
+  context_window: 24576
+  max_output_tokens: 22118
+  modalities:
+  - text
+  - image
+  capabilities:
+  - decisions
+  open_source: false
+  introduced: 2026-10-01
+- name: clef-omni
+  display_name: 'Cloudflare: Clef Omni'
+  context_window: 65536
+  max_output_tokens: 58982
+  modalities:
+  - text
+  - image
+  - audio
+  - video
+  capabilities:
+  - decisions
+  open_source: false
+  introduced: 2026-10-09
 - name: command-a
   display_name: 'Cohere: Command A'
   context_window: 256000
@@ -178,6 +213,50 @@ models:
   - json_mode
   open_source: false
   introduced: 2025-03-13
+- name: d1-latest
+  display_name: 'LiquidAI: d1 Latest'
+  context_window: 65536
+  max_output_tokens: 58982
+  modalities:
+  - text
+  - image
+  capabilities:
+  - decisions
+  open_source: false
+  introduced: 2026-10-27
+- name: d1-ultra-latest
+  display_name: 'LiquidAI: d1-ultra Latest'
+  context_window: 65536
+  max_output_tokens: 58982
+  modalities:
+  - text
+  - image
+  capabilities:
+  - decisions
+  open_source: false
+  introduced: 2026-10-27
+- name: d1.2
+  display_name: 'LiquidAI: d1.2'
+  context_window: 65536
+  max_output_tokens: 58982
+  modalities:
+  - text
+  - image
+  capabilities:
+  - decisions
+  open_source: true
+  introduced: 2026-11-16
+- name: d1.2-ultra
+  display_name: 'LiquidAI: d1.2-ultra'
+  context_window: 65536
+  max_output_tokens: 58982
+  modalities:
+  - text
+  - image
+  capabilities:
+  - decisions
+  open_source: true
+  introduced: 2026-11-16
 - name: deepseek-flash
   display_name: DeepSeek-V4.1-Flash-1017
   context_window: 1000000
@@ -295,6 +374,27 @@ models:
   - json_mode
   open_source: true
   introduced: 2025-07-09
+- name: drex-max
+  display_name: 'Nace.AI: Drex Max'
+  context_window: 262144
+  max_output_tokens: 235929
+  modalities:
+  - text
+  - image
+  capabilities:
+  - decisions
+  open_source: false
+  introduced: 2026-10-21
+- name: drex-v2.0
+  display_name: 'Nace.AI: Drex v2.0'
+  context_window: 131072
+  max_output_tokens: 117964
+  modalities:
+  - text
+  capabilities:
+  - decisions
+  open_source: false
+  introduced: 2026-10-12
 - name: ember-1
   display_name: Ember-1
   context_window: 1048576
@@ -430,6 +530,20 @@ models:
   - reasoning_effort
   open_source: false
   introduced: 2026-11-18
+- name: gemini-decision-1
+  display_name: 'Google: Gemini Decision 1'
+  context_window: 262144
+  max_output_tokens: 235929
+  modalities:
+  - text
+  - image
+  - audio
+  - video
+  - pdf
+  capabilities:
+  - decisions
+  open_source: false
+  introduced: 2026-11-11
 - name: gemini-flash-latest
   display_name: 'Google: Gemini Flash Latest'
   context_window: 1048576
@@ -533,7 +647,7 @@ models:
 - name: glm-5.3-flash
   display_name: GLM 5.3 Flash
   context_window: 1048576
-  max_output_tokens: 131072
+  max_output_tokens: 943718
   modalities:
   - text
   - image
@@ -634,6 +748,19 @@ models:
   - reasoning_effort
   open_source: false
   introduced: 2026-09-14
+  agents:
+  - codex
+- name: gpt-6-luna-decisions
+  display_name: 'OpenAI: GPT-6 Luna Decisions'
+  context_window: 1050000
+  max_output_tokens: 945000
+  modalities:
+  - text
+  - image
+  capabilities:
+  - decisions
+  open_source: false
+  introduced: 2026-10-06
   agents:
   - codex
 - name: gpt-6-sol
@@ -910,7 +1037,7 @@ models:
 - name: hy3
   display_name: 'Tencent: Hy3'
   context_window: 262144
-  max_output_tokens: 235929
+  max_output_tokens: 128000
   modalities:
   - text
   capabilities:
@@ -949,6 +1076,7 @@ models:
   - structured_outputs
   - json_mode
   - reasoning
+  - logprobs
   open_source: false
   introduced: 2026-11-16
 - name: inkling
@@ -963,6 +1091,7 @@ models:
   - tool_calling
   - reasoning
   - reasoning_effort
+  - logprobs
   open_source: true
   introduced: 2026-07-14
 - name: inkling-2-small
@@ -995,6 +1124,28 @@ models:
   - reasoning_effort
   open_source: false
   introduced: 2026-07-30
+- name: jev-1.14
+  display_name: 'TypeSafe: Jev 1.14'
+  context_window: 262144
+  max_output_tokens: 235929
+  modalities:
+  - text
+  - image
+  capabilities:
+  - decisions
+  open_source: false
+  introduced: 2026-10-14
+- name: jev-latest
+  display_name: 'TypeSafe: Jev Latest'
+  context_window: 262144
+  max_output_tokens: 235929
+  modalities:
+  - text
+  - image
+  capabilities:
+  - decisions
+  open_source: false
+  introduced: 2026-09-18
 - name: kimi-k3
   display_name: Kimi K3
   context_window: 1048576
@@ -1031,6 +1182,7 @@ models:
   - video
   capabilities:
   - tool_calling
+  - parallel_tool_calls
   - structured_outputs
   - json_mode
   - reasoning
@@ -1071,12 +1223,14 @@ models:
   introduced: 2026-10-13
 - name: ling-3.1-flash
   display_name: 'inclusionAI: Ling 3.1 Flash'
-  context_window: 1000000
+  context_window: 1048576
   max_output_tokens: 262144
   modalities:
   - text
   capabilities:
   - tool_calling
+  - structured_outputs
+  - json_mode
   - reasoning
   - logprobs
   open_source: false
@@ -1095,6 +1249,17 @@ models:
   - reasoning
   open_source: false
   introduced: 2026-11-13
+- name: microsoft-decision-1.1
+  display_name: 'Microsoft: Microsoft-Decision-1.1'
+  context_window: 32768
+  max_output_tokens: 29491
+  modalities:
+  - text
+  - image
+  capabilities:
+  - decisions
+  open_source: false
+  introduced: 2026-11-17
 - name: mimo-v2.6-flash
   display_name: 'Xiaomi: MiMo-V2.6-Flash'
   context_window: 1048576
@@ -1383,6 +1548,50 @@ models:
   - json_mode
   open_source: true
   introduced: 2025-01-10
+- name: pplx-decider-flash-latest
+  display_name: 'Perplexity: Decider Flash Latest'
+  context_window: 262144
+  max_output_tokens: 235929
+  modalities:
+  - text
+  - image
+  capabilities:
+  - decisions
+  open_source: false
+  introduced: 2026-10-16
+- name: pplx-decider-flash-v1.3:free
+  display_name: 'Perplexity: Decider Flash V1.3 (free)'
+  context_window: 262144
+  max_output_tokens: 235929
+  modalities:
+  - text
+  - image
+  capabilities:
+  - decisions
+  open_source: false
+  introduced: 2026-11-12
+- name: pplx-decider-latest
+  display_name: 'Perplexity: Decider Latest'
+  context_window: 262144
+  max_output_tokens: 235929
+  modalities:
+  - text
+  - image
+  capabilities:
+  - decisions
+  open_source: false
+  introduced: 2026-10-14
+- name: pplx-decider-v1.3:free
+  display_name: 'Perplexity: Decider V1.3 (free)'
+  context_window: 262144
+  max_output_tokens: 235929
+  modalities:
+  - text
+  - image
+  capabilities:
+  - decisions
+  open_source: false
+  introduced: 2026-11-12
 - name: qwen3-embedding-8b
   display_name: Qwen3 Embedding 8B
   context_window: 40960
@@ -1511,6 +1720,37 @@ models:
   - reasoning
   open_source: false
   introduced: 2026-08-12
+- name: solar-decide
+  display_name: 'Upstage: Solar Decide'
+  context_window: 524288
+  max_output_tokens: 471859
+  modalities:
+  - text
+  capabilities:
+  - decisions
+  open_source: false
+  introduced: 2026-09-28
+- name: solar-decide-flash
+  display_name: 'Upstage: Solar Decide Flash'
+  context_window: 524288
+  max_output_tokens: 471859
+  modalities:
+  - text
+  capabilities:
+  - decisions
+  open_source: false
+  introduced: 2026-10-08
+- name: span-02
+  display_name: 'Respan: Span-02'
+  context_window: 131072
+  max_output_tokens: 117964
+  modalities:
+  - text
+  - image
+  capabilities:
+  - decisions
+  open_source: false
+  introduced: 2026-10-16
 - name: step-5-preview
   display_name: 'StepFun: Step 5 Preview'
   context_window: 1000000
@@ -1911,10 +2151,10 @@ providers:
     pricing:
       currency: USD
       unit: per_million_tokens
-      input: 1.4
-      output: 4.4
+      input: 0.7
+      output: 2.2
       extra:
-        cache_read: 0.26
+        cache_read: 0.13
     reported_modalities:
     - text
     reported_capabilities:
@@ -2114,9 +2354,9 @@ providers:
     - accounts/fireworks/routers/glm-5p3-fast
     - accounts/fireworks/models/qwen3p8-2p4t-a95b
     - accounts/fireworks/models/qwen3p8-max
-    - accounts/fireworks/models/glm-5p3
     - accounts/fireworks/models/inkling
     - accounts/fireworks/models/nemotron-3-ultra-nvfp4
+    - accounts/fireworks/models/glm-5p3
     - accounts/fireworks/models/deepseek-v4p1-flash
     - accounts/fireworks/models/minimax-m3
     - accounts/fireworks/models/minimax-m3p1-flash
@@ -2131,9 +2371,9 @@ providers:
     - accounts/fireworks/routers/glm-5p3-fast
     - accounts/fireworks/models/qwen3p8-2p4t-a95b
     - accounts/fireworks/models/qwen3p8-max
-    - accounts/fireworks/models/glm-5p3
     - accounts/fireworks/models/inkling
     - accounts/fireworks/models/nemotron-3-ultra-nvfp4
+    - accounts/fireworks/models/glm-5p3
     - accounts/fireworks/models/deepseek-v4p1-flash
     - accounts/fireworks/models/minimax-m3
     - accounts/fireworks/models/minimax-m3p1-flash
@@ -2148,9 +2388,9 @@ providers:
     - accounts/fireworks/routers/glm-5p3-fast
     - accounts/fireworks/models/qwen3p8-2p4t-a95b
     - accounts/fireworks/models/qwen3p8-max
-    - accounts/fireworks/models/glm-5p3
     - accounts/fireworks/models/inkling
     - accounts/fireworks/models/nemotron-3-ultra-nvfp4
+    - accounts/fireworks/models/glm-5p3
     - accounts/fireworks/models/deepseek-v4p1-flash
     - accounts/fireworks/models/minimax-m3
     - accounts/fireworks/models/minimax-m3p1-flash
@@ -2165,8 +2405,8 @@ providers:
     - accounts/fireworks/models/deepseek-v4p1-flash
     - accounts/fireworks/models/minimax-m3
     - accounts/fireworks/models/nemotron-3-ultra-nvfp4
-    - accounts/fireworks/models/inkling
     - accounts/fireworks/models/glm-5p3
+    - accounts/fireworks/models/inkling
     - accounts/fireworks/models/qwen3p8-2p4t-a95b
     - accounts/fireworks/models/qwen3p8-max
     - accounts/fireworks/routers/glm-5p3-fast
@@ -2182,8 +2422,8 @@ providers:
     - accounts/fireworks/routers/glm-5p3-fast
     - accounts/fireworks/models/qwen3p8-2p4t-a95b
     - accounts/fireworks/models/qwen3p8-max
-    - accounts/fireworks/models/glm-5p3
     - accounts/fireworks/models/inkling
+    - accounts/fireworks/models/glm-5p3
     - accounts/fireworks/models/nemotron-3-ultra-nvfp4
     - accounts/fireworks/models/deepseek-v4p1-flash
     - accounts/fireworks/models/minimax-m3
@@ -2199,8 +2439,8 @@ providers:
     - accounts/fireworks/models/deepseek-v4p1-flash
     - accounts/fireworks/models/minimax-m3
     - accounts/fireworks/models/nemotron-3-ultra-nvfp4
-    - accounts/fireworks/models/inkling
     - accounts/fireworks/models/glm-5p3
+    - accounts/fireworks/models/inkling
     - accounts/fireworks/models/qwen3p8-2p4t-a95b
     - accounts/fireworks/models/qwen3p8-max
     - accounts/fireworks/routers/glm-5p3-fast
@@ -2352,10 +2592,10 @@ providers:
     pricing:
       currency: USD
       unit: per_million_tokens
-      input: 0.0675
-      output: 0.225
+      input: 0.09
+      output: 0.3
       extra:
-        cache_read: 0.0375
+        cache_read: 0.05
     reported_modalities:
     - image
     - text
@@ -2903,8 +3143,10 @@ providers:
     pricing:
       currency: USD
       unit: per_million_tokens
-      input: 0.09
-      output: 0.36
+      input: 0.05
+      output: 0.25
+      extra:
+        cache_read: 0.05
     reported_modalities:
     - text
     reported_capabilities:
@@ -2934,10 +3176,10 @@ providers:
     pricing:
       currency: USD
       unit: per_million_tokens
-      input: 0.017
-      output: 0.085
+      input: 0.03
+      output: 0.13
       extra:
-        cache_read: 0.0085
+        cache_read: 0.03
     reported_modalities:
     - text
     reported_capabilities:
@@ -3477,6 +3719,10 @@ providers:
       automatic_prompt_caching_supported: true
       reasoning_controls_supported: true
       response_compaction_supported: false
+  - protocol: decisions
+    endpoint: /api/alpha/decisions
+  - protocol: systemone
+    endpoint: /api/v1/systemone
   models:
   - canonical_id: claude-fable-5.1
     provider_model_id: anthropic/claude-fable-5.1
@@ -3878,10 +4124,10 @@ providers:
     pricing:
       currency: USD
       unit: per_million_tokens
-      input: 0.0498
-      output: 0.1992
+      input: 0.0507
+      output: 0.2028
       extra:
-        cache_read: 0.000996
+        cache_read: 0.001014
     reported_modalities:
     - text
     - image
@@ -3948,8 +4194,8 @@ providers:
     pricing:
       currency: USD
       unit: per_million_tokens
-      input: 0.9
-      output: 1.5
+      input: 0.77923
+      output: 1.5629
       extra:
         cache_read: 0.2
     reported_modalities:
@@ -3982,7 +4228,7 @@ providers:
       currency: USD
       unit: per_million_tokens
       input: 0.0999
-      output: 8.0
+      output: 5.0
       extra:
         cache_read: 0.0999
     reported_modalities:
@@ -4317,10 +4563,10 @@ providers:
     pricing:
       currency: USD
       unit: per_million_tokens
-      input: 0.06
-      output: 0.18
+      input: 0.075
+      output: 0.225
       extra:
-        cache_read: 0.012
+        cache_read: 0.015
     reported_modalities:
     - text
     reported_capabilities:
@@ -4330,9 +4576,10 @@ providers:
     - max_tokens
     - presence_penalty
     - reasoning
-    - repetition_penalty
+    - response_format
     - seed
     - stop
+    - structured_outputs
     - temperature
     - tool_choice
     - tools
@@ -4569,10 +4816,10 @@ providers:
     pricing:
       currency: USD
       unit: per_million_tokens
-      input: 0.15
-      output: 0.6
+      input: 0.075
+      output: 0.3
       extra:
-        cache_read: 0.015
+        cache_read: 0.0075
     reported_modalities:
     - text
     - image
@@ -4666,10 +4913,10 @@ providers:
     pricing:
       currency: USD
       unit: per_million_tokens
-      input: 0.253
-      output: 8.8
+      input: 0.2403
+      output: 8.4023
       extra:
-        cache_read: 0.18
+        cache_read: 0.2
     reported_modalities:
     - text
     - image
@@ -4681,6 +4928,7 @@ providers:
     - logprobs
     - max_tokens
     - min_p
+    - parallel_tool_calls
     - presence_penalty
     - reasoning
     - reasoning_effort
@@ -5077,8 +5325,10 @@ providers:
     pricing:
       currency: USD
       unit: per_million_tokens
-      input: 0.09
-      output: 0.36
+      input: 0.05
+      output: 0.25
+      extra:
+        cache_read: 0.05
     reported_modalities:
     - text
     reported_capabilities:
@@ -5136,10 +5386,10 @@ providers:
     pricing:
       currency: USD
       unit: per_million_tokens
-      input: 0.017
-      output: 0.085
+      input: 0.03
+      output: 0.13
       extra:
-        cache_read: 0.0085
+        cache_read: 0.03
     reported_modalities:
     - text
     reported_capabilities:
@@ -5423,8 +5673,10 @@ providers:
     - include_reasoning
     - logprobs
     - max_tokens
+    - min_p
     - presence_penalty
     - reasoning
+    - repetition_penalty
     - response_format
     - seed
     - stop
@@ -5536,30 +5788,24 @@ providers:
     pricing:
       currency: USD
       unit: per_million_tokens
-      input: 0.14
-      output: 0.58
+      input: 0.132
+      output: 0.528
       extra:
-        cache_read: 0.035
+        cache_read: 0.033
     reported_modalities:
     - text
     reported_capabilities:
-    - frequency_penalty
     - include_reasoning
     - max_completion_tokens
     - max_tokens
-    - presence_penalty
     - reasoning
     - reasoning_effort
-    - repetition_penalty
     - response_format
-    - seed
     - stop
     - structured_outputs
     - temperature
     - tool_choice
     - tools
-    - top_k
-    - top_p
   - canonical_id: hy4
     provider_model_id: tencent/hy4
     pricing:
@@ -5607,16 +5853,26 @@ providers:
     - text
     - image
     reported_capabilities:
+    - frequency_penalty
     - include_reasoning
+    - logit_bias
+    - logprobs
     - max_completion_tokens
     - max_tokens
+    - min_p
+    - presence_penalty
     - reasoning
+    - repetition_penalty
     - response_format
+    - seed
     - stop
     - structured_outputs
     - temperature
     - tool_choice
     - tools
+    - top_k
+    - top_logprobs
+    - top_p
   - canonical_id: inkling
     provider_model_id: thinkingmachines/inkling
     pricing:
@@ -5634,6 +5890,7 @@ providers:
     - frequency_penalty
     - include_reasoning
     - logit_bias
+    - logprobs
     - max_tokens
     - min_p
     - presence_penalty
@@ -5645,6 +5902,7 @@ providers:
     - tool_choice
     - tools
     - top_k
+    - top_logprobs
     - top_p
   - canonical_id: inkling-small
     provider_model_id: thinkingmachines/inkling-small
@@ -5877,10 +6135,10 @@ providers:
     pricing:
       currency: USD
       unit: per_million_tokens
-      input: 0.0399
-      output: 0.0784
+      input: 0.12
+      output: 0.38
       extra:
-        cache_read: 0.03
+        cache_read: 0.02
     reported_modalities:
     - text
     - image
@@ -5912,8 +6170,8 @@ providers:
     pricing:
       currency: USD
       unit: per_million_tokens
-      input: 0.0399
-      output: 0.0784
+      input: 0.0356
+      output: 0.0815
       extra:
         cache_read: 0.03
     reported_modalities:
@@ -5975,6 +6233,272 @@ providers:
     - top_k
     - top_logprobs
     - top_p
+  - canonical_id: clef
+    provider_model_id: cloudflare/clef
+    pricing:
+      currency: USD
+      unit: per_million_tokens
+      input: 0.192
+      output: 0.0
+    reported_modalities:
+    - text
+    - image
+    reported_capabilities:
+    - decisions
+  - canonical_id: clef-flash
+    provider_model_id: cloudflare/clef-flash
+    pricing:
+      currency: USD
+      unit: per_million_tokens
+      input: 0.038
+      output: 0.0
+    reported_modalities:
+    - text
+    - image
+    reported_capabilities:
+    - decisions
+  - canonical_id: clef-omni
+    provider_model_id: cloudflare/clef-omni
+    pricing:
+      currency: USD
+      unit: per_million_tokens
+      input: 0.15
+      output: 0.0
+    reported_modalities:
+    - text
+    - image
+    - audio
+    - video
+    reported_capabilities:
+    - decisions
+  - canonical_id: gemini-decision-1
+    provider_model_id: google/gemini-decision-1
+    pricing:
+      currency: USD
+      unit: per_million_tokens
+      input: 0.1
+      output: 0.0
+      extra:
+        web_search: 14000.0
+    reported_modalities:
+    - text
+    - image
+    - audio
+    - video
+    - file
+    reported_capabilities:
+    - decisions
+  - canonical_id: d1.2
+    provider_model_id: liquid/d1.2
+    pricing:
+      currency: USD
+      unit: per_million_tokens
+      input: 0.02
+      output: 0.0
+    reported_modalities:
+    - text
+    - image
+    reported_capabilities:
+    - decisions
+  - canonical_id: d1.2-ultra
+    provider_model_id: liquid/d1.2-ultra
+    pricing:
+      currency: USD
+      unit: per_million_tokens
+      input: 0.042
+      output: 0.0
+    reported_modalities:
+    - text
+    - image
+    reported_capabilities:
+    - decisions
+  - canonical_id: d1-latest
+    provider_model_id: ~liquid/d1-latest
+    pricing:
+      currency: USD
+      unit: per_million_tokens
+      input: 0.02
+      output: 0.0
+    reported_modalities:
+    - text
+    - image
+    reported_capabilities:
+    - decisions
+  - canonical_id: d1-ultra-latest
+    provider_model_id: ~liquid/d1-ultra-latest
+    pricing:
+      currency: USD
+      unit: per_million_tokens
+      input: 0.042
+      output: 0.0
+    reported_modalities:
+    - text
+    - image
+    reported_capabilities:
+    - decisions
+  - canonical_id: microsoft-decision-1.1
+    provider_model_id: microsoft/microsoft-decision-1.1
+    pricing:
+      currency: USD
+      unit: per_million_tokens
+      input: 0.042
+      output: 0.0
+    reported_modalities:
+    - text
+    - image
+    reported_capabilities:
+    - decisions
+  - canonical_id: drex-max
+    provider_model_id: nace-ai/drex-max
+    pricing:
+      currency: USD
+      unit: per_million_tokens
+      input: 0.06
+      output: 0.0
+      extra:
+        cache_read: 0.06
+    reported_modalities:
+    - text
+    - image
+    reported_capabilities:
+    - decisions
+  - canonical_id: drex-v2.0
+    provider_model_id: nace-ai/drex-v2.0
+    pricing:
+      currency: USD
+      unit: per_million_tokens
+      input: 0.06
+      output: 0.0
+    reported_modalities:
+    - text
+    reported_capabilities:
+    - decisions
+  - canonical_id: gpt-6-luna-decisions
+    provider_model_id: openai/gpt-6-luna-decisions
+    pricing:
+      currency: USD
+      unit: per_million_tokens
+      input: 0.1
+      output: 0.0
+      extra:
+        cache_read: 0.0
+        cache_write: 0.0
+        web_search: 10000.0
+    reported_modalities:
+    - text
+    - image
+    reported_capabilities:
+    - decisions
+  - canonical_id: pplx-decider-flash-v1.3:free
+    provider_model_id: perplexity/pplx-decider-flash-v1.3:free
+    pricing:
+      currency: USD
+      unit: per_million_tokens
+      input: 0.0
+      output: 0.0
+    reported_modalities:
+    - text
+    - image
+    reported_capabilities:
+    - decisions
+  - canonical_id: pplx-decider-v1.3:free
+    provider_model_id: perplexity/pplx-decider-v1.3:free
+    pricing:
+      currency: USD
+      unit: per_million_tokens
+      input: 0.0
+      output: 0.0
+    reported_modalities:
+    - text
+    - image
+    reported_capabilities:
+    - decisions
+  - canonical_id: pplx-decider-flash-latest
+    provider_model_id: ~perplexity/pplx-decider-flash-latest
+    pricing:
+      currency: USD
+      unit: per_million_tokens
+      input: 0.01
+      output: 0.0
+    reported_modalities:
+    - text
+    - image
+    reported_capabilities:
+    - decisions
+  - canonical_id: pplx-decider-latest
+    provider_model_id: ~perplexity/pplx-decider-latest
+    pricing:
+      currency: USD
+      unit: per_million_tokens
+      input: 0.02
+      output: 0.0
+    reported_modalities:
+    - text
+    - image
+    reported_capabilities:
+    - decisions
+  - canonical_id: span-02
+    provider_model_id: respan/span-02
+    pricing:
+      currency: USD
+      unit: per_million_tokens
+      input: 0.01
+      output: 0.0
+    reported_modalities:
+    - text
+    - image
+    reported_capabilities:
+    - decisions
+  - canonical_id: jev-1.14
+    provider_model_id: typesafe/jev-1.14
+    pricing:
+      currency: USD
+      unit: per_million_tokens
+      input: 0.042
+      output: 0.0
+    reported_modalities:
+    - text
+    - image
+    reported_capabilities:
+    - decisions
+  - canonical_id: jev-latest
+    provider_model_id: ~typesafe/jev-latest
+    pricing:
+      currency: USD
+      unit: per_million_tokens
+      input: 0.042
+      output: 0.0
+    reported_modalities:
+    - text
+    - image
+    reported_capabilities:
+    - decisions
+  - canonical_id: solar-decide
+    provider_model_id: upstage/solar-decide
+    pricing:
+      currency: USD
+      unit: per_million_tokens
+      input: 0.05
+      output: 0.0
+      extra:
+        cache_read: 0.05
+    reported_modalities:
+    - text
+    reported_capabilities:
+    - decisions
+  - canonical_id: solar-decide-flash
+    provider_model_id: upstage/solar-decide-flash
+    pricing:
+      currency: USD
+      unit: per_million_tokens
+      input: 0.05
+      output: 0.0
+      extra:
+        cache_read: 0.05
+    reported_modalities:
+    - text
+    reported_capabilities:
+    - decisions
   personas:
     orchestrate:
     - anthropic/claude-fable-5.1
@@ -5999,15 +6523,15 @@ providers:
     - ~openai/gpt-sol-latest
     - ~anthropic/claude-sonnet-latest
     - ~moonshotai/kimi-latest
-    - moonshotai/kimi-k3.1-pro
     - google/gemini-4-hydrogen
     - ~google/gemini-flash-latest
-    - ~deepseek/deepseek-pro-latest
+    - moonshotai/kimi-k3.1-pro
     - x-ai/grok-4.7
     - qwen/qwen3.8-2.4t-a95b
     - ~x-ai/grok-latest
     - qwen/qwen4-max
     - meta/muse-spark-1.3
+    - ~deepseek/deepseek-pro-latest
     - thinkingmachines/inkling
     - google/gemini-3.8-flash
     - stepfun/step-5-preview
@@ -6025,7 +6549,6 @@ providers:
     - cognitivecomputations/dolphin-mistral-24b-venice-edition
     - gryphe/mythomax-l2-13b
     - deepseek/deepseek-v4.1-flash-1017
-    - minimax/minimax-m3.1-flash
     - liquid/lfm-2.5-24b-a2b
     - tencent/hy3
     - qwen/qwen3.8-flash
@@ -6038,24 +6561,25 @@ providers:
     - prism-ml/ternary-bonsai-2-27b
     - particle-ai/particle-1
     - ~deepseek/deepseek-flash-latest
-    - openai/gpt-oss-120b
+    - z-ai/glm-5.3-flash
     - xiaomi/mimo-v2.6-flash
     - ricursiveai/ripple-65b-preview
     - nvidia/nemotron-3.5-content-safety
+    - minimax/minimax-m3.1-flash
     - openai/gpt-oss-safeguard-20b
     - meta/muse-spark-1.3-contributor
+    - inclusionai/ling-3.1-flash
+    - openai/gpt-oss-120b
     - nvidia/nemotron-3.5-lightning
     - deepseek/deepseek-v4-flash
     - deepseek/deepseek-v4.1-flash
-    - inclusionai/ling-3.1-flash
     - microsoft/phi-4
     - inference-net/schematron-v2-turbo
     - tencent/hy4-flash
     - openai/gpt-oss-120b:batch
+    - openai/gpt-oss-20b
     - openai/gpt-oss-20b:batch
     - ~z-ai/glm-flash-latest
-    - z-ai/glm-5.3-flash
-    - openai/gpt-oss-20b
     - inclusionai/ling-3.2-flash:free
     - baidu/ernie-5.5-flash-preview:free
     - particle-ai/particle-1:free
@@ -6088,10 +6612,10 @@ providers:
     - moonshotai/kimi-k3.1-pro
     - google/gemini-4-hydrogen
     - ~google/gemini-flash-latest
-    - ~deepseek/deepseek-pro-latest
     - x-ai/grok-4.7
     - qwen/qwen3.8-2.4t-a95b
     - ~x-ai/grok-latest
+    - ~deepseek/deepseek-pro-latest
     - qwen/qwen4-max
     - meta/muse-spark-1.3
     - thinkingmachines/inkling
@@ -6111,7 +6635,6 @@ providers:
     - cognitivecomputations/dolphin-mistral-24b-venice-edition
     - liquid/lfm-2.5-24b-a2b
     - deepseek/deepseek-v4.1-flash-1017
-    - minimax/minimax-m3.1-flash
     - gryphe/mythomax-l2-13b
     - tencent/hy3
     - meta/muse-ember
@@ -6124,24 +6647,25 @@ providers:
     - particle-ai/particle-1
     - ~deepseek/deepseek-flash-latest
     - google/gemma-4-31b-it
-    - openai/gpt-oss-120b
+    - z-ai/glm-5.3-flash
     - xiaomi/mimo-v2.6-flash
     - ricursiveai/ripple-65b-preview
+    - minimax/minimax-m3.1-flash
     - openai/gpt-oss-safeguard-20b
     - nvidia/nemotron-3.5-content-safety
+    - openai/gpt-oss-120b
+    - inclusionai/ling-3.1-flash
     - meta/muse-spark-1.3-contributor
     - nvidia/nemotron-3.5-lightning
-    - deepseek/deepseek-v4-flash
     - deepseek/deepseek-v4.1-flash
-    - inclusionai/ling-3.1-flash
+    - deepseek/deepseek-v4-flash
     - microsoft/phi-4
     - inference-net/schematron-v2-turbo
     - tencent/hy4-flash
     - openai/gpt-oss-120b:batch
+    - openai/gpt-oss-20b
     - openai/gpt-oss-20b:batch
     - ~z-ai/glm-flash-latest
-    - z-ai/glm-5.3-flash
-    - openai/gpt-oss-20b
     - inclusionai/ling-3.2-flash:free
     - baidu/ernie-5.5-flash-preview:free
     - particle-ai/particle-1:free
@@ -6173,15 +6697,15 @@ providers:
     - ~moonshotai/kimi-latest
     - google/gemini-4-hydrogen
     - ~google/gemini-flash-latest
-    - moonshotai/kimi-k3.1-pro
     - x-ai/grok-4.7
     - qwen/qwen3.8-2.4t-a95b
     - ~x-ai/grok-latest
-    - ~deepseek/deepseek-pro-latest
+    - moonshotai/kimi-k3.1-pro
     - qwen/qwen4-max
     - meta/muse-spark-1.3
     - thinkingmachines/inkling
     - google/gemini-3.8-flash
+    - ~deepseek/deepseek-pro-latest
     - stepfun/step-5-preview
     - bytedance-seed/seed-2-1-turbo
     - mistralai/mistral-large-4-0
@@ -6197,9 +6721,8 @@ providers:
     - cognitivecomputations/dolphin-mistral-24b-venice-edition
     - gryphe/mythomax-l2-13b
     - deepseek/deepseek-v4.1-flash-1017
-    - minimax/minimax-m3.1-flash
-    - tencent/hy3
     - liquid/lfm-2.5-24b-a2b
+    - tencent/hy3
     - google/gemma-4-31b-it
     - qwen/qwen3.8-flash
     - meta/muse-ember
@@ -6209,25 +6732,26 @@ providers:
     - ~anthropic/claude-haiku-latest
     - prism-ml/ternary-bonsai-2-27b
     - particle-ai/particle-1
+    - z-ai/glm-5.3-flash
     - ~deepseek/deepseek-flash-latest
     - nvidia/nemotron-3.5-content-safety
-    - openai/gpt-oss-120b
     - xiaomi/mimo-v2.6-flash
     - ricursiveai/ripple-65b-preview
+    - minimax/minimax-m3.1-flash
     - openai/gpt-oss-safeguard-20b
     - meta/muse-spark-1.3-contributor
+    - inclusionai/ling-3.1-flash
+    - openai/gpt-oss-120b
     - deepseek/deepseek-v4-flash
     - nvidia/nemotron-3.5-lightning
     - deepseek/deepseek-v4.1-flash
-    - inclusionai/ling-3.1-flash
     - microsoft/phi-4
     - inference-net/schematron-v2-turbo
     - tencent/hy4-flash
     - openai/gpt-oss-120b:batch
+    - openai/gpt-oss-20b
     - openai/gpt-oss-20b:batch
     - ~z-ai/glm-flash-latest
-    - z-ai/glm-5.3-flash
-    - openai/gpt-oss-20b
     - inclusionai/ling-3.2-flash:free
     - baidu/ernie-5.5-flash-preview:free
     - particle-ai/particle-1:free
@@ -6241,37 +6765,37 @@ providers:
     - nvidia/nemotron-3.5-lightning:free
     - google/gemma-4-31b-it:free
     - openrouter/free
-    - openai/gpt-oss-20b
     - openai/gpt-oss-20b:batch
-    - openai/gpt-oss-120b:batch
     - ~z-ai/glm-flash-latest
-    - z-ai/glm-5.3-flash
+    - openai/gpt-oss-20b
+    - openai/gpt-oss-120b:batch
     - inference-net/schematron-v2-turbo
     - tencent/hy4-flash
     - deepseek/deepseek-v4.1-flash
-    - inclusionai/ling-3.1-flash
+    - openai/gpt-oss-120b
     - microsoft/phi-4
     - nvidia/nemotron-3.5-lightning
+    - inclusionai/ling-3.1-flash
     - deepseek/deepseek-v4-flash
     - ~deepseek/deepseek-flash-latest
+    - minimax/minimax-m3.1-flash
     - openai/gpt-oss-safeguard-20b
     - meta/muse-spark-1.3-contributor
     - ricursiveai/ripple-65b-preview
-    - openai/gpt-oss-120b
     - particle-ai/particle-1
     - prism-ml/ternary-bonsai-2-27b
     - liquid/lfm-2.5-24b-a2b
+    - z-ai/glm-5.3-flash
     - meta/muse-ember
     - anthropic/claude-haiku-5.5
     - openai/gpt-6-luna
     - ~openai/gpt-luna-latest
     - ~anthropic/claude-haiku-latest
     - xiaomi/mimo-v2.6-flash
+    - tencent/hy3
     - qwen/qwen3.8-flash
     - nvidia/nemotron-3.5-content-safety
-    - tencent/hy3
     - deepseek/deepseek-v4.1-flash-1017
-    - minimax/minimax-m3.1-flash
     - google/gemma-4-31b-it
     - qwen/qwen3.8-27b
     - ~z-ai/glm-latest
@@ -6284,10 +6808,10 @@ providers:
     - tencent/hy4
     - thinkingmachines/inkling-small
     - bytedance-seed/seed-2-1-turbo
-    - mistralai/mistral-large-4-0
-    - deepseek/deepseek-v4-pro
-    - stepfun/step-5-preview
     - ~deepseek/deepseek-pro-latest
+    - deepseek/deepseek-v4-pro
+    - mistralai/mistral-large-4-0
+    - stepfun/step-5-preview
     - google/gemini-3.8-flash
     - thinkingmachines/inkling
     - moonshotai/kimi-k3.1-pro
@@ -6351,12 +6875,12 @@ providers:
     - qwen/qwen4-max
     - moonshotai/kimi-k3.1-pro
     - meta/muse-spark-1.3
-    - ~deepseek/deepseek-pro-latest
     - thinkingmachines/inkling
     - google/gemini-3.8-flash
     - stepfun/step-5-preview
-    - deepseek/deepseek-v4-pro
+    - ~deepseek/deepseek-pro-latest
     - mistralai/mistral-large-4-0
+    - deepseek/deepseek-v4-pro
     - bytedance-seed/seed-2-1-turbo
     - thinkingmachines/inkling-small
     - tencent/hy4
@@ -6370,9 +6894,8 @@ providers:
     - qwen/qwen3.8-27b
     - google/gemma-4-31b-it
     - deepseek/deepseek-v4.1-flash-1017
-    - minimax/minimax-m3.1-flash
-    - tencent/hy3
     - qwen/qwen3.8-flash
+    - tencent/hy3
     - nvidia/nemotron-3.5-content-safety
     - meta/muse-ember
     - anthropic/claude-haiku-5.5
@@ -6380,26 +6903,27 @@ providers:
     - ~openai/gpt-luna-latest
     - ~anthropic/claude-haiku-latest
     - liquid/lfm-2.5-24b-a2b
+    - z-ai/glm-5.3-flash
     - xiaomi/mimo-v2.6-flash
     - prism-ml/ternary-bonsai-2-27b
     - particle-ai/particle-1
-    - openai/gpt-oss-120b
     - ricursiveai/ripple-65b-preview
     - ~deepseek/deepseek-flash-latest
     - meta/muse-spark-1.3-contributor
+    - minimax/minimax-m3.1-flash
     - openai/gpt-oss-safeguard-20b
     - deepseek/deepseek-v4-flash
-    - nvidia/nemotron-3.5-lightning
-    - microsoft/phi-4
     - inclusionai/ling-3.1-flash
+    - nvidia/nemotron-3.5-lightning
+    - openai/gpt-oss-120b
+    - microsoft/phi-4
     - deepseek/deepseek-v4.1-flash
     - tencent/hy4-flash
     - inference-net/schematron-v2-turbo
     - openai/gpt-oss-120b:batch
-    - ~z-ai/glm-flash-latest
-    - z-ai/glm-5.3-flash
-    - openai/gpt-oss-20b:batch
     - openai/gpt-oss-20b
+    - ~z-ai/glm-flash-latest
+    - openai/gpt-oss-20b:batch
     - inclusionai/ling-3.2-flash:free
     - baidu/ernie-5.5-flash-preview:free
     - particle-ai/particle-1:free
@@ -6413,24 +6937,24 @@ providers:
     - nvidia/nemotron-3.5-lightning:free
     - google/gemma-4-31b-it:free
     - openrouter/free
-    - openai/gpt-oss-20b
     - openai/gpt-oss-20b:batch
+    - openai/gpt-oss-20b
+    - ~z-ai/glm-flash-latest
     - openai/gpt-oss-120b:batch
     - inference-net/schematron-v2-turbo
-    - ~z-ai/glm-flash-latest
-    - z-ai/glm-5.3-flash
     - tencent/hy4-flash
     - deepseek/deepseek-v4.1-flash
-    - inclusionai/ling-3.1-flash
+    - openai/gpt-oss-120b
     - microsoft/phi-4
     - ~deepseek/deepseek-flash-latest
     - nvidia/nemotron-3.5-lightning
+    - inclusionai/ling-3.1-flash
+    - minimax/minimax-m3.1-flash
     - openai/gpt-oss-safeguard-20b
     - deepseek/deepseek-v4-flash
     - meta/muse-spark-1.3-contributor
     - particle-ai/particle-1
     - liquid/lfm-2.5-24b-a2b
-    - openai/gpt-oss-120b
     - prism-ml/ternary-bonsai-2-27b
     - ricursiveai/ripple-65b-preview
     - meta/muse-ember
@@ -6438,12 +6962,12 @@ providers:
     - openai/gpt-6-luna
     - ~openai/gpt-luna-latest
     - ~anthropic/claude-haiku-latest
+    - z-ai/glm-5.3-flash
     - xiaomi/mimo-v2.6-flash
+    - tencent/hy3
     - qwen/qwen3.8-27b
     - qwen/qwen3.8-flash
-    - tencent/hy3
     - deepseek/deepseek-v4.1-flash-1017
-    - minimax/minimax-m3.1-flash
     - nvidia/nemotron-3.5-content-safety
     - ~z-ai/glm-latest
     - z-ai/glm-5.3
@@ -6455,9 +6979,9 @@ providers:
     - xiaomi/mimo-v2.6-pro
     - tencent/hy4
     - thinkingmachines/inkling-small
+    - ~deepseek/deepseek-pro-latest
     - bytedance-seed/seed-2-1-turbo
     - mistralai/mistral-large-4-0
-    - ~deepseek/deepseek-pro-latest
     - deepseek/deepseek-v4-pro
     - moonshotai/kimi-k3.1-pro
     - google/gemini-3.8-flash
