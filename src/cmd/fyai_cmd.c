@@ -108,6 +108,7 @@ static const struct {
 	{ "replay",		fyai_cmd_replay },
 	{ "tool",		fyai_cmd_tool },
 	{ "term",		fyai_cmd_term },
+	{ "source_lines",	fyai_cmd_source_lines },
 	{ "init",		fyai_cmd_init },
 	{ "mcp_status",		fyai_cmd_mcp_status },
 	{ "mcp_login",		fyai_cmd_mcp_login },

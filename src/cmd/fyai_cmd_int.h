@@ -163,6 +163,7 @@ int fyai_cmd_title(struct fyai_cmd_call *call, fy_generic *result);
 int fyai_cmd_dump(struct fyai_cmd_call *call, fy_generic *result);
 int fyai_cmd_import(struct fyai_cmd_call *call, fy_generic *result);
 int fyai_cmd_replay(struct fyai_cmd_call *call, fy_generic *result);
+int fyai_cmd_source_lines(struct fyai_cmd_call *call, fy_generic *result);
 int fyai_cmd_tool(struct fyai_cmd_call *call, fy_generic *result);
 int fyai_cmd_term(struct fyai_cmd_call *call, fy_generic *result);
 int fyai_cmd_init(struct fyai_cmd_call *call, fy_generic *result);

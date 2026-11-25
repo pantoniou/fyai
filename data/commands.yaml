@@ -813,6 +813,62 @@ commands:
           x-fyai-meta: FILE
           x-fyai-complete: file
 
+  - command: source
+    title: run an adapter that is an event source
+    description: |
+      Run an adapter that is an MCP server with the fyai/events extension on
+      standard input and output. Name it as the command of an MCP server
+      with `events: true`. See doc/event-sources-sdd.md.
+    surfaces: [cli]
+    commands:
+      - command: lines
+        title: serve the lines of a command as events
+        description: |
+          Run COMMAND once the client lists the kinds, and serve each line
+          that it prints as an event of KIND (default `line`). With `--json`
+          each line is parsed as JSON and, with `--schema`, checked against
+          that JSON Schema; a line that fails is skipped with a warning. An
+          event is sent only while the client gives credit, so a fast command
+          waits on its pipe. With `--cursor-file`, the offset of the output
+          that the client acknowledged is kept in FILE, and the next run skips
+          that much of the output of the command: a command that prints a
+          file from its start, such as `tail -c +0 -F FILE`, resumes where
+          the last run was acknowledged. When the command ends, the server
+          reports it in its log and stays until the client goes.
+        surfaces: [cli]
+        handler: source_lines
+        flags: [no-storage]
+        arguments:
+          type: object
+          required: [command]
+          additionalProperties: false
+          properties:
+            kind:
+              type: string
+              description: the kind of the events
+              x-fyai-meta: KIND
+            json:
+              type: boolean
+              description: parse each line as JSON
+            schema:
+              type: string
+              description: check each JSON line against this JSON Schema
+              x-fyai-meta: FILE
+              x-fyai-complete: file
+            cursor_file:
+              type: string
+              description: keep the acknowledged offset of the output in FILE
+              x-fyai-meta: FILE
+              x-fyai-complete: file
+            command:
+              type: array
+              items: {type: string}
+              minItems: 1
+              description: the command and its arguments
+              x-fyai-positional: 0
+              x-fyai-rest: true
+              x-fyai-meta: COMMAND
+
   - command: reset
     aliases: [rewind]
     title: move the head of the branch to a reference

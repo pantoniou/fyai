@@ -715,6 +715,7 @@ set(FYAI_SOURCES
     src/cmd/fyai_cmd_skill.c
     src/cmd/fyai_cmd_page.c
     src/cmd/fyai_cmd_misc.c
+    src/cmd/fyai_cmd_source.c
     src/cmd/fyai_cmd_query.c
     src/cmd/fyai_cmd_cast.c
     src/front/fyai_cast_file.c
