@@ -36,4 +36,14 @@ fy_generic fyai_decider_options(struct fyai_cfg *cfg,
 fy_generic fyai_deciders_rows(struct fyai_cfg *cfg,
 			      struct fy_generic_builder *gb);
 
+/*
+ * The System One provider of @model, PROVIDER/ID with PROVIDER one of the
+ * `systemone` table of data/decisions.yaml: {name, url, key_env, envelope,
+ * max_questions}, in @gb, with the model of the wire, ID, in *@wirep. A
+ * model of no such provider is fy_invalid: a chat model.
+ */
+fy_generic fyai_decider_systemone(struct fyai_cfg *cfg,
+				  struct fy_generic_builder *gb,
+				  const char *model, const char **wirep);
+
 #endif

@@ -722,6 +722,7 @@ set(FYAI_SOURCES
     src/cmd/fyai_cmd_decide.c
     src/core/fyai_decider.c
     src/core/fyai_selfjob.c
+    src/core/fyai_systemone.c
     src/cmd/fyai_cmd_query.c
     src/cmd/fyai_cmd_cast.c
     src/front/fyai_cast_file.c

@@ -220,3 +220,22 @@ fy_generic fyai_deciders_rows(struct fyai_cfg *cfg,
 	}
 	return rows;
 }
+
+fy_generic fyai_decider_systemone(struct fyai_cfg *cfg,
+				  struct fy_generic_builder *gb,
+				  const char *model, const char **wirep)
+{
+	const char *slash = model ? strchr(model, '/') : NULL;
+	fy_generic name, provider;
+
+	*wirep = NULL;
+	if (!slash || slash == model || !slash[1])
+		return fy_invalid;
+	name = fy_stringf(gb, "%.*s", (int)(slash - model), model);
+	provider = fy_get(fy_get(decider_canned(cfg), "systemone",
+				 fy_map_empty), name, fy_invalid);
+	if (!fy_is_mapping(provider))
+		return fy_invalid;
+	*wirep = fy_gb_intern_string(gb, slash + 1);
+	return fy_assoc(gb, provider, "name", name);
+}

@@ -6,6 +6,29 @@
 # option with `{use: NAME}` and change its description or schema. A key of
 # the configuration with the name of a canned decider replaces it.
 # See doc/event-sources-sdd.md, "Decision models".
+#
+# A decider whose `model` is PROVIDER/ID with a provider of `systemone`
+# runs on a decision model, such as TypeSafe's Jev, instead of a chat
+# model: one request of typed questions, answered with probabilities.
+
+# The providers of the System One API: POST of {model, state, questions}.
+# `key_env` names the variable of the key; the secret is
+# fyai:api-key/PROVIDER. `envelope` is where the result lies in the answer,
+# and `max_questions` how many questions one request may carry.
+systemone:
+  typesafe:
+    description: TypeSafe, the makers of Jev.
+    url: https://api.typesafe.ai/v1/systemone
+    key_env: TYPESAFE_API_KEY
+    max_questions: 8
+  decisions-api:
+    description: >-
+      decisions-api.dev, a workbench that serves Jev and other decision
+      models in the same format; the model is VENDOR/ID.
+    url: https://decisions-api.dev/v1/systemone
+    key_env: DECISIONS_API_KEY
+    envelope: data/result
+    max_questions: 8
 
 options:
   drop:

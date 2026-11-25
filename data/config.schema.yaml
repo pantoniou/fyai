@@ -220,7 +220,37 @@ properties:
           description: Tell the model how to choose.
         model:
           type: string
-          description: Choose with this model, in place of the session model.
+          description: >-
+            Choose with this model, in place of the session model. A model
+            PROVIDER/ID whose provider serves the System One API, such as
+            typesafe/jev-latest or decisions-api/typesafe/jev-1.13, is a
+            decision model: it answers typed questions with probabilities and
+            writes no text. Its key is in the variable of the provider, such
+            as TYPESAFE_API_KEY, or the secret fyai:api-key/PROVIDER.
+        url:
+          type: string
+          description: >-
+            Send the requests of a decision model to this URL, in place of
+            that of its provider.
+        min_probability:
+          type: number
+          minimum: 0
+          maximum: 1
+          description: >-
+            Take the choice of a decision model only at this probability or
+            more; a less sure answer goes to the fallback. An option may set
+            its own.
+        fallback:
+          description: >-
+            Decide on a chat model when a decision model cannot: the answer
+            is too unsure, the option needs a text argument, or the request
+            fails. The name of a decider, or a mapping over this decider
+            ({} or true for its options on the session model). The chat
+            model is told what the decision model chose. Without one, such
+            an input gets an error that carries the choice.
+          anyOf:
+            - type: [string, boolean]
+            - type: object
         options:
           description: >-
             The options: a list of names of canned options, or a mapping of
@@ -242,6 +272,12 @@ properties:
                       description:
                         type: string
                         description: Say when to choose this option.
+                      min_probability:
+                        type: number
+                        minimum: 0
+                        maximum: 1
+                        description: >-
+                          The probability a decision model needs for this option.
                       schema:
                         description: The JSON Schema of the arguments.
   tool_choice:
