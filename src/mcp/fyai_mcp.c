@@ -57,6 +57,8 @@
 #define MCP_EVENTS_SEEN		256
 #define MCP_EVENT_ID_MAX	128
 #define MCP_EVENT_KIND_MAX	64
+/* The last events of a source that a bound action can answer. */
+#define MCP_EVENT_RECORDS	64
 
 enum mcp_transport {
 	MCP_TRANSPORT_HTTP,
@@ -125,6 +127,19 @@ struct fyai_mcp_ctx {
 	unsigned long event_rejected;
 	unsigned long event_resent;	/* dropped as a resend */
 	char *event_last;
+	/*
+	 * The tools as the server listed them, before fyai bound the actions
+	 * of the kinds into them, and the last events that a bound action can
+	 * answer, a ring.
+	 */
+	fy_generic tools_raw;
+	struct mcp_event_record {
+		char *id;
+		char *kind;
+		char *data;		/* JSON */
+		bool answered;
+	} event_records[MCP_EVENT_RECORDS];
+	unsigned int event_record_next;
 	enum mcp_server_state state;
 	enum mcp_transport transport;
 	enum mcp_auth_mode auth_mode;
@@ -759,6 +774,7 @@ struct mcp_startup {
 
 /* Give the live view the state of the servers; defined with the rows. */
 static void mcp_sources_publish(struct fyai_mcp *mc);
+static void mcp_actions_apply(struct fyai_mcp_ctx *mcp);
 static void mcp_startup_step(struct mcp_startup *su);
 static void mcp_startup_enter(struct mcp_startup *su,
 			      enum mcp_startup_phase phase);
@@ -891,12 +907,14 @@ static fy_generic mcp_events_collect(struct fyai_mcp_ctx *mcp,
 				     fy_generic kinds, fy_generic result)
 {
 	struct fyai_mcp *mc = mcp_owner(mcp);
-	fy_generic list, kind, schema;
+	fy_generic list, kind, schema, gname;
 	const char *name;
 
 	list = fy_get(result, "kinds", fy_seq_empty);
 	fy_foreach(kind, list) {
-		name = fy_get(kind, "name", "");
+		/* A short string lives in its generic: keep it in scope. */
+		gname = fy_get(kind, "name", fy_invalid);
+		name = fy_is_string(gname) ? fy_castp(&gname, "") : "";
 		schema = fy_get(kind, "schema", fy_invalid);
 		if (!mcp_event_word_valid(name, MCP_EVENT_KIND_MAX, "-_") ||
 		    !(fy_is_mapping(schema) || fy_is_bool(schema))) {
@@ -936,9 +954,12 @@ static void mcp_events_relist_done(struct jsonrpc_request *req,
 		return;
 	}
 	free(cursor);
-	if (ok)
+	if (ok) {
 		mcp->event_kinds = mcp->event_relist_kinds;
-	else
+		/* The actions follow the kinds. */
+		mcp_actions_apply(mcp);
+		fyai_mcp_publish_tools(fyai_mcp_state_ctx(mc));
+	} else
 		fyai_diag_type(mc->diag, FYAIET_WARNING,
 			       "MCP server '%s' changed its event kinds, but "
 			       "they could not be listed; the old ones stay",
@@ -1007,6 +1028,13 @@ static void mcp_events_release(struct fyai_mcp_ctx *mcp)
 	mcp->event_cursor = NULL;
 	free(mcp->event_last);
 	mcp->event_last = NULL;
+	for (i = 0; i < MCP_EVENT_RECORDS; i++) {
+		free(mcp->event_records[i].id);
+		free(mcp->event_records[i].kind);
+		free(mcp->event_records[i].data);
+		memset(&mcp->event_records[i], 0,
+		       sizeof(mcp->event_records[i]));
+	}
 }
 
 /* Tell the server that fyai does not take its event, and why. */
@@ -1080,6 +1108,325 @@ out:
 }
 
 /*
+ * Bound actions. A kind names tools of its server that answer an event of
+ * the kind, and binds arguments of each to JSON Pointers into the data of
+ * the event: {"reply": {"bind": {"channel": "/channel", "thread_ts": "/ts"}}}.
+ * fyai offers such a tool without the bound arguments and with one more,
+ * `event`, the id of the event it answers. A call fills the bound arguments
+ * from the event, so the model cannot answer into the wrong place.
+ */
+
+/* The bind of @tool in @kind, or fy_invalid when the kind does not bind it. */
+static fy_generic mcp_action_bind(fy_generic kind, const char *tool)
+{
+	fy_generic bind = fy_get(fy_get(fy_get(kind, "actions", fy_invalid),
+					tool, fy_invalid), "bind", fy_invalid);
+
+	return fy_is_mapping(bind) ? bind : fy_invalid;
+}
+
+/* Whether a kind of @mcp binds @tool. */
+static bool mcp_action_bound(struct fyai_mcp_ctx *mcp, const char *tool)
+{
+	fy_generic name, kind;
+
+	if (!mcp->events_listed || !fy_is_mapping(mcp->event_kinds))
+		return false;
+	fy_foreach_key_value(name, kind, mcp->event_kinds)
+		if (fy_is_valid(mcp_action_bind(kind, tool)))
+			return true;
+	return false;
+}
+
+/* The value at the JSON Pointer @ptr in @doc, or fy_invalid (RFC 6901). */
+static fy_generic mcp_json_pointer(fy_generic doc, const char *ptr)
+{
+	char token[256];
+	const char *p = ptr;
+	size_t n;
+	char *end;
+	long idx;
+
+	if (!*p)
+		return doc;
+	while (*p == '/') {
+		p++;
+		for (n = 0; *p && *p != '/'; p++) {
+			if (n + 1 >= sizeof(token))
+				return fy_invalid;
+			if (p[0] == '~' && (p[1] == '0' || p[1] == '1')) {
+				token[n++] = p[1] == '0' ? '~' : '/';
+				p++;
+			} else {
+				token[n++] = *p;
+			}
+		}
+		token[n] = '\0';
+		if (fy_is_mapping(doc)) {
+			doc = fy_get(doc, (const char *)token, fy_invalid);
+		} else if (fy_is_sequence(doc)) {
+			idx = strtol(token, &end, 10);
+			if (!*token || *end || idx < 0 ||
+			    (size_t)idx >= fy_len(doc))
+				return fy_invalid;
+			doc = fy_get_at(doc, (size_t)idx, fy_invalid);
+		} else {
+			return fy_invalid;
+		}
+		if (fy_is_invalid(doc))
+			return fy_invalid;
+	}
+	return *p ? fy_invalid : doc;
+}
+
+/*
+ * Offer the actions: each tool that a kind binds loses the arguments that
+ * any kind binds, and takes `event`. Rebuilt from the tools as listed.
+ */
+static void mcp_actions_apply(struct fyai_mcp_ctx *mcp)
+{
+	struct fyai_mcp *mc = mcp_owner(mcp);
+	struct fy_generic_builder *gb = mc->arena->gb;
+	fy_generic tool, schema, props, required, kname, kind, bind, arg, ptr;
+	fy_generic out = fy_seq_empty, kept, item, dflt, fn, entry, actions;
+	fy_generic gname, gdesc;
+	const char *name, *desc, *kinds;
+	bool bound;
+
+	if (!fy_is_sequence(mcp->tools_raw) || !fy_is_mapping(mcp->event_kinds))
+		return;
+	fy_foreach_key_value(kname, kind, mcp->event_kinds) {
+		actions = fy_get(kind, "actions", fy_invalid);
+		if (fy_is_invalid(actions))
+			continue;
+		fy_foreach_key_value(arg, bind, actions) {
+			bound = false;
+			fy_foreach(tool, mcp->tools_raw)
+				if (fy_equal(fy_get(tool, "name", fy_invalid), arg))
+					bound = true;
+			if (!bound)
+				fyai_diag_type(mc->diag, FYAIET_WARNING,
+					"MCP server '%s': kind '%s' binds the "
+					"tool '%s', which it does not have",
+					mcp->name, fy_castp(&kname, "?"),
+					fy_castp(&arg, "?"));
+			fy_foreach_key_value(arg, ptr,
+				fy_get(bind, "bind", fy_map_empty))
+				if (!fy_is_string(ptr) ||
+				    (*fy_castp(&ptr, "") &&
+				     *fy_castp(&ptr, "") != '/'))
+					fyai_diag_type(mc->diag, FYAIET_WARNING,
+						"MCP server '%s': kind '%s' binds "
+						"'%s' to a value that is not a "
+						"JSON Pointer", mcp->name,
+						fy_castp(&kname, "?"),
+						fy_castp(&arg, "?"));
+		}
+	}
+	fy_foreach(tool, mcp->tools_raw) {
+		/* A short string lives in its generic: keep both in scope. */
+		gname = fy_get(tool, "name", fy_invalid);
+		gdesc = fy_get(tool, "description", fy_invalid);
+		name = fy_is_string(gname) ? fy_castp(&gname, "") : "";
+		desc = fy_is_string(gdesc) ? fy_castp(&gdesc, "") : "";
+		dflt = fy_mapping("type", "object");
+		schema = fy_get(tool, "inputSchema", dflt);
+		kinds = NULL;
+		if (*name && mcp_action_bound(mcp, name) && fy_is_mapping(schema)) {
+			props = fy_get(schema, "properties", fy_map_empty);
+			required = fy_get(schema, "required", fy_seq_empty);
+			fy_foreach_key_value(kname, kind, mcp->event_kinds) {
+				bind = mcp_action_bind(kind, name);
+				if (fy_is_invalid(bind))
+					continue;
+				kinds = kinds ? fy_sprintfa("%s, %s", kinds,
+						fy_castp(&kname, "")) :
+					fy_castp(&kname, "");
+				fy_foreach_key_value(arg, ptr, bind) {
+					kept = fy_map_empty;
+					fy_foreach_key_value(item, dflt, props)
+						if (!fy_equal(item, arg))
+							kept = fy_assoc(gb, kept,
+								item, dflt);
+					props = kept;
+					kept = fy_seq_empty;
+					fy_foreach(item, required)
+						if (!fy_equal(item, arg))
+							kept = fy_append(gb, kept,
+									 item);
+					required = kept;
+				}
+			}
+			props = fy_assoc(gb, props, "event", fy_mapping(gb,
+				"type", "string",
+				"description", "The id of the event that this "
+				"answers, as its card gives it. Omit it when "
+				"one event of the kind is open."));
+			schema = fy_assoc(gb, schema, "properties", props);
+			schema = fy_len(required) ?
+				 fy_assoc(gb, schema, "required", required) :
+				 fy_assoc(gb, schema, "required", fy_seq_empty);
+		}
+		fn = fy_mapping(gb,
+			"name", fy_sprintfa(MCP_PREFIX "%s__%s", mcp->name, name),
+			"description", kinds ? fy_stringf(gb,
+				"%s\n\nIt answers an event of %s: the event fills "
+				"the arguments that say where.", desc, kinds) :
+				fy_value(gb, desc),
+			"parameters", schema);
+		entry = fy_mapping(gb, "type", "function", "function", fn);
+		out = fy_append(gb, out, entry);
+	}
+	mcp->tools = out;
+}
+
+/* Keep an event for the actions that can answer it. */
+static void mcp_event_record_keep(struct fyai_mcp_ctx *mcp,
+				  struct fy_generic_builder *gb,
+				  const char *id, const char *kind,
+				  fy_generic data)
+{
+	struct mcp_event_record *r;
+	const char *json;
+	fy_generic k = fy_get(mcp->event_kinds, kind, fy_invalid);
+
+	if (fy_is_invalid(fy_get(k, "actions", fy_invalid)))
+		return;
+	json = emit_json_string(gb, data);
+	if (!json)
+		return;
+	r = &mcp->event_records[mcp->event_record_next++ % MCP_EVENT_RECORDS];
+	free(r->id);
+	free(r->kind);
+	free(r->data);
+	r->id = strdup(id);
+	r->kind = strdup(kind);
+	r->data = strdup(json);
+	r->answered = false;
+	if (!r->id || !r->kind || !r->data) {
+		free(r->id);
+		free(r->kind);
+		free(r->data);
+		memset(r, 0, sizeof(*r));
+	}
+}
+
+/* How to answer the event: its actions, the names the model calls. */
+static void mcp_event_answer_line(struct fyai_mcp_ctx *mcp, FILE *mf,
+				  const char *kind, const char *id)
+{
+	fy_generic actions = fy_get(fy_get(mcp->event_kinds, kind, fy_invalid),
+				    "actions", fy_invalid), tool, v;
+	const char *sep = "";
+
+	if (!fy_is_mapping(actions) || !fy_len(actions))
+		return;
+	fprintf(mf, "\nAnswer with ");
+	fy_foreach_key_value(tool, v, actions) {
+		fprintf(mf, "%s" MCP_PREFIX "%s__%s", sep, mcp->name,
+			fy_castp(&tool, ""));
+		sep = ", ";
+	}
+	fprintf(mf, " and event \"%s\"; the event fills where it goes.", id);
+}
+
+/* A text in its own allocation, or NULL. */
+static char *mcp_strf(const char *fmt, ...)
+	__attribute__((format(printf, 1, 2)));
+static char *mcp_strf(const char *fmt, ...)
+{
+	va_list ap;
+	char *s;
+	int rc;
+
+	va_start(ap, fmt);
+	rc = vasprintf(&s, fmt, ap);
+	va_end(ap);
+	return rc < 0 ? NULL : s;
+}
+
+/*
+ * The arguments of a call of the action @tool: the arguments of the model,
+ * without `event`, with the bound ones from the event. The event is the one
+ * named, else the only open one of a kind that binds the tool. fy_invalid
+ * with the reason in @whyp, allocated, when there is none; the id of the
+ * event in @idp.
+ */
+static fy_generic mcp_action_args(struct fyai_mcp_ctx *mcp,
+				  struct fy_generic_builder *gb,
+				  const char *tool, fy_generic args,
+				  const char **idp, char **whyp)
+{
+	struct mcp_event_record *r, *found = NULL;
+	fy_generic named = fy_get(args, "event", fy_invalid), bind, data, v;
+	fy_generic key, ptr, out = fy_map_empty;
+	const char *open = NULL;
+	unsigned int i, count = 0;
+
+	for (i = 0; i < MCP_EVENT_RECORDS; i++) {
+		r = &mcp->event_records[i];
+		if (!r->id || fy_is_invalid(mcp_action_bind(fy_get(
+				mcp->event_kinds, r->kind, fy_invalid), tool)))
+			continue;
+		if (fy_is_string(named)) {
+			if (!strcmp(r->id, fy_castp(&named, "")))
+				found = r;
+			continue;
+		}
+		if (r->answered)
+			continue;
+		found = r;
+		count++;
+		open = open ? fy_sprintfa("%s, %s", open, r->id) : r->id;
+	}
+	if (fy_is_string(named) && !found) {
+		*whyp = mcp_strf("tool error: no event '%s' of %s that "
+				 "%s answers is known", fy_castp(&named, ""),
+				 mcp->name, tool);
+		return fy_invalid;
+	}
+	if (!fy_is_string(named) && count != 1) {
+		*whyp = count ? mcp_strf("tool error: name the event that "
+				"this answers: %s are open", open) :
+			mcp_strf("tool error: no event that %s answers is "
+				 "open; name one with event", tool);
+		return fy_invalid;
+	}
+	data = parse_json_string(gb, found->data);
+	bind = mcp_action_bind(fy_get(mcp->event_kinds, found->kind,
+				      fy_invalid), tool);
+	fy_foreach_key_value(key, v, args)
+		if (!fy_equal(key, "event"))
+			out = fy_assoc(gb, out, key, v);
+	fy_foreach_key_value(key, ptr, bind) {
+		v = fy_is_string(ptr) ?
+		    mcp_json_pointer(data, fy_castp(&ptr, "")) : fy_invalid;
+		if (fy_is_invalid(v)) {
+			*whyp = mcp_strf("tool error: the event '%s' has no "
+					 "value for %s", found->id,
+					 fy_castp(&key, "?"));
+			return fy_invalid;
+		}
+		out = fy_assoc(gb, out, key, v);
+	}
+	*idp = found->id;
+	return out;
+}
+
+/* An action answered its event: it is no longer open. */
+static void mcp_event_answered(struct fyai_mcp *mc, const char *server,
+			       const char *id)
+{
+	struct fyai_mcp_ctx *mcp = mcp_find_server(mc, server);
+	unsigned int i;
+
+	for (i = 0; mcp && i < MCP_EVENT_RECORDS; i++)
+		if (mcp->event_records[i].id &&
+		    !strcmp(mcp->event_records[i].id, id))
+			mcp->event_records[i].answered = true;
+}
+
+/*
  * The text of an event for the model: a header for the card, then the data
  * framed as external. "</" is written "<\/", which is the same JSON, so the
  * data cannot close its frame.
@@ -1108,6 +1455,7 @@ static char *mcp_event_text(struct fyai_mcp_ctx *mcp,
 			fputc(*p, mf);
 	}
 	fputs("\n</external-data>", mf);
+	mcp_event_answer_line(mcp, mf, kind, id);
 	if (fclose(mf)) {
 		free(out);
 		return NULL;
@@ -1143,13 +1491,17 @@ static void mcp_event_receive(struct fyai_mcp_ctx *mcp,
 	struct fyai_mcp *mc = mcp_owner(mcp);
 	struct fyai_ctx *ctx = fyai_mcp_state_ctx(mc);
 	struct mcp_event_ack *ack;
-	fy_generic kind, data, report;
+	fy_generic kind, data, report, gkind, gid, gcursor;
 	const char *kind_name, *id, *cursor, *problem = NULL;
 	char *text;
 
-	kind_name = fy_get(params, "kind", "");
-	id = fy_get(params, "id", "");
-	cursor = fy_get(params, "cursor", "");
+	/* A short string lives in its generic: keep each one in scope. */
+	gkind = fy_get(params, "kind", fy_invalid);
+	gid = fy_get(params, "id", fy_invalid);
+	gcursor = fy_get(params, "cursor", fy_invalid);
+	kind_name = fy_is_string(gkind) ? fy_castp(&gkind, "") : "";
+	id = fy_is_string(gid) ? fy_castp(&gid, "") : "";
+	cursor = fy_is_string(gcursor) ? fy_castp(&gcursor, "") : "";
 	data = fy_get(params, "data", fy_invalid);
 	kind = *kind_name ? fy_get(mcp->event_kinds, kind_name, fy_invalid) :
 			    fy_invalid;
@@ -1205,6 +1557,7 @@ static void mcp_event_receive(struct fyai_mcp_ctx *mcp,
 		return;
 	}
 	mcp_event_remember(mcp, id);
+	mcp_event_record_keep(mcp, gb, id, kind_name, data);
 	mcp->event_credits--;
 	mcp->event_received++;
 	mcp_event_last_set(mcp, gb, kind_name, data);
@@ -2432,6 +2785,9 @@ static void mcp_startup_collect(struct fyai_mcp_ctx *mcp, fy_generic result)
 			"parameters", fy_get(tool, "inputSchema", dflt));
 		entry = fy_mapping(mc->arena->gb, "type", "function", "function", fn);
 		mcp->tools = fy_append(mc->arena->gb, mcp->tools, entry);
+		mcp->tools_raw = fy_append(mc->arena->gb,
+			fy_is_sequence(mcp->tools_raw) ? mcp->tools_raw :
+			fy_seq_empty, tool);
 	}
 }
 
@@ -2541,6 +2897,7 @@ static void mcp_startup_req_done(struct jsonrpc_request *req, void *userdata)
 			break;
 		}
 		mcp->events_listed = true;
+		mcp_actions_apply(mcp);
 		mcp_startup_settle(su, MCP_SRV_READY);
 		break;
 	}
@@ -3386,6 +3743,8 @@ struct fyai_mcp_call_request {
 	enum fyai_mcp_call_state state;
 	bool result_ok;
 	bool auth_retry_done;
+	char *bind_error;	/* a bound action that cannot be called */
+	char *event_id;		/* the event that a bound action answers */
 };
 
 /* The component that this request stands on. */
@@ -3455,6 +3814,9 @@ fyai_mcp_call_finish(struct fyai_mcp_call_request *request,
 	request->state = state;
 	request->result = result;
 	request->result_ok = ok;
+	if (state == FYAIMCS_COMPLETED && ok && request->event_id)
+		mcp_event_answered(request->owner, request->mcp->name,
+				   request->event_id);
 	if (request->complete)
 		request->complete(request, request->userdata);
 }
@@ -3539,6 +3901,14 @@ fyai_mcp_call_wait_tick(const struct fyai_event *ev)
 			false);
 		return FYAIEA_CONTINUE;
 	}
+	/* The event loop reports binding errors after submission returns. */
+	if (request->bind_error) {
+		fyai_mcp_call_wait_disarm(request);
+		fyai_mcp_call_finish(request, FYAIMCS_FAILED,
+			fy_value(mc->transient->gb, request->bind_error),
+			false);
+		return FYAIEA_CONTINUE;
+	}
 	switch (request->mcp->state) {
 	case MCP_SRV_READY:
 		fyai_mcp_call_wait_disarm(request);
@@ -3579,7 +3949,7 @@ static int fyai_mcp_call_gate(struct fyai_mcp_call_request *request)
 	struct fyai_event_loop *el;
 	int rc;
 
-	if (request->mcp->state == MCP_SRV_READY) {
+	if (request->mcp->state == MCP_SRV_READY && !request->bind_error) {
 		request->state = FYAIMCS_PRIMARY;
 		return fyai_mcp_call_submit_phase(request);
 	}
@@ -3745,9 +4115,11 @@ fyai_mcp_call_submit(struct fyai_mcp *mc, const char *name,
 {
 	struct fyai_mcp_call_request *request;
 	struct fyai_mcp_ctx *mcp;
-	fy_generic params;
+	fy_generic params, bound;
 	const char *params_text;
 	const char *tool_name;
+	const char *event_id = NULL;
+	char *bind_error = NULL;
 	int rc;
 
 	tool_name = NULL;
@@ -3756,6 +4128,12 @@ fyai_mcp_call_submit(struct fyai_mcp *mc, const char *name,
 		return NULL;
 	if (fyai_mcp_deferred(mc) && !fyai_mcp_tool_active(mc, name))
 		return NULL;
+	if (mcp_action_bound(mcp, tool_name)) {
+		bound = mcp_action_args(mcp, mc->transient->gb, tool_name,
+					args, &event_id, &bind_error);
+		if (fy_is_valid(bound))
+			args = bound;
+	}
 	params = fy_mapping(mc->transient->gb,
 			    "name", tool_name, "arguments", args);
 	params_text = emit_json_string(mc->transient->gb, params);
@@ -3773,7 +4151,11 @@ fyai_mcp_call_submit(struct fyai_mcp *mc, const char *name,
 	request->id = jsonrpc_conn_next_id(mcp->conn);
 	request->result = fy_invalid;
 	request->state = FYAIMCS_PRIMARY;
-	fyai_diag_check(mc->diag, request->tool_name && request->params_text,
+	request->event_id = event_id ? strdup(event_id) : NULL;
+	request->bind_error = bind_error;
+	bind_error = NULL;
+	fyai_diag_check(mc->diag, request->tool_name && request->params_text &&
+			 (!event_id || request->event_id),
 			 err_free, "out of memory");
 	if (mc->cfg->mcp_logging)
 		(void)fyai_log_generic(fyai_mcp_state_ctx(mc), "mcp", fy_mapping(
@@ -3787,6 +4169,7 @@ fyai_mcp_call_submit(struct fyai_mcp *mc, const char *name,
 err_free:
 	fyai_mcp_call_destroy(request);
 err_out:
+	free(bind_error);
 	return NULL;
 }
 
@@ -3821,6 +4204,8 @@ void fyai_mcp_call_destroy(struct fyai_mcp_call_request *request)
 	jsonrpc_request_destroy(request->req);
 	free(request->tool_name);
 	free(request->params_text);
+	free(request->bind_error);
+	free(request->event_id);
 	free(request);
 }
 

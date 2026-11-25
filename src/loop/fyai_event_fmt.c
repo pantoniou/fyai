@@ -43,12 +43,14 @@ static char *event_answers(const char *body)
 /*
  * The data of a source event, inside its external-data frame: the JSON
  * between the first line and the closing tag, or NULL when @body has no
- * frame. The length goes to @lenp.
+ * frame. The length goes to @lenp, and what follows the frame, how to
+ * answer, to @restp.
  */
-static const char *event_external_data(const char *body, size_t *lenp)
+static const char *event_external_data(const char *body, size_t *lenp,
+				       const char **restp)
 {
 	static const char close[] = "\n</external-data>";
-	const char *start, *end;
+	const char *start, *end, *rest;
 
 	if (strncmp(body, "<external-data ", 15))
 		return NULL;
@@ -57,15 +59,19 @@ static const char *event_external_data(const char *body, size_t *lenp)
 		return NULL;
 	start++;
 	end = strstr(start, close);
-	if (!end || end[sizeof(close) - 1])
+	if (!end)
+		return NULL;
+	rest = end + sizeof(close) - 1;
+	if (*rest && *rest != '\n')
 		return NULL;
 	*lenp = (size_t)(end - start);
+	*restp = rest + (*rest == '\n');
 	return start;
 }
 
 char *fyai_event_pretty(const char *text)
 {
-	const char *kind, *name, *tail, *body, *close, *p, *data;
+	const char *kind, *name, *tail, *body, *close, *p, *data, *rest = "";
 	const char *id = NULL;
 	size_t klen, nlen, tlen, dlen, idlen;
 	char *out = NULL, *answers;
@@ -125,13 +131,15 @@ char *fyai_event_pretty(const char *text)
 		answers = event_kind_is(kind, klen, "question") ?
 			  event_answers(body) : NULL;
 		data = event_kind_is(kind, klen, "event") ?
-		       event_external_data(body, &dlen) : NULL;
+		       event_external_data(body, &dlen, &rest) : NULL;
 		if (answers) {
 			fprintf(mf, "%s", answers);
 			free(answers);
 		} else if (data) {
 			/* The data of a source, shown as the JSON it is. */
 			fprintf(mf, "```json\n%.*s\n```\n", (int)dlen, data);
+			if (*rest)
+				fprintf(mf, "\n%s\n", rest);
 		} else if (event_kind_is(kind, klen, "monitor")) {
 			/* The lines that a monitor reports keep their breaks. */
 			fprintf(mf, "```\n%s\n```\n", body);
