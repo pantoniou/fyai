@@ -2021,6 +2021,41 @@ properties:
                 extension. Each event that passes the schema of its kind
                 reaches the model as external data and can start a turn.
                 See doc/event-sources-sdd.md.
+            principals:
+              type: object
+              description: >-
+                Map who caused an event, as the principal of its kind names
+                them, to a trust level. Only an event of an owner reaches the
+                model as a request; any other is marked as data. A principal
+                that is not here is anyone.
+              additionalProperties:
+                type: string
+                enum: [owner, known, anyone]
+                description: The trust level of this principal.
+            trust:
+              type: string
+              enum: [owner, known, anyone]
+              default: known
+              description: >-
+                Set the trust of an event whose kind names no principal.
+            route:
+              type: array
+              description: >-
+                Route each event with rules, in order: the first whose when,
+                a JSON Schema of the record {source, kind, id, principal,
+                trust, data}, matches decides. drop acknowledges the event
+                and wakes nobody; wake delivers it. No match wakes.
+              items:
+                type: object
+                required: [do]
+                description: One rule of the route.
+                properties:
+                  when:
+                    description: The JSON Schema that the record matches.
+                  do:
+                    type: string
+                    enum: [drop, wake]
+                    description: What to do with a matching event.
             auth:
               type: object
               description: Configure authentication for this MCP server.
