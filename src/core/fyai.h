@@ -257,6 +257,7 @@ struct fyai_cfg {
 	int exit_status; /* Exit status of a successfully executed CLI child. */
 	struct fy_allocator *allocator;
 	struct fy_generic_builder *gb;	/* the builder for the configuration */
+	fy_generic canned_decisions;	/* Built-in definitions owned by gb. */
 	enum fyai_api_mode api_mode;
 	const char *api_url;
 	const char *system_prompt;

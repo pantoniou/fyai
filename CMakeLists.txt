@@ -402,6 +402,8 @@ fyai_embed(FYAI_EMBEDDED_CONFIG_SCHEMA embedded_config_schema.inc
 
 # Embed the built-in tool specifications in wire shape.
 fyai_embed(FYAI_EMBEDDED_TOOLS embedded_tools.inc data/tools.yaml)
+# Embed the canned decisions: options and deciders (src/core/fyai_decider.c).
+fyai_embed(FYAI_EMBEDDED_DECISIONS embedded_decisions.inc data/decisions.yaml)
 fyai_embed(FYAI_EMBEDDED_APPARMOR embedded_apparmor.inc data/apparmor.in)
 
 # Embed the page document that the page renderer transcribes.
@@ -717,6 +719,7 @@ set(FYAI_SOURCES
     src/cmd/fyai_cmd_misc.c
     src/cmd/fyai_cmd_source.c
     src/cmd/fyai_cmd_decide.c
+    src/core/fyai_decider.c
     src/cmd/fyai_cmd_query.c
     src/cmd/fyai_cmd_cast.c
     src/front/fyai_cast_file.c

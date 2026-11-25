@@ -3358,6 +3358,7 @@ void fyai_config_set_defaults(struct fyai_cfg *cfg)
 	cfg->catalog = fy_invalid;
 	cfg->catalog_src = fy_invalid_value;
 	cfg->config_doc = fy_invalid;
+	cfg->canned_decisions = fy_invalid;
 	cfg->reload_state = fy_invalid;
 	cfg->sandbox = fy_invalid;
 	cfg->mcp_enabled = false;

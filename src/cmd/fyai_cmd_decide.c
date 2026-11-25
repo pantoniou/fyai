@@ -31,6 +31,7 @@
 #include "fyai.h"
 #include "fyai_cmd.h"
 #include "fyai_cmd_int.h"
+#include "fyai_decider.h"
 #include "fyai_schema.h"
 #include "fyai_session.h"
 #include "fyai_turn.h"
@@ -213,29 +214,34 @@ int fyai_cmd_decide(struct fyai_cmd_call *call, fy_generic *result)
 	const char *instructions = fyai_cmd_arg_str(call, "instructions");
 	const char *input = fyai_cmd_arg_str(call, "input");
 	fy_generic decider = fy_map_empty, options, schema, v;
+	const char *why = NULL;
 	char *text, *line = NULL;
 	size_t cap = 0;
 	ssize_t len;
 	int rc = 0, keep = -1, null = -1;
 	FILE *out;
 
-	(void)result;
+	if (fyai_cmd_arg_bool(call, "list")) {
+		*result = fyai_deciders_rows(cfg, gb);
+		return 0;
+	}
 	if (name && *name) {
-		decider = fy_get(fy_get(cfg->config_doc, "decisions",
-					fy_map_empty), name, fy_invalid);
+		decider = fyai_decider_get(cfg, gb, name, &why);
 		fyai_error_check(ctx, fy_is_mapping(decider), err,
-				 "decide: no decider '%s' in decisions", name);
+				 "decide: %s", why ? why : "no such decider");
 	}
 	options = fy_get(decider, "options", fy_invalid);
 	if (options_file) {
 		text = decide_read(ctx, options_file);
 		if (!text)
 			return -1;
-		options = parse_json_string(gb, text);
+		v = parse_json_string(gb, text);
 		free(text);
+		/* The file names canned options or defines its own. */
+		options = fyai_decider_options(cfg, gb, v, &why);
 		fyai_error_check(ctx, fy_is_mapping(options), err,
-				 "decide: %s is not a JSON mapping of options",
-				 options_file);
+				 "decide: %s: %s", options_file,
+				 why ? why : "not options");
 	}
 	fyai_error_check(ctx, fy_is_mapping(options), err,
 			 "decide: name a decider or give --options");

@@ -820,8 +820,12 @@ commands:
       ask the model to choose one option of a decider and give its arguments,
       and write one JSON line: `{"decision": NAME, "arguments": {...}}`, or
       `{"error": TEXT}`. A decider is `decisions/NAME` of the configuration,
-      or `--options FILE`, a JSON mapping of option names to `{description,
-      schema}`, with `--instructions`. The model must call one tool whose
+      or a canned one (`--list` shows them), or `--options FILE`, a JSON
+      mapping of option names to `{description, schema}` or a list of canned
+      option names, with `--instructions`. A decider of the configuration
+      may extend another with `use`, list canned options by name, or take a
+      canned option with `{use: NAME}` and change its description or
+      schema. The model must call one tool whose
       arguments the schema of the option checks; a call that fails it is
       answered with the problems, and the model tries again. Each input is a
       conversation of its own, and nothing is stored. The input is framed as
@@ -830,6 +834,16 @@ commands:
     handler: decide
     prepare: decide
     flags: [model]
+    render:
+      table:
+        title: Deciders
+        empty: no deciders
+        keys: [name, from, options, description]
+        columns:
+          name: {name: Decider, align: left}
+          from: {name: From, align: left}
+          options: {name: Options, align: left}
+          description: {name: Description, align: left}
     arguments:
       type: object
       additionalProperties: false
@@ -852,6 +866,9 @@ commands:
           type: string
           description: decide on this one JSON value, not on standard input
           x-fyai-meta: JSON
+        list:
+          type: boolean
+          description: list the deciders, canned and configured
 
   - command: source
     title: run an adapter that is an event source

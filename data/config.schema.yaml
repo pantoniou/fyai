@@ -205,9 +205,13 @@ properties:
       chooses one option for each input and gives its arguments.
     additionalProperties:
       type: object
-      required: [options]
-      description: Configure one decider.
+      description: >-
+        Configure one decider. It may extend a canned or a configured one
+        with use; then each key it gives replaces that of the other.
       properties:
+        use:
+          type: string
+          description: Extend this decider, canned or configured.
         description:
           type: string
           description: Say what the decider is for.
@@ -218,20 +222,28 @@ properties:
           type: string
           description: Choose with this model, in place of the session model.
         options:
-          type: object
-          minProperties: 1
-          description: The options, by name.
-          additionalProperties:
-            type: object
-            description: One option.
-            properties:
-              description:
-                type: string
-                description: Say when to choose this option.
-              schema:
-                description: >-
-                  The JSON Schema of the arguments of the option; an object
-                  of any arguments when it is not given.
+          description: >-
+            The options: a list of names of canned options, or a mapping of
+            name to a canned option name, to {use: NAME} with changes, or to
+            a definition.
+          anyOf:
+            - type: array
+              items: {type: string}
+            - type: object
+              minProperties: 1
+              additionalProperties:
+                anyOf:
+                  - type: string
+                  - type: object
+                    properties:
+                      use:
+                        type: string
+                        description: The canned option this one changes.
+                      description:
+                        type: string
+                        description: Say when to choose this option.
+                      schema:
+                        description: The JSON Schema of the arguments.
   tool_choice:
     x-fyai-model: review
     type: string
