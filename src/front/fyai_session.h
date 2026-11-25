@@ -64,6 +64,12 @@ bool fyai_session_compact_v2(const struct fyai_cfg *cfg);
  * caller presents the result.
  */
 int fyai_session_model(struct fyai_ctx *ctx, const char *name, bool live);
+/*
+ * Send the next requests with the model @name, as fyai_session_model does
+ * for a live session, but store nothing: the configuration keeps its model.
+ * fyai decide switches between the models of its deciders with it.
+ */
+int fyai_session_model_use(struct fyai_ctx *ctx, const char *name);
 
 /*
  * Switch to the API grammar @arg: resolve the endpoint of the same provider

@@ -243,6 +243,13 @@ properties:
             Take the choice of a decision model only at this probability or
             more; a less sure answer goes to the fallback. An option may set
             its own.
+        max_steps:
+          type: integer
+          minimum: 1
+          default: 8
+          description: >-
+            Bound a chain that starts at this decider: an input that is
+            handed on this many times without an end gets an error.
         fallback:
           description: >-
             Decide on a chat model when a decision model cannot: the answer
@@ -275,6 +282,12 @@ properties:
                       description:
                         type: string
                         description: Say when to choose this option.
+                      then:
+                        type: string
+                        description: >-
+                          Hand the input on to this decider, which decides
+                          on {input, steps}, the decisions so far. An option
+                          without it ends the chain.
                       min_probability:
                         type: number
                         minimum: 0

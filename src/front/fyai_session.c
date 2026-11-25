@@ -1049,7 +1049,8 @@ static void session_switch_estimate(struct fyai_ctx *ctx,
 	ctx->usage->switch_pending = true;
 }
 
-int fyai_session_model(struct fyai_ctx *ctx, const char *name, bool live)
+static int session_model(struct fyai_ctx *ctx, const char *name, bool live,
+			 bool persist)
 {
 	struct fyai_cfg *cfg = ctx->cfg;
 	struct fyai_cfg tmp;
@@ -1106,10 +1107,22 @@ int fyai_session_model(struct fyai_ctx *ctx, const char *name, bool live)
 	if (fyai_request_state_apply(ctx))
 		return -1;
 
+	if (!persist)
+		return 0;
 	session_persist_model(ctx);
 	if (grammar_changed)
 		session_persist(ctx, "api", fyai_api_to_string(cfg->api_mode));
 	return 0;
+}
+
+int fyai_session_model(struct fyai_ctx *ctx, const char *name, bool live)
+{
+	return session_model(ctx, name, live, true);
+}
+
+int fyai_session_model_use(struct fyai_ctx *ctx, const char *name)
+{
+	return session_model(ctx, name, true, false);
 }
 
 int fyai_session_api(struct fyai_ctx *ctx, const char *arg, bool live)

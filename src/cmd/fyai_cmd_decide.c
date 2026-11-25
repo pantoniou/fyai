@@ -20,6 +20,12 @@
  * model told what the decision model chose. Without a fallback, it is an
  * error that carries the choice.
  *
+ * An option with `then: NAME` hands the input on: the decider NAME decides
+ * next, on the state {input, steps}, where steps are the decisions so far.
+ * An option without it ends the chain; `max_steps` of the first decider
+ * bounds it. The deciders of a chain are resolved and set up before the
+ * first input, and the line of a chain adds "steps".
+ *
  * The decider comes from `decisions/NAME` of the configuration, or from
  * --options and --instructions. One JSON line goes out for each input:
  * {"decision", "arguments"} or {"error"}; a decision model adds
@@ -58,6 +64,10 @@
 #define DECIDE_SO_QUESTIONS	8
 /* The values of a choice of a System One request. */
 #define DECIDE_SO_CHOICES	255
+/* The steps of a chain, when its first decider says none. */
+#define DECIDE_MAX_STEPS	8
+/* The deciders of one chain. */
+#define DECIDE_STAGES		32
 
 /* How a decision is made for each input. */
 struct decide_run {
@@ -77,6 +87,26 @@ struct decide_run {
 	fy_generic questions;	/* {ID: question} of the arguments */
 	double min_probability;
 	size_t max_questions;
+};
+
+/* One decider of a chain, set up once. */
+struct decide_stage {
+	const char *name;	/* the decider, or "" for --options */
+	struct decide_run run;
+	/* The chat decider: the decider itself or its fallback. */
+	fy_generic chat;
+	fy_generic chat_options;
+	const char *chat_instructions;
+};
+
+/* The deciders of a run, the first one first. */
+struct decide_chain {
+	struct decide_stage stages[DECIDE_STAGES];
+	size_t count;
+	const struct decide_stage *chat_active;	/* whose setup is in force */
+	const char *base_model;	/* for a chat decider that names none */
+	const char *chat_model;	/* the model in force */
+	long max_steps;
 };
 
 /* A JSON number as a double; NAN for anything else. */
@@ -513,38 +543,105 @@ static fy_generic decide_so(struct fyai_ctx *ctx, struct fy_generic_builder *gb,
 	return fy_assoc(gb, result, "arguments", values);
 }
 
-/* One input: one line out. */
-static int decide_one(struct fyai_ctx *ctx, struct fy_generic_builder *gb,
-		      struct decide_run *run, const char *line, FILE *out)
-{
-	fy_generic input, result, chosen = fy_invalid;
-	const char *json, *hint = NULL;
+static int decide_chat_use(struct fyai_ctx *ctx, struct fy_generic_builder *gb,
+			   struct decide_chain *chain,
+			   const struct decide_stage *st);
 
-	input = parse_json_string(gb, line);
-	if (fy_is_invalid(input)) {
-		result = fy_mapping(gb, "error", "the input is not JSON");
-		goto emit;
-	}
-	if (fy_is_valid(run->provider)) {
-		result = decide_so(ctx, gb, run, input, &hint, &chosen);
+/*
+ * One decision of @st on @state: the result, an error result, or fy_invalid
+ * when fyai cannot go on.
+ */
+static fy_generic decide_step(struct fyai_ctx *ctx,
+			      struct fy_generic_builder *gb,
+			      struct decide_chain *chain,
+			      struct decide_stage *st, fy_generic state)
+{
+	fy_generic result, chosen = fy_invalid;
+	const char *hint = NULL;
+
+	if (fy_is_valid(st->run.provider)) {
+		result = decide_so(ctx, gb, &st->run, state, &hint, &chosen);
 		if (fy_is_valid(result))
-			goto emit;
-		if (!run->chat) {
+			return result;
+		if (!st->run.chat) {
 			/* No fallback: the error carries the choice. */
 			result = fy_is_mapping(chosen) ? chosen : fy_map_empty;
-			result = fy_assoc(gb, result, "error", hint);
-			goto emit;
+			return fy_assoc(gb, result, "error", hint);
 		}
 	}
-	result = decide_chat(ctx, gb, input, hint);
+	if (decide_chat_use(ctx, gb, chain, st))
+		return fy_invalid;
+	result = decide_chat(ctx, gb, state, hint);
 	if (fy_is_invalid(result))
-		return -1;
+		return fy_invalid;
 	/* What the decision model chose, beside what the fallback did. */
 	if (fy_is_mapping(chosen))
 		result = fy_assoc(gb, result, "classifier", chosen);
 	else if (hint)
 		result = fy_assoc(gb, result, "classifier",
 				  fy_mapping(gb, "error", hint));
+	return result;
+}
+
+/* The stage of the decider @name, or NULL. */
+static struct decide_stage *decide_stage_find(struct decide_chain *chain,
+					      const char *name)
+{
+	size_t i;
+
+	for (i = 0; i < chain->count; i++)
+		if (!strcmp(chain->stages[i].name, name))
+			return &chain->stages[i];
+	return NULL;
+}
+
+/* One input: the chain from its first decider, and one line out. */
+static int decide_one(struct fyai_ctx *ctx, struct fy_generic_builder *gb,
+		      struct decide_chain *chain, const char *line, FILE *out)
+{
+	struct decide_stage *st = &chain->stages[0];
+	fy_generic input, state, result, steps = fy_seq_empty, opt, then, step;
+	const char *json;
+	long n;
+
+	input = parse_json_string(gb, line);
+	if (fy_is_invalid(input)) {
+		result = fy_mapping(gb, "error", "the input is not JSON");
+		goto emit;
+	}
+	state = input;
+	for (n = 0;; n++) {
+		if (n >= chain->max_steps) {
+			result = fy_mapping(gb, "error", fy_stringf(gb,
+				"the chain did not end in %ld steps",
+				chain->max_steps));
+			break;
+		}
+		result = decide_step(ctx, gb, chain, st, state);
+		if (fy_is_invalid(result))
+			return -1;
+		if (fy_is_valid(fy_get(result, "error", fy_invalid)))
+			break;
+		opt = fy_get(st->run.options, fy_get(result, "decision",
+						     fy_invalid), fy_invalid);
+		then = fy_get(opt, "then", fy_invalid);
+		if (!fy_is_string(then))
+			break;
+		/* The decision so far, and the decider that takes it on. */
+		step = fy_mapping(gb, "decider", st->name,
+			"decision", fy_get(result, "decision", fy_null),
+			"arguments", fy_get(result, "arguments", fy_map_empty));
+		if (fy_is_valid(fy_get(result, "probability", fy_invalid)))
+			step = fy_assoc(gb, step, "probability",
+					fy_get(result, "probability", fy_null));
+		steps = fy_append(gb, steps, step);
+		state = fy_mapping(gb, "input", input, "steps", steps);
+		st = decide_stage_find(chain, fy_castp(&then, ""));
+		if (!st)
+			return -1;	/* resolved before the first input */
+	}
+	if (fy_len(steps))
+		result = fy_assoc(gb, result, "steps", steps);
 emit:
 	json = emit_json_string(gb, result);
 	if (!json || fprintf(out, "%s\n", json) < 0 || fflush(out))
@@ -553,20 +650,28 @@ emit:
 }
 
 /*
- * Set up the chat model for @decider with @options and @instructions: the
- * one tool, its schema, and the model of the decider.
+ * Put the chat decider of @st in force: the model of the decider, else that
+ * of the session, and the one tool with the schema of its options.
  */
-static int decide_chat_setup(struct fyai_ctx *ctx,
-			     struct fy_generic_builder *gb, fy_generic decider,
-			     fy_generic options, const char *instructions)
+static int decide_chat_use(struct fyai_ctx *ctx, struct fy_generic_builder *gb,
+			   struct decide_chain *chain,
+			   const struct decide_stage *st)
 {
 	struct fyai_cfg *cfg = ctx->cfg;
+	const char *instructions = st->chat_instructions, *model;
 	fy_generic schema, v;
 
-	v = fy_get(decider, "model", fy_invalid);
-	if (fy_is_string(v) && fyai_session_model(ctx, fy_castp(&v, ""), true))
-		return -1;
-	schema = decide_schema(ctx, gb, options);
+	if (chain->chat_active == st)
+		return 0;
+	v = fy_get(st->chat, "model", fy_invalid);
+	model = fy_is_string(v) ? fy_gb_intern_string(gb, fy_castp(&v, "")) :
+		chain->base_model;
+	if (model && (!chain->chat_model || strcmp(model, chain->chat_model))) {
+		if (fyai_session_model_use(ctx, model))
+			return -1;
+		chain->chat_model = model;
+	}
+	schema = decide_schema(ctx, gb, st->chat_options);
 	if (fy_is_invalid(schema))
 		return -1;
 	/* The one tool: structured_output with the schema of the answer. */
@@ -580,6 +685,7 @@ static int decide_chat_setup(struct fyai_ctx *ctx,
 		"arguments.");
 	fyai_error_check(ctx, !fyai_request_state_apply(ctx), err,
 			 "decide: cannot offer the options to the model");
+	chain->chat_active = st;
 	return 0;
 err:
 	return -1;
@@ -665,6 +771,90 @@ err:
 	return -1;
 }
 
+/*
+ * Add the decider @name, @decider with @options and @instructions, to
+ * @chain, and the deciders that its options hand on to. The stage, or NULL
+ * with a diagnostic.
+ */
+static struct decide_stage *decide_stage_add(struct fyai_ctx *ctx,
+					     struct fy_generic_builder *gb,
+					     struct decide_chain *chain,
+					     const char *name,
+					     fy_generic decider,
+					     fy_generic options,
+					     const char *instructions)
+{
+	struct fyai_cfg *cfg = ctx->cfg;
+	struct decide_stage *st;
+	fy_generic v, fallback, key, opt, then, next;
+	const char *why = NULL, *ninstr;
+
+	fyai_error_check(ctx, chain->count < DECIDE_STAGES, err,
+			 "decide: a chain has at most %d deciders",
+			 DECIDE_STAGES);
+	st = &chain->stages[chain->count++];
+	st->name = name;
+	st->run.provider = fy_invalid;
+	st->run.options = options;
+	st->chat = fy_invalid;
+	v = fy_get(decider, "model", fy_invalid);
+	if (fy_is_string(v))
+		st->run.provider = fyai_decider_systemone(cfg, gb,
+				fy_castp(&v, ""), &st->run.wire);
+	if (fy_is_valid(st->run.provider)) {
+		if (decide_so_setup(ctx, gb, &st->run, decider, instructions))
+			return NULL;
+		fallback = decide_fallback(ctx, gb, decider, options,
+					   instructions);
+		if (fy_is_invalid(fallback))
+			return NULL;
+		if (fy_is_mapping(fallback)) {
+			v = fy_get(fallback, "instructions", fy_invalid);
+			st->chat = fallback;
+			st->chat_options = fy_get(fallback, "options",
+						  fy_invalid);
+			st->chat_instructions = fy_is_string(v) ?
+				fy_gb_intern_string(gb, fy_castp(&v, "")) :
+				NULL;
+		}
+	} else {
+		st->chat = decider;
+		st->chat_options = options;
+		st->chat_instructions = instructions;
+	}
+	st->run.chat = fy_is_valid(st->chat);
+
+	/* The deciders that it hands on to, each once. */
+	fy_foreach_key_value(key, opt, options) {
+		then = fy_get(opt, "then", fy_invalid);
+		if (fy_is_invalid(then) || fy_is_null(then))
+			continue;
+		fyai_error_check(ctx, fy_is_string(then), err,
+				 "decide: the option '%s' hands on to a "
+				 "decider by name", fy_castp(&key, "?"));
+		if (decide_stage_find(chain, fy_castp(&then, "")))
+			continue;
+		next = fyai_decider_get(cfg, gb, fy_castp(&then, ""), &why);
+		fyai_error_check(ctx, fy_is_mapping(next), err,
+				 "decide: the option '%s' hands on: %s",
+				 fy_castp(&key, "?"),
+				 why ? why : "no such decider");
+		v = fy_get(next, "instructions", fy_invalid);
+		ninstr = fy_is_string(v) ?
+			 fy_gb_intern_string(gb, fy_castp(&v, "")) : NULL;
+		if (!decide_stage_add(ctx, gb, chain,
+				      fy_gb_intern_string(gb,
+						fy_castp(&then, "")),
+				      next, fy_get(next, "options",
+						   fy_invalid), ninstr))
+			return NULL;
+		/* The array does not move: @st stays valid. */
+	}
+	return st;
+err:
+	return NULL;
+}
+
 int fyai_cmd_decide(struct fyai_cmd_call *call, fy_generic *result)
 {
 	struct fyai_ctx *ctx = fyai_cmd_call_ctx(call);
@@ -675,11 +865,11 @@ int fyai_cmd_decide(struct fyai_cmd_call *call, fy_generic *result)
 	const char *instructions = fyai_cmd_arg_str(call, "instructions");
 	const char *input = fyai_cmd_arg_str(call, "input");
 	const char *spec = fyai_cmd_arg_str(call, "spec");
-	struct decide_run run = { .provider = fy_invalid };
-	fy_generic decider = fy_map_empty, options, v, fallback;
-	const char *why = NULL, *fb_instructions;
+	struct decide_chain *chain;
+	fy_generic decider = fy_map_empty, options, v;
+	const char *why = NULL, *label = "";
 	char *text, *line = NULL;
-	size_t cap = 0;
+	size_t cap = 0, i;
 	ssize_t len;
 	int rc = 0, keep = -1, null = -1;
 	FILE *out;
@@ -693,10 +883,14 @@ int fyai_cmd_decide(struct fyai_cmd_call *call, fy_generic *result)
 		decider = parse_json_string(gb, spec);
 		fyai_error_check(ctx, fy_is_mapping(decider), err,
 				 "decide: --spec is not a decider");
+		v = fy_get(decider, "name", fy_invalid);
+		if (fy_is_string(v))
+			label = fy_gb_intern_string(gb, fy_castp(&v, ""));
 	} else if (name && *name) {
 		decider = fyai_decider_get(cfg, gb, name, &why);
 		fyai_error_check(ctx, fy_is_mapping(decider), err,
 				 "decide: %s", why ? why : "no such decider");
+		label = name;
 	}
 	options = fy_get(decider, "options", fy_invalid);
 	if (options_file) {
@@ -718,35 +912,22 @@ int fyai_cmd_decide(struct fyai_cmd_call *call, fy_generic *result)
 		instructions = fy_is_string(v) ?
 			fy_gb_intern_string(gb, fy_castp(&v, "")) : NULL;
 	}
-	run.options = options;
-	v = fy_get(decider, "model", fy_invalid);
-	if (fy_is_string(v))
-		run.provider = fyai_decider_systemone(cfg, gb,
-				fy_castp(&v, ""), &run.wire);
-	if (fy_is_valid(run.provider)) {
-		if (decide_so_setup(ctx, gb, &run, decider, instructions))
-			return -1;
-		fallback = decide_fallback(ctx, gb, decider, options,
-					   instructions);
-		if (fy_is_invalid(fallback))
-			return -1;
-		if (fy_is_mapping(fallback)) {
-			v = fy_get(fallback, "instructions", fy_invalid);
-			fb_instructions = fy_is_string(v) ?
-				fy_gb_intern_string(gb, fy_castp(&v, "")) :
-				NULL;
-			if (decide_chat_setup(ctx, gb, fallback,
-					      fy_get(fallback, "options",
-						     fy_invalid),
-					      fb_instructions))
-				return -1;
-			run.chat = true;
-		}
-	} else {
-		if (decide_chat_setup(ctx, gb, decider, options, instructions))
-			return -1;
-		run.chat = true;
-	}
+
+	chain = calloc(1, sizeof(*chain));
+	fyai_error_check(ctx, chain, err, "out of memory");
+	chain->base_model = cfg->model;
+	chain->chat_model = cfg->model;
+	v = fy_get(decider, "max_steps", fy_invalid);
+	chain->max_steps = fy_generic_is_int(v) && fy_cast(v, 0LL) > 0 ?
+			   (long)fy_cast(v, 0LL) : DECIDE_MAX_STEPS;
+	if (!decide_stage_add(ctx, gb, chain, label, decider, options,
+			      instructions))
+		goto err_chain;
+	/* Set up each chat decider now, so that a bad one fails first. */
+	for (i = chain->count; i-- > 0; )
+		if (chain->stages[i].run.chat &&
+		    decide_chat_use(ctx, gb, chain, &chain->stages[i]))
+			goto err_chain;
 
 	/*
 	 * Standard output carries the decisions and nothing else: what the
@@ -763,7 +944,7 @@ int fyai_cmd_decide(struct fyai_cmd_call *call, fy_generic *result)
 	fyai_error_check(ctx, out, err_fds, "decide: cannot write decisions");
 	keep = -1;
 	if (input) {
-		rc = decide_one(ctx, gb, &run, input, out);
+		rc = decide_one(ctx, gb, chain, input, out);
 	} else {
 		while ((len = getline(&line, &cap, stdin)) > 0) {
 			while (len && (line[len - 1] == '\n' ||
@@ -771,7 +952,7 @@ int fyai_cmd_decide(struct fyai_cmd_call *call, fy_generic *result)
 				line[--len] = '\0';
 			if (!len)
 				continue;
-			rc = decide_one(ctx, gb, &run, line, out);
+			rc = decide_one(ctx, gb, chain, line, out);
 			if (rc)
 				break;
 		}
@@ -782,6 +963,7 @@ int fyai_cmd_decide(struct fyai_cmd_call *call, fy_generic *result)
 	(void)dup2(fileno(out), STDOUT_FILENO);
 	fclose(out);
 	close(null);
+	free(chain);
 	return rc;
 err_fds:
 	if (keep >= 0) {
@@ -790,6 +972,8 @@ err_fds:
 	}
 	if (null >= 0)
 		close(null);
+err_chain:
+	free(chain);
 	return -1;
 err:
 	return -1;
