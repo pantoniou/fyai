@@ -822,6 +822,20 @@ properties:
                 Limit the tools of this persona to these names. The agent is
                 offered only these tools and cannot call another. A skill
                 that gives its own tools replaces the list.
+            tool_choice:
+              type: string
+              minLength: 1
+              description: >-
+                Say what this persona must do with its tools in each step:
+                auto, required, none, or the name of a tool. With required,
+                give a result_schema too: the persona then never answers in
+                text alone and ends by giving its result.
+            result_schema:
+              description: >-
+                The JSON Schema of the result of this persona. The persona
+                ends by calling structured_output with a result that passes
+                it, and its report is that result as JSON. One that ends
+                without a result is asked again, then fails.
             reasoning:
               type: object
               additionalProperties: false

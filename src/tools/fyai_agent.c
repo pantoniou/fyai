@@ -27,12 +27,16 @@
 #include "fyai_tools.h"
 #include "fyai_tool_registry.h"
 #include "fyai_auth.h"
+#include "fyai_schema.h"
 
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
 
 #define FYAI_MODULE FYAIEM_UNKNOWN
+
+/* A persona that ended without its result is asked for it this often. */
+#define AGENT_RESULT_NUDGES	2
 
 const char fyai_agent_system_prompt[] =
 	"You are a fyai sub-agent: an autonomous coding assistant delegated a "
@@ -779,6 +783,51 @@ err:
 	return -1;
 }
 
+/*
+ * A persona with a result schema ends with a typed result: the schema is
+ * the one of structured_output, the tool is offered whatever the tools of
+ * the persona are, and the instructions say how to end.
+ */
+static int agent_result_setup(struct fyai_ctx *ctx, struct agent_run *r)
+{
+	struct fyai_cfg *cfg = ctx->cfg;
+	fy_generic schema = fy_get(r->persona, "result_schema", fy_invalid);
+	fy_generic allow = ctx->toolspec->allow, item;
+	bool listed = false;
+
+	if (fy_is_invalid(schema)) {
+		if (cfg->tool_choice && strcmp(cfg->tool_choice, "auto") &&
+		    strcmp(cfg->tool_choice, "none"))
+			fyai_warning(ctx, "a persona that must call a tool "
+				     "and has no result_schema ends only at "
+				     "the tool loop limit");
+		return 0;
+	}
+	if (!fy_is_mapping(schema) ||
+	    fy_is_invalid(fyai_schema_validate(ctx->transient->gb, schema,
+					       fy_null))) {
+		fyai_error(ctx, "the result_schema of the persona is not a "
+			   "JSON Schema that can be checked");
+		return -1;
+	}
+	ctx->turn->output_schema = fy_gb_internalize(ctx->arena->gb, schema);
+	if (fy_is_sequence(allow) && !fy_empty(allow)) {
+		fy_foreach(item, allow)
+			if (fy_equal(item, "structured_output"))
+				listed = true;
+		if (!listed)
+			ctx->toolspec->allow = fy_gb_internalize(cfg->gb,
+				fy_append(ctx->transient->gb, allow,
+					  "structured_output"));
+	}
+	cfg->system_prompt = fy_gb_intern_string(cfg->gb, fy_sprintfa(
+		"%s\n\nWhen the work is done, call structured_output with the "
+		"result. That call is your return value, and it ends your "
+		"work; a reply in text is not.",
+		cfg->system_prompt ? cfg->system_prompt : ""));
+	return 0;
+}
+
 /* Apply the child settings and put the task in the conversation. */
 static int agent_run_setup(struct fyai_ctx *ctx, struct agent_run *r)
 {
@@ -798,6 +847,9 @@ static int agent_run_setup(struct fyai_ctx *ctx, struct agent_run *r)
 		fyai_error_check(ctx, !rc, err,
 				 "could not apply the sub-agent persona");
 	}
+	rc = agent_result_setup(ctx, r);
+	fyai_error_check(ctx, !rc, err,
+			 "could not apply the result schema of the persona");
 	rc = fyai_config_grammar_gate(cfg);
 	fyai_error_check(ctx, !rc, err,
 			 "could not apply sub-agent endpoint capabilities");
@@ -863,6 +915,7 @@ static int agent_run_turn(struct fyai_ctx *ctx, struct agent_run *r)
 {
 	struct fyai_cfg *cfg = ctx->cfg;
 	struct fyai_event_input input = {};
+	int nudges = 0;
 
 	/* Render only when the parent supplied a terminal. */
 	ctx->tty->stdout_tty = cfg->agent_pty;
@@ -907,6 +960,34 @@ static int agent_run_turn(struct fyai_ctx *ctx, struct agent_run *r)
 			 cfg->model ? cfg->model : "unset",
 			 fyai_api_to_string(cfg->api_mode));
 	ctx->turn->last_message = r->turn;
+	/*
+	 * A persona with a result schema returns the result. One that ended
+	 * in text is asked for it again, a few times.
+	 */
+	while (fy_is_mapping(ctx->turn->output_schema) &&
+	       !fy_is_valid(ctx->turn->structured_output) &&
+	       nudges++ < AGENT_RESULT_NUDGES &&
+	       !ctx->loop->terminate_pending) {
+		ctx->turn->last_message = fyai_turn_append(ctx, r->turn,
+			fy_sequence(fyai_make_instruction_message(ctx,
+				"Give the result now: call structured_output "
+				"with it.")));
+		r->turn = fyai_report_diag(ctx,
+				fyai_run_turn(ctx, ctx->turn->last_message));
+		fyai_error_check(ctx, fy_is_valid(r->turn), err,
+				 "sub-agent '%s' did not give its result",
+				 fy_castp(&r->name, ""));
+		ctx->turn->last_message = r->turn;
+	}
+	if (fy_is_mapping(ctx->turn->output_schema)) {
+		fyai_error_check(ctx, fy_is_valid(ctx->turn->structured_output),
+				 err, "sub-agent '%s' ended without its result",
+				 fy_castp(&r->name, ""));
+		r->report = fy_gb_internalize(ctx->transient->gb, fy_value(
+			emit_json_string(ctx->transient->gb,
+					 ctx->turn->structured_output)));
+		return 0;
+	}
 	r->report = fyai_agent_final_text(ctx, r->turn);
 	return 0;
 err:
