@@ -447,8 +447,39 @@ decisions:
 A configured decider with the name of a canned one replaces it.
 `fyai decide --list` shows both.
 
-A decider in a loop, an agent whose every step is one isolated decision
-over a state, is the next piece on top of `fyai decide`.
+### Chains of deciders, as built
+
+A decider in a loop is an agent whose every step is one isolated decision
+over a state. The first piece is the chain: an option with `then: NAME`
+hands the input on to the decider NAME.
+
+```yaml
+decisions:
+  screen:                          # cheap: is it worth a look?
+    model: typesafe/jev-latest
+    options:
+      noise: {description: Nothing to do}
+      real: {description: Someone should act, then: route}
+  route:                           # dearer, on a chat model
+    model: gpt-6-luna
+    options: {billing: ..., other: ...}
+```
+
+- The first step decides on the input; each later step on
+  `{input, steps}`, where a step is `{decider, decision, arguments,
+  probability?}`. A decider can hand on to itself and see what it chose.
+- An option without `then` ends the chain; its decision is the line, which
+  adds `steps` when there were any. An error ends it too, with the steps.
+- `max_steps` of the first decider (8) bounds it.
+- Each decider runs on its own model, decision or chat, with its own
+  fallback. The deciders of a chain are resolved and set up before the
+  first input: a `then` that names no decider fails at once. A switch to
+  the model of a decider is not stored.
+- Routes and `fyai source decide` see only the last decision.
+
+Not yet: options that run a tool and decide again on its result. Tools in
+fyai run behind approval and the sandbox, which a decide child does not
+have; a tool step will go through them, or be limited to read-only tools.
 
 ### Decision models of the System One API, as built
 

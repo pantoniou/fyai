@@ -544,6 +544,11 @@ boolean is a question of its own. The line adds `probability`,
 `confidence` and `probabilities`. What it cannot decide (too unsure for
 `min_probability`, or an option that needs text) goes to `fallback`.
 
+An option with `then: NAME` hands the input on to the decider NAME,
+which decides on `{"input": ..., "steps": [...]}`, the decisions so
+far; an option without it ends the chain, and the line adds `steps`.
+`max_steps` of the first decider bounds the chain (8).
+
 
 ### Arguments
 
