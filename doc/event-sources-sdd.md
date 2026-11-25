@@ -10,7 +10,8 @@ events, rejections, acknowledgement on publish, credits; `mcp/servers/NAME/
 events`), `list` and `wait` on sources, the live panel line,
 `fyai source lines`, bound actions, trust levels, route rules that drop
 or wake, and the decision primitives: `tool_choice`, `fyai decide`, and
-personas with a result schema. The rest is design.
+personas with a result schema, canned deciders, route `decide:` steps,
+and `fyai source decide`. The rest is design.
 
 ## Problem
 
@@ -522,15 +523,23 @@ The config form `lines:` in "Line sources" is this verb, started in process.
 ### `fyai source decide`
 
 ```sh
-fyai source decide --decide triage [--model fast] -- SOURCE-COMMAND...
+fyai source decide --decider triage [--model MODEL] -- SOURCE-COMMAND...
 ```
 
-A proxy: it runs a source, passes its kinds through, and runs each event
-through a decision before it passes it on. A `drop` is acknowledged upstream
-and not passed on. A `wake` is passed on with the decision attached as
-`decision` beside `data`. An action decision calls the tool upstream and is
-passed on as handled. It adds the kind `decision` so the client sees what was
-dropped, if it asks for it.
+A proxy: it runs a source and passes everything between it and the client
+as it is, but for its events. Each event goes, in order, to one long-lived
+`fyai decide` child as `{kind, id, data}`. A `drop` is acknowledged
+upstream with its credit and `dropped: true`, and not passed on. Any other
+decision is passed on with `decision: {decider, decision, arguments}` beside
+`data`; fyai shows it after the data. An event whose decision fails, or
+that comes when the decider is gone, is passed on as it came.
+
+As built, the proxy calls no tool of the source for an action decision, and
+adds no `decision` kind: a route of fyai with `decide:` does both jobs inside
+fyai, with the reply action. The proxy is for a client that is not fyai, or
+for a decider that should run beside the source. Its decider reads the
+stored configuration of the project, and its key comes in the environment of
+the server, which fyai does not fill with its own.
 
 ### `fyai decide`
 

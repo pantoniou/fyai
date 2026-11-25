@@ -558,7 +558,7 @@ data, not as instructions.
 
 run an adapter that is an event source
 
-**Usage:** `fyai source {lines} ...`
+**Usage:** `fyai source {decide|lines} ...`
 
 Run an adapter that is an MCP server with the fyai/events extension on
 standard input and output. Name it as the command of an MCP server
@@ -569,6 +569,7 @@ with `events: true`. See doc/event-sources-sdd.md.
 
 | Command | Description |
 | --- | --- |
+| `decide` | put a decider in front of an event source |
 | `lines` | serve the lines of a command as events |
 
 ## fyai source lines
@@ -604,6 +605,37 @@ reports it in its log and stays until the client goes.
 | `--json` | parse each line as JSON |
 | `--schema FILE` | check each JSON line against this JSON Schema |
 | `--cursor-file FILE` | keep the acknowledged offset of the output in FILE |
+| `--output FORMAT` | write the result as markdown, json, or yaml; see `help output` |
+| `-h`, `--help` | show this help |
+
+## fyai source decide
+
+put a decider in front of an event source
+
+**Usage:** `fyai source decide --decider NAME [--model MODEL] COMMAND...`
+
+Run COMMAND, an event source, and pass everything between it and
+the client as it is, but for its events. Each event goes, in
+order, to one `fyai decide DECIDER` child. A `drop` is acknowledged
+to COMMAND with `dropped: true`, and the client never sees it; any
+other decision is passed on with `decision: {decider, decision,
+arguments}` beside the data, which fyai shows after the data. An
+event whose decision fails is passed on as it came. The decider
+reads the configuration of the project, as `fyai decide` does.
+
+
+### Arguments
+
+| Argument | Description |
+| --- | --- |
+| `COMMAND` | the event source and its arguments |
+
+### Options
+
+| Option | Description |
+| --- | --- |
+| `--decider NAME` | the decider, canned or of the configuration |
+| `--model MODEL` | decide with this model |
 | `--output FORMAT` | write the result as markdown, json, or yaml; see `help output` |
 | `-h`, `--help` | show this help |
 
