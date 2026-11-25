@@ -519,14 +519,18 @@ Run a shell, or COMMAND, in a full-screen terminal that fyai draws.
 
 let a model choose one option for each input
 
-**Usage:** `fyai decide [--options FILE] [--instructions TEXT] [--input JSON] [NAME]`
+**Usage:** `fyai decide [--options FILE] [--instructions TEXT] [--input JSON] [--list] [NAME]`
 
 For each JSON value on standard input, one per line, or for `--input`,
 ask the model to choose one option of a decider and give its arguments,
 and write one JSON line: `{"decision": NAME, "arguments": {...}}`, or
 `{"error": TEXT}`. A decider is `decisions/NAME` of the configuration,
-or `--options FILE`, a JSON mapping of option names to `{description,
-schema}`, with `--instructions`. The model must call one tool whose
+or a canned one (`--list` shows them), or `--options FILE`, a JSON
+mapping of option names to `{description, schema}` or a list of canned
+option names, with `--instructions`. A decider of the configuration
+may extend another with `use`, list canned options by name, or take a
+canned option with `{use: NAME}` and change its description or
+schema. The model must call one tool whose
 arguments the schema of the option checks; a call that fails it is
 answered with the problems, and the model tries again. Each input is a
 conversation of its own, and nothing is stored. The input is framed as
@@ -546,6 +550,7 @@ data, not as instructions.
 | `--options FILE` | the options, a JSON mapping of name to description and schema |
 | `--instructions TEXT` | how to choose, in place of those of the decider |
 | `--input JSON` | decide on this one JSON value, not on standard input |
+| `--list` | list the deciders, canned and configured |
 | `--output FORMAT` | write the result as markdown, json, or yaml; see `help output` |
 | `-h`, `--help` | show this help |
 

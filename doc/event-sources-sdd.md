@@ -413,6 +413,25 @@ usable alone:
    calling it, and its report is the result as JSON. One that ends in text
    is asked again twice, then fails.
 
+**Canned decisions.** `data/decisions.yaml`, embedded in the binary,
+ships options (`drop`, `wake`, `defer`, `reply`, `yes`, `no`, each with a
+description and a schema) and deciders (`triage`, `yes-no`). A decider
+of the configuration names them instead of spelling them out:
+
+```yaml
+decisions:
+  inbox:
+    use: triage                    # its instructions and options
+    options:
+      wake: wake                   # a canned option by name
+      drop: {use: drop, schema: {type: object, required: [why],
+                                 properties: {why: {type: string}}}}
+  quick: {instructions: Is this urgent?, options: ["yes", "no"]}
+```
+
+A configured decider with the name of a canned one replaces it.
+`fyai decide --list` shows both.
+
 A decider in a loop, an agent whose every step is one isolated decision
 over a state, is the next piece on top of `fyai decide`.
 
