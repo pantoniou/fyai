@@ -66,6 +66,14 @@ tool_choice: auto
 #       options:
 #         wake: {description: the owner should see it}
 #         drop: {description: nobody needs it}
+#   A decider on a decision model (System One API, such as TypeSafe's Jev,
+#   key in TYPESAFE_API_KEY) answers with probabilities and writes no text;
+#   what it cannot decide goes to the fallback, a chat model:
+#     inbox:
+#       use: triage
+#       model: typesafe/jev-latest
+#       min_probability: 0.8
+#       fallback: {}
 decisions: {}
 parallel_tool_calls_prompt: >-
   Independent tool calls may be issued together in one response and will

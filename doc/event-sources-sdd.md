@@ -11,7 +11,8 @@ events`), `list` and `wait` on sources, the live panel line,
 `fyai source lines`, bound actions, trust levels, route rules that drop
 or wake, and the decision primitives: `tool_choice`, `fyai decide`, and
 personas with a result schema, canned deciders, route `decide:` steps,
-and `fyai source decide`. The rest is design.
+`fyai source decide`, and deciders on decision models (System One API)
+with a fallback to a chat model. The rest is design.
 
 ## Problem
 
@@ -448,6 +449,75 @@ A configured decider with the name of a canned one replaces it.
 
 A decider in a loop, an agent whose every step is one isolated decision
 over a state, is the next piece on top of `fyai decide`.
+
+### Decision models of the System One API, as built
+
+Some models are built to decide, not to write: TypeSafe's Jev is the
+first, and decisions-api.dev serves it and others in the same format. A
+request is `POST /v1/systemone` with `{model, state, questions}`; each
+question is a `choice` among named options, a `score` on ordered levels,
+or a `noul`, the probability that a statement is true. The answers carry
+probabilities, and a choice its `confidence`. Up to eight questions go in
+one request and are answered in parallel, in about a quarter of a second,
+for input tokens only.
+
+A decider whose `model` is `PROVIDER/ID` with a provider of the
+`systemone` table of `data/decisions.yaml` runs on such a model. The
+table is not the scraped catalogue, which a refresh would overwrite:
+
+| Provider | URL | Key | Answer |
+|---|---|---|---|
+| `typesafe` | `api.typesafe.ai/v1/systemone` | `TYPESAFE_API_KEY` | `{answers}` |
+| `decisions-api` | `decisions-api.dev/v1/systemone` | `DECISIONS_API_KEY` | `{code, message, data: {result: {answers}}}` |
+
+The secret `fyai:api-key/PROVIDER` serves when the variable is not set;
+under credential isolation only the variable does. The decider's `url`
+replaces that of the provider.
+
+**Mapping.** The state is the input, as JSON. The options become one
+`choice`, named `decision`, whose criteria are their descriptions and
+whose instructions are the decider's. Each argument of each option that a
+question can answer becomes one more, `aN`, asked as "Suppose that the
+right option is X (...). DESCRIPTION": an `enum` of 2 to 255 values is a
+`choice`, a `boolean` a `noul` (yes from 0.5). A `const` or a one-value
+`enum` needs no question, and a `default` fills an argument that no
+question answers. All the questions go in one request when they fit;
+else the choice goes first and the arguments of the chosen option follow,
+eight to a request.
+
+**What it cannot do goes to the fallback.** Such a model writes no text,
+and a choice can be unsure. The input goes to `fallback` when:
+
+- the probability of the choice is under `min_probability` (of the option,
+  else of the decider);
+- the option has a required argument that no question answers, such as
+  `wake.summary` of the canned triage;
+- a request fails, or an answer lacks a question.
+
+`fallback` names a decider, or is a mapping over this one (`{}` or `true`:
+its options and instructions, on the session model). The fallback is a
+chat decider as above, and its input adds what the decision model chose
+("A decision model leans to 'billing', with probability 0.60, under the
+0.80 that it needs."). Its line adds `classifier`, what the decision
+model chose. Without a fallback, the line is an error that carries the
+choice.
+
+```yaml
+decisions:
+  inbox:
+    use: triage
+    model: typesafe/jev-latest
+    min_probability: 0.8
+    fallback: {}               # triage on the session model
+```
+
+The line of a decision model adds `probability` (of the option chosen),
+`confidence` and `probabilities`. Routes and `fyai source decide` spawn
+`fyai decide` and need no change.
+
+Not yet: `score` questions (an integer argument on levels), images, and
+OpenAI's Decisions API, whose wire is not public. The key does not pass
+through the transport of credential isolation.
 
 ### Conversations
 
