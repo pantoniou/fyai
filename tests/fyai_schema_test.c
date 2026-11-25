@@ -308,6 +308,12 @@ static void test_all_of(void)
 		   "{\"required\":[\"a\"]}]}");
 	must_pass("allOf/pass", s, instance("{\"a\":1}"));
 	must_fail("allOf/fail", s, instance("{\"b\":1}"));
+	must_fail_containing("allOf/problem", s, instance("{\"b\":1}"),
+			     "missing required key 'a'");
+	s = schema("{\"allOf\":[{\"if\":{\"properties\":{\"k\":{\"const\":\"x\"}}},"
+		   "\"then\":{\"required\":[\"summary\"]}}]}");
+	must_fail_containing("allOf/if-then", s, instance("{\"k\":\"x\"}"),
+			     "missing required key 'summary'");
 }
 
 static void test_one_of(void)
