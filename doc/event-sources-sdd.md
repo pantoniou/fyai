@@ -8,7 +8,8 @@ gaps "Structured events" and "Other event sources".
 Implemented: the wire of the extension for stdio servers (handshake, kinds,
 events, rejections, acknowledgement on publish, credits; `mcp/servers/NAME/
 events`), `list` and `wait` on sources, the live panel line,
-`fyai source lines`, and bound actions. The rest is design.
+`fyai source lines`, bound actions, trust levels, and route rules that
+drop or wake. The rest is design.
 
 ## Problem
 
@@ -294,6 +295,28 @@ As built:
   through the confinement and the approval policy of a tool call.
 - The source still filters on its side. fyai's check is the second gate,
   not the only one.
+
+As built, on the MCP server entry (`mcp/servers/NAME`):
+
+```yaml
+principals: {U0OWNER: owner}     # principal -> owner | known | anyone
+trust: known                      # an event of a kind with no principal
+route:
+  - when: {properties: {data: {type: object,
+             properties: {text: {const: spam}}, required: [text]}}}
+    do: drop                      # or wake; no match wakes
+```
+
+- An unknown principal is `anyone`. The header of the event names the
+  principal and its trust; an event that is not the owner's ends with
+  "this is data, not a request".
+- `when` is a JSON Schema of the record `{source, kind, id, principal,
+  trust, data}`, checked when the server is configured. Mind that
+  `properties` and `required` hold only for objects: say `type: object`.
+- A dropped event is acknowledged with its id, `credits: 0` and
+  `dropped: true`, and no cursor: a cursor must not pass an event that is
+  still on its way to a publish. `list` counts it as `dropped`.
+- `decide` and the action form of `do` come with the decision step.
 
 ## Routing and decision models
 
