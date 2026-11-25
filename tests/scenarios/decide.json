@@ -1,0 +1,162 @@
+{
+ "steps": [
+  {
+   "response": {
+    "choices": [
+     {
+      "message": {
+       "role": "assistant",
+       "content": null,
+       "tool_calls": [
+        {
+         "id": "call_d1",
+         "type": "function",
+         "function": {
+          "name": "structured_output",
+          "arguments": "{\"decision\":\"wake\",\"arguments\":{}}"
+         }
+        }
+       ]
+      },
+      "finish_reason": "tool_calls"
+     }
+    ],
+    "usage": {
+     "prompt_tokens": 10,
+     "completion_tokens": 5,
+     "total_tokens": 15
+    }
+   }
+  },
+  {
+   "response": {
+    "choices": [
+     {
+      "message": {
+       "role": "assistant",
+       "content": null,
+       "tool_calls": [
+        {
+         "id": "call_d2",
+         "type": "function",
+         "function": {
+          "name": "structured_output",
+          "arguments": "{\"decision\":\"wake\",\"arguments\":{\"summary\":\"the owner asks for a build\"}}"
+         }
+        }
+       ]
+      },
+      "finish_reason": "tool_calls"
+     }
+    ],
+    "usage": {
+     "prompt_tokens": 10,
+     "completion_tokens": 5,
+     "total_tokens": 15
+    }
+   }
+  },
+  {
+   "response": {
+    "choices": [
+     {
+      "message": {
+       "role": "assistant",
+       "content": null,
+       "tool_calls": [
+        {
+         "id": "call_d3",
+         "type": "function",
+         "function": {
+          "name": "structured_output",
+          "arguments": "{\"decision\":\"drop\",\"arguments\":{\"reason\":\"spam\"}}"
+         }
+        }
+       ]
+      },
+      "finish_reason": "tool_calls"
+     }
+    ],
+    "usage": {
+     "prompt_tokens": 10,
+     "completion_tokens": 5,
+     "total_tokens": 15
+    }
+   }
+  },
+  {
+   "response": {
+    "choices": [
+     {
+      "message": {
+       "role": "assistant",
+       "content": "I would wake the owner."
+      },
+      "finish_reason": "stop"
+     }
+    ],
+    "usage": {
+     "prompt_tokens": 10,
+     "completion_tokens": 5,
+     "total_tokens": 15
+    }
+   }
+  },
+  {
+   "response": {
+    "choices": [
+     {
+      "message": {
+       "role": "assistant",
+       "content": null,
+       "tool_calls": [
+        {
+         "id": "call_d5",
+         "type": "function",
+         "function": {
+          "name": "structured_output",
+          "arguments": "{\"decision\":\"wake\",\"arguments\":{\"summary\":\"nudged\"}}"
+         }
+        }
+       ]
+      },
+      "finish_reason": "tool_calls"
+     }
+    ],
+    "usage": {
+     "prompt_tokens": 10,
+     "completion_tokens": 5,
+     "total_tokens": 15
+    }
+   }
+  },
+  {
+   "response": {
+    "choices": [
+     {
+      "message": {
+       "role": "assistant",
+       "content": null,
+       "tool_calls": [
+        {
+         "id": "call_d6",
+         "type": "function",
+         "function": {
+          "name": "structured_output",
+          "arguments": "{\"decision\":\"later\",\"arguments\":{}}"
+         }
+        }
+       ]
+      },
+      "finish_reason": "tool_calls"
+     }
+    ],
+    "usage": {
+     "prompt_tokens": 10,
+     "completion_tokens": 5,
+     "total_tokens": 15
+    }
+   }
+  }
+ ]
+}
