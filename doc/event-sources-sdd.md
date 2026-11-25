@@ -7,8 +7,8 @@ gaps "Structured events" and "Other event sources".
 
 Implemented: the wire of the extension for stdio servers (handshake, kinds,
 events, rejections, acknowledgement on publish, credits; `mcp/servers/NAME/
-events`), `list` and `wait` on sources, the live panel line, and
-`fyai source lines`. The rest is design.
+events`), `list` and `wait` on sources, the live panel line,
+`fyai source lines`, and bound actions. The rest is design.
 
 ## Problem
 
@@ -269,6 +269,19 @@ argument added, `event`, the record id. The model writes
 and fyai fills `channel` and `thread_ts` from the record before it calls the
 tool. When only one record is open, `event` defaults to it. The model cannot
 reply into the wrong thread, and the source never sees an id it did not issue.
+
+As built:
+
+- A tool that any kind binds loses every argument that any kind binds, and
+  `event` is the one argument added. A kind that binds the tool must bind
+  the same arguments, or a call of an event of that kind misses them.
+- An event is open until an action that names it, or defaults to it,
+  succeeds. A source keeps its last 64 events that a kind with actions
+  sent; an older id is unknown.
+- The text for the model ends with the actions and the id to pass.
+- A `list_changed` lists the kinds again and offers the tools again.
+- The records live with the connection: a new session knows none of the
+  events of the last one. Storing them is "Records" below.
 
 ## Trust
 
