@@ -789,6 +789,26 @@ fyai wraps it: each line is a record, there is no cursor, and credits pause
 reading the pipe. `monitor` becomes a model-started line source with the time
 limit it has now.
 
+**As built.** A line source is an entry of `mcp/servers` with `lines`:
+
+```yaml
+mcp:
+  servers:
+    build-log:
+      lines: tail -F build.log
+      kind: line                  # default
+      json: false                 # parse each line as JSON
+      schema: {type: object}      # or the path of a file; needs json
+      cursor_file: build.offset   # resume after the acknowledged offset
+```
+
+It is the server `fyai source lines` of the running executable, with the
+command run through `/bin/sh -c`, and `events: true`. `lines` takes the
+place of `command` and `transport`; `cwd`, `env`, `principals`, `trust`
+and `route` apply as to any source, and it starts again when it goes
+down. An inline schema goes to the verb as `--schema-json`. `monitor` is
+left as it is.
+
 ## Verbs: adapters that are sources
 
 The line wrapper and the decision step are useful outside a session, so each
