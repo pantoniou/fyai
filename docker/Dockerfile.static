@@ -80,7 +80,7 @@ RUN if [ "$STATIC_MODE" = musl ]; then \
 # Build and install a static libfyaml (libfyaml.a + libfyaml.pc + headers). Pin
 # matches fyai's FetchContent libfyaml GIT_TAG; override with --build-arg.
 ARG LIBFYAML_REPO=https://github.com/pantoniou/libfyaml
-ARG LIBFYAML_REF=096a91a6c7199ace63756c1a2c7e44b7f0c52432
+ARG LIBFYAML_REF=41dfb98d56596cd295af902f280c24add27bd57d
 # The mostly mode builds its own libfyaml in scripts/build-static-native.sh.
 RUN if [ "$STATIC_MODE" = mostly ]; then exit 0; fi \
     && git clone "$LIBFYAML_REPO" /libfyaml \

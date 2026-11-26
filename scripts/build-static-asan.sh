@@ -28,7 +28,7 @@ set -eu
 
 here=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 build=
-libfyaml_ref=${LIBFYAML_REF:-096a91a6c7199ace63756c1a2c7e44b7f0c52432}
+libfyaml_ref=${LIBFYAML_REF:-41dfb98d56596cd295af902f280c24add27bd57d}
 libfyaml_repo=${LIBFYAML_REPO:-https://github.com/pantoniou/libfyaml}
 jobs=${BUILD_JOBS:-2}
 type=${BUILD_TYPE:-RelWithDebInfo}

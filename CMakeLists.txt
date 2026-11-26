@@ -259,7 +259,7 @@ if(NOT TARGET libfyaml::libfyaml)
     set(BUILD_TESTING OFF)
     FetchContent_Declare(libfyaml
         GIT_REPOSITORY https://github.com/pantoniou/libfyaml
-        GIT_TAG 096a91a6c7199ace63756c1a2c7e44b7f0c52432
+        GIT_TAG 41dfb98d56596cd295af902f280c24add27bd57d
     )
     FetchContent_MakeAvailable(libfyaml)
     set(BUILD_TESTING "${_FYAI_BUILD_TESTING}")
