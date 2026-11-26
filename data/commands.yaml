@@ -918,8 +918,9 @@ commands:
         description: |
           Run COMMAND once the client lists the kinds, and serve each line
           that it prints as an event of KIND (default `line`). With `--json`
-          each line is parsed as JSON and, with `--schema`, checked against
-          that JSON Schema; a line that fails is skipped with a warning. An
+          each line is parsed as JSON and, with `--schema` or
+          `--schema-json`, checked against that JSON Schema; a line that
+          fails is skipped with a warning. An
           event is sent only while the client gives credit, so a fast command
           waits on its pipe. With `--cursor-file`, the offset of the output
           that the client acknowledged is kept in FILE, and the next run skips
@@ -947,6 +948,10 @@ commands:
               description: check each JSON line against this JSON Schema
               x-fyai-meta: FILE
               x-fyai-complete: file
+            schema_json:
+              type: string
+              description: check each JSON line against this JSON Schema, given as JSON
+              x-fyai-meta: JSON
             cursor_file:
               type: string
               description: keep the acknowledged offset of the output in FILE

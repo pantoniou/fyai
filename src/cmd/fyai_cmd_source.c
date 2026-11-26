@@ -484,7 +484,7 @@ int fyai_cmd_source_lines(struct fyai_cmd_call *call, fy_generic *result)
 	};
 	fy_generic command = fy_get(call->args, "command", fy_seq_empty);
 	fy_generic schema;
-	const char *schema_file, *arg;
+	const char *schema_file, *schema_json, *arg;
 	char *text = NULL;
 	size_t argc = fy_len(command), i = 0;
 	int status, rc = -1;
@@ -497,13 +497,16 @@ int fyai_cmd_source_lines(struct fyai_cmd_call *call, fy_generic *result)
 	s.json = fy_get(call->args, "json", false);
 	s.cursor_file = fyai_cmd_arg_str(call, "cursor_file");
 	schema_file = fyai_cmd_arg_str(call, "schema");
+	schema_json = fyai_cmd_arg_str(call, "schema_json");
+	fyai_error_check(ctx, !schema_file || !schema_json, out,
+			 "source lines: give --schema or --schema-json, not both");
 	fyai_error_check(ctx, argc, out, "source lines: name a command after --");
 	fyai_error_check(ctx, strlen(s.kind) <= SOURCE_KIND_MAX &&
 			 strspn(s.kind, "abcdefghijklmnopqrstuvwxyz"
 				"ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_") ==
 			 strlen(s.kind), out,
 			 "source lines: a kind is letters, digits, '-' or '_'");
-	fyai_error_check(ctx, !schema_file || s.json, out,
+	fyai_error_check(ctx, (!schema_file && !schema_json) || s.json, out,
 			 "source lines: --schema checks JSON lines; add --json");
 	s.keep = fy_generic_builder_create(&cfg);
 	s.gb = fy_generic_builder_create(&cfg);
@@ -537,6 +540,15 @@ int fyai_cmd_source_lines(struct fyai_cmd_call *call, fy_generic *result)
 		fyai_error_check(ctx, fy_is_valid(fyai_schema_validate(s.gb,
 				 schema, fy_null)), out,
 				 "source lines: %s cannot be checked", schema_file);
+		s.schema = schema;
+	} else if (schema_json) {
+		schema = parse_json_string(s.keep, schema_json);
+		fyai_error_check(ctx, fy_is_mapping(schema) || fy_is_bool(schema),
+				 out, "source lines: --schema-json is not a JSON "
+				 "schema");
+		fyai_error_check(ctx, fy_is_valid(fyai_schema_validate(s.gb,
+				 schema, fy_null)), out,
+				 "source lines: --schema-json cannot be checked");
 		s.schema = schema;
 	} else {
 		s.schema = s.json ? fy_true :

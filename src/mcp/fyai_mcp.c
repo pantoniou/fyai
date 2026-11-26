@@ -23,6 +23,7 @@
 #include <time.h>
 #include <unistd.h>
 
+#include "fyai_host.h"
 #include "fyai_sink.h"
 #include "fyai_curl.h"
 #include "fyai_auth_util.h"
@@ -3882,6 +3883,63 @@ static enum fyai_event_action mcp_source_restart(const struct fyai_event *ev)
 	return FYAIEA_CONTINUE;
 }
 
+/*
+ * A line source: `lines: COMMAND` is the server `fyai source lines` of this
+ * executable, which runs COMMAND through /bin/sh and sends each line as an
+ * event. The other keys of the entry stay; the result lives in the
+ * configuration builder.
+ */
+static fy_generic mcp_lines_config(struct fyai_mcp *mc, const char *name,
+				   fy_generic config)
+{
+	struct fy_generic_builder *gb = mc->cfg->gb;
+	fy_generic args, schema, v;
+	const char *s;
+	char exe[PATH_MAX];
+	ssize_t n;
+
+	n = fyai_host_executable(exe, sizeof(exe));
+	fyai_diag_check(mc->diag, n > 0 && (size_t)n < sizeof(exe), err,
+			 "line source '%s': cannot name the fyai executable",
+			 name);
+	exe[n] = '\0';
+	args = fy_sequence(gb, "source", "lines");
+	v = fy_get(config, "kind", fy_invalid);
+	if (fy_is_string(v))
+		args = fy_append(gb, args, "--kind", v);
+	if (fy_get(config, "json", false))
+		args = fy_append(gb, args, "--json");
+	schema = fy_get(config, "schema", fy_invalid);
+	if (fy_is_string(schema))
+		args = fy_append(gb, args, "--schema", schema);
+	else if (fy_is_mapping(schema) || fy_is_bool(schema)) {
+		s = emit_json_string(gb, schema);
+		fyai_diag_check(mc->diag, s, err,
+				"line source '%s': cannot write its schema", name);
+		args = fy_append(gb, args, "--schema-json", s);
+	} else
+		fyai_diag_check(mc->diag, fy_is_invalid(schema), err,
+				"line source '%s': schema is a schema or a file",
+				name);
+	v = fy_get(config, "cursor_file", fy_invalid);
+	if (fy_is_string(v))
+		args = fy_append(gb, args, "--cursor-file", v);
+	args = fy_append(gb, args, "--", "/bin/sh", "-c",
+			 fy_get(config, "lines", fy_invalid));
+	fyai_diag_check(mc->diag, fy_is_sequence(args), err,
+			"line source '%s': cannot make its command", name);
+	/* What a line source is not: the entry of another server. */
+	config = fy_disassoc(gb, config, "lines", "kind", "json", "schema",
+			     "cursor_file", "endpoint");
+	config = fy_assoc(gb, config, "transport", "stdio", "command", exe,
+			  "args", args, "events", true);
+	fyai_diag_check(mc->diag, fy_is_mapping(config), err,
+			"line source '%s': cannot make its configuration", name);
+	return config;
+err:
+	return fy_invalid;
+}
+
 static int mcp_create_server(struct fyai_mcp *mc, const char *server_name,
 			     fy_generic config)
 {
@@ -3898,6 +3956,16 @@ static int mcp_create_server(struct fyai_mcp *mc, const char *server_name,
 
 	fyai_diag_check(mc->diag, mcp_server_name_valid(server_name), err_out,
 			 "invalid MCP server name '%s'", server_name);
+	if (fy_is_valid(fy_get(config, "lines", fy_invalid))) {
+		fyai_diag_check(mc->diag,
+				fy_is_string(fy_get(config, "lines", fy_invalid)) &&
+				!fy_is_valid(fy_get(config, "command", fy_invalid)),
+				err_out, "line source '%s': lines is a command, "
+				"and takes the place of command", server_name);
+		config = mcp_lines_config(mc, server_name, config);
+		if (fy_is_invalid(config))
+			goto err_out;	/* mcp_lines_config() says why */
+	}
 	command = fy_get(config, "command", "");
 	transport = fy_get(config, "transport", *command ? "stdio" :
 						       "streamable-http");

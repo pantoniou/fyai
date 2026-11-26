@@ -2165,6 +2165,31 @@ properties:
                 the stream that fyai keeps open to it. Each event that
                 passes the schema of its kind reaches the model as external
                 data and can start a turn. See doc/event-sources-sdd.md.
+            lines:
+              type: string
+              description: >-
+                Make this server a line source: run this shell command and
+                send each line that it prints as an event, through
+                `fyai source lines`. It takes the place of command and
+                transport, and sets events.
+            kind:
+              type: string
+              default: line
+              description: The kind of the events of a line source.
+            json:
+              type: boolean
+              default: false
+              description: Parse each line of a line source as JSON.
+            schema:
+              description: >-
+                The JSON Schema that each JSON line of a line source must
+                match: a schema, or the path of a file that holds one.
+            cursor_file:
+              type: string
+              description: >-
+                Keep the acknowledged offset of the output of a line source
+                in this file, so that a command that prints its input from
+                the start resumes after it.
             principals:
               type: object
               description: >-
