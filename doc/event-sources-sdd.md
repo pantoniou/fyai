@@ -659,7 +659,7 @@ Not yet: `score` questions (an integer argument on levels), images, and
 OpenAI's Decisions API, whose wire is not public. The key does not pass
 through the transport of credential isolation.
 
-### Conversations
+### Conversations and active branches
 
 `conversation` lets a route keep a branch per conversation:
 
@@ -669,9 +669,67 @@ through the transport of credential isolation.
 ```
 
 Each Slack thread then runs in its own branch of the project, with its own
-history, and its bound actions answer into its own thread. Branches exist
-already (`doc/branching.md`); this needs a route to start or resume one per
-key, and a limit on how many run at once.
+history and its own window, and its bound actions answer into its own
+thread. A closed thread costs nothing.
+
+**The model: a git project, not a lock manager.** Several sessions may have
+one branch open. A session is *active* on a branch while it runs a turn
+there, and *idle* otherwise. Usually one session writes and the others
+follow, as people sharing a git repository know not to step on each other.
+fyai adds no coordination by default:
+
+- An idle session follows its branch: when the head moves under it, it
+  takes the new turns into its transcript and its next request. Turns are
+  immutable and appended, so following never rewrites what it showed.
+- A session that publishes onto a branch that moved meets the existing
+  conflict handling (`doc/branching.md` section 8, `branch/on_conflict`):
+  `abort`, `rebase` or `fork`. A rebase moves whole steps, never a tool call
+  without its results.
+- Files are shared, as the working tree of a git checkout is shared. Two
+  sessions that run tools on one tree at once can collide; that is the
+  user's arrangement to avoid, as it is today with two terminals. A
+  conversation may run in a view of its own (`view: true` on the route)
+  when its work should land through `project_view apply`, but views are
+  not required.
+- When a project server runs (`fyai serve`, the fleet), it hosts one worker
+  per branch and knows whether it is busy, so a message to a busy branch
+  queues into its runner (`fyai_session_send`) instead of starting a second
+  one. That is the arbiter when there is one; without it the conflict
+  handling above is the arbiter.
+
+**Branch per conversation.**
+
+1. A kind names its conversation with JSON pointers
+   (`conversation: ["/channel", "/thread_ts"]`); their values in an event
+   are the key.
+2. The route `do: {wake: branch-per-conversation}` maps the key to a branch
+   below the session's (`main/conv:KEY`, made safe as agent names are). A
+   new key forks a branch; a known key resumes it.
+3. The branch is run by a background sub-agent of the session, by name, as
+   `agent` resumes a named sub-agent. An event for a conversation whose
+   agent is running goes to it as a message (`agent_message`); one for an
+   idle conversation starts its next turn. Hosting the runner in a fleet
+   worker instead lets conversations outlive the session (durable hosting).
+4. The branch name is derived from the key, so a restart and a later
+   event of the same thread find the branch by name; nothing is stored.
+   A key too long for a name, or two keys that make the same safe name,
+   take a short hash of the key as a suffix. What a conversation means is
+   the application's (a Slack bot is one example); fyai keeps no map of
+   its own. User-defined entries in the store of a ref, readable by the
+   model and the user, may later hold such data; not yet.
+5. No limit on how many conversations run at once. A queue in front of
+   them belongs to the ticketing work that comes later.
+6. A conversation idle for `idle_branch` has its agent ended; its branch and
+   its head stay, and a new event resumes it.
+7. Bound actions of a record answer from the conversation's branch, as they
+   do from the session.
+8. The session sees a line for each live conversation in the live panel,
+   and a report when one ends.
+
+Work, in order: idle sessions follow their branch (needed by watchers of a
+conversation too); the conversation key and the route; idle close; then views on request. Several runners active on one branch
+at once, with claims per event and leases at turn start, are left until a
+use needs them.
 
 ## Requests from the source
 
@@ -906,7 +964,8 @@ the style of the existing MCP test servers.
 - Ack on publish costs a resend after a crash between delivery and publish.
   Is at least once with dedup by id acceptable everywhere, or does a kind
   need "at most once"?
-- Does `/clear` keep a branch-per-conversation map, or start over?
+- `/clear` of the session does not touch the conversation branches: they
+  are found by name, and each is cleared on its own.
 - Should a source be able to declare its route defaults (a suggested
   `decide` for its kinds), or is routing only the user's config?
 - GC in a session that never stops: GC when idle with no open record, or GC
