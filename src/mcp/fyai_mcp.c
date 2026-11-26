@@ -3571,8 +3571,13 @@ static int mcp_stdio_spawn(struct fyai_mcp *mc, struct fyai_mcp_ctx *mcp,
 
 	i = 0;
 	argv[i++] = (char *)command;
+	/*
+	 * A short string lives in the generic itself, which the next step of
+	 * the loop overwrites: keep a copy of each argument.
+	 */
 	fy_foreach(item, args)
-		argv[i++] = fy_castp(&item, "");
+		argv[i++] = (char *)fy_gb_intern_string(mc->cfg->gb,
+							fy_castp(&item, ""));
 	argv[i] = NULL;
 
 	rc = pipe(inpipe);
