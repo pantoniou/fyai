@@ -856,7 +856,9 @@ commands:
       Type the decider name followed by plain text, for example
       `/decide yes-no Is 17 a prime number?` or
       `/decide triage The nightly build failed.` Both deciders are built in.
-      Use `--input` for a structured JSON value and `--list` to see deciders.
+      `/decide list`, or `--list`, shows every decider with its model;
+      `list` is not the name of a decider.
+      Use `--input` for a structured JSON value.
     surfaces: [cli, session]
     mode: async
     handler: decide
@@ -866,10 +868,11 @@ commands:
       table:
         title: Deciders
         empty: no deciders
-        keys: [name, from, options, description]
+        keys: [name, from, model, options, description]
         columns:
           name: {name: Decider, align: left}
           from: {name: From, align: left}
+          model: {name: Model, align: left}
           options: {name: Options, align: left}
           description: {name: Description, align: left}
     arguments:
@@ -878,9 +881,10 @@ commands:
       properties:
         decider:
           type: string
-          description: the decider, a key of decisions
+          description: the decider, a key of decisions, or list to show them
           x-fyai-positional: 0
           x-fyai-meta: NAME
+          x-fyai-complete: decider
         text:
           type: string
           description: plain text to send to the decider
@@ -1122,7 +1126,10 @@ commands:
     title: list providers, models, turns, exchanges, the ref log, or live work
     description: |
       List the configured providers, the models of the catalogue, the
-      stored turns, the exchanges, or the ref log of the branch.
+      deciders, the stored turns, the exchanges, or the ref log of the
+      branch. `models` leaves out the decision models, which cannot chat;
+      `decider-models` lists them, and `deciders` shows each decider with
+      its model.
 
       In a session, `sessions` lists the live shells and sub-agents, and
       `shells`, `agents`, `waits`, `monitors`, `daemons`, `questions`,
@@ -1139,7 +1146,7 @@ commands:
       properties:
         what:
           type: string
-          enum: [providers, models, turns, exchanges, reflog, sessions,
+          enum: [providers, models, deciders, decider-models, turns, exchanges, reflog, sessions,
                  shells, agents, waits, monitors, daemons, questions, messages,
                  sources]
           default: providers

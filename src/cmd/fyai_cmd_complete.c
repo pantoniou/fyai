@@ -29,6 +29,7 @@
 #include "fyai_branch.h"
 #include "fyai_catalog.h"
 #include "fyai_config.h"
+#include "fyai_decider.h"
 #include "fyai_markdown.h"
 #include "fyai_page.h"
 #include "fyai_sink.h"
@@ -702,6 +703,24 @@ static void kind_page_layout(struct complete_req *r)
 				     page_layout_cand, r);
 }
 
+/* The deciders, canned and configured, and `list` for the table of them. */
+static void kind_decider(struct complete_req *r)
+{
+	fy_generic rows, row, name, desc;
+
+	cand(r, "list", "show the deciders and their models");
+	if (!complete_req_ctx(r))
+		return;
+	rows = fyai_deciders_rows(complete_req_ctx(r)->cfg, r->gb);
+	fy_foreach(row, rows) {
+		name = fy_get(row, "name", fy_invalid);
+		desc = fy_get(row, "description", fy_invalid);
+		if (fy_is_string(name))
+			cand(r, fy_castp(&name, ""),
+			     fy_is_string(desc) ? fy_castp(&desc, "") : NULL);
+	}
+}
+
 static void sandbox_profile_cand(void *arg, const char *name, const char *desc)
 {
 	cand(arg, name, desc);
@@ -756,6 +775,7 @@ static const struct {
 	{ "page-layout",	kind_page_layout,	false },
 	{ "skill",		kind_skill,		true },
 	{ "sandbox-profile",	kind_sandbox_profile,	true },
+	{ "decider",		kind_decider,		true },
 	/* The skills that the user runs as /NAME: asked for by the engine. */
 	{ "user-skill",		complete_skills,	true },
 };

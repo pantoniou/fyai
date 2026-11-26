@@ -229,6 +229,10 @@ fy_generic fyai_deciders_rows(struct fyai_cfg *cfg,
 			rows = fy_append(gb, rows, fy_mapping(gb,
 				"name", name,
 				"from", i ? "canned" : "configuration",
+				"model", fy_is_valid(d) &&
+					fy_is_string(fy_get(d, "model", fy_invalid)) ?
+					fy_get(d, "model", fy_invalid) :
+					fy_value(gb, "session"),
 				"options", keys,
 				"description", fy_is_valid(d) ?
 					fy_get(d, "description", fy_null) :

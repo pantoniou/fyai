@@ -25,6 +25,7 @@
 #include "fyai_asks.h"
 #include "fyai_branch.h"
 #include "fyai_config.h"
+#include "fyai_decider.h"
 #include "fyai_display.h"
 #include "fyai_session.h"
 #include "fyai_tools.h"
@@ -161,23 +162,38 @@ static bool list_provider_active(struct fyai_cfg *cfg, const char *name)
 	return cfg->provider && name && !strcmp(cfg->provider, name);
 }
 
+/* True when @canon names a model of the capability decisions. */
+static bool list_decision_model(fy_generic cat, fy_generic canon)
+{
+	fy_generic entry;
+
+	if (!fy_is_string(canon))
+		return false;
+	entry = fyai_catalog_model(cat, fy_castp(&canon, ""));
+	return fy_is_mapping(entry) &&
+	       fyai_catalog_model_has_cap(entry, "decisions");
+}
+
 /* The providers of the catalogue and the models each serves. */
 static fy_generic list_providers(struct fyai_cmd_call *call)
 {
 	struct fyai_cfg *cfg = fyai_cmd_call_ctx(call)->cfg;
 	struct fy_generic_builder *gb = call->gb;
-	fy_generic p, o, rows, models, active_model, name, canon;
+	fy_generic p, o, rows, models, active_model, name, canon, cat;
 	bool active;
 
 	rows = fy_seq_empty;
-	fy_foreach(p, fy_get(fyai_catalog_effective(cfg->catalog, gb),
-			     "providers", fy_invalid)) {
+	cat = fyai_catalog_effective(cfg->catalog, gb);
+	fy_foreach(p, fy_get(cat, "providers", fy_invalid)) {
 		name = fy_get(p, "name", fy_invalid);
 		active = list_provider_active(cfg, fy_castp(&name, ""));
 		models = fy_seq_empty;
 		active_model = fy_null;
 		fy_foreach(o, fy_get(p, "models", fy_invalid)) {
 			canon = fy_get(o, "canonical_id", fy_invalid);
+			/* A decision model cannot chat: `list decider-models` names it. */
+			if (list_decision_model(cat, canon))
+				continue;
 			models = fy_append(gb, models, canon);
 			if (active && cfg->model &&
 			    (fy_equal(canon, cfg->model) ||
@@ -212,8 +228,12 @@ static bool list_model_active(struct fyai_cfg *cfg, fy_generic provider,
 	return false;
 }
 
-/* The models of the catalogue and the providers that serve each. */
-static fy_generic list_models(struct fyai_cmd_call *call, bool full)
+/*
+ * The models of the catalogue and the providers that serve each: the chat
+ * models, or with @decisions the decision models, which cannot chat.
+ */
+static fy_generic list_models(struct fyai_cmd_call *call, bool full,
+			      bool decisions)
 {
 	struct fyai_cfg *cfg = fyai_cmd_call_ctx(call)->cfg;
 	struct fy_generic_builder *gb = call->gb;
@@ -223,6 +243,8 @@ static fy_generic list_models(struct fyai_cmd_call *call, bool full)
 	cat = fyai_catalog_effective(cfg->catalog, gb);
 	rows = fy_seq_empty;
 	fy_foreach(m, fy_get(cat, "models", fy_invalid)) {
+		if (fyai_catalog_model_has_cap(m, "decisions") != decisions)
+			continue;
 		name = fy_get(m, "name", fy_invalid);
 		active = false;
 		names = fy_seq_empty;
@@ -300,6 +322,22 @@ static fy_generic list_renderopts(struct fy_generic_builder *gb,
 {
 	fy_generic api = fy_mapping(gb, "api", fy_mapping(gb, "name", "API"));
 
+	if (!strcmp(what, "deciders"))
+		return fy_mapping(gb, "empty", "no deciders",
+			"keys", fy_sequence(gb, "name", "from", "model",
+					    "options", "description"),
+			"columns", fy_mapping(gb,
+				"name", fy_mapping(gb, "name", "Decider",
+						   "align", "left"),
+				"from", fy_mapping(gb, "name", "From",
+						   "align", "left"),
+				"model", fy_mapping(gb, "name", "Model",
+						    "align", "left"),
+				"options", fy_mapping(gb, "name", "Options",
+						      "align", "left"),
+				"description", fy_mapping(gb, "name",
+							  "Description",
+							  "align", "left")));
 	if (!strcmp(what, "turns"))
 		return fy_mapping(gb, "empty", "no turns",
 			"keys", fy_sequence(gb, "index", "role", "provider",
@@ -322,8 +360,9 @@ static fy_generic list_renderopts(struct fy_generic_builder *gb,
 				"created", fy_mapping(gb, "name", "When",
 						      "align", "left",
 						      "format", "time")));
-	if (!strcmp(what, "models"))
-		return fy_mapping(gb, "empty", "no models",
+	if (!strcmp(what, "models") || !strcmp(what, "decider-models"))
+		return fy_mapping(gb, "empty", !strcmp(what, "models") ?
+					"no models" : "no decision models",
 			"keys", full ?
 				fy_sequence(gb, "name", "display_name",
 					    "providers", "context_window",
@@ -457,8 +496,10 @@ int fyai_cmd_list(struct fyai_cmd_call *call, fy_generic *result)
 		call->cancel = list_models_cancel;
 		return FYAI_CMD_PENDING;
 	}
-	if (!strcmp(what, "models"))
-		rows = list_models(call, full);
+	if (!strcmp(what, "models") || !strcmp(what, "decider-models"))
+		rows = list_models(call, full, !strcmp(what, "decider-models"));
+	else if (!strcmp(what, "deciders"))
+		rows = fyai_deciders_rows(ctx->cfg, call->gb);
 	else if (!strcmp(what, "turns"))
 		rows = fyai_list_turns_data(ctx, call->gb);
 	else if (!strcmp(what, "exchanges"))

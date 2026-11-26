@@ -146,9 +146,24 @@ static double decide_number(fy_generic v)
 }
 
 /* What a decide run needs that a session does not: set before the setup. */
+/* True when the arguments only ask for the deciders: `list`, or --list. */
+static bool decide_lists(fy_generic args)
+{
+	fy_generic name = fy_get(args, "decider", fy_invalid);
+
+	if (fy_get(args, "list", false))
+		return true;
+	return fy_is_string(name) && !strcmp(fy_castp(&name, ""), "list") &&
+	       fy_is_invalid(fy_get(args, "text", fy_invalid)) &&
+	       fy_is_invalid(fy_get(args, "input", fy_invalid)) &&
+	       fy_is_invalid(fy_get(args, "spec", fy_invalid));
+}
+
 int fyai_cmd_decide_prepare(struct fyai_cfg *cfg, fy_generic args)
 {
-	(void)args;
+	/* A listing sends no request: it needs no model and no key. */
+	if (decide_lists(args))
+		cfg->cmd.reg.extra_flags |= FYAIVF_NO_REQUESTS;
 	cfg->interactive = false;
 	cfg->enable_tools = true;
 	cfg->enable_builtin_shell = false;
@@ -1195,7 +1210,8 @@ int fyai_cmd_decide(struct fyai_cmd_call *call, fy_generic *result)
 	int rc = 0, keep = -1, null = -1;
 	FILE *out;
 
-	if (fyai_cmd_arg_bool(call, "list")) {
+	if (fyai_cmd_arg_bool(call, "list") ||
+	    (name && !strcmp(name, "list") && !plain && !input && !spec)) {
 		*result = fyai_deciders_rows(cfg, gb);
 		return 0;
 	}

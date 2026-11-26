@@ -261,6 +261,8 @@ struct fyai_cmd_state {
 	int format;			/* enum fyai_cmd_format */
 	bool help;			/* --help: show the help, run nothing */
 	struct fyai_verb verb;		/* flags from the definition */
+	/* Flags that a prepare hook adds to those of the definition. */
+	enum fyai_verb_flags extra_flags;
 };
 
 /* combined */

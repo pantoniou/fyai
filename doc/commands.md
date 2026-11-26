@@ -561,14 +561,16 @@ levels). `--image FILE` shows an image to each decision; the decider's
 Type the decider name followed by plain text, for example
 `/decide yes-no Is 17 a prime number?` or
 `/decide triage The nightly build failed.` Both deciders are built in.
-Use `--input` for a structured JSON value and `--list` to see deciders.
+`/decide list`, or `--list`, shows every decider with its model;
+`list` is not the name of a decider.
+Use `--input` for a structured JSON value.
 
 
 ### Arguments
 
 | Argument | Description |
 | --- | --- |
-| `NAME` | the decider, a key of decisions |
+| `NAME` | the decider, a key of decisions, or list to show them |
 | `TEXT` | plain text to send to the decider |
 
 ### Options
@@ -794,7 +796,10 @@ list providers, models, turns, exchanges, the ref log, or live work
 **Usage:** `fyai list [--full] [--raw] [WHAT]`
 
 List the configured providers, the models of the catalogue, the
-stored turns, the exchanges, or the ref log of the branch.
+deciders, the stored turns, the exchanges, or the ref log of the
+branch. `models` leaves out the decision models, which cannot chat;
+`decider-models` lists them, and `deciders` shows each decider with
+its model.
 
 In a session, `sessions` lists the live shells and sub-agents, and
 `shells`, `agents`, `waits`, `monitors`, `daemons`, `questions`,
@@ -805,7 +810,7 @@ In a session, `sessions` lists the live shells and sub-agents, and
 
 | Argument | Description |
 | --- | --- |
-| `WHAT` | what to list (providers, models, turns, exchanges, reflog, sessions, shells, agents, waits, monitors, daemons, questions, messages, sources); default providers |
+| `WHAT` | what to list (providers, models, deciders, decider-models, turns, exchanges, reflog, sessions, shells, agents, waits, monitors, daemons, questions, messages, sources); default providers |
 
 ### Options
 
@@ -4748,14 +4753,16 @@ levels). `--image FILE` shows an image to each decision; the decider's
 Type the decider name followed by plain text, for example
 `/decide yes-no Is 17 a prime number?` or
 `/decide triage The nightly build failed.` Both deciders are built in.
-Use `--input` for a structured JSON value and `--list` to see deciders.
+`/decide list`, or `--list`, shows every decider with its model;
+`list` is not the name of a decider.
+Use `--input` for a structured JSON value.
 
 
 ### Arguments
 
 | Argument | Description |
 | --- | --- |
-| `NAME` | the decider, a key of decisions |
+| `NAME` | the decider, a key of decisions, or list to show them |
 | `TEXT` | plain text to send to the decider |
 
 ### Options
@@ -4887,7 +4894,10 @@ list providers, models, turns, exchanges, the ref log, or live work
 **Usage:** `/list [--full] [WHAT]`
 
 List the configured providers, the models of the catalogue, the
-stored turns, the exchanges, or the ref log of the branch.
+deciders, the stored turns, the exchanges, or the ref log of the
+branch. `models` leaves out the decision models, which cannot chat;
+`decider-models` lists them, and `deciders` shows each decider with
+its model.
 
 In a session, `sessions` lists the live shells and sub-agents, and
 `shells`, `agents`, `waits`, `monitors`, `daemons`, `questions`,
@@ -4898,7 +4908,7 @@ In a session, `sessions` lists the live shells and sub-agents, and
 
 | Argument | Description |
 | --- | --- |
-| `WHAT` | what to list (providers, models, turns, exchanges, reflog, sessions, shells, agents, waits, monitors, daemons, questions, messages, sources); default providers |
+| `WHAT` | what to list (providers, models, deciders, decider-models, turns, exchanges, reflog, sessions, shells, agents, waits, monitors, daemons, questions, messages, sources); default providers |
 
 ### Options
 

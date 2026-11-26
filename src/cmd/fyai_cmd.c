@@ -2013,7 +2013,8 @@ int fyai_cmd_configure(struct fyai_cfg *cfg, int argc, char **argv)
 	memset(v, 0, sizeof(*v));
 	v->name = fy_gb_intern_string(cfg->gb, argv[0]);
 	v->execute = fyai_cmd_execute;
-	v->flags = def_verb_flags(cfg->cmd.reg.def, cfg->cmd.reg.help);
+	v->flags = def_verb_flags(cfg->cmd.reg.def, cfg->cmd.reg.help) |
+		   cfg->cmd.reg.extra_flags;
 	return 0;
 }
 
