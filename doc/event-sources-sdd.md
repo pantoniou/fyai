@@ -504,6 +504,29 @@ decisions:
 - A decision model can choose such an option, but a tool that needs text
   (a command) goes to its fallback, as any text argument does.
 
+### The decide tool, as built
+
+A session whose configuration has deciders (`decisions/NAME`) offers the
+model the tool `decide {decider, input}`; a session without them does not.
+The `decider` argument is an enum of the configured deciders, and the
+description lists each with its own description. The canned deciders are
+not offered on their own: a configuration names the ones it wants, with
+`use` if it likes.
+
+- A call runs `fyai decide --spec --input` as a child, as a route does
+  (`fyai_selfjob_decide_start`): the decider runs on its own model, outside
+  the tool sandbox, and through the credential channels. The input is the
+  text the model gave, as a JSON string.
+- The tool group waits for the child on the event loop, as for an MCP call,
+  so the turn does not block the loop. An interrupt kills the child.
+- The result is the decision line; a line with `error`, a failure or the
+  time limit (120 s) is a failed call.
+- It is not offered to a sub-agent (`FYAI_TOOL_NOT_FOR_CHILD`).
+
+Use: a cheap gate before a step (`is this command safe?`), or a route
+(`which persona takes this?`), where a decision model answers in a
+fraction of a second.
+
 ### Scores and images on decision models, as built
 
 - An `integer` argument with `minimum` and `maximum` 2 to 10 apart is a
