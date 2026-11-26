@@ -1,0 +1,12 @@
+# SPDX-License-Identifier: MIT
+# The canned gates (case decide_gates): shell-gate and triage-fast run on a
+# decision model, here the System One endpoint of the mock.
+steps:
+  - match: {path: /v1/systemone, body_contains: G1}
+    response:
+      answers:
+        decision: {type: choice, choice: risky, probabilities: {risky: 0.96, safe: 0.04}}
+  - match: {path: /v1/systemone, body_contains: T1}
+    response:
+      answers:
+        decision: {type: choice, choice: drop, probabilities: {drop: 0.91, wake: 0.05, defer: 0.04}}
