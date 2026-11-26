@@ -519,7 +519,7 @@ Run a shell, or COMMAND, in a full-screen terminal that fyai draws.
 
 let a model choose one option for each input
 
-**Usage:** `fyai decide [--options FILE] [--instructions TEXT] [--input JSON] [--image FILE] [--list] [NAME]`
+**Usage:** `fyai decide [--options FILE] [--instructions TEXT] [--input JSON] [--image FILE] [--list] [NAME] [TEXT...]`
 
 For each JSON value on standard input, one per line, or for `--input`,
 ask the model to choose one option of a decider and give its arguments,
@@ -558,8 +558,10 @@ A decision model answers an integer argument with `minimum` and
 `maximum` 2 to 10 apart with a score question (`x-levels` names the
 levels). `--image FILE` shows an image to each decision; the decider's
 `images: KEY` takes the data URLs of that key of the input.
-In a session, use `/decide NAME --input JSON` for one decision.
-Use `/decide --list` to show the available deciders.
+Type the decider name followed by plain text, for example
+`/decide yes-no Is 17 a prime number?` or
+`/decide triage The nightly build failed.` Both deciders are built in.
+Use `--input` for a structured JSON value and `--list` to see deciders.
 
 
 ### Arguments
@@ -567,6 +569,7 @@ Use `/decide --list` to show the available deciders.
 | Argument | Description |
 | --- | --- |
 | `NAME` | the decider, a key of decisions |
+| `TEXT` | plain text to send to the decider |
 
 ### Options
 
@@ -4703,7 +4706,7 @@ one provider.
 
 let a model choose one option for each input
 
-**Usage:** `/decide [--options FILE] [--instructions TEXT] [--input JSON] [--image FILE] [--list] [NAME]`
+**Usage:** `/decide [--options FILE] [--instructions TEXT] [--input JSON] [--image FILE] [--list] [NAME] [TEXT...]`
 
 For each JSON value on standard input, one per line, or for `--input`,
 ask the model to choose one option of a decider and give its arguments,
@@ -4742,8 +4745,10 @@ A decision model answers an integer argument with `minimum` and
 `maximum` 2 to 10 apart with a score question (`x-levels` names the
 levels). `--image FILE` shows an image to each decision; the decider's
 `images: KEY` takes the data URLs of that key of the input.
-In a session, use `/decide NAME --input JSON` for one decision.
-Use `/decide --list` to show the available deciders.
+Type the decider name followed by plain text, for example
+`/decide yes-no Is 17 a prime number?` or
+`/decide triage The nightly build failed.` Both deciders are built in.
+Use `--input` for a structured JSON value and `--list` to see deciders.
 
 
 ### Arguments
@@ -4751,6 +4756,7 @@ Use `/decide --list` to show the available deciders.
 | Argument | Description |
 | --- | --- |
 | `NAME` | the decider, a key of decisions |
+| `TEXT` | plain text to send to the decider |
 
 ### Options
 
