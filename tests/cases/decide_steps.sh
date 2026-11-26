@@ -94,7 +94,7 @@ def png(n):
 open(sys.argv[1] + "/pic.png", "wb").write(png(300))
 open(sys.argv[1] + "/tiny.png", "wb").write(png(16))
 PY
-PNG=$(base64 -w0 "$TEST_DIR/pic.png")
+PNG=$(base64 <"$TEST_DIR/pic.png" | tr -d "\n")
 TYPESAFE_API_KEY=ts-key "$FYAI_BIN" "${CHAT[@]}" \
 	--set "decisions/rate={model: typesafe/jev-latest, url: '$MOCK_URL/v1/systemone', options: {$RATE}}" \
 	decide rate --input '{"text": "P3"}' --image "$TEST_DIR/pic.png" </dev/null \

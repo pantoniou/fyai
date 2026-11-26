@@ -30,13 +30,13 @@ PTY
 
 # The first run: the good line starts a turn by itself.
 session run1 "First seen."
-[ "$(cat "$TEST_DIR/inbox.cursor")" = "$(stat -c %s "$TEST_DIR/inbox.jsonl")" ] ||
+[ "$(cat "$TEST_DIR/inbox.cursor")" = "$(wc -c <"$TEST_DIR/inbox.jsonl" | tr -d " ")" ] ||
 	fail "the cursor is not the end of the acknowledged line"
 
 # The second run skips what the first acknowledged.
 printf '%s\n' '{"text": "second message"}' >>"$TEST_DIR/inbox.jsonl"
 session run2 "Second seen."
-[ "$(cat "$TEST_DIR/inbox.cursor")" = "$(stat -c %s "$TEST_DIR/inbox.jsonl")" ] ||
+[ "$(cat "$TEST_DIR/inbox.cursor")" = "$(wc -c <"$TEST_DIR/inbox.jsonl" | tr -d " ")" ] ||
 	fail "the second run did not move the cursor"
 
 "$PYTHON" - "$TEST_DIR/requests.jsonl" <<'PY' || fail "the events of the lines"

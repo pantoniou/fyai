@@ -22,8 +22,13 @@ mkfifo "$SYNC/stored"
 # before it is stored, so its output says the turn is stored.
 # The transcript view of a full-screen page shows the turns it took; an inline
 # screen keeps the rows it wrote.
+# The reader ends when the session has stored its turn. A session that ends
+# first ends the reader too, so one wait tells which came first.
+(read -r _ <"$SYNC/stored") &
+reader=$!
+{
 pty_run "$TEST_DIR/pty.out" "$FYAI_BIN" -b main \
-    --set display/screen=fullscreen -i <<PTY &
+    --set display/screen=fullscreen -i <<PTY
 steps:
   - type: Alpha from A
   - wait-screen: "Answer alpha."
@@ -40,15 +45,19 @@ steps:
     timeout: session
   - type: /exit
 PTY
+rc=$?
+[ -e "$SYNC/seen" ] || kill "$reader" 2>/dev/null || true
+exit $rc
+} &
 session=$!
 # A session that stops before it says so is a failure, not a hang.
-(read -r _ <"$SYNC/stored") &
-reader=$!
-wait -n "$reader" "$session" || true
-if ! kill -0 "$reader" 2>/dev/null; then :; else
-	kill "$reader" 2>/dev/null || true
+# The reader reads end of file when the session stores its turn (status 1)
+# and is killed (status 143) when the session ends first.
+rc=0
+wait "$reader" || rc=$?
+[ "$rc" -ne 143 ] ||
 	fail "the session stopped before it stored its turn: $(tail -c 2000 "$TEST_DIR/pty.out")"
-fi
+touch "$SYNC/seen"
 "$FYAI_BIN" -b main "Bravo from B" >"$TEST_DIR/b.out" 2>&1 ||
 	fail "the second invocation failed: $(cat "$TEST_DIR/b.out")"
 wait "$session" || fail "the session did not follow its branch: $(tail -c 2000 "$TEST_DIR/pty.out")"
