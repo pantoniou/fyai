@@ -1962,11 +1962,9 @@ static void mcp_decision_start(struct fyai_mcp_ctx *mcp,
 	struct fyai_ctx *ctx = fyai_mcp_state_ctx(mc);
 	fy_generic decider = fy_get(rule, "decide", fy_invalid);
 	long long timeout = fy_get(rule, "timeout", (long long)MCP_DECIDE_TIMEOUT);
-	const char *argv[24];
-	const char *branch = fyai_ctx_branch(ctx), *json, *spec, *why = NULL;
+	const char *json, *spec, *why = NULL;
 	struct mcp_decision *d;
 	fy_generic resolved;
-	int argc = 0;
 
 	/*
 	 * The child is given what this session resolved, the decider and where
@@ -1986,32 +1984,9 @@ static void mcp_decision_start(struct fyai_mcp_ctx *mcp,
 		goto lost;
 	d->next = mcp->decisions;
 	mcp->decisions = d;
-	argv[argc++] = "fyai";
-	argv[argc++] = "--color";
-	argv[argc++] = "off";
-	if (branch) {
-		argv[argc++] = "-b";
-		argv[argc++] = branch;
-	}
-	if (mc->cfg->model && *mc->cfg->model) {
-		argv[argc++] = "-m";
-		argv[argc++] = mc->cfg->model;
-	}
-	argv[argc++] = "--transient";
-	argv[argc++] = "--set";
-	argv[argc++] = fy_sprintfa("api=%s", fyai_api_to_string(mc->cfg->api_mode));
-	if (mc->cfg->api_url && *mc->cfg->api_url) {
-		argv[argc++] = "--set";
-		argv[argc++] = fy_sprintfa("api_url=%s", mc->cfg->api_url);
-	}
-	argv[argc++] = "decide";
-	argv[argc++] = "--spec";
-	argv[argc++] = spec;
-	argv[argc++] = "--input";
-	argv[argc++] = d->record;
-	argv[argc] = NULL;
-	d->job = fyai_selfjob_start(ctx, argv, timeout > 0 ? timeout * 1000 : 0,
-				    mcp_decision_done, d);
+	d->job = fyai_selfjob_decide_start(ctx, spec, d->record,
+					   timeout > 0 ? timeout * 1000 : 0,
+					   mcp_decision_done, d);
 	if (!d->job) {
 		fyai_diag_type(mc->diag, FYAIET_WARNING, "MCP server '%s': the "
 			       "decider '%s' could not start; the event wakes "

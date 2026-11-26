@@ -2179,6 +2179,30 @@ static void fyai_tool_job_group_dispatch(struct fyai_tool_job_group *group)
 			group->parked++;
 			continue;
 		}
+		if (name && !strcmp(name, "decide")) {
+			/* A decider runs as a child; its line ends the call. */
+			why = NULL;
+			entry->decide = fyai_skill_tool_allowed(
+				fyai_tool_job_group_ctx(group), name) ?
+				fyai_decide_call_start(fyai_tool_job_group_ctx(group),
+					fyai_tool_call_args(fyai_tool_job_group_ctx(group),
+							    call),
+					fyai_tool_job_group_waiter_done, group,
+					&why) : NULL;
+			if (entry->decide) {
+				entry->state = FYAITGS_RUNNING;
+				group->active++;
+				continue;
+			}
+			result = fy_value(fyai_tool_job_group_ctx(group)->transient->gb,
+				why ? why : "tool error: decide is not allowed "
+				"by this skill");
+			free(why);
+			fyai_tool_group_entry_store(group, entry, result);
+			entry->result_ok = false;
+			group->parked++;
+			continue;
+		}
 		if (entry->parallel && name && !strcmp(name, "wait") &&
 		    fyai_wait_for_requested(fyai_tool_call_args(fyai_tool_job_group_ctx(group),
 								  call))) {
@@ -2294,6 +2318,14 @@ void fyai_tool_job_group_service(struct fyai_tool_job_group *group)
 			group->parked++;
 			continue;
 		}
+		if (entry->decide) {
+			if (!fyai_decide_call_done(entry->decide))
+				continue;
+			entry->state = FYAITGS_PARKED;
+			group->active--;
+			group->parked++;
+			continue;
+		}
 		(void)fyai_fenced_stream_animate(&entry->job->stream, now);
 		if (!fyai_tool_job_done(entry->job))
 			continue;
@@ -2354,6 +2386,12 @@ void fyai_tool_job_group_cancel(struct fyai_tool_job_group *group)
 		if (entry->state == FYAITGS_RUNNING && entry->waiter) {
 			/* Nothing runs for it: it ends here and parks. */
 			fyai_waiter_cancel(entry->waiter);
+			entry->state = FYAITGS_PARKED;
+			group->active--;
+			group->parked++;
+		} else if (entry->state == FYAITGS_RUNNING && entry->decide) {
+			/* The child is killed; the model gets the stop. */
+			fyai_decide_call_cancel(entry->decide);
 			entry->state = FYAITGS_PARKED;
 			group->active--;
 			group->parked++;
@@ -2418,6 +2456,12 @@ int fyai_tool_job_group_collect(struct fyai_tool_job_group *group,
 		*result = fy_gb_internalize(fyai_tool_job_group_ctx(group)->transient->gb,
 					    fy_value(text ? text : ""));
 		free(text);
+	} else if (entry->decide) {
+		*result = fy_gb_internalize(fyai_tool_job_group_ctx(group)->transient->gb,
+			fyai_decide_call_collect(fyai_tool_job_group_ctx(group),
+						 entry->decide, okp));
+		fyai_decide_call_destroy(entry->decide);
+		entry->decide = NULL;
 	} else if (entry->ask) {
 		*result = fy_gb_internalize(fyai_tool_job_group_ctx(group)->transient->gb,
 					    fyai_ask_call_result(entry->ask));
@@ -2459,6 +2503,7 @@ void fyai_tool_job_group_destroy(struct fyai_tool_job_group *group)
 		fyai_mcp_call_destroy(entry->mcp_request);
 		fyai_waiter_destroy(entry->waiter);
 		fyai_ask_call_destroy(entry->ask);
+		fyai_decide_call_destroy(entry->decide);
 	}
 	free(group->entries);
 	fy_generic_builder_destroy(group->gb);

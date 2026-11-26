@@ -17,6 +17,7 @@
 #include <unistd.h>
 
 #include "fyai.h"
+#include "fyai_branch.h"
 #include "fyai_buf.h"
 #include "fyai_config.h"
 #include "fyai_event.h"
@@ -283,4 +284,42 @@ void fyai_selfjob_cancel(struct fyai_selfjob *job)
 			;
 	}
 	selfjob_free(job);
+}
+
+struct fyai_selfjob *fyai_selfjob_decide_start(struct fyai_ctx *ctx,
+					       const char *spec,
+					       const char *input,
+					       long long timeout_ms,
+					       fyai_selfjob_done_fn done,
+					       void *data)
+{
+	struct fyai_cfg *cfg = ctx->cfg;
+	const char *argv[24], *branch = fyai_ctx_branch(ctx);
+	int argc = 0;
+
+	argv[argc++] = "fyai";
+	argv[argc++] = "--color";
+	argv[argc++] = "off";
+	if (branch) {
+		argv[argc++] = "-b";
+		argv[argc++] = branch;
+	}
+	if (cfg->model && *cfg->model) {
+		argv[argc++] = "-m";
+		argv[argc++] = cfg->model;
+	}
+	argv[argc++] = "--transient";
+	argv[argc++] = "--set";
+	argv[argc++] = fy_sprintfa("api=%s", fyai_api_to_string(cfg->api_mode));
+	if (cfg->api_url && *cfg->api_url) {
+		argv[argc++] = "--set";
+		argv[argc++] = fy_sprintfa("api_url=%s", cfg->api_url);
+	}
+	argv[argc++] = "decide";
+	argv[argc++] = "--spec";
+	argv[argc++] = spec;
+	argv[argc++] = "--input";
+	argv[argc++] = input;
+	argv[argc] = NULL;
+	return fyai_selfjob_start(ctx, argv, timeout_ms, done, data);
 }

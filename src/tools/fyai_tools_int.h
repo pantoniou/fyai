@@ -247,6 +247,7 @@ enum fyai_tool_group_state {
 };
 
 struct fyai_ask_call;
+struct fyai_decide_call;
 
 struct fyai_tool_group_entry {
 	fy_generic call;		/* held in the builder of the group */
@@ -256,6 +257,7 @@ struct fyai_tool_group_entry {
 	struct fyai_mcp_call_request *mcp_request;
 	struct fyai_waiter *waiter;	/* a wait for an event of this group */
 	struct fyai_ask_call *ask;	/* an ask_user that the page answers */
+	struct fyai_decide_call *decide;	/* a decider, as a child */
 	enum fyai_tool_group_state state;
 	bool parallel;
 	bool result_ok;
@@ -339,6 +341,22 @@ bool fyai_ask_call_done(const struct fyai_ask_call *call);
 fy_generic fyai_ask_call_result(const struct fyai_ask_call *call);
 void fyai_ask_call_cancel(struct fyai_ask_call *call);
 void fyai_ask_call_destroy(struct fyai_ask_call *call);
+/*
+ * A call of the decide tool: `fyai decide` as a child on the event loop.
+ * start returns NULL with the result for the model in *@whyp (malloc'd).
+ * @notify runs from the loop when the decision is in.
+ */
+struct fyai_decide_call *fyai_decide_call_start(struct fyai_ctx *ctx,
+						fy_generic args,
+						void (*notify)(void *),
+						void *userdata, char **whyp);
+bool fyai_decide_call_done(const struct fyai_decide_call *call);
+/* The decision line for the model, in the transient builder. */
+fy_generic fyai_decide_call_collect(struct fyai_ctx *ctx,
+				    struct fyai_decide_call *call, bool *okp);
+void fyai_decide_call_cancel(struct fyai_decide_call *call);
+void fyai_decide_call_destroy(struct fyai_decide_call *call);
+
 fy_generic fyai_ask_user_from(struct fyai_ctx *ctx, fy_generic args,
 			      const char *from);
 int fyai_tool_apply_sandbox(struct fyai_ctx *ctx);

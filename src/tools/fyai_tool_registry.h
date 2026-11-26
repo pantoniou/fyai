@@ -137,6 +137,8 @@ extern const struct fyai_tool_def fyai_settings_defs[];
 extern const size_t fyai_settings_defs_count;
 extern const struct fyai_tool_def fyai_fleet_defs[];
 extern const size_t fyai_fleet_defs_count;
+extern const struct fyai_tool_def fyai_decide_defs[];
+extern const size_t fyai_decide_defs_count;
 
 /* The entry for @name, or NULL. @name may be a wire name of the shell. */
 const struct fyai_tool_def *fyai_tool_find(const char *name);

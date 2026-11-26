@@ -2358,8 +2358,10 @@ bool fyai_tool_call_parallel_eligible(struct fyai_ctx *ctx,
 	name = fyai_tool_call_name(ctx, tool_call);
 	def = fyai_tool_find(name);
 
+	/* The group runs them on the loop of the parent. */
 	if (fyai_mcp_tool_name(name) ||
-	    (name && !strcmp(name, "mcp_resource")))
+	    (name && (!strcmp(name, "mcp_resource") ||
+		      !strcmp(name, "decide"))))
 		return false;
 	if (!def)
 		return true;

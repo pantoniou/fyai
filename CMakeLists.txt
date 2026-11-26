@@ -593,6 +593,7 @@ set(FYAI_SOURCES
     src/tools/fyai_structured.c
     src/tools/fyai_settings.c
     src/tools/fyai_fleet_tool.c
+    src/tools/fyai_decide_tool.c
     src/tools/fyai_agents.c
     src/tools/fyai_ask.c
     src/loop/fyai_event_fmt.c

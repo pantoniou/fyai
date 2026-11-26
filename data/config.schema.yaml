@@ -200,7 +200,8 @@ properties:
     type: object
     default: {}
     description: >-
-      Name deciders for fyai decide and for the route of an event source.
+      Name deciders for fyai decide, for the route of an event source, and
+      for the decide tool, which a session with deciders offers the model.
       A decider gives a model instructions and options, and the model
       chooses one option for each input and gives its arguments.
     additionalProperties:

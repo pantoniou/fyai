@@ -10,7 +10,7 @@
 # apply_patch, shell, shell_input,
 # shell_output, shell_close, ask_user, ask_parent, agent, list, settings,
 # fleet, todo_write, time, wait,
-# skill, structured_output.
+# skill, decide, structured_output.
 - type: function
   function:
     name: tool_search
@@ -1144,6 +1144,28 @@
             file and does not load the skill.
       required:
         - skill
+      additionalProperties: false
+- type: function
+  function:
+    name: decide
+    description: >-
+      Ask a decider of the configuration to choose one of its options for an
+      input, and give its arguments. The decider runs on its own model, often
+      a fast decision model that answers with probabilities. The result is
+      one JSON object: {decision, arguments}, with probability and
+      confidence from a decision model, or {error}. Use it for a quick,
+      bounded judgment, such as whether a step is safe or which route a
+      request takes; it does not do the work.
+    parameters:
+      type: object
+      properties:
+        decider:
+          type: string
+          description: The decider to ask.
+        input:
+          type: string
+          description: What to decide on, as text; JSON text is passed as text.
+      required: [decider, input]
       additionalProperties: false
 - type: function
   function:

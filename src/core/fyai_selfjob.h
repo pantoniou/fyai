@@ -26,6 +26,20 @@ struct fyai_selfjob *fyai_selfjob_start(struct fyai_ctx *ctx,
 					long long timeout_ms,
 					fyai_selfjob_done_fn done, void *data);
 
+/*
+ * Run `fyai decide --spec @spec --input @input` as a job: @spec is a decider
+ * that this process resolved, as JSON, and @input one JSON value. The child
+ * is given the branch, the model, the grammar and the endpoint of this
+ * process, since the settings of an invocation are not stored. Its output
+ * is one JSON line.
+ */
+struct fyai_selfjob *fyai_selfjob_decide_start(struct fyai_ctx *ctx,
+					       const char *spec,
+					       const char *input,
+					       long long timeout_ms,
+					       fyai_selfjob_done_fn done,
+					       void *data);
+
 /* Stop the job: kill the child, and do not call its @done. */
 void fyai_selfjob_cancel(struct fyai_selfjob *job);
 
