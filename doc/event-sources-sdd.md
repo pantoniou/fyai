@@ -5,15 +5,28 @@
 Design, in part implemented. It builds on `doc/events.md` and closes its
 gaps "Structured events" and "Other event sources".
 
-Implemented: the wire of the extension for stdio and HTTP servers (handshake, kinds,
-events, rejections, acknowledgement on publish, credits; `mcp/servers/NAME/
-events`), `list` and `wait` on sources, the live panel line,
-`fyai source lines`, bound actions, trust levels, route rules that drop
-or wake, and the decision primitives: `tool_choice`, `fyai decide`, and
-personas with a result schema, canned deciders, route `decide:` steps,
-`fyai source decide`, deciders on decision models (System One API)
-with a fallback to a chat model, with scores and images, and chains of
-deciders with tool steps. The rest is design.
+Implemented:
+
+- The wire of the extension for stdio servers and for servers over HTTP
+  (the GET stream of server-sent events, opened again with
+  `Last-Event-ID`): handshake, kinds, events, rejections, acknowledgement
+  on publish, credits (`mcp/servers/NAME/events`).
+- Restart of a configured stdio source that goes down, with backoff.
+- `list` and `wait` on sources, the live panel line.
+- `fyai source lines`, and line sources in the configuration
+  (`lines: COMMAND`).
+- `source_start`: the model starts a source.
+- Bound actions, trust levels, route rules that drop or wake.
+- The decision primitives: `tool_choice`, `fyai decide`, personas with a
+  result schema, canned deciders, route `decide:` steps,
+  `fyai source decide`, deciders on decision models (System One API, and
+  decision models of OpenRouter) with a fallback to a chat model, with
+  scores and images, chains of deciders with tool steps, and the `decide`
+  tool.
+- For conversations: an idle session follows its branch (step 1 of
+  "Conversations and active branches").
+
+The rest is design; "Work, in order" says what is left.
 
 ## Problem
 
@@ -689,9 +702,9 @@ The line of a decision model adds `probability` (of the option chosen),
 `confidence` and `probabilities`. Routes and `fyai source decide` spawn
 `fyai decide` and need no change.
 
-Not yet: `score` questions (an integer argument on levels), images, and
-OpenAI's Decisions API, whose wire is not public. The key does not pass
-through the transport of credential isolation.
+Not yet: OpenAI's Decisions API, whose wire is not public. The key does
+not pass through the transport of credential isolation. (Scores and
+images came later; see "Scores and images on decision models".)
 
 ### Conversations and active branches
 
@@ -761,9 +774,21 @@ fyai adds no coordination by default:
    and a report when one ends.
 
 Work, in order: idle sessions follow their branch (needed by watchers of a
-conversation too); the conversation key and the route; idle close; then views on request. Several runners active on one branch
-at once, with claims per event and leases at turn start, are left until a
-use needs them.
+conversation too); the conversation key and the route; idle close; then
+views on request. Several runners active on one branch at once, with
+claims per event and leases at turn start, are left until a use needs
+them.
+
+**Following, as built.** A session waiting at its prompt, local or the
+worker of a split session, looks every 500 ms whether its branch moved,
+and again before a turn starts. With no turns of its own unstored it
+takes the new head and merges the store three ways; a configuration that
+changed applies. A worker sends the turns to its client as it sends its
+own, and the full-screen transcript view shows them; the inline screen
+does not, as it keeps the rows it wrote. A re-read of the branch table no
+longer moves the entry that the next publish builds on: a publish onto a
+branch that moved meets `branch/on_conflict` instead of overwriting it.
+The same tick shows the warnings that came while the session was idle.
 
 ## Requests from the source
 
@@ -1010,11 +1035,45 @@ polling for liveness, and the token loading in every reply go away.
 11. Sampling requests from a source.
 12. GC beside a live session; durable hosting in `serve` or the fleet.
 
+State: 1 to 7 and 9 are built, and 2 but for `ping` on an interval
+(restart is built). Of 10, idle sessions follow their branch; the
+conversation key, the route, idle close and views are next. 8, 11 and 12
+are not started.
+
+Gaps of what is built:
+
+- Health: no `ping` on an interval, so a source that hangs with its pipe
+  open is not found down.
+- Records of events with bound actions live in memory, 64 per source: a
+  restart of fyai forgets them ("Records").
+- `fyai source decide` calls no action of the source for a decision (see
+  below).
+- Sub-agents get neither `source_start` nor `decide`.
+- Decisions: no images by https URL; no MCP tools in tool steps; the key
+  of a decision model only from its environment variable under credential
+  isolation; the `decide` tool passes its input as text only.
+- A server over HTTP whose session the server ended (404 on the stream)
+  is shown `no-events`; fyai does not initialize it again.
+
+**Actions in the proxy, under discussion.** For a client that is not fyai,
+`fyai source decide` would act on a decision whose option names an action
+of the kind (`reply`, `react`): call that tool upstream with the bound
+arguments filled from the event, acknowledge the event `answered`, and
+not pass it on. Its calls take an id space of their own on the connection
+it shares with the client, and their answers do not reach the client. An
+action that fails passes the event on with the decision and the error.
+It acts with nobody to review and without fyai's trust levels, so it acts
+only when asked (`--act`), perhaps only for principals named on its
+command line. Open: build it now, or after storing records, which the
+conversation work needs more.
+
 Tests use the mock provider and a small Python or C source in `tests/`, in
 the style of the existing MCP test servers.
 
 ## Open questions
 
+- Should the proxy act on decisions, and by default or only with `--act`?
+  See "Actions in the proxy" above.
 - Ack on publish costs a resend after a crash between delivery and publish.
   Is at least once with dedup by id acceptable everywhere, or does a kind
   need "at most once"?
