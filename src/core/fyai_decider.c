@@ -136,7 +136,7 @@ static fy_generic decider_spec(struct fyai_cfg *cfg,
 			       struct fy_generic_builder *gb, fy_generic name,
 			       int depth, const char **whyp)
 {
-	fy_generic spec, use, base, k, v;
+	fy_generic spec, use, base, k, v, cuse, cbase;
 
 	spec = fy_get(decider_configured(cfg), name, fy_invalid);
 	if (!fy_is_mapping(spec))
@@ -144,10 +144,24 @@ static fy_generic decider_spec(struct fyai_cfg *cfg,
 				     fy_map_empty), name, fy_invalid);
 	/* A configured decider that uses a canned one of the same name. */
 	use = fy_get(spec, "use", fy_invalid);
-	if (fy_is_mapping(spec) && fy_equal(use, name))
+	if (fy_is_mapping(spec) && fy_equal(use, name)) {
 		base = fy_get(fy_get(decider_canned(cfg), "deciders",
 				     fy_map_empty), name, fy_invalid);
-	else if (fy_is_string(use))
+		/* The canned decider may extend another one itself. */
+		cuse = fy_get(base, "use", fy_invalid);
+		if (fy_is_mapping(base) && fy_is_string(cuse) &&
+		    depth < DECIDER_USE_DEPTH) {
+			cbase = decider_spec(cfg, gb, cuse, depth + 1, whyp);
+			if (fy_is_mapping(cbase)) {
+				fy_foreach_key_value(k, v, base)
+					if (!fy_equal(k, "use"))
+						cbase = fy_assoc(gb, cbase, k, v);
+				base = cbase;
+			} else {
+				base = fy_invalid;
+			}
+		}
+	} else if (fy_is_string(use))
 		base = depth < DECIDER_USE_DEPTH ?
 		       decider_spec(cfg, gb, use, depth + 1, whyp) :
 		       fy_invalid;
