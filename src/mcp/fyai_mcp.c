@@ -833,6 +833,38 @@ static void mcp_startup_step(struct mcp_startup *su);
 static void mcp_startup_enter(struct mcp_startup *su,
 			      enum mcp_startup_phase phase);
 
+/* A server over HTTP that has no stream sends no events. */
+static void mcp_stream_refused(void *data, long status)
+{
+	struct fyai_mcp_ctx *mcp = data;
+	struct fyai_mcp *mc = mcp_owner(mcp);
+
+	fyai_diag_type(mc->diag, FYAIET_WARNING,
+		       "MCP server '%s' refused the stream of its events "
+		       "(HTTP %ld), so it sends no events", mcp->name, status);
+	mcp->events_supported = false;
+	mcp_sources_publish(mc);
+}
+
+/*
+ * The events of a server over HTTP come on its stream, which opens once the
+ * kinds are listed: a source sends no event before that.
+ */
+static void mcp_stream_listen(struct fyai_mcp_ctx *mcp)
+{
+	struct fyai_mcp *mc = mcp_owner(mcp);
+
+	if (mcp->transport != MCP_TRANSPORT_HTTP || !mcp->events_supported ||
+	    jsonrpc_conn_listening(mcp->conn))
+		return;
+	if (jsonrpc_conn_listen(mcp->conn, mcp_stream_refused, mcp)) {
+		fyai_diag_type(mc->diag, FYAIET_WARNING,
+			       "MCP server '%s' could not open the stream of "
+			       "its events", mcp->name);
+		mcp->events_supported = false;
+	}
+}
+
 static void mcp_startup_settle(struct mcp_startup *su,
 			       enum mcp_server_state state)
 {
@@ -850,6 +882,8 @@ static void mcp_startup_settle(struct mcp_startup *su,
 	mcp->state = state;
 	if (state == MCP_SRV_READY)
 		mcp->last_error = NULL;
+	if (state == MCP_SRV_READY)
+		mcp_stream_listen(mcp);
 	mcp->startup = NULL;
 	free(su->cursor);
 	free(su);
@@ -3782,10 +3816,6 @@ static int mcp_create_server(struct fyai_mcp *mc, const char *server_name,
 	mcp->event_relist_kinds = fy_invalid;
 	mcp->events_wanted = fy_get(config, "events", false);
 	mcp->by_model = fy_get(config, "_fyai_by_model", false);
-	fyai_diag_check(mc->diag, !mcp->events_wanted ||
-			 mcp->transport == MCP_TRANSPORT_STDIO, err_out,
-			 "MCP server '%s' can send events only over stdio",
-			 server_name);
 	rc = mcp_events_policy(mcp, config);
 	fyai_diag_check(mc->diag, !rc, err_out,
 			 "MCP server '%s' has an invalid event route",
@@ -3822,6 +3852,9 @@ static int mcp_create_server(struct fyai_mcp *mc, const char *server_name,
 		};
 		mcp->conn = jsonrpc_conn_http(fyai_mcp_state_ctx(mc), mcp->endpoint, mcp->timeout,
 				mcp->name, "mcp", &hooks);
+		/* A server can send messages within its answers too. */
+		if (mcp->conn)
+			(void)jsonrpc_conn_serve(mcp->conn, mcp_serve, mcp);
 	}
 	fyai_diag_check(mc->diag, mcp->conn, err_out,
 			 "MCP server '%s' could not create connection",

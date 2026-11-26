@@ -40,6 +40,32 @@ enum jsonrpc_transport {
 /* Maximum newline-terminated standard-I/O frame size. */
 #define JSONRPC_FRAME_MAX	(16UL << 20)
 
+/* The waits before the stream of an HTTP server opens again. */
+#define JSONRPC_STREAM_RETRY_MS		500
+#define JSONRPC_STREAM_RETRY_MAX_MS	30000
+/* After a stream that delivered messages and ended: the server closed it. */
+#define JSONRPC_STREAM_REOPEN_MS	100
+
+/*
+ * A parser of a stream of server-sent events: lines of fields, an empty line
+ * ends an event. It keeps the last event id, which a stream that opens again
+ * sends back.
+ */
+struct jsonrpc_sse {
+	struct fyai_buf line;		/* the line in hand */
+	struct fyai_buf data;		/* the data of the event in hand */
+	bool has_data;
+	char *last_id;
+	long retry_ms;			/* the retry the server asked for */
+	bool failed;			/* a line or an event too large */
+};
+
+/* A message of the stream, served from the loop and not from curl. */
+struct jsonrpc_sse_msg {
+	struct jsonrpc_sse_msg *next;
+	char *json;
+};
+
 struct jsonrpc_conn {
 	struct fyai_ctx *ctx;
 	enum jsonrpc_transport transport;
@@ -99,6 +125,19 @@ struct jsonrpc_conn {
 	const char *endpoint;
 	struct jsonrpc_http_hooks hooks;
 	bool has_hooks;
+	/*
+	 * The stream of the messages that the server sends on its own: a GET
+	 * that stays open, opened again when it ends.
+	 */
+	bool listening;
+	struct jsonrpc_request *stream;
+	struct fyai_event_source *stream_timer;
+	struct jsonrpc_sse sse;
+	bool stream_delivered;		/* the open stream delivered a message */
+	long stream_retry_ms;
+	struct jsonrpc_sse_msg *inbox, **inbox_tail;
+	jsonrpc_refused_fn refused;
+	void *refused_data;
 
 	/* tunnel: the owner carries each frame to the peer */
 	jsonrpc_tunnel_send_fn tunnel_send;
@@ -270,6 +309,7 @@ static struct jsonrpc_request *jsonrpc_pending_take(struct jsonrpc_conn *conn,
 }
 
 static int jsonrpc_conn_arm_write(struct jsonrpc_conn *conn);
+static int jsonrpc_http_post(struct jsonrpc_conn *conn, fy_generic frame);
 
 /* Queue one output frame. */
 static int jsonrpc_conn_send(struct jsonrpc_conn *conn, const char *json)
@@ -313,6 +353,12 @@ static int jsonrpc_conn_reply(struct jsonrpc_conn *conn, fy_generic id,
 	}
 	if (conn->transport == JSONRPC_TUNNEL) {
 		if (conn->tunnel_send(conn->tunnel_userdata, frame))
+			goto err;
+		return 0;
+	}
+	/* An HTTP server takes the answer as a POST of its own. */
+	if (conn->transport == JSONRPC_HTTP) {
+		if (jsonrpc_http_post(conn, frame))
 			goto err;
 		return 0;
 	}
@@ -791,7 +837,8 @@ void jsonrpc_conn_defer(struct jsonrpc_conn *conn)
 int jsonrpc_conn_respond(struct jsonrpc_conn *conn, fy_generic id,
 			 fy_generic result, fy_generic error)
 {
-	if (!conn || conn->transport != JSONRPC_STDIO)
+	if (!conn || (conn->transport != JSONRPC_STDIO &&
+		      conn->transport != JSONRPC_HTTP))
 		return -1;
 	return jsonrpc_conn_reply(conn, id, result, error);
 }
@@ -799,10 +846,14 @@ int jsonrpc_conn_respond(struct jsonrpc_conn *conn, fy_generic id,
 int jsonrpc_conn_serve(struct jsonrpc_conn *conn, jsonrpc_serve_fn fn,
 		       void *userdata)
 {
-	if (!conn || conn->transport != JSONRPC_STDIO)
+	if (!conn || (conn->transport != JSONRPC_STDIO &&
+		      conn->transport != JSONRPC_HTTP))
 		return -1;
 	conn->serve = fn;
 	conn->serve_userdata = userdata;
+	/* An HTTP server speaks in the answers, and on a stream when asked. */
+	if (conn->transport == JSONRPC_HTTP)
+		return 0;
 	/* A server must listen before anyone calls it. */
 	return fn ? jsonrpc_conn_arm_read(conn) : 0;
 }
@@ -1052,14 +1103,168 @@ static size_t jsonrpc_http_header(void *ptr, size_t size, size_t nmemb,
 	return raw_len;
 }
 
+typedef void (*jsonrpc_sse_fn)(void *userdata, const char *data);
+
+/* One line of the stream: a field, or the empty line that ends an event. */
+static void jsonrpc_sse_line(struct jsonrpc_sse *s, char *line,
+			     jsonrpc_sse_fn fn, void *userdata)
+{
+	char *value, *end;
+	long ms;
+
+	if (!*line) {
+		if (s->has_data && !s->failed) {
+			/* The data ends with the newline of its last line. */
+			if (s->data.len)
+				s->data.data[--s->data.len] = '\0';
+			fn(userdata, s->data.data ? s->data.data : "");
+		}
+		s->data.len = 0;
+		s->has_data = false;
+		return;
+	}
+	if (*line == ':')
+		return;				/* a comment, which keeps it open */
+	value = strchr(line, ':');
+	if (value) {
+		*value++ = '\0';
+		if (*value == ' ')
+			value++;
+	} else {
+		value = line + strlen(line);
+	}
+	if (!strcmp(line, "data")) {
+		if (s->data.len + strlen(value) + 1 > JSONRPC_FRAME_MAX ||
+		    fyai_buf_append(&s->data, value) ||
+		    fyai_buf_append(&s->data, "\n")) {
+			s->failed = true;
+			return;
+		}
+		s->has_data = true;
+	} else if (!strcmp(line, "id")) {
+		free(s->last_id);
+		s->last_id = strdup(value);
+	} else if (!strcmp(line, "retry")) {
+		ms = strtol(value, &end, 10);
+		if (*value && !*end && ms >= 0)
+			s->retry_ms = ms;
+	}
+}
+
+/* Take @len bytes of the stream; each event that ends goes to @fn. */
+static void jsonrpc_sse_feed(struct jsonrpc_sse *s, const char *p, size_t len,
+			     jsonrpc_sse_fn fn, void *userdata)
+{
+	const char *nl;
+	size_t n;
+
+	while (len && !s->failed) {
+		nl = memchr(p, '\n', len);
+		n = nl ? (size_t)(nl - p) : len;
+		if (s->line.len + n + 1 > JSONRPC_FRAME_MAX ||
+		    fyai_buf_append_data(&s->line, p, n)) {
+			s->failed = true;
+			return;
+		}
+		if (!nl)
+			return;
+		if (s->line.len && s->line.data[s->line.len - 1] == '\r')
+			s->line.len--;
+		s->line.data[s->line.len] = '\0';
+		jsonrpc_sse_line(s, s->line.data, fn, userdata);
+		s->line.len = 0;
+		p = nl + 1;
+		len -= n + 1;
+	}
+}
+
+/* Discard any incomplete event when the listening stream closes. */
+static void jsonrpc_sse_reset(struct jsonrpc_sse *s)
+{
+	s->line.len = 0;
+	s->data.len = 0;
+	s->has_data = false;
+	s->failed = false;
+}
+
+static void jsonrpc_sse_free(struct jsonrpc_sse *s)
+{
+	fyai_buf_free(&s->line);
+	fyai_buf_free(&s->data);
+	free(s->last_id);
+	s->last_id = NULL;
+}
+
+/* The messages of an answer, gathered in order. */
+struct jsonrpc_sse_collect {
+	struct fy_generic_builder *gb;
+	fy_generic docs;
+};
+
+static void jsonrpc_sse_collect_one(void *userdata, const char *data)
+{
+	struct jsonrpc_sse_collect *c = userdata;
+	fy_generic doc;
+
+	doc = parse_json_string(c->gb, data);
+	c->docs = fy_append(c->gb, c->docs, doc);
+}
+
+/* True when the body of an answer is a stream of events, not JSON. */
+static bool jsonrpc_http_is_sse(struct jsonrpc_request *req, const char *body)
+{
+	const char *type;
+
+	type = jsonrpc_request_response_header(req, "Content-Type");
+	if (type)
+		return !strncasecmp(type, "text/event-stream", 17);
+	return !strncmp(body, "event:", 6) || !strncmp(body, "data:", 5) ||
+	       !strncmp(body, "id:", 3) || *body == ':';
+}
+
+/*
+ * The answer of a request that came as a stream of events: the messages that
+ * the server sent before it are served in order, as on stdio, and the
+ * message with the id of the request is the answer.
+ */
+static fy_generic jsonrpc_http_sse_answer(struct jsonrpc_request *req,
+					  struct fy_generic_builder *gb,
+					  const char *body)
+{
+	struct jsonrpc_conn *conn = req->conn;
+	struct jsonrpc_sse s = {0};
+	struct jsonrpc_sse_collect c = { .gb = gb, .docs = fy_seq_empty };
+	fy_generic doc, answer = fy_invalid;
+
+	jsonrpc_sse_feed(&s, body, strlen(body), jsonrpc_sse_collect_one, &c);
+	/* An answer that ends without its empty line still ends its event. */
+	jsonrpc_sse_feed(&s, "\n\n", 2, jsonrpc_sse_collect_one, &c);
+	jsonrpc_sse_free(&s);
+	fy_foreach(doc, c.docs) {
+		if (!fy_is_mapping(doc)) {
+			answer = doc;
+			break;
+		}
+		if (fy_is_valid(fy_get(doc, "method", fy_invalid))) {
+			if (!conn->closed)
+				jsonrpc_conn_frame(conn, doc);
+			continue;
+		}
+		if (fy_get(doc, "id", -1LL) == req->id) {
+			answer = doc;
+			break;
+		}
+	}
+	return answer;
+}
+
 /* Parse the JSON-RPC result out of an HTTP response body (JSON or SSE). */
 static fy_generic jsonrpc_http_result(struct jsonrpc_request *req)
 {
 	struct fyai_ctx *ctx = jsonrpc_conn_ctx(req->conn);
 	struct fy_generic_builder *gb;
 	fy_generic doc, error, out;
-	const char *json, *data, *end;
-	char *sse_json;
+	const char *json;
 
 	if (req->code != CURLE_OK || req->status < 200 || req->status >= 300)
 		return fy_invalid;
@@ -1069,22 +1274,9 @@ static fy_generic jsonrpc_http_result(struct jsonrpc_request *req)
 	fyai_error_check(ctx, gb, err_out, "%s %s could not acquire "
 			 "transient storage", req->conn->name, req->method);
 	json = req->response.data ? req->response.data : "";
-	sse_json = NULL;
-	if (!strncmp(json, "event:", 6) || !strncmp(json, "data:", 5)) {
-		data = strstr(json, "data:");
-		if (data) {
-			data += 5;
-			while (*data == ' ' || *data == '\t')
-				data++;
-			end = strchr(data, '\n');
-			sse_json = strndup(data,
-				end ? (size_t)(end - data) : strlen(data));
-			if (sse_json)
-				json = sse_json;
-		}
-	}
-	doc = parse_json_string(gb, json);
-	free(sse_json);
+	doc = jsonrpc_http_is_sse(req, json) ?
+		jsonrpc_http_sse_answer(req, gb, json) :
+		parse_json_string(gb, json);
 	if (!fy_is_valid(doc)) {
 		parse_diag_report(ctx, doc, "malformed JSON",
 			fy_sprintfa("%s %s returned invalid JSON",
@@ -1124,22 +1316,18 @@ static void jsonrpc_http_complete(struct fyai_curl_transfer *transfer,
 		       req->code);
 }
 
-static int jsonrpc_http_submit(struct jsonrpc_request *req, fy_generic params)
+/* POST the frame @rpc for @req. */
+static int jsonrpc_http_send(struct jsonrpc_request *req, fy_generic rpc)
 {
 	struct jsonrpc_conn *conn = req->conn;
 	struct fyai_ctx *ctx = jsonrpc_conn_ctx(conn);
 	struct fy_generic_builder *gb;
-	fy_generic rpc;
 	const char *body;
 	int rc;
 
 	gb = fyai_ctx_transient_gb(ctx);
 	fyai_error_check(ctx, gb, err_out, "%s %s could not acquire "
 			 "transient storage", conn->name, req->method);
-	rpc = fy_mapping(gb, "jsonrpc", "2.0",
-			 "method", req->method, "params", params);
-	if (!req->notification)
-		rpc = fy_assoc(gb, rpc, "id", req->id);
 	body = emit_request_body(gb, rpc);
 	fyai_error_check(ctx, body, err_out, "%s %s could not encode request",
 			 conn->name, req->method);
@@ -1184,6 +1372,324 @@ static int jsonrpc_http_submit(struct jsonrpc_request *req, fy_generic params)
 
 err_out:
 	return -1;
+}
+
+static int jsonrpc_http_submit(struct jsonrpc_request *req, fy_generic params)
+{
+	struct jsonrpc_conn *conn = req->conn;
+	struct fyai_ctx *ctx = jsonrpc_conn_ctx(conn);
+	struct fy_generic_builder *gb;
+	fy_generic rpc;
+
+	gb = fyai_ctx_transient_gb(ctx);
+	fyai_error_check(ctx, gb, err_out, "%s %s could not acquire "
+			 "transient storage", conn->name, req->method);
+	rpc = fy_mapping(gb, "jsonrpc", "2.0",
+			 "method", req->method, "params", params);
+	if (!req->notification)
+		rpc = fy_assoc(gb, rpc, "id", req->id);
+	return jsonrpc_http_send(req, rpc);
+
+err_out:
+	return -1;
+}
+
+static void jsonrpc_notify_done(struct jsonrpc_request *req, void *userdata);
+
+/* POST @frame, an answer to the server, as a notification is posted. */
+static int jsonrpc_http_post(struct jsonrpc_conn *conn, fy_generic frame)
+{
+	struct jsonrpc_request *req;
+
+	req = calloc(1, sizeof(*req));
+	fyai_error_check(jsonrpc_conn_ctx(conn), req, err, "out of memory");
+	req->conn = conn;
+	req->method = "response";
+	req->notification = true;
+	req->complete = jsonrpc_notify_done;
+	req->result = fy_invalid;
+	req->code = CURLE_OK;
+	clock_gettime(CLOCK_MONOTONIC, &req->started);
+	if (jsonrpc_http_send(req, frame)) {
+		jsonrpc_request_free(req);
+		goto err;
+	}
+	return 0;
+err:
+	return -1;
+}
+
+/*
+ * The stream of an HTTP server: a GET that the server keeps open and sends
+ * its messages on, as server-sent events. Each message is served from the
+ * loop, not from the callback of curl, which takes no new transfer. A stream
+ * that ends opens again, with the id of the last event it delivered.
+ */
+static int jsonrpc_stream_open(struct jsonrpc_conn *conn);
+
+static void jsonrpc_stream_drain(void *userdata)
+{
+	struct jsonrpc_conn *conn = userdata;
+	struct jsonrpc_sse_msg *m;
+	struct fy_generic_builder *gb;
+	fy_generic doc;
+
+	while ((m = conn->inbox) && !conn->closed) {
+		conn->inbox = m->next;
+		if (!conn->inbox)
+			conn->inbox_tail = &conn->inbox;
+		gb = fyai_ctx_transient_gb(jsonrpc_conn_ctx(conn));
+		doc = gb ? parse_json_string(gb, m->json) : fy_invalid;
+		if (fy_is_mapping(doc))
+			jsonrpc_conn_frame(conn, doc);
+		else
+			fyai_warning(jsonrpc_conn_ctx(conn),
+				     "%s sent a message that is not JSON on "
+				     "its stream: %.60s", conn->name, m->json);
+		free(m->json);
+		free(m);
+	}
+}
+
+static void jsonrpc_inbox_free(struct jsonrpc_conn *conn)
+{
+	struct jsonrpc_sse_msg *m;
+	struct fyai_event_loop *el;
+
+	el = fyai_ctx_loop(jsonrpc_conn_ctx(conn));
+	if (el)
+		fyai_event_defer_cancel(el, jsonrpc_stream_drain, conn);
+	while ((m = conn->inbox)) {
+		conn->inbox = m->next;
+		free(m->json);
+		free(m);
+	}
+	conn->inbox_tail = &conn->inbox;
+}
+
+static void jsonrpc_stream_event(void *userdata, const char *data)
+{
+	struct jsonrpc_conn *conn = userdata;
+	struct jsonrpc_sse_msg *m;
+	bool armed = !!conn->inbox;
+
+	if (!*data)
+		return;
+	m = calloc(1, sizeof(*m));
+	if (m)
+		m->json = strdup(data);
+	if (!m || !m->json) {
+		free(m);
+		conn->sse.failed = true;
+		return;
+	}
+	if (!conn->inbox_tail)
+		conn->inbox_tail = &conn->inbox;
+	*conn->inbox_tail = m;
+	conn->inbox_tail = &m->next;
+	conn->stream_delivered = true;
+	if (!armed)
+		(void)fyai_event_defer(fyai_ctx_loop(jsonrpc_conn_ctx(conn)),
+				       jsonrpc_stream_drain, conn);
+}
+
+static size_t jsonrpc_stream_write(char *ptr, size_t size, size_t nmemb,
+				   void *userdata)
+{
+	struct jsonrpc_request *req = userdata;
+	struct jsonrpc_conn *conn = req->conn;
+	size_t len = size * nmemb;
+	long status = 0;
+
+	curl_easy_getinfo(req->curl, CURLINFO_RESPONSE_CODE, &status);
+	/* An error keeps a little of its body, for the report. */
+	if (status < 200 || status >= 300) {
+		if (req->response.len < 1024)
+			(void)fyai_buf_append_data(&req->response, ptr,
+				len < 1024 - req->response.len ?
+				len : 1024 - req->response.len);
+		return len;
+	}
+	jsonrpc_sse_feed(&conn->sse, ptr, len, jsonrpc_stream_event, conn);
+	/* A stream that cannot be read ends, and opens again. */
+	return conn->sse.failed ? 0 : len;
+}
+
+static enum fyai_event_action jsonrpc_stream_retry(const struct fyai_event *ev)
+{
+	struct jsonrpc_conn *conn = ev->userdata;
+
+	conn->stream_timer = NULL;
+	if (conn->listening && !conn->closed && !conn->stream &&
+	    jsonrpc_stream_open(conn))
+		fyai_warning(jsonrpc_conn_ctx(conn),
+			     "%s could not open its stream again", conn->name);
+	return FYAIEA_CONTINUE;
+}
+
+/* Open the stream again after @ms. */
+static void jsonrpc_stream_schedule(struct jsonrpc_conn *conn, long ms)
+{
+	struct fyai_event_loop *el = fyai_ctx_loop(jsonrpc_conn_ctx(conn));
+
+	if (conn->stream_timer || !el)
+		return;
+	if (fyai_event_add_timer(el, ms > 0 ? ms : 1, 0, jsonrpc_stream_retry,
+				 conn, &conn->stream_timer))
+		fyai_warning(jsonrpc_conn_ctx(conn),
+			     "%s cannot keep its stream open", conn->name);
+}
+
+static void jsonrpc_stream_complete(struct fyai_curl_transfer *transfer,
+				    void *userdata)
+{
+	struct jsonrpc_request *req = userdata;
+	struct jsonrpc_conn *conn = req->conn;
+	struct fyai_ctx *ctx = jsonrpc_conn_ctx(conn);
+	jsonrpc_refused_fn refused;
+	CURLcode code;
+	long status = 0, ms;
+	bool delivered;
+
+	code = fyai_curl_collect(transfer);
+	curl_easy_getinfo(req->curl, CURLINFO_RESPONSE_CODE, &status);
+	fyai_curl_transfer_destroy(transfer);
+	req->transfer = NULL;
+	conn->stream = NULL;
+	delivered = conn->stream_delivered;
+	conn->stream_delivered = false;
+	jsonrpc_sse_reset(&conn->sse);
+	if (!conn->listening || conn->closed) {
+		jsonrpc_request_free(req);
+		return;
+	}
+	/*
+	 * A server that has no stream, a session that it ended, or a refused
+	 * credential: opening it again would not help.
+	 */
+	if (status == 405 || status == 404 || status == 401 ||
+	    status == 403) {
+		fyai_debug(ctx, "%s refused its stream: HTTP %ld %.200s",
+			   conn->name, status,
+			   req->response.data ? req->response.data : "");
+		jsonrpc_request_free(req);
+		conn->listening = false;
+		refused = conn->refused;
+		conn->refused = NULL;
+		if (refused)
+			refused(conn->refused_data, status);
+		return;
+	}
+	fyai_debug(ctx, "%s stream ended (curl %d, HTTP %ld)", conn->name,
+		   (int)code, status);
+	jsonrpc_request_free(req);
+	if (delivered)
+		conn->stream_retry_ms = 0;
+	if (conn->sse.retry_ms > 0)
+		ms = conn->sse.retry_ms;
+	else if (delivered)
+		ms = JSONRPC_STREAM_REOPEN_MS;
+	else {
+		ms = conn->stream_retry_ms ? conn->stream_retry_ms * 2 :
+		     JSONRPC_STREAM_RETRY_MS;
+		if (ms > JSONRPC_STREAM_RETRY_MAX_MS)
+			ms = JSONRPC_STREAM_RETRY_MAX_MS;
+		conn->stream_retry_ms = ms;
+	}
+	jsonrpc_stream_schedule(conn, ms);
+}
+
+static int jsonrpc_stream_open(struct jsonrpc_conn *conn)
+{
+	struct fyai_ctx *ctx = jsonrpc_conn_ctx(conn);
+	struct jsonrpc_request *req;
+	char *last = NULL;
+	int rc;
+
+	req = calloc(1, sizeof(*req));
+	fyai_error_check(ctx, req, err, "out of memory");
+	req->conn = conn;
+	req->method = "stream";
+	req->result = fy_invalid;
+	req->code = CURLE_OK;
+	clock_gettime(CLOCK_MONOTONIC, &req->started);
+	rc = append_header(&req->headers, "Accept: text/event-stream");
+	if (!rc && conn->sse.last_id && *conn->sse.last_id) {
+		last = fy_sprintfa("Last-Event-ID: %s", conn->sse.last_id);
+		rc = append_header(&req->headers, last);
+	}
+	if (!rc && conn->has_hooks && conn->hooks.add_headers)
+		rc = conn->hooks.add_headers(conn->hooks.userdata, ctx,
+					     &req->headers);
+	fyai_error_check(ctx, !rc, err_free,
+			 "%s could not make the headers of its stream",
+			 conn->name);
+	req->curl = curl_easy_init();
+	fyai_error_check(ctx, req->curl, err_free,
+			 "%s could not create curl handle", conn->name);
+	curl_easy_setopt(req->curl, CURLOPT_NOSIGNAL, 1L);
+	curl_easy_setopt(req->curl, CURLOPT_URL, conn->endpoint);
+	curl_easy_setopt(req->curl, CURLOPT_HTTPGET, 1L);
+	curl_easy_setopt(req->curl, CURLOPT_HTTPHEADER, req->headers);
+	curl_easy_setopt(req->curl, CURLOPT_WRITEFUNCTION, jsonrpc_stream_write);
+	curl_easy_setopt(req->curl, CURLOPT_WRITEDATA, req);
+	curl_easy_setopt(req->curl, CURLOPT_HEADERFUNCTION, jsonrpc_http_header);
+	curl_easy_setopt(req->curl, CURLOPT_HEADERDATA, req);
+	/* The stream has no end to wait for; a dead peer is found by TCP. */
+	if (conn->timeout_s > 0)
+		curl_easy_setopt(req->curl, CURLOPT_CONNECTTIMEOUT,
+				 (long)conn->timeout_s);
+	curl_easy_setopt(req->curl, CURLOPT_TCP_KEEPALIVE, 1L);
+	curl_easy_setopt(req->curl, CURLOPT_USERAGENT, ctx->link->user_agent);
+	req->transfer = fyai_curl_submit(ctx->link, req->curl,
+					 jsonrpc_stream_complete, req);
+	fyai_error_check(ctx, req->transfer, err_free,
+			 "%s could not open its stream", conn->name);
+	conn->stream = req;
+	return 0;
+
+err_free:
+	jsonrpc_request_free(req);
+err:
+	return -1;
+}
+
+int jsonrpc_conn_listen(struct jsonrpc_conn *conn, jsonrpc_refused_fn refused,
+			void *data)
+{
+	if (!conn || conn->transport != JSONRPC_HTTP || conn->closed)
+		return -1;
+	if (conn->listening)
+		return 0;
+	conn->listening = true;
+	conn->refused = refused;
+	conn->refused_data = data;
+	conn->stream_retry_ms = 0;
+	if (!conn->inbox_tail)
+		conn->inbox_tail = &conn->inbox;
+	if (jsonrpc_stream_open(conn)) {
+		conn->listening = false;
+		return -1;
+	}
+	return 0;
+}
+
+bool jsonrpc_conn_listening(const struct jsonrpc_conn *conn)
+{
+	return conn && conn->listening;
+}
+
+/* Close the stream, and drop what it delivered and nobody served. */
+static void jsonrpc_stream_close(struct jsonrpc_conn *conn)
+{
+	conn->listening = false;
+	jsonrpc_drop_source(&conn->stream_timer);
+	if (conn->stream) {
+		jsonrpc_request_free(conn->stream);
+		conn->stream = NULL;
+	}
+	jsonrpc_inbox_free(conn);
+	jsonrpc_sse_free(&conn->sse);
 }
 
 /*
@@ -1249,6 +1755,7 @@ jsonrpc_conn_http(struct fyai_ctx *ctx, const char *endpoint, int timeout_s,
 	conn->log_channel = log_channel;
 	conn->timeout_s = timeout_s;
 	conn->endpoint = endpoint;
+	conn->inbox_tail = &conn->inbox;
 	if (hooks) {
 		conn->hooks = *hooks;
 		conn->has_hooks = true;
@@ -1272,6 +1779,8 @@ void jsonrpc_conn_shutdown(struct jsonrpc_conn *conn, const char *why)
 		jsonrpc_drop_source(&conn->read_src);
 		jsonrpc_drop_source(&conn->write_src);
 	}
+	if (conn->transport == JSONRPC_HTTP)
+		jsonrpc_stream_close(conn);
 	jsonrpc_conn_fail_pending(conn, why);
 }
 
@@ -1304,6 +1813,8 @@ void jsonrpc_conn_destroy(struct jsonrpc_conn *conn)
 		fy_generic_builder_destroy(conn->rx_gb);
 		conn->rx_gb = NULL;
 	}
+	if (conn && conn->transport == JSONRPC_HTTP)
+		jsonrpc_stream_close(conn);
 	free(conn);
 }
 

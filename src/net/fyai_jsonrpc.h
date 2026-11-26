@@ -90,6 +90,20 @@ int jsonrpc_conn_serve(struct jsonrpc_conn *conn, jsonrpc_serve_fn fn,
 		       void *userdata);
 
 /*
+ * Listen to the stream of an HTTP server: a GET that it keeps open and sends
+ * its own requests and notifications on, which the handler of
+ * jsonrpc_conn_serve() serves. A stream that ends opens again, after a wait
+ * that grows while it fails, and asks for the events after the last one it
+ * delivered (Last-Event-ID). A server that refuses the stream (HTTP 405, 404,
+ * 401 or 403) calls @refused once with the status, and the connection stops
+ * listening; its requests go on. Returns 0, or -1 with a diagnostic.
+ */
+typedef void (*jsonrpc_refused_fn)(void *data, long status);
+int jsonrpc_conn_listen(struct jsonrpc_conn *conn, jsonrpc_refused_fn refused,
+			void *data);
+bool jsonrpc_conn_listening(const struct jsonrpc_conn *conn);
+
+/*
  * Receive each JSON object of a stdio connection as one frame, for a protocol
  * that is framed as JSON-RPC is but is not JSON-RPC. The connection then
  * matches no response and serves no method. @frame is valid during the call.

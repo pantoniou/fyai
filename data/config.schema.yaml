@@ -2160,10 +2160,11 @@ properties:
               type: boolean
               default: false
               description: >-
-                Let this stdio server send events with the fyai/events
-                extension. Each event that passes the schema of its kind
-                reaches the model as external data and can start a turn.
-                See doc/event-sources-sdd.md.
+                Let this server send events with the fyai/events
+                extension: a stdio server on its output, an HTTP server on
+                the stream that fyai keeps open to it. Each event that
+                passes the schema of its kind reaches the model as external
+                data and can start a turn. See doc/event-sources-sdd.md.
             principals:
               type: object
               description: >-

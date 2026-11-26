@@ -4693,8 +4693,12 @@ static enum fyai_event_action sdk_follow_cb(const struct fyai_event *ev)
 	if (srv->busy || srv->head || ctx->screen->cmd_call ||
 	    fyai_session_working(ctx))
 		return FYAIEA_CONTINUE;
-	if (fyai_session_follow(ctx))
-		fyai_ui_diag_drain(ctx, "error");
+	/*
+	 * What came meanwhile shows now, not with the next command: the
+	 * warning of a server that started or a source that went down.
+	 */
+	(void)fyai_session_follow(ctx);
+	fyai_ui_diag_drain(ctx, "error");
 	return FYAIEA_CONTINUE;
 }
 
