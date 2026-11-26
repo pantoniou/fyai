@@ -560,9 +560,10 @@ levels). `--image FILE` shows an image to each decision; the decider's
 `images: KEY` takes the data URLs of that key of the input.
 Type the decider name followed by plain text, for example
 `/decide yes-no Is 17 a prime number?` or
-`/decide triage The nightly build failed.` Both deciders are built in.
-`/decide list`, or `--list`, shows every decider with its model;
-`list` is not the name of a decider.
+`/decide triage The nightly build failed.` Those two run on the model
+of the session. `shell-gate` and `triage-fast` run on Jev and need
+TYPESAFE_API_KEY. `/decide list`, or `--list`, shows every decider
+with its model; `list` is not the name of a decider.
 Use `--input` for a structured JSON value.
 
 
@@ -4752,9 +4753,10 @@ levels). `--image FILE` shows an image to each decision; the decider's
 `images: KEY` takes the data URLs of that key of the input.
 Type the decider name followed by plain text, for example
 `/decide yes-no Is 17 a prime number?` or
-`/decide triage The nightly build failed.` Both deciders are built in.
-`/decide list`, or `--list`, shows every decider with its model;
-`list` is not the name of a decider.
+`/decide triage The nightly build failed.` Those two run on the model
+of the session. `shell-gate` and `triage-fast` run on Jev and need
+TYPESAFE_API_KEY. `/decide list`, or `--list`, shows every decider
+with its model; `list` is not the name of a decider.
 Use `--input` for a structured JSON value.
 
 
