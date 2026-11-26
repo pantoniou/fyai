@@ -2080,7 +2080,7 @@ static void mcp_decision_start(struct fyai_mcp_ctx *mcp,
 		goto lost;
 	d->next = mcp->decisions;
 	mcp->decisions = d;
-	d->job = fyai_selfjob_decide_start(ctx, spec, d->record,
+	d->job = fyai_selfjob_decide_start(ctx, spec, d->record, fy_seq_empty,
 					   timeout > 0 ? timeout * 1000 : 0,
 					   mcp_decision_done, d);
 	if (!d->job) {

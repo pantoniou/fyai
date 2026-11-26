@@ -3,6 +3,7 @@
 #define FYAI_SELFJOB_H
 
 #include <stdbool.h>
+#include <libfyaml/libfyaml-generic.h>
 
 struct fyai_ctx;
 struct fyai_selfjob;
@@ -28,14 +29,15 @@ struct fyai_selfjob *fyai_selfjob_start(struct fyai_ctx *ctx,
 
 /*
  * Run `fyai decide --spec @spec --input @input` as a job: @spec is a decider
- * that this process resolved, as JSON, and @input one JSON value. The child
+ * that this process resolved, as JSON, and @input one JSON value. @images
+ * contains the file paths for repeated --image arguments. The child
  * is given the branch, the model, the grammar and the endpoint of this
  * process, since the settings of an invocation are not stored. Its output
  * is one JSON line.
  */
 struct fyai_selfjob *fyai_selfjob_decide_start(struct fyai_ctx *ctx,
 					       const char *spec,
-					       const char *input,
+					       const char *input, fy_generic images,
 					       long long timeout_ms,
 					       fyai_selfjob_done_fn done,
 					       void *data);

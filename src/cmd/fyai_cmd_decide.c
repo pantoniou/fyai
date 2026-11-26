@@ -66,6 +66,7 @@
 #include "fyai_auth_util.h"
 #include "fyai_schema.h"
 #include "fyai_session.h"
+#include "fyai_selfjob.h"
 #include "fyai_systemone.h"
 #include "fyai_tool_spec.h"
 #include "fyai_tools.h"
@@ -1134,6 +1135,39 @@ err:
 	return NULL;
 }
 
+static void decide_session_cleanup(struct fyai_cmd_call *call)
+{
+	fyai_selfjob_cancel(call->priv);
+	call->priv = NULL;
+}
+
+static void decide_session_cancel(struct fyai_cmd_call *call)
+{
+	decide_session_cleanup(call);
+	fyai_cmd_done(call, -1, fy_invalid);
+}
+
+static void decide_session_done(void *data, int status, const char *out)
+{
+	struct fyai_cmd_call *call = data;
+	struct fyai_ctx *ctx = fyai_cmd_call_ctx(call);
+	fy_generic answer, error;
+
+	call->priv = NULL;
+	answer = parse_json_string(call->gb, out);
+	error = fy_get(answer, "error", fy_invalid);
+	fyai_error_check(ctx, !fy_is_string(error), err, "decide: %s",
+			 fy_castp(&error, ""));
+	fyai_error_check(ctx, !status && fy_is_mapping(answer), err,
+			 "decide: child returned status %d without a decision", status);
+	if (call->format == FYAI_CMD_OUT_MARKDOWN)
+		answer = fy_stringf(call->gb, "```json\n%s\n```", out);
+	fyai_cmd_done(call, 0, answer);
+	return;
+err:
+	fyai_cmd_done(call, -1, fy_invalid);
+}
+
 int fyai_cmd_decide(struct fyai_cmd_call *call, fy_generic *result)
 {
 	struct fyai_ctx *ctx = fyai_cmd_call_ctx(call);
@@ -1143,6 +1177,7 @@ int fyai_cmd_decide(struct fyai_cmd_call *call, fy_generic *result)
 	const char *options_file = fyai_cmd_arg_str(call, "options");
 	const char *instructions = fyai_cmd_arg_str(call, "instructions");
 	const char *input = fyai_cmd_arg_str(call, "input");
+	const char *plain = fyai_cmd_arg_str(call, "text");
 	const char *spec = fyai_cmd_arg_str(call, "spec");
 	struct decide_chain *chain;
 	fy_generic decider = fy_map_empty, options, v;
@@ -1156,6 +1191,13 @@ int fyai_cmd_decide(struct fyai_cmd_call *call, fy_generic *result)
 	if (fyai_cmd_arg_bool(call, "list")) {
 		*result = fyai_deciders_rows(cfg, gb);
 		return 0;
+	}
+	if (plain) {
+		fyai_error_check(ctx, !input, err,
+				 "decide: give either text or --input");
+		v = fy_value(gb, plain);
+		input = emit_json_string(gb, v);
+		fyai_error_check(ctx, input, err, "decide: cannot encode the input");
 	}
 	if (spec) {
 		/* A decider that a parent resolved, given whole. */
@@ -1190,6 +1232,26 @@ int fyai_cmd_decide(struct fyai_cmd_call *call, fy_generic *result)
 		v = fy_get(decider, "instructions", fy_invalid);
 		instructions = fy_is_string(v) ?
 			fy_gb_intern_string(gb, fy_castp(&v, "")) : NULL;
+	}
+
+	if (call->surface == FYAI_CMD_SESSION) {
+		fyai_error_check(ctx, input, err, "decide: give the text to decide on");
+		v = parse_json_string(gb, input);
+		fyai_error_check(ctx, fy_is_valid(v), err, "decide: invalid JSON input");
+		decider = fy_assoc(gb, decider, "options", options);
+		if (instructions)
+			decider = fy_assoc(gb, decider, "instructions", instructions);
+		if (*label)
+			decider = fy_assoc(gb, decider, "name", label);
+		spec = emit_json_string(gb, decider);
+		fyai_error_check(ctx, spec, err, "decide: cannot encode the decider");
+		v = fy_get(call->args, "image", fy_seq_empty);
+		call->priv = fyai_selfjob_decide_start(ctx, spec, input, v, 0,
+						       decide_session_done, call);
+		fyai_error_check(ctx, call->priv, err, "decide: cannot start the child");
+		call->cancel = decide_session_cancel;
+		call->cleanup = decide_session_cleanup;
+		return FYAI_CMD_PENDING;
 	}
 
 	chain = calloc(1, sizeof(*chain));

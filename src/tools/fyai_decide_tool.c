@@ -162,7 +162,7 @@ struct fyai_decide_call *fyai_decide_call_start(struct fyai_ctx *ctx,
 	call->ctx = ctx;
 	call->notify = notify;
 	call->userdata = userdata;
-	call->job = fyai_selfjob_decide_start(ctx, spec, json,
+	call->job = fyai_selfjob_decide_start(ctx, spec, json, fy_seq_empty,
 					      DECIDE_TOOL_TIMEOUT_MS,
 					      decide_call_done, call);
 	if (!call->job) {

@@ -853,7 +853,12 @@ commands:
       `maximum` 2 to 10 apart with a score question (`x-levels` names the
       levels). `--image FILE` shows an image to each decision; the decider's
       `images: KEY` takes the data URLs of that key of the input.
-    surfaces: [cli]
+      Type the decider name followed by plain text, for example
+      `/decide yes-no Is 17 a prime number?` or
+      `/decide triage The nightly build failed.` Both deciders are built in.
+      Use `--input` for a structured JSON value and `--list` to see deciders.
+    surfaces: [cli, session]
+    mode: async
     handler: decide
     prepare: decide
     flags: [model]
@@ -876,6 +881,12 @@ commands:
           description: the decider, a key of decisions
           x-fyai-positional: 0
           x-fyai-meta: NAME
+        text:
+          type: string
+          description: plain text to send to the decider
+          x-fyai-positional: 1
+          x-fyai-rest: true
+          x-fyai-meta: TEXT
         options:
           type: string
           description: the options, a JSON mapping of name to description and schema

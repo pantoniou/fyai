@@ -288,14 +288,23 @@ void fyai_selfjob_cancel(struct fyai_selfjob *job)
 
 struct fyai_selfjob *fyai_selfjob_decide_start(struct fyai_ctx *ctx,
 					       const char *spec,
-					       const char *input,
+					       const char *input, fy_generic images,
 					       long long timeout_ms,
 					       fyai_selfjob_done_fn done,
 					       void *data)
 {
 	struct fyai_cfg *cfg = ctx->cfg;
-	const char *argv[24], *branch = fyai_ctx_branch(ctx);
-	int argc = 0;
+	const char *branch = fyai_ctx_branch(ctx), *path, **argv, *settings;
+	struct fy_generic_builder *gb;
+	fy_generic decisions, setting;
+	struct fyai_selfjob *job;
+	size_t argc = 0;
+
+	argv = calloc(24 + 2 * fy_len(images), sizeof(*argv));
+	fyai_error_check(ctx, argv, err, "cannot allocate decision arguments");
+	if (ctx->bstate->session_unstored)
+		branch = cfg->fresh_session_from ? cfg->fresh_session_from :
+			 fyai_ctx_head_branch(ctx);
 
 	argv[argc++] = "fyai";
 	argv[argc++] = "--color";
@@ -315,11 +324,33 @@ struct fyai_selfjob *fyai_selfjob_decide_start(struct fyai_ctx *ctx,
 		argv[argc++] = "--set";
 		argv[argc++] = fy_sprintfa("api_url=%s", cfg->api_url);
 	}
+	decisions = fy_get(cfg->config_doc, "decisions", fy_invalid);
+	if (fy_is_mapping(decisions) && !fy_empty(decisions)) {
+		gb = fyai_ctx_transient_gb(ctx);
+		settings = gb ? emit_json_string(gb, decisions) : NULL;
+		fyai_error_check(ctx, settings, err_argv,
+				 "cannot encode the configured deciders");
+		argv[argc++] = "--set";
+		setting = fy_stringf(gb, "decisions=%s", settings);
+		fyai_error_check(ctx, fy_is_string(setting), err_argv,
+				 "cannot build the decider setting");
+		argv[argc++] = fy_castp(&setting, "");
+	}
 	argv[argc++] = "decide";
 	argv[argc++] = "--spec";
 	argv[argc++] = spec;
 	argv[argc++] = "--input";
 	argv[argc++] = input;
+	fy_foreach(path, images) {
+		argv[argc++] = "--image";
+		argv[argc++] = path;
+	}
 	argv[argc] = NULL;
-	return fyai_selfjob_start(ctx, argv, timeout_ms, done, data);
+	job = fyai_selfjob_start(ctx, argv, timeout_ms, done, data);
+	free(argv);
+	return job;
+err_argv:
+	free(argv);
+err:
+	return NULL;
 }
