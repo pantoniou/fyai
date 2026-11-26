@@ -3504,10 +3504,40 @@ err:
 	return rc;
 }
 
+/* How often an idle session looks whether its branch moved. */
+#define INTERACTIVE_FOLLOW_MS	500
+
+/* The session follows its branch while it waits at the prompt. */
+struct interactive_follow {
+	struct fyai_ctx *ctx;
+	struct fyai_event_source *timer;
+	bool at_prompt;
+};
+
+/* The context that this object stands on. */
+static inline struct fyai_ctx *interactive_follow_ctx(const struct interactive_follow *o)
+{
+	return o->ctx;
+}
+
+static enum fyai_event_action interactive_follow_cb(const struct fyai_event *ev)
+{
+	struct interactive_follow *f = ev->userdata;
+	struct fyai_ctx *ctx = interactive_follow_ctx(f);
+
+	/* A command or a turn that runs the loop owns the state. */
+	if (!f->at_prompt || fyai_session_working(ctx))
+		return FYAIEA_CONTINUE;
+	if (fyai_session_follow(ctx))
+		fyai_ui_diag_drain(ctx, "error");
+	return FYAIEA_CONTINUE;
+}
+
 int fyai_prompt_interactive(struct fyai_ctx *ctx)
 {
 	struct fyai_cfg *cfg = ctx->cfg;
 	struct fyai_prompt_args *args = &cfg->cmd.args.prompt;
+	struct interactive_follow follow = { .ctx = ctx };
 	const char *prompt;
 	char *histfile = NULL;
 	char *line = NULL;
@@ -3574,12 +3604,19 @@ int fyai_prompt_interactive(struct fyai_ctx *ctx)
 			prompt = "  > ";
 	}
 
+	/* Without a timer the session follows when a turn starts. */
+	(void)fyai_event_add_timer(fyai_ctx_loop(ctx), INTERACTIVE_FOLLOW_MS,
+				   INTERACTIVE_FOLLOW_MS, interactive_follow_cb,
+				   &follow, &follow.timer);
+
 	for (;;) {
 		if (ctx->loop->terminate_pending)
 			break;
 		errno = 0;
+		follow.at_prompt = true;
 		line = fyai_ui_active(ctx) ? fyai_ui_readline(ctx) :
 			fyai_readline(ctx, prompt);
+		follow.at_prompt = false;
 		if (!line) {
 			/* Ctrl-C cancels the line; Ctrl-D / EOF exits. */
 			if (errno == EAGAIN)
@@ -3616,6 +3653,13 @@ int fyai_prompt_interactive(struct fyai_ctx *ctx)
 		}
 		if (!fyai_credential_available(ctx)) {
 			fyai_error(ctx, "no API key or ChatGPT login is available");
+			fyai_ui_diag_drain(ctx, "error");
+			free(line);
+			line = NULL;
+			continue;
+		}
+		/* The turn starts from what the branch holds now. */
+		if (fyai_session_follow(ctx)) {
 			fyai_ui_diag_drain(ctx, "error");
 			free(line);
 			line = NULL;
@@ -3669,6 +3713,7 @@ int fyai_prompt_interactive(struct fyai_ctx *ctx)
 	rc = 0;
 
 out:
+	fyai_event_source_remove(follow.timer);
 	free(line);
 	free(histfile);
 	return rc;

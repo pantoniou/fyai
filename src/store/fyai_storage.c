@@ -1092,28 +1092,39 @@ fy_generic fyai_branches_snapshot(struct fyai_ctx *ctx)
 	return fyai_root_validate(ctx->arena->durable_allocator, root) ? root : fy_invalid;
 }
 
-int fyai_branches_refresh(struct fyai_ctx *ctx)
+/*
+ * Read the root that is published now. Returns 1 when it moved and @r holds
+ * it, 0 when there is nothing new, -1 for a root that does not decode.
+ */
+static int storage_root_reread(struct fyai_ctx *ctx, struct fyai_root *r)
 {
 	fy_generic_value head;
-	struct fyai_branch cur;
-	struct fyai_root r;
 	fy_generic root;
 
-	if (!ctx->arena->durable_allocator || ctx->cfg->root_pinned)
+	if (!ctx->arena->durable_allocator || ctx->cfg->root_pinned ||
+	    ctx->cfg->transient)
 		return 0;
 	head = fy_allocator_refs_get(ctx->arena->durable_allocator);
 	if (!head || head == ctx->arena->refs_head)
 		return 0;
 	root = (fy_generic){ .v = head };
 	if (!fyai_root_validate(ctx->arena->durable_allocator, root) ||
-	    fyai_root_decode(root, &r) < 0)
+	    fyai_root_decode(root, r) < 0)
 		return -1;
 	ctx->arena->refs_head = head;
-	ctx->bstate->branches = r.branches;
-	/* Keep the branch predecessor in the root that was adopted. */
-	fyai_branch_lookup(r.branches, fyai_ctx_branch(ctx), &cur);
-	fyai_ctx_branch_prev_set(ctx, cur.entry);
-	return 0;
+	ctx->bstate->branches = r->branches;
+	return 1;
+}
+
+/*
+ * The table only: the entry that the next publish builds on stays, so a
+ * branch that moved meets the reconcile of the publish, not an overwrite.
+ */
+int fyai_branches_refresh(struct fyai_ctx *ctx)
+{
+	struct fyai_root r;
+
+	return storage_root_reread(ctx, &r) < 0 ? -1 : 0;
 }
 
 /* Re-open the arena before a forked child writes to it. */
@@ -1862,6 +1873,72 @@ err_out:
 }
 
 /*
+ * True when the entry of this branch in the table that this run holds is not
+ * the entry that its publish builds on: another invocation moved the branch,
+ * and a re-read of the table took it. The root itself may be current, so the
+ * CAS would not notice; the publish reconciles as for a lost CAS.
+ */
+static bool storage_branch_moved(struct fyai_ctx *ctx)
+{
+	struct fyai_branch cur;
+
+	if (ctx->cfg->transient || ctx->cfg->root_pinned ||
+	    fy_is_invalid(ctx->bstate->prev))
+		return false;
+	if (!fyai_branch_lookup(ctx->bstate->branches, fyai_ctx_branch(ctx),
+				&cur))
+		return false;
+	return cur.entry.v != ctx->bstate->prev.v;
+}
+
+int fyai_branch_follow(struct fyai_ctx *ctx, unsigned int *changedp)
+{
+	struct fyai_branch cur, base;
+	struct fyai_root r;
+	fy_generic config, catalog;
+	unsigned int changed = 0;
+	int rc;
+
+	if (changedp)
+		*changedp = 0;
+	/*
+	 * A refresh may have read the root already: the entry of the branch
+	 * against the base says whether it moved, not the root.
+	 */
+	if (storage_root_reread(ctx, &r) < 0)
+		return -1;
+
+	/* A branch that did not move, or that is not stored yet. */
+	if (!fyai_branch_lookup(ctx->bstate->branches, fyai_ctx_branch(ctx), &cur) ||
+	    fy_is_invalid(ctx->bstate->prev) ||
+	    cur.entry.v == ctx->bstate->prev.v)
+		return 0;
+	/*
+	 * Turns of this session that are not stored yet stay where they are:
+	 * its publish meets branch/on_conflict, as a lost CAS does.
+	 */
+	fyai_branch_decode(ctx->bstate->prev, &base);
+	if (ctx->turn->last_message.v != base.head.v)
+		return 0;
+
+	config = ctx->bstate->config;
+	catalog = ctx->bstate->catalog;
+	rc = publish_store_merge(ctx, &cur);
+	if (rc)
+		return -1;
+	if (cur.head.v != ctx->turn->last_message.v)
+		changed |= FYAI_FOLLOW_HEAD;
+	ctx->turn->last_message = cur.head;
+	fyai_ctx_branch_prev_set(ctx, cur.entry);
+	if (ctx->bstate->config.v != config.v ||
+	    ctx->bstate->catalog.v != catalog.v)
+		changed |= FYAI_FOLLOW_CONFIG;
+	if (changedp)
+		*changedp = changed;
+	return 0;
+}
+
+/*
  * Record the project with an entry that moves the head. A caller that set the
  * state itself, as reset does, keeps it. A capture that fails is reported and
  * the entry keeps the state of its predecessor.
@@ -1920,7 +1997,7 @@ int fyai_publish_state(struct fyai_ctx *ctx)
 	for (tries = 0; tries < FYAI_STATE_PUBLISH_TRIES; tries++) {
 		fyai_branch_op_set(ctx, op, from);
 		fyai_prof_count("publish_attempt", 1);
-		rc = fyai_root_publish_try(ctx);
+		rc = storage_branch_moved(ctx) ? 1 : fyai_root_publish_try(ctx);
 		if (!rc) {
 			if (tries)
 				fyai_prof_count("publish_cas_lost", tries);

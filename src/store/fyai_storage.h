@@ -17,8 +17,25 @@ int fyai_setup_storage(struct fyai_ctx *ctx);
 int fyai_storage_bootstrap_confirm(struct fyai_ctx *ctx);
 int fyai_publish_state(struct fyai_ctx *ctx);
 int fyai_close_storage(struct fyai_ctx *ctx);
-/* Re-read the branch table, which a sub-agent may have added to. */
+/*
+ * Re-read the branch table, which a sub-agent may have added to. The entry
+ * that the next publish of this session builds on stays as it was.
+ */
 int fyai_branches_refresh(struct fyai_ctx *ctx);
+
+/* What fyai_branch_follow() took. */
+#define FYAI_FOLLOW_HEAD	(1u << 0)	/* new turns */
+#define FYAI_FOLLOW_CONFIG	(1u << 1)	/* configuration or catalogue */
+
+/*
+ * Re-read the branch table and follow the branch of this session: when
+ * another invocation moved it and this session has no turns that it has not
+ * stored, take its head, and merge its store three ways. A session with
+ * turns of its own keeps them; its publish meets branch/on_conflict. The
+ * caller re-derives the configuration when @changedp has
+ * FYAI_FOLLOW_CONFIG. Returns 0, or -1 with a diagnostic.
+ */
+int fyai_branch_follow(struct fyai_ctx *ctx, unsigned int *changedp);
 /* Borrow a validated root without changing the current publication baseline. */
 fy_generic fyai_branches_snapshot(struct fyai_ctx *ctx);
 /* Re-open the arena in a forked child that must write to it. */

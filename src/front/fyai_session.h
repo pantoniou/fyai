@@ -134,6 +134,12 @@ fy_generic fyai_session_status_data(struct fyai_ctx *ctx,
  */
 /* Return true if active work (turn, tools, agent, or question) is running. */
 bool fyai_session_working(struct fyai_ctx *ctx);
+/*
+ * Take what another invocation stored on the branch of this idle session:
+ * its turns show in the transcript and go with the next request, and a
+ * configuration that changed applies. Returns 0, or -1 with a diagnostic.
+ */
+int fyai_session_follow(struct fyai_ctx *ctx);
 /* Hand off active session to server and exec @next ("" = new, else target). */
 int fyai_session_leave(struct fyai_ctx *ctx, const char *next);
 int fyai_session_branch_switch(struct fyai_ctx *ctx, const char *name,

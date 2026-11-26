@@ -2316,6 +2316,35 @@ err_out:
 	return -1;
 }
 
+int fyai_session_follow(struct fyai_ctx *ctx)
+{
+	unsigned int changed;
+	int rc;
+
+	rc = fyai_branch_follow(ctx, &changed);
+	fyai_error_check(ctx, !rc, err_out,
+			 "could not follow branch '%s'", fyai_ctx_branch(ctx));
+	if (changed & FYAI_FOLLOW_CONFIG) {
+		rc = fyai_config_rederive(ctx);
+		if (!rc)
+			rc = fyai_auth_resolve(ctx);
+		if (!rc)
+			rc = fyai_request_state_apply(ctx);
+		fyai_error_check(ctx, !rc, err_out,
+				 "could not apply the configuration that "
+				 "branch '%s' took", fyai_ctx_branch(ctx));
+	}
+	if (!changed)
+		return 0;
+	/* The transcript view takes the new head on its next frame. */
+	fyai_session_banner_update(ctx);
+	fyai_ui_repaint(ctx);
+	return 0;
+
+err_out:
+	return -1;
+}
+
 /* /diff [from [to]]: the exports of two ref-log entries, compared. */
 struct fyai_btw_run {
 	struct fyai_btw_run *next;

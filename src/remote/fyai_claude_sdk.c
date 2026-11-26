@@ -215,6 +215,8 @@ struct sdk_server {
 	/* A worker of `fyai serve`: a client that reattaches initializes again,
 	 * and the serving process learns the branch from internal frames. */
 	bool remote_worker;
+	/* A worker follows its branch while it waits for the client. */
+	struct fyai_event_source *follow_timer;
 	int chan_in, chan_out;		/*
 					 * worker channel, separate from stdio
 					 */
@@ -3808,6 +3810,10 @@ static void sdk_turn(struct sdk_server *srv, const struct sdk_input *in)
 				 "result or a message to answer");
 		goto run;
 	}
+	/* The turn starts from what the branch holds now. */
+	rc = fyai_session_follow(ctx);
+	if (rc)		/* fyai_session_follow() says why */
+		goto done;
 	if (in->event) {
 		rc = sdk_add_event(srv, &in->ev);
 		if (rc)		/* sdk_add_event() says why */
@@ -4674,6 +4680,24 @@ out:
 	return -1;
 }
 
+/* How often an idle worker looks whether its branch moved. */
+#define SDK_FOLLOW_MS	500
+
+/* An idle worker takes what another invocation stored on its branch. */
+static enum fyai_event_action sdk_follow_cb(const struct fyai_event *ev)
+{
+	struct sdk_server *srv = ev->userdata;
+	struct fyai_ctx *ctx = sdk_server_ctx(srv);
+
+	/* A turn, a waiting input or a command owns the state. */
+	if (srv->busy || srv->head || ctx->screen->cmd_call ||
+	    fyai_session_working(ctx))
+		return FYAIEA_CONTINUE;
+	if (fyai_session_follow(ctx))
+		fyai_ui_diag_drain(ctx, "error");
+	return FYAIEA_CONTINUE;
+}
+
 /* Serve the inputs of the client until the channel closes. */
 static int sdk_cmd_serve(struct sdk_server *srv)
 {
@@ -4693,6 +4717,11 @@ static int sdk_cmd_serve(struct sdk_server *srv)
 	sdk_register(srv);
 	if (srv->remote_worker)
 		fyai_fleet_watch_restore(ctx);
+	/* Without a timer the worker follows when a turn starts. */
+	if (srv->remote_worker)
+		(void)fyai_event_add_timer(el, SDK_FOLLOW_MS, SDK_FOLLOW_MS,
+					   sdk_follow_cb, srv,
+					   &srv->follow_timer);
 	if (srv->remote_worker && fyai_pending_restore(ctx))
 		fyai_warning(ctx, "durable: the pending work was not restored");
 	/* SIGTERM ends client-driven sessions (used by `session kill`). */
@@ -4802,9 +4831,11 @@ static int sdk_cmd_serve(struct sdk_server *srv)
 				ctx->loop->terminate_pending && !srv->channel_lost ?
 				FYAI_WORKER_EXIT_ENDED :
 				srv->last_error || srv->failed ? 1 : 0;
-	return 0;
+	rc = 0;
 out:
-	return -1;
+	fyai_event_source_remove(srv->follow_timer);
+	srv->follow_timer = NULL;
+	return rc ? -1 : 0;
 }
 
 /* Release what the session took: the observers, the queues and the channel. */
