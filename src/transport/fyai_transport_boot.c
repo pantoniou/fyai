@@ -1337,13 +1337,20 @@ int fyai_transport_worker_attach(int sync_fd, int agent_fd, int ctl_fd)
 	len = read(sync_fd, &exec_id, sizeof(exec_id));
 	if (len != sizeof(exec_id))
 		return -1;
+	/*
+	 * The channels of the parent are closed, but not a number that the
+	 * caller has just filled with a channel of this worker: the fixed
+	 * slots replaced the inherited descriptors there.
+	 */
 	old = getenv(FYAI_TRANSPORT_FD_ENV);
 	old_fd = old ? atoi(old) : -1;
-	if (old_fd > STDERR_FILENO)
+	if (old_fd > STDERR_FILENO && old_fd != agent_fd && old_fd != ctl_fd &&
+	    old_fd != sync_fd)
 		close(old_fd);
 	old = getenv(FYAI_TRANSPORT_CTL_ENV);
 	old_fd = old ? atoi(old) : -1;
-	if (old_fd > STDERR_FILENO)
+	if (old_fd > STDERR_FILENO && old_fd != agent_fd && old_fd != ctl_fd &&
+	    old_fd != sync_fd)
 		close(old_fd);
 	snprintf(value, sizeof(value), "%d", agent_fd);
 	if (setenv(FYAI_TRANSPORT_FD_ENV, value, 1))
