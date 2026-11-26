@@ -33,6 +33,7 @@
 #include "fyai_buf.h"
 #include "fyai_cmd.h"
 #include "fyai_cmd_int.h"
+#include "fyai_host.h"
 #include "utils.h"
 
 /* A line of a peer longer than this ends the proxy. */
@@ -105,7 +106,7 @@ static int proxy_spawn(struct proxy_child *c, char **argv, bool self)
 	int in[2] = { -1, -1 }, out[2] = { -1, -1 };
 	sigset_t none;
 
-	if (pipe2(in, O_CLOEXEC) || pipe2(out, O_CLOEXEC))
+	if (fyai_host_pipe(in) || fyai_host_pipe(out))
 		goto err;
 	c->pid = fork();
 	if (c->pid < 0)

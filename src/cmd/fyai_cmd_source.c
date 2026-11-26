@@ -34,6 +34,7 @@
 #include "fyai_buf.h"
 #include "fyai_cmd.h"
 #include "fyai_cmd_int.h"
+#include "fyai_host.h"
 #include "fyai_schema.h"
 #include "utils.h"
 
@@ -169,7 +170,7 @@ static int source_spawn(struct source_lines *s)
 	sigset_t none;
 	int pipefd[2], null;
 
-	if (pipe2(pipefd, O_CLOEXEC))
+	if (fyai_host_pipe(pipefd))
 		return -1;
 	s->pid = fork();
 	if (s->pid < 0) {
