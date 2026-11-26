@@ -27,6 +27,7 @@
 #include "fyai_transport.h"
 #include "fyai_transport_boot.h"
 #include "fyai_transport_cfg.h"
+#include "fyai_systemone.h"
 #include "fyai_transport_client.h"
 #include "fyai_transport_ctl.h"
 #include "fyai_transport_sock.h"
@@ -792,53 +793,36 @@ static void ensure_personas(struct fyai_ctx *ctx, struct fyai_transport_grant *g
 	}
 }
 
-int fyai_transport_ensure(struct fyai_ctx *ctx)
+/* True when this execution holds a control connection that can state profiles. */
+static bool ensure_can_state(const struct fyai_ctx *ctx)
+{
+	return ctx->transport->client &&
+	       (ctx->transport->role == FYAI_TRANSPORT_OWNER ||
+		ctx->transport->role == FYAI_TRANSPORT_SUPERVISOR) &&
+	       ctx->transport->ctl > STDERR_FILENO;
+}
+
+/*
+ * State @grant to the transport, and grant this execution the names in
+ * @names besides those it has. Return 0 or -1, with a diagnostic.
+ */
+static int ensure_send(struct fyai_ctx *ctx, struct fyai_transport_grant *grant,
+		       char names[][FYAI_TPC_NAME_MAX], size_t nneed)
 {
 	struct fy_generic_builder_cfg cfg = { .flags = FYGBCF_SCOPE_LEADER };
-	struct fyai_transport_grant grant = { 0 };
 	struct fyai_transport_allow allow[ENSURE_MAX];
-	char names[ENSURE_MAX][FYAI_TPC_NAME_MAX];
-	struct fy_generic_builder *gb = NULL;
+	struct fy_generic_builder *gb;
 	fy_generic reply;
 	const char *why = NULL;
-	size_t nneed = 0, i, n = 0;
-	struct fyai_transport_allow root[FYAI_TPC_KINDS];
-	char rn[FYAI_TPC_KINDS][FYAI_TPC_NAME_MAX];
-	size_t cnt;
-	bool all;
+	size_t i, n = 0;
 	int rc;
 
-	/*
-	 * Only the user session states profiles: it holds the primary control
-	 * connection, as the supervisor or as the session in a view. A sub-agent
-	 * has the grant its parent gave it, and the transport refuses what that
-	 * grant lacks.
-	 */
-	if (!ctx->transport->client ||
-	    (ctx->transport->role != FYAI_TRANSPORT_OWNER &&
-	     ctx->transport->role != FYAI_TRANSPORT_SUPERVISOR) ||
-	    ctx->transport->ctl <= STDERR_FILENO)
-		return 0;
-	/* The personas change with the configuration; the model can change without. */
-	if (ctx->transport->stated && ctx->transport->gen == ctx->cfg->config_generation) {
-		cnt = fyai_transport_allow_for(ctx->cfg, rn, root);
-		all = true;
-
-		for (i = 0; i < cnt; i++)
-			all &= names_have(ctx->transport, root[i].profile);
-		if (all)
-			return 0;
-	}
-
-	rc = ensure_add(ctx->cfg, &grant, names, &nneed, &why);
-	fyai_error_check(ctx, !rc, err, "credential isolation: %s", why);
-	ensure_personas(ctx, &grant, names, &nneed);
 	gb = fy_generic_builder_create(&cfg);
 	fyai_error_check(ctx, gb, err, "out of memory");
 
 	rc = ctx_call(ctx->transport, gb, fy_mapping(gb, "op", "profiles",
 			"seq", ++ctx->transport->seq, "merge", true,
-			"profiles", fyai_ctl_profiles_encode(gb, &grant)),
+			"profiles", fyai_ctl_profiles_encode(gb, grant)),
 		       -1, &reply, &why);
 	fyai_error_check(ctx, !rc, err, "credential isolation: %s", why);
 
@@ -861,14 +845,132 @@ int fyai_transport_ensure(struct fyai_ctx *ctx)
 	fyai_error_check(ctx, !rc, err, "credential isolation: %s", why);
 	for (i = 0; i < nneed; i++)
 		names_add(ctx->transport, names[i]);
-	ctx->transport->gen = ctx->cfg->config_generation;
-	ctx->transport->stated = true;
 	fy_generic_builder_destroy(gb);
-	fyai_transport_grant_clear(&grant);
 	return 0;
 err:
 	if (gb)
 		fy_generic_builder_destroy(gb);
+	return -1;
+}
+
+/*
+ * Add the profiles of the decision models that the deciders use, with and
+ * without images, so that a `decide` tool child that inherits the grant of
+ * this execution can reach them. A decider that does not resolve is left out.
+ */
+static void ensure_deciders(struct fyai_ctx *ctx, struct fyai_transport_grant *grant,
+			    char names[][FYAI_TPC_NAME_MAX], size_t *n)
+{
+	struct fy_generic_builder_cfg gcfg = { .flags = FYGBCF_SCOPE_LEADER };
+	struct fy_generic_builder *gb;
+	fy_generic list, e, url, cred;
+	const char *why;
+	char name[FYAI_TPC_NAME_MAX];
+	bool images;
+	size_t j;
+
+	gb = fy_generic_builder_create(&gcfg);
+	if (!gb)
+		return;
+	list = fyai_systemone_endpoints(ctx->cfg, gb);
+	fy_foreach(e, list) {
+		url = fy_get(e, "url", fy_invalid);
+		cred = fy_get(e, "credential", fy_invalid);
+		if (!fy_is_string(url) || !fy_is_string(cred))
+			continue;
+		for (images = false; ; images = true) {
+			if (!fyai_transport_url_profile_add(grant,
+					fy_castp(&url, ""), fy_castp(&cred, ""),
+					fyai_systemone_headers(images), images,
+					&why) &&
+			    fyai_transport_url_profile_name(fy_castp(&url, ""),
+					fy_castp(&cred, ""), images, name,
+					sizeof(name))) {
+				for (j = 0; j < *n; j++)
+					if (!strcmp(names[j], name))
+						break;
+				if (j == *n && *n < ENSURE_MAX)
+					snprintf(names[(*n)++], FYAI_TPC_NAME_MAX,
+						 "%s", name);
+			}
+			if (images)
+				break;
+		}
+	}
+	fy_generic_builder_destroy(gb);
+}
+
+int fyai_transport_ensure(struct fyai_ctx *ctx)
+{
+	struct fyai_transport_grant grant = { 0 };
+	char names[ENSURE_MAX][FYAI_TPC_NAME_MAX];
+	const char *why = NULL;
+	size_t nneed = 0, i;
+	struct fyai_transport_allow root[FYAI_TPC_KINDS];
+	char rn[FYAI_TPC_KINDS][FYAI_TPC_NAME_MAX];
+	size_t cnt;
+	bool all;
+	int rc;
+
+	/*
+	 * Only the user session states profiles: it holds the primary control
+	 * connection, as the supervisor or as the session in a view. A sub-agent
+	 * has the grant its parent gave it, and the transport refuses what that
+	 * grant lacks.
+	 */
+	if (!ensure_can_state(ctx))
+		return 0;
+	/* The personas change with the configuration; the model can change without. */
+	if (ctx->transport->stated && ctx->transport->gen == ctx->cfg->config_generation) {
+		cnt = fyai_transport_allow_for(ctx->cfg, rn, root);
+		all = true;
+
+		for (i = 0; i < cnt; i++)
+			all &= names_have(ctx->transport, root[i].profile);
+		if (all)
+			return 0;
+	}
+
+	rc = ensure_add(ctx->cfg, &grant, names, &nneed, &why);
+	fyai_error_check(ctx, !rc, err, "credential isolation: %s", why);
+	ensure_personas(ctx, &grant, names, &nneed);
+	ensure_deciders(ctx, &grant, names, &nneed);
+	rc = ensure_send(ctx, &grant, names, nneed);
+	if (rc)
+		goto err;
+	ctx->transport->gen = ctx->cfg->config_generation;
+	ctx->transport->stated = true;
+	fyai_transport_grant_clear(&grant);
+	return 0;
+err:
+	fyai_transport_grant_clear(&grant);
+	return -1;
+}
+
+int fyai_transport_ensure_url(struct fyai_ctx *ctx, const char *url,
+			      const char *credential, const char *const *headers,
+			      bool images, char *name, size_t size)
+{
+	struct fyai_transport_grant grant = { 0 };
+	char names[1][FYAI_TPC_NAME_MAX];
+	const char *why = NULL;
+	int rc;
+
+	rc = fyai_transport_url_profile_name(url, credential, images, name, size);
+	fyai_error_check(ctx, rc, err, "credential isolation: the request has "
+			 "no URL or no credential source");
+	if (!ensure_can_state(ctx) || names_have(ctx->transport, name))
+		return 0;
+	rc = fyai_transport_url_profile_add(&grant, url, credential, headers,
+					    images, &why);
+	fyai_error_check(ctx, !rc, err, "credential isolation: %s", why);
+	snprintf(names[0], sizeof(names[0]), "%s", name);
+	rc = ensure_send(ctx, &grant, names, 1);
+	if (rc)
+		goto err;
+	fyai_transport_grant_clear(&grant);
+	return 0;
+err:
 	fyai_transport_grant_clear(&grant);
 	return -1;
 }
@@ -975,21 +1077,26 @@ err:
 	return -1;
 }
 
-bool fyai_transport_have_credential(struct fyai_transport_state *tp, const struct fyai_cfg *cfg)
+bool fyai_transport_holds_control(const struct fyai_transport_state *tp)
+{
+	return tp->client && tp->ctl > STDERR_FILENO &&
+	       (tp->role == FYAI_TRANSPORT_OWNER ||
+		tp->role == FYAI_TRANSPORT_SUPERVISOR);
+}
+
+bool fyai_transport_have_source(struct fyai_transport_state *tp, const char *src)
 {
 	struct fy_generic_builder_cfg gcfg = { .flags = FYGBCF_SCOPE_LEADER };
 	struct fy_generic_builder *gb;
-	char src[512];
 	fy_generic reply;
 	bool found = false;
 	const char *why;
 
-	/* A local program holds its own login (fyai_claude_cli.c). */
-	if (cfg->no_auth || (cfg->api_key && *cfg->api_key) ||
-	    fyai_api_local(cfg->api_mode))
-		return true;
-	if (!tp->client || !fyai_transport_credential_source(cfg, src, sizeof(src)))
+	if (!tp->client)
 		return false;
+	/* Without a control connection only the transport can tell. */
+	if (tp->ctl <= STDERR_FILENO)
+		return true;
 	gb = fy_generic_builder_create(&gcfg);
 	if (!gb)
 		return false;
@@ -998,6 +1105,19 @@ bool fyai_transport_have_credential(struct fyai_transport_state *tp, const struc
 		found = fy_get(reply, "found", false);
 	fy_generic_builder_destroy(gb);
 	return found;
+}
+
+bool fyai_transport_have_credential(struct fyai_transport_state *tp, const struct fyai_cfg *cfg)
+{
+	char src[512];
+
+	/* A local program holds its own login (fyai_claude_cli.c). */
+	if (cfg->no_auth || (cfg->api_key && *cfg->api_key) ||
+	    fyai_api_local(cfg->api_mode))
+		return true;
+	if (!tp->client || !fyai_transport_credential_source(cfg, src, sizeof(src)))
+		return false;
+	return fyai_transport_have_source(tp, src);
 }
 
 int fyai_transport_describe(struct fyai_transport_state *tp, struct fy_generic_builder *gb,

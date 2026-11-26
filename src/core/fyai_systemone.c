@@ -21,12 +21,15 @@
 #include "fyai_buf.h"
 #include "fyai_config.h"
 #include "fyai_curl.h"
+#include "fyai_decider.h"
 #include "fyai_event.h"
 #include "fyai_link.h"
 #include "fyai_secret.h"
 #include "fyai_stream.h"
 #include "fyai_systemone.h"
 #include "fyai_transport_boot.h"
+#include "fyai_transport_client.h"
+#include "fyai_transport_cfg.h"
 #include "utils.h"
 
 /* A request that takes longer than this has failed. */
@@ -39,6 +42,8 @@ struct systemone_xfer {
 	CURLcode code;
 	long status;
 	bool done;
+	struct fyai_tcall *call;
+	char message[256];
 };
 
 const char *fyai_systemone_key(struct fyai_ctx *ctx,
@@ -79,6 +84,157 @@ static void systemone_complete(struct fyai_curl_transfer *transfer,
 	fyai_curl_transfer_destroy(transfer);
 	x->transfer = NULL;
 	x->done = true;
+}
+
+/*
+ * The credential source of @provider that only the transport resolves:
+ * its variable, else the secret fyai:api-key/NAME.
+ */
+const char *fyai_systemone_credential(struct fy_generic_builder *gb,
+					fy_generic provider)
+{
+	fy_generic name = fy_get(provider, "name", fy_invalid);
+	fy_generic env = fy_get(provider, "key_env", fy_invalid);
+	const char *var = fy_is_string(env) ? fy_castp(&env, "") :
+			  fyai_config_provider_env_key(gb, fy_castp(&name, ""));
+	const char *nm = fy_castp(&name, "");
+
+	return fy_gb_intern_string(gb, var ?
+		fy_sprintfa("env:%s|secret:api-key/%s", var, nm) :
+		fy_sprintfa("secret:api-key/%s", nm));
+}
+
+const char *const *fyai_systemone_headers(bool images)
+{
+	/* TypeSafe takes assets only behind this header. */
+	static const char *const image_headers[] = {
+		"TypeSafe-Danger-Zone-Images: true", NULL
+	};
+
+	return images ? image_headers : NULL;
+}
+
+fy_generic fyai_systemone_endpoints(struct fyai_cfg *cfg,
+				    struct fy_generic_builder *gb)
+{
+	fy_generic rows = fyai_deciders_rows(cfg, gb), row, decider, model;
+	fy_generic provider, url, nm, list = fy_sequence(gb);
+	const char *wire, *why;
+
+	fy_foreach(row, rows) {
+		nm = fy_get(row, "name", fy_invalid);
+		if (!fy_is_string(nm))
+			continue;
+		decider = fyai_decider_get(cfg, gb, fy_castp(&nm, ""), &why);
+		model = fy_get(decider, "model", fy_invalid);
+		if (!fy_is_string(model))
+			continue;
+		provider = fyai_decider_systemone(cfg, gb, fy_castp(&model, ""), &wire);
+		if (!fy_is_mapping(provider))
+			continue;
+		url = fy_get(decider, "url", fy_invalid);
+		if (!fy_is_string(url))
+			url = fy_get(provider, "url", fy_invalid);
+		if (!fy_is_string(url))
+			continue;
+		list = fy_append(gb, list, fy_mapping(gb, "url", url,
+			"credential", fyai_systemone_credential(gb, provider)));
+	}
+	return list;
+}
+
+static size_t systemone_tp_body(const void *data, size_t len, void *ud)
+{
+	struct systemone_xfer *x = ud;
+
+	return write_response((void *)data, 1, len, &x->response);
+}
+
+static void systemone_tp_start(struct fyai_tcall *call,
+			       const struct fyai_tcall_start *st, void *ud)
+{
+	struct systemone_xfer *x = ud;
+
+	(void)call;
+	x->status = st->status;
+}
+
+static void systemone_tp_end(struct fyai_tcall *call,
+			     const struct fyai_tcall_result *r, void *ud)
+{
+	struct systemone_xfer *x = ud;
+
+	(void)call;
+	switch (r->end) {
+	case FYAI_TC_OK:
+		x->code = CURLE_OK;
+		break;
+	case FYAI_TC_FAILED:
+		x->code = (CURLcode)r->code;
+		break;
+	case FYAI_TC_CANCELLED:
+		x->code = CURLE_ABORTED_BY_CALLBACK;
+		break;
+	case FYAI_TC_ABORTED:
+		x->code = CURLE_WRITE_ERROR;
+		break;
+	case FYAI_TC_REFUSED:
+	case FYAI_TC_LOST:
+	default:
+		/* Nothing retries a refused request or a lost transport. */
+		x->code = CURLE_FAILED_INIT;
+		break;
+	}
+	snprintf(x->message, sizeof(x->message), "%s", r->message);
+	x->done = true;
+}
+
+/* One attempt through the credential transport; as systemone_attempt(). */
+static int systemone_attempt_tp(struct fyai_ctx *ctx, struct systemone_xfer *x,
+				const char *profile, const char *body)
+{
+	struct fyai_event_loop *el = fyai_ctx_loop(ctx);
+	struct fyai_transport_request rq = {
+		.profile = profile,
+		.method = "POST",
+		.content_type = "application/json",
+		.accept = "application/json",
+		.timeout_ms = SYSTEMONE_TIMEOUT_S * 1000L,
+		.body = (const uint8_t *)body,
+		.body_len = strlen(body),
+	};
+	struct fyai_tcall_callbacks cb = {
+		.start = systemone_tp_start, .body = systemone_tp_body,
+		.end = systemone_tp_end, .userdata = x,
+	};
+
+	free(x->response.data);
+	memset(&x->response, 0, sizeof(x->response));
+	x->done = false;
+	x->status = 0;
+	x->code = CURLE_OK;
+	x->message[0] = '\0';
+	x->call = fyai_tclient_submit(ctx->transport->client, &rq, &cb);
+	if (!x->call || !el)
+		return -1;
+	while (!x->done) {
+		if (fyai_interrupt_pending(ctx)) {
+			fyai_event_interrupt_ack(ctx->loop);
+			fyai_tcall_cancel(x->call);
+		}
+		if (fyai_event_loop_step(el, -1) < 0) {
+			fyai_tcall_cancel(x->call);
+			while (!x->done)
+				if (fyai_event_loop_step(el, -1) < 0)
+					break;
+			fyai_tcall_destroy(x->call);
+			x->call = NULL;
+			return -1;
+		}
+	}
+	fyai_tcall_destroy(x->call);
+	x->call = NULL;
+	return 0;
 }
 
 /* One attempt; 0 when it ran to an answer or a failure, -1 when it could not. */
@@ -174,6 +330,11 @@ fy_generic fyai_systemone_ask(struct fyai_ctx *ctx,
 	fy_generic purl, doc, result = fy_invalid;
 	const char *body;
 	int attempt, attempts = ctx->cfg->retry_max_attempts;
+	bool isolated = fyai_transport_supervised();
+	bool images = fy_is_mapping(fy_get(request, "assets", fy_invalid));
+	const char *const *image_headers = fyai_systemone_headers(true);
+	char profile[FYAI_TPC_NAME_MAX];
+	const char *cred;
 
 	*whyp = NULL;
 	purl = fy_get(provider, "url", fy_invalid);
@@ -189,18 +350,25 @@ fy_generic fyai_systemone_ask(struct fyai_ctx *ctx,
 		*whyp = "cannot encode the request";
 		return fy_invalid;
 	}
-	if (append_header(&headers, "Content-Type: application/json") ||
+	if (isolated) {
+		/* The transport adds the key; no header carries it here. */
+		cred = fyai_systemone_credential(gb, provider);
+		if (fyai_transport_ensure_url(ctx, url, cred,
+				fyai_systemone_headers(images), images,
+				profile, sizeof(profile))) {
+			*whyp = "cannot state the request to the transport";
+			goto out;
+		}
+	} else if (append_header(&headers, "Content-Type: application/json") ||
 	    append_header(&headers, "Accept: application/json") ||
 	    (key && append_header(&headers, fy_sprintfa(
 			"Authorization: Bearer %s", key))) ||
-	    /* TypeSafe takes assets only behind this header. */
-	    (fy_is_mapping(fy_get(request, "assets", fy_invalid)) &&
-	     append_header(&headers, "TypeSafe-Danger-Zone-Images: true"))) {
+	    (images && append_header(&headers, image_headers[0]))) {
 		*whyp = "out of memory";
 		goto out;
 	}
-	x.easy = curl_easy_init();
-	if (!x.easy) {
+	x.easy = isolated ? NULL : curl_easy_init();
+	if (!isolated && !x.easy) {
 		*whyp = "cannot make a curl handle";
 		goto out;
 	}
@@ -214,7 +382,8 @@ fy_generic fyai_systemone_ask(struct fyai_ctx *ctx,
 			*whyp = "interrupted";
 			goto out;
 		}
-		if (systemone_attempt(ctx, &x, url, headers, body)) {
+		if (isolated ? systemone_attempt_tp(ctx, &x, profile, body) :
+		    systemone_attempt(ctx, &x, url, headers, body)) {
 			*whyp = "cannot send the request";
 			goto out;
 		}
@@ -229,7 +398,8 @@ fy_generic fyai_systemone_ask(struct fyai_ctx *ctx,
 	}
 	if (x.code != CURLE_OK) {
 		*whyp = fy_gb_intern_string(gb, fy_sprintfa(
-			"the request failed: %s", curl_easy_strerror(x.code)));
+			"the request failed: %s", *x.message ? x.message :
+			curl_easy_strerror(x.code)));
 		goto out;
 	}
 	if (x.status < 200 || x.status >= 300) {

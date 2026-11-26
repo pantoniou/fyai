@@ -219,3 +219,64 @@ size_t fyai_transport_allow_for(const struct fyai_cfg *cfg,
 	}
 	return n;
 }
+
+bool fyai_transport_url_profile_name(const char *url, const char *credential,
+				     bool images, char *out, size_t size)
+{
+	uint32_t h = 2166136261u;
+
+	if (fy_str_empty(url) || fy_str_empty(credential))
+		return false;
+	h = fnv(h, url);
+	h = fnv(h, credential);
+	h = fnv(h, images ? "images" : "");
+	snprintf(out, size, "d-%08x", h);
+	return true;
+}
+
+int fyai_transport_url_profile_add(struct fyai_transport_grant *grant,
+				   const char *url, const char *credential,
+				   const char *const *headers, bool images,
+				   const char **why)
+{
+	struct fyai_transport_profile_spec spec = { 0 };
+	char name[FYAI_TPC_NAME_MAX], *sep;
+	char field[128];
+	size_t i;
+	int rc;
+
+	if (!fyai_transport_url_profile_name(url, credential, images, name,
+					     sizeof(name))) {
+		*why = "the request has no URL or no credential source";
+		return -EINVAL;
+	}
+	if (fyai_transport_grant_find(grant, name))
+		return 0;
+	spec.name = name;
+	spec.url = url;
+	spec.plain_http = !strncmp(url, "http://", 7);
+	spec.auth = FYAI_TA_BEARER;
+	spec.credential = credential;
+	rc = fyai_transport_grant_add_spec(grant, &spec);
+	if (rc) {
+		*why = rc == -ENOMEM ? "out of memory" :
+		       "the endpoint is not one that the transport accepts";
+		return rc == -ENOMEM ? rc : -EINVAL;
+	}
+	for (i = 0; headers && headers[i]; i++) {
+		sep = strstr(headers[i], ": ");
+		if (!sep || (size_t)(sep - headers[i]) >= sizeof(field)) {
+			*why = "a fixed header is not NAME: VALUE";
+			return -EINVAL;
+		}
+		memcpy(field, headers[i], sep - headers[i]);
+		field[sep - headers[i]] = '\0';
+		rc = fyai_transport_grant_add_header(grant, name, field,
+						     sep + 2);
+		if (rc) {
+			*why = "out of memory";
+			return rc;
+		}
+	}
+	return 0;
+}

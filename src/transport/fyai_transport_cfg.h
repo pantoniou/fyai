@@ -63,6 +63,25 @@ size_t fyai_transport_allow_for(const struct fyai_cfg *cfg,
 				char names[FYAI_TPC_KINDS][FYAI_TPC_NAME_MAX],
 				struct fyai_transport_allow allow[FYAI_TPC_KINDS]);
 
+/*
+ * The profile of a request to @url that a bearer @credential source
+ * authenticates, outside the model request of a configuration (a decision
+ * model). @images names the variant that adds the fixed headers of an image
+ * request. Return false if @url or @credential is empty.
+ */
+bool fyai_transport_url_profile_name(const char *url, const char *credential,
+				     bool images, char *out, size_t size);
+
+/*
+ * Add that profile to @grant, with the fixed "NAME: VALUE" lines of
+ * @headers (NULL-terminated, may be NULL). Return 0, -EINVAL or -ENOMEM;
+ * @why then names the reason in static storage.
+ */
+int fyai_transport_url_profile_add(struct fyai_transport_grant *grant,
+				   const char *url, const char *credential,
+				   const char *const *headers, bool images,
+				   const char **why);
+
 /* The URL of the compact endpoint for @cfg, or false. */
 bool fyai_transport_compact_url(const struct fyai_cfg *cfg, char *out, size_t size);
 

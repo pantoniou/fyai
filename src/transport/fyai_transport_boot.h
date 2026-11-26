@@ -77,6 +77,27 @@ int fyai_transport_attach(struct fyai_ctx *ctx);
 int fyai_transport_ensure(struct fyai_ctx *ctx);
 
 /*
+ * State and take the profile of a request to @url that the bearer
+ * @credential source authenticates (fyai_transport_url_profile_add()), and
+ * write its name to @name. A no-op beyond the name when this execution holds
+ * no control connection: the grant it was given decides. Return 0 or -1,
+ * with a diagnostic.
+ */
+/* True when this execution can state profiles and probe credentials. */
+bool fyai_transport_holds_control(const struct fyai_transport_state *tp);
+
+/*
+ * True if the transport resolves the credential source @src (a name of
+ * fyai_transport_credential_source()). Also true when this execution has no
+ * control connection to ask: the transport then refuses the request itself.
+ */
+bool fyai_transport_have_source(struct fyai_transport_state *tp, const char *src);
+
+int fyai_transport_ensure_url(struct fyai_ctx *ctx, const char *url,
+			      const char *credential, const char *const *headers,
+			      bool images, char *name, size_t size);
+
+/*
  * Lend the primary control connection to a session in a view, and take it back
  * when the session ends. The connection is one socket that both processes hold:
  * a reader in the supervisor would take replies that the session waits for.

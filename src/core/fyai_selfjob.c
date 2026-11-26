@@ -299,7 +299,14 @@ struct fyai_selfjob *fyai_selfjob_decide_start(struct fyai_ctx *ctx,
 	fy_generic decisions, setting;
 	struct fyai_selfjob *job;
 	size_t argc = 0;
+	int rc;
 
+	/* The child inherits the profiles stated here, the deciders' included. */
+	if (ctx->transport->client) {
+		rc = fyai_transport_ensure(ctx);
+		fyai_error_check(ctx, !rc, err,
+				 "cannot state the decider profiles");
+	}
 	argv = calloc(24 + 2 * fy_len(images), sizeof(*argv));
 	fyai_error_check(ctx, argv, err, "cannot allocate decision arguments");
 	if (ctx->bstate->session_unstored)

@@ -68,6 +68,7 @@
 #include "fyai_session.h"
 #include "fyai_selfjob.h"
 #include "fyai_systemone.h"
+#include "fyai_transport_boot.h"
 #include "fyai_tool_spec.h"
 #include "fyai_tools.h"
 #include "fyai_toolspec.h"
@@ -1010,6 +1011,7 @@ static int decide_so_setup(struct fyai_ctx *ctx, struct fy_generic_builder *gb,
 			   const char *instructions)
 {
 	fy_generic v, name, env;
+	bool have;
 
 	name = fy_get(run->provider, "name", fy_invalid);
 	env = fy_get(run->provider, "key_env", fy_invalid);
@@ -1017,7 +1019,12 @@ static int decide_so_setup(struct fyai_ctx *ctx, struct fy_generic_builder *gb,
 	run->url = fy_is_string(v) ?
 		   fy_gb_intern_string(gb, fy_castp(&v, "")) : NULL;
 	run->key = fyai_systemone_key(ctx, gb, run->provider);
-	fyai_error_check(ctx, run->key, err,
+	/* Under isolation the transport holds the key. */
+	have = run->key || (fyai_transport_supervised() &&
+	       (!fyai_transport_holds_control(ctx->transport) ||
+		fyai_transport_have_source(ctx->transport,
+			fyai_systemone_credential(gb, run->provider))));
+	fyai_error_check(ctx, have, err,
 			 "decide: no key for %s: set %s, or the secret "
 			 "fyai:api-key/%s", fy_castp(&name, "?"),
 			 fy_castp(&env, "its variable"), fy_castp(&name, "?"));
