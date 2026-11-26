@@ -14,6 +14,10 @@ With MCP_EVENTS_ON_LIST, a file of JSON lines {kind, id, cursor, data}, it
 sends those events once fyai has listed the kinds. With MCP_EVENTS_MARKER,
 it creates that file once it has an acknowledgement of each way an event
 is handled without the model, `dropped` and `answered`.
+
+With MCP_EVENTS_CRASHABLE, it has a tool `crash` that ends the process
+without an answer, and the ids of its FIFO events name the process, so the
+events of a process that starts again are new.
 """
 
 import json
@@ -64,15 +68,23 @@ MESSAGE = {
 NOTE = {"name": "note", "schema": {"type": "string"}}
 
 
+listed = threading.Event()
+
+
 def fifo_events(path):
-    """One event for each line of the FIFO; the open blocks for a writer."""
+    """One event for each line of the FIFO; the open blocks for a writer.
+
+    A source sends no event before fyai listed its kinds."""
+    listed.wait()
     n = 0
     while True:
         with open(path, encoding="utf-8") as fifo:
             for line in fifo:
                 n += 1
-                event("note", "fifo-%d" % n, "fifo-cursor-%d" % n,
-                      line.strip())
+                ident = "fifo-%d" % n
+                if os.environ.get("MCP_EVENTS_CRASHABLE"):
+                    ident = "fifo-%d-%d" % (os.getpid(), n)
+                event("note", ident, "fifo-cursor-%d" % n, line.strip())
 
 
 if os.environ.get("MCP_EVENTS_FIFO"):
@@ -118,11 +130,18 @@ for line in sys.stdin:
                                 "thread_ts": {"type": "string"},
                                 "text": {"type": "string"}}},
         }]}
+        if os.environ.get("MCP_EVENTS_CRASHABLE"):
+            result["tools"].append({
+                "name": "crash", "description": "End the server",
+                "inputSchema": {"type": "object", "properties": {}}})
     elif method == "fyai/events/list":
         if frame["params"].get("cursor") == "page-2":
             result = {"kinds": [NOTE]}
         else:
             result = {"kinds": [MESSAGE], "nextCursor": "page-2"}
+    elif method == "tools/call" and frame["params"]["name"] == "crash":
+        record({"crash": os.getpid()})
+        os._exit(3)
     elif method == "tools/call" and frame["params"]["name"] == "reply":
         a = frame["params"]["arguments"]
         result = {"content": [{"type": "text", "text": "replied in %s/%s" %
@@ -150,6 +169,8 @@ for line in sys.stdin:
     else:
         result = {}
     send({"id": frame["id"], "result": result})
+    if method == "fyai/events/list" and frame["params"].get("cursor") == "page-2":
+        listed.set()
     if (method == "fyai/events/list" and
             frame["params"].get("cursor") == "page-2" and
             os.environ.get("MCP_EVENTS_ON_LIST")):
