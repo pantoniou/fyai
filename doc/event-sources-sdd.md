@@ -229,6 +229,19 @@ Slack is up. No answer, or the process ends, puts the source in `down`, shows
 it in the status line, and restarts it with backoff. This replaces `pgrep`
 and `{"bridge":"DOWN"}`.
 
+**Restart, as built.** A configured source over stdio whose connection
+closes (its process ended, or it broke the protocol) starts again: after
+500 ms, a wait that doubles up to 30 s, and starts at 500 ms again once
+the source stayed up 30 s. The session warns that it went down and says
+when it is up again; `list` and the live panel show it `restarting`. A
+`wait` on it keeps waiting. The new process goes through the handshake
+with the cursor that fyai acknowledged last, so it resends what was not
+taken; the ids that fyai saw drop a resend of what was. Events waiting
+for a decision are dropped, as the source sends them again. Its tools go
+until it is up, then come back. A source that `source_start` started is
+not restarted, nor is a source over HTTP, whose stream opens again by
+itself. `ping` on an interval is not built yet.
+
 ## Lifetime
 
 A configured source belongs to the session, as an MCP server does: it starts
