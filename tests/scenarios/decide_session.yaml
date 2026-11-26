@@ -1,0 +1,25 @@
+# SPDX-License-Identifier: MIT
+steps:
+  - match: {path: /v1/chat/completions, body_contains: prime number}
+    response:
+      choices:
+        - message:
+            role: assistant
+            tool_calls:
+              - id: prime
+                type: function
+                function:
+                  name: structured_output
+                  arguments: '{"decision":"yes","arguments":{"reason":"only two divisors"}}'
+          finish_reason: tool_calls
+      usage: {prompt_tokens: 10, completion_tokens: 5}
+  - match: {path: /v1/systemone, body_contains: K1}
+    response:
+      answers:
+        decision: {type: choice, choice: safe, probabilities: {safe: 0.93, risky: 0.07}}
+  - match: {path: /v1/chat/completions, body_contains: K2}
+    response:
+      choices:
+        - message: {role: assistant, content: "No deciders here."}
+          finish_reason: stop
+      usage: {prompt_tokens: 10, completion_tokens: 5}
