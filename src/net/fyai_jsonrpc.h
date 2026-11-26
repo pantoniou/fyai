@@ -68,6 +68,13 @@ jsonrpc_conn_tunnel(struct fyai_ctx *ctx, int timeout_s, const char *name,
 void jsonrpc_conn_tunnel_receive(struct jsonrpc_conn *conn, fy_generic frame);
 /* Fail the pending requests with @why: the peer is gone. */
 void jsonrpc_conn_tunnel_close(struct jsonrpc_conn *conn, const char *why);
+/*
+ * Close a stdio connection whose peer goes away while the owner lives on:
+ * stop watching its descriptors and fail the pending requests with @why.
+ * The owner may then close the descriptors; the object stays valid until
+ * jsonrpc_conn_destroy().
+ */
+void jsonrpc_conn_shutdown(struct jsonrpc_conn *conn, const char *why);
 void jsonrpc_conn_destroy(struct jsonrpc_conn *conn);
 
 /*

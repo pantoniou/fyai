@@ -2250,6 +2250,8 @@ static fy_generic fyai_cancel_tool(struct fyai_ctx *ctx, fy_generic args,
 	fy_generic name_v, kind_v;
 	const char *name, *kind;
 	bool is_wait, is_agent, is_shell, is_monitor, is_question, is_message;
+	bool is_source;
+	const char *why = NULL;
 
 	*okp = false;
 	name_v = fy_get(args, "name", fy_invalid);
@@ -2272,7 +2274,9 @@ static fy_generic fyai_cancel_tool(struct fyai_ctx *ctx, fy_generic args,
 		       fyai_agents_parent_ask_pending(ctx, name));
 	is_message = (!*kind || !strcmp(kind, "message")) &&
 		     fyai_agents_message_pending(ctx, name);
-	if (is_wait + is_agent + is_shell + is_monitor + is_question +
+	is_source = (!*kind || !strcmp(kind, "source")) &&
+		    fyai_mcp_source_known(ctx->mcp, name);
+	if (is_wait + is_agent + is_shell + is_monitor + is_question + is_source +
 	    is_message > 1)
 		return fy_stringf(gb, "tool error: '%s' names more than one "
 				  "thing; say its kind", name);
@@ -2304,6 +2308,14 @@ static fy_generic fyai_cancel_tool(struct fyai_ctx *ctx, fy_generic args,
 	if (is_wait && fyai_wait_cancel(ctx->waitq, name)) {
 		*okp = true;
 		return fy_stringf(gb, "[wait '%s' cancelled]", name);
+	}
+	if (is_source) {
+		if (fyai_mcp_source_stop(ctx->mcp, name, &why)) {
+			*okp = true;
+			return fy_stringf(gb, "[source '%s' stopped]", name);
+		}
+		return fy_stringf(gb, "tool error: source '%s': %s", name,
+				  why ? why : "it could not be stopped");
 	}
 	/* A daemon of the scope, by its label or its pid, when nothing else has the name. */
 	if ((!*kind || !strcmp(kind, "daemon")) && fyai_scope_stop(ctx->scope, name)) {

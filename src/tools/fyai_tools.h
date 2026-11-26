@@ -370,6 +370,13 @@ bool fyai_mcp_source_known(struct fyai_mcp *mc, const char *name);
 /* Whether the source @name starts or is up, so it can still send an event. */
 bool fyai_mcp_source_up(struct fyai_mcp *mc, const char *name);
 /*
+ * Stop the source @name that the model started: false when there is no
+ * such source, with the reason in *@whyp when it is one that cancel does
+ * not stop (a configured source).
+ */
+bool fyai_mcp_source_stop(struct fyai_mcp *mc, const char *name,
+			  const char **whyp);
+/*
  * The lines of the live panel for the MCP servers: {title, mark, last,
  * quiet}, mark one of running, ok, failed. A server that starts or is down
  * always has one; a source that is up has one, quiet, when @sources. The

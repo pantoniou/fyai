@@ -122,6 +122,16 @@ struct fyai_mcp_ctx {
 	bool events_wanted;
 	bool events_supported;
 	bool events_listed;
+	/*
+	 * A source that the model started with source_start: its command runs
+	 * under the tool sandbox, it holds the scope of the exchange while it
+	 * lives, and cancel stops it. A stopped one stays in the list, out of
+	 * every lookup, until the session ends: a request in flight on its
+	 * connection may still finish.
+	 */
+	bool by_model;
+	bool removed;
+	struct fyai_scope_pin pin;
 	fy_generic event_kinds;
 	char *event_cursor;
 	unsigned int event_credits;
@@ -519,7 +529,29 @@ static void mcp_resource_head(struct fyai_ctx *ctx, FILE *mf,
 		fy_get(args, "operation", ""));
 }
 
+static fy_generic mcp_source_start_tool(struct fyai_ctx *ctx, fy_generic args,
+					bool *okp);
+
+static void mcp_source_start_head(struct fyai_ctx *ctx, FILE *mf,
+				  struct fy_generic_builder *gb, fy_generic args,
+				  int preview_lines, struct fyai_md_blocks *blocks)
+{
+	fy_generic name = fy_get(args, "name", fy_invalid);
+	fy_generic command = fy_get(args, "command", fy_invalid);
+
+	(void)ctx;
+	(void)gb;
+	(void)preview_lines;
+	(void)blocks;
+	fprintf(mf, "**source_start** %s: `%s`\n\n", fy_castp(&name, "?"),
+		fy_castp(&command, ""));
+}
+
 const struct fyai_tool_def fyai_mcp_defs[] = {
+	{ .name = "source_start", .run = mcp_source_start_tool,
+	  .head = mcp_source_start_head,
+	  .flags = FYAI_TOOL_PARENT | FYAI_TOOL_NOT_FOR_CHILD,
+	  .effect = FYAI_TOOL_EFFECT_PROCESS },
 	{ .name = "tool_search", .run = fyai_mcp_tool_search,
 	  .head = mcp_search_head, .describe = mcp_search_describe,
 	  .flags = FYAI_TOOL_PARENT },
@@ -831,6 +863,11 @@ static void mcp_startup_settle(struct mcp_startup *su,
 		fyai_diag_type(mc->diag, FYAIET_WARNING, "MCP server '%s' is unavailable", mcp->name);
 	/* The live view shows a server that starts or is down. */
 	mcp_sources_publish(mc);
+	/* A source that the model started brings its actions mid-session. */
+	if (mcp->by_model && state == MCP_SRV_READY) {
+		fyai_mcp_publish_tools(fyai_mcp_state_ctx(mc));
+		(void)fyai_request_state_apply(fyai_mcp_state_ctx(mc));
+	}
 }
 
 static const char *mcp_startup_phase_name(enum mcp_startup_phase phase)
@@ -3555,8 +3592,12 @@ static int mcp_stdio_spawn(struct fyai_mcp *mc, struct fyai_mcp_ctx *mcp,
 
 	args = fy_get(config, "args", fy_seq_empty);
 	env = fy_get(config, "env", fy_invalid);
-	command = fy_get(config, "command", "");
-	cwd = fy_get(config, "cwd", "");
+	/* Copies: a short string does not outlive the generic it lives in. */
+	command = fy_gb_intern_string(mc->cfg->gb, fy_get(config, "command", ""));
+	cwd = fy_gb_intern_string(mc->cfg->gb, fy_get(config, "cwd", ""));
+	fyai_diag_check(mc->diag, command && cwd, err_out,
+			 "MCP stdio server '%s' could not keep its command",
+			 mcp->name);
 	fyai_diag_check(mc->diag, fy_is_sequence(args), err_out,
 			 "MCP stdio server '%s' args must be a sequence", mcp->name);
 	fyai_diag_check(mc->diag, fy_is_invalid(env) ||
@@ -3620,6 +3661,9 @@ static int mcp_stdio_spawn(struct fyai_mcp *mc, struct fyai_mcp_ctx *mcp,
 		rc = fyai_child_exec_prepare(fyai_mcp_state_ctx(mc), &spec);
 		if (rc)
 			_exit(rc);
+		/* A command that the model gave runs as its shell commands do. */
+		if (mcp->by_model && fyai_tools_confine(fyai_mcp_state_ctx(mc)))
+			_exit(126);
 
 		/* Apply configured variables after removing credentials. */
 		if (fy_is_mapping(env)) {
@@ -3737,6 +3781,7 @@ static int mcp_create_server(struct fyai_mcp *mc, const char *server_name,
 	mcp->event_kinds = fy_map_empty;
 	mcp->event_relist_kinds = fy_invalid;
 	mcp->events_wanted = fy_get(config, "events", false);
+	mcp->by_model = fy_get(config, "_fyai_by_model", false);
 	fyai_diag_check(mc->diag, !mcp->events_wanted ||
 			 mcp->transport == MCP_TRANSPORT_STDIO, err_out,
 			 "MCP server '%s' can send events only over stdio",
@@ -3843,7 +3888,7 @@ void fyai_mcp_publish_tools(struct fyai_ctx *ctx)
 	fy_generic out = fy_seq_empty;
 
 	for (mcp = ctx->mcp->conns; mcp; mcp = mcp->next)
-		if (mcp->state == MCP_SRV_READY &&
+		if (mcp->state == MCP_SRV_READY && !mcp->removed &&
 		    fy_is_valid(mcp->tools))
 			out = fy_concat(ctx->arena->gb, out, mcp->tools);
 	ctx->mcp->tools = fy_gb_internalize(ctx->arena->gb, out);
@@ -3856,7 +3901,7 @@ mcp_find_server(struct fyai_mcp *mc, const char *name)
 	struct fyai_mcp_ctx *mcp;
 
 	for (mcp = mc->conns; mcp; mcp = mcp->next)
-		if (!strcmp(mcp->name, name))
+		if (!mcp->removed && !strcmp(mcp->name, name))
 			return mcp;
 	return NULL;
 }
@@ -3960,11 +4005,12 @@ fy_generic fyai_mcp_sources_rows(struct fyai_mcp *mc,
 	fy_generic rows = fy_seq_empty;
 
 	for (mcp = mc ? mc->conns : NULL; mcp; mcp = mcp->next) {
-		if (!mcp->events_wanted)
+		if (!mcp->events_wanted || mcp->removed)
 			continue;
 		rows = fy_append(gb, rows, fy_null_filtered_mapping(gb,
 			"name", mcp->name,
 			"state", mcp_source_state(mcp),
+			"by", mcp->by_model ? fy_value(gb, "model") : fy_null,
 			"credits", (long long)mcp->event_credits,
 			"received", (long long)mcp->event_received,
 			"delivered", (long long)mcp->event_delivered,
@@ -4007,6 +4053,8 @@ fy_generic fyai_mcp_live_rows(struct fyai_mcp *mc,
 	const char *state, *mark, *title, *last;
 
 	for (mcp = mc ? mc->conns : NULL; mcp; mcp = mcp->next) {
+		if (mcp->removed)
+			continue;
 		state = mcp_source_state(mcp);
 		title = fy_sprintfa("**%s** `%s`",
 				    mcp->events_wanted ? "source" : "mcp",
@@ -5113,4 +5161,89 @@ void fyai_mcp_state_init(struct fyai_mcp *mcp, struct fyai_loop *loop,
 	/* Not the all-zero word: that is an empty sequence. */
 	mcp->tools = fy_invalid;
 	mcp->active_tools = fy_invalid;
+}
+
+/*
+ * source_start: the model starts an event source, an MCP server with the
+ * fyai/events extension on standard input and output. Its command runs
+ * through /bin/sh under the tool sandbox, in @workdir, and lives for the
+ * session; cancel stops it.
+ */
+static fy_generic mcp_source_start_tool(struct fyai_ctx *ctx, fy_generic args,
+					bool *okp)
+{
+	struct fy_generic_builder *gb = fyai_ctx_transient_gb(ctx);
+	struct fyai_mcp *mc = ctx->mcp;
+	fy_generic name_v = fy_get(args, "name", fy_invalid);
+	fy_generic command = fy_get(args, "command", fy_invalid);
+	fy_generic workdir = fy_get(args, "workdir", fy_invalid), config;
+	struct fyai_mcp_ctx *mcp;
+	const char *name = fy_castp(&name_v, "");
+	char *diag;
+
+	*okp = false;
+	if (!mcp_server_name_valid(name))
+		return fy_value(gb, "tool error: name the source with letters, "
+				"digits, '-' or '_'");
+	if (!fy_is_string(command) || fy_empty(command))
+		return fy_value(gb, "tool error: give the command of the source");
+	if (mcp_find_server(mc, name))
+		return fy_stringf(gb, "tool error: a source or MCP server named "
+				  "'%s' exists already; use another name", name);
+	config = fy_mapping(gb, "command", "/bin/sh",
+		"args", fy_sequence(gb, "-c", command),
+		"events", true, "_fyai_by_model", true);
+	if (fy_is_string(workdir) && !fy_empty(workdir))
+		config = fy_assoc(gb, config, "cwd", workdir);
+	if (fyai_mcp_add(mc, name, config)) {
+		diag = fyai_diag_string(mc->diag);
+		fyai_diag_reset(mc->diag);
+		return fy_stringf(gb, "tool error: the source could not start%s%s",
+				  diag && *diag ? ": " : "", diag ? diag : "");
+	}
+	mcp = mcp_find_server(mc, name);
+	if (mcp)
+		fyai_scope_pin(ctx->scope, &mcp->pin);
+	*okp = true;
+	return fy_stringf(gb, "[source '%s' starting]\n"
+		"Its events reach you between your tool calls, and its actions "
+		"become tools when it is up. `wait` with `for: %s` holds your "
+		"turn until its next event, `list` with kind `sources` shows it, "
+		"and `cancel` stops it.", name, name);
+}
+
+bool fyai_mcp_source_stop(struct fyai_mcp *mc, const char *name,
+			  const char **whyp)
+{
+	struct fyai_mcp_ctx *mcp = mc ? mcp_find_server(mc, name) : NULL;
+	struct fyai_ctx *ctx;
+
+	*whyp = NULL;
+	if (!mcp || !mcp->events_wanted)
+		return false;
+	if (!mcp->by_model) {
+		*whyp = "a configured source is not stopped by cancel";
+		return false;
+	}
+	ctx = fyai_mcp_state_ctx(mc);
+	/* An event that waits for its decision is not taken. */
+	mcp_events_release(mcp);
+	if (mcp->startup) {
+		if (mcp->startup->timer)
+			fyai_event_source_remove(mcp->startup->timer);
+		jsonrpc_request_destroy(mcp->startup->req);
+		free(mcp->startup->cursor);
+		free(mcp->startup);
+		mcp->startup = NULL;
+	}
+	mcp->removed = true;
+	mcp->state = MCP_SRV_FAILED;
+	/* What waits on it fails now; its pipes can close after. */
+	jsonrpc_conn_shutdown(mcp->conn, "the source was stopped");
+	mcp_teardown_begin(mc, mcp);
+	fyai_scope_unpin(ctx->scope, &mcp->pin);
+	fyai_mcp_publish_tools(ctx);
+	(void)fyai_request_state_apply(ctx);
+	mcp_sources_publish(mc);
+	return true;
 }

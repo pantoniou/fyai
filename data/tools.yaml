@@ -8,7 +8,7 @@
 #
 # Tool order is fixed: tool_search, mcp_resource, read_file, write_file,
 # apply_patch, shell, shell_input,
-# shell_output, shell_close, ask_user, ask_parent, agent, list, settings,
+# shell_output, shell_close, monitor, source_start, ask_user, ask_parent, agent, list, settings,
 # fleet, todo_write, time, wait,
 # skill, decide, structured_output.
 - type: function
@@ -386,10 +386,40 @@
       additionalProperties: false
 - type: function
   function:
+    name: source_start
+    description: >-
+      Start an event source: a program that speaks MCP with the fyai/events extension on its
+      standard input and output, such as `fyai source lines -- tail -F app.log`. Its events reach
+      you between your tool calls, each framed as data, and the actions it offers become tools
+      once it is up. It runs under the same sandbox as your shell commands and lives for the
+      session: `wait` with `for` holds your turn until its next event, `list` with kind `sources`
+      shows it, and `cancel` stops it. For plain lines of a command, `monitor` is simpler.
+    parameters:
+      type: object
+      properties:
+        name:
+          type: string
+          description: >-
+            Name for this source (letters, digits, '-' or '_'), unique among sources and MCP
+            servers.
+        command:
+          type: string
+          description: |-
+            Shell command that runs the source.
+        workdir:
+          type: string
+          description: |-
+            Optional directory to run it in.
+      required:
+        - name
+        - command
+      additionalProperties: false
+- type: function
+  function:
     name: cancel
     description: >-
       Stop something you started in the background, by its name: a named `wait`, a sub-agent (also
-      one started with `background`), a `monitor`, a shell started with `background`, a question, an agent message receipt, an
+      one started with `background`), a `monitor`, a source started with `source_start`, a shell started with `background`, a question, an agent message receipt, an
       open terminal session, or a daemon: any process that `list` shows under `daemons`, by
       its pid. A daemon gets SIGTERM, and SIGKILL after the grace time if it stays. Cancelling a receipt stops waiting for its acknowledgement; the
       message may still be queued. Stopping a sub-agent
@@ -405,7 +435,7 @@
             Name of the wait, sub-agent, monitor, question, message receipt or session to cancel.
         kind:
           type: string
-          enum: [wait, agent, shell, monitor, question, message, daemon]
+          enum: [wait, agent, shell, monitor, source, question, message, daemon]
           description: >-
             What the name refers to. Omit it when the name is unique among your waits, sub-agents,
             monitors, questions, message receipts and sessions.

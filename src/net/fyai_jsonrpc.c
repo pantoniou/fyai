@@ -1259,6 +1259,22 @@ err_out:
 	return NULL;
 }
 
+void jsonrpc_conn_shutdown(struct jsonrpc_conn *conn, const char *why)
+{
+	struct fyai_event_loop *el;
+
+	if (!conn || conn->closed)
+		return;
+	if (conn->transport == JSONRPC_STDIO) {
+		el = fyai_ctx_loop(jsonrpc_conn_ctx(conn));
+		if (el)
+			fyai_event_defer_cancel(el, jsonrpc_conn_late_close, conn);
+		jsonrpc_drop_source(&conn->read_src);
+		jsonrpc_drop_source(&conn->write_src);
+	}
+	jsonrpc_conn_fail_pending(conn, why);
+}
+
 void jsonrpc_conn_destroy(struct jsonrpc_conn *conn)
 {
 	struct fyai_event_loop *el;
