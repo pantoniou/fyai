@@ -5,7 +5,7 @@
 Design, in part implemented. It builds on `doc/events.md` and closes its
 gaps "Structured events" and "Other event sources".
 
-Implemented: the wire of the extension for stdio servers (handshake, kinds,
+Implemented: the wire of the extension for stdio and HTTP servers (handshake, kinds,
 events, rejections, acknowledgement on publish, credits; `mcp/servers/NAME/
 events`), `list` and `wait` on sources, the live panel line,
 `fyai source lines`, bound actions, trust levels, route rules that drop
@@ -187,6 +187,27 @@ The source sends a notification:
 - An event that fails its schema is not delivered. fyai answers
   `notifications/fyai/rejected` with the id and the problems, and shows a
   diagnostic. The source author sees the mistake at once.
+
+### Over HTTP, as built
+
+A server over streamable HTTP sends its events as MCP sends any message of
+its own: on the stream of server-sent events that the client opens with a
+GET, or within the stream that answers a POST.
+
+- fyai opens the GET stream (`Accept: text/event-stream`, with the session
+  id) once the kinds are listed, so no event comes before its kind is known.
+- The stream is served as stdio is: events, `list_changed`, and requests
+  such as `ping`, whose answers go back as POSTs. Rejections and
+  acknowledgements are POSTs too.
+- An answer that is a stream of events is read whole: the messages before
+  the answer are served in order, then the answer is the result.
+- A stream that ends opens again: after 100 ms when it delivered messages,
+  else after a wait from 500 ms that doubles up to 30 s, or after the
+  `retry` that the server set. It sends `Last-Event-ID` with the last id it
+  saw, so a server that keeps its events can resume after it; the ack by
+  cursor stays what fyai relies on.
+- A server that refuses the stream (405, 404, 401 or 403) is shown with a
+  warning and the state `no-events`; its tools go on.
 
 ## Acknowledgement and flow control
 
