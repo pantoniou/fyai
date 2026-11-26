@@ -56,6 +56,14 @@
 #define MCP_EVENTS_VERSION	1LL
 /* Events a source may send that fyai has not acknowledged yet. */
 #define MCP_EVENTS_CREDITS	16
+/*
+ * A configured source over stdio whose process ends starts again: first
+ * after this wait, which doubles each time up to the most. A source that
+ * stayed up this long starts again at the first wait.
+ */
+#define MCP_RESTART_FIRST_MS	500
+#define MCP_RESTART_MAX_MS	30000
+#define MCP_RESTART_STABLE_MS	30000
 /* Ids of the last events, to drop a resend of one fyai already has. */
 #define MCP_EVENTS_SEEN		256
 #define MCP_EVENT_ID_MAX	128
@@ -132,6 +140,16 @@ struct fyai_mcp_ctx {
 	bool by_model;
 	bool removed;
 	struct fyai_scope_pin pin;
+	/*
+	 * A configured source over stdio is started again when its process
+	 * ends: its configuration, the wait before the next start, the timer
+	 * of that start, when it was last up, and how many starts it took.
+	 */
+	fy_generic spawn_config;
+	struct fyai_event_source *restart_timer;
+	long long restart_ms;
+	long long up_since;
+	unsigned int restarts;
 	fy_generic event_kinds;
 	char *event_cursor;
 	unsigned int event_credits;
@@ -882,8 +900,10 @@ static void mcp_startup_settle(struct mcp_startup *su,
 	mcp->state = state;
 	if (state == MCP_SRV_READY)
 		mcp->last_error = NULL;
-	if (state == MCP_SRV_READY)
+	if (state == MCP_SRV_READY) {
 		mcp_stream_listen(mcp);
+		mcp->up_since = (long long)fyai_event_now_ms();
+	}
 	mcp->startup = NULL;
 	free(su->cursor);
 	free(su);
@@ -897,8 +917,12 @@ static void mcp_startup_settle(struct mcp_startup *su,
 		fyai_diag_type(mc->diag, FYAIET_WARNING, "MCP server '%s' is unavailable", mcp->name);
 	/* The live view shows a server that starts or is down. */
 	mcp_sources_publish(mc);
-	/* A source that the model started brings its actions mid-session. */
-	if (mcp->by_model && state == MCP_SRV_READY) {
+	if (mcp->restarts && state == MCP_SRV_READY)
+		fyai_diag_type(mc->diag, FYAIET_NOTICE,
+			       "source '%s' is up again", mcp->name);
+	/* A source that the model started, or that started again, brings its
+	 * actions mid-session. */
+	if ((mcp->by_model || mcp->restarts) && state == MCP_SRV_READY) {
 		fyai_mcp_publish_tools(fyai_mcp_state_ctx(mc));
 		(void)fyai_request_state_apply(fyai_mcp_state_ctx(mc));
 	}
@@ -3733,6 +3757,131 @@ err_out:
 	return -1;
 }
 
+static void mcp_source_closed(void *data);
+
+/* The connection to the process of a stdio server. */
+static struct jsonrpc_conn *mcp_stdio_conn(struct fyai_mcp *mc,
+					   struct fyai_mcp_ctx *mcp)
+{
+	struct jsonrpc_conn *conn;
+
+	conn = jsonrpc_conn_stdio(fyai_mcp_state_ctx(mc), mcp->stdin_fd,
+				  mcp->stdout_fd, mcp->timeout, mcp->name, "mcp");
+	if (!conn)
+		return NULL;
+	/* Events, their kinds and ping arrive unasked. */
+	(void)jsonrpc_conn_serve(conn, mcp_serve, mcp);
+	if (fy_is_mapping(mcp->spawn_config))
+		jsonrpc_conn_on_close(conn, mcp_source_closed, mcp);
+	return conn;
+}
+
+static enum fyai_event_action mcp_source_restart(const struct fyai_event *ev);
+
+/* Start the source again after its wait. */
+static void mcp_source_restart_schedule(struct fyai_mcp_ctx *mcp)
+{
+	struct fyai_mcp *mc = mcp_owner(mcp);
+	struct fyai_event_loop *el = fyai_loop_get(mc->loop);
+	long long now = (long long)fyai_event_now_ms();
+
+	if (mcp->restart_timer || !el)
+		return;
+	if (mcp->up_since && now - mcp->up_since >= MCP_RESTART_STABLE_MS)
+		mcp->restart_ms = 0;
+	mcp->up_since = 0;
+	mcp->restart_ms = mcp->restart_ms ? mcp->restart_ms * 2 :
+			  MCP_RESTART_FIRST_MS;
+	if (mcp->restart_ms > MCP_RESTART_MAX_MS)
+		mcp->restart_ms = MCP_RESTART_MAX_MS;
+	if (fyai_event_add_timer(el, mcp->restart_ms, 0, mcp_source_restart,
+				 mcp, &mcp->restart_timer)) {
+		fyai_diag_type(mc->diag, FYAIET_WARNING,
+			       "source '%s' went down and cannot be started "
+			       "again", mcp->name);
+		return;
+	}
+	fyai_diag_type(mc->diag, FYAIET_WARNING,
+		       "source '%s' went down; it starts again in %lld ms",
+		       mcp->name, mcp->restart_ms);
+}
+
+/*
+ * The connection of a configured source closed: its process ended, or broke
+ * the protocol. This runs within the connection, which goes in the restart.
+ */
+static void mcp_source_closed(void *data)
+{
+	struct fyai_mcp_ctx *mcp = data;
+	struct fyai_mcp *mc = mcp_owner(mcp);
+
+	if (mc->stopping || mcp->removed)
+		return;
+	mcp_source_restart_schedule(mcp);
+	mcp_sources_publish(mc);
+}
+
+static enum fyai_event_action mcp_source_restart(const struct fyai_event *ev)
+{
+	struct fyai_mcp_ctx *mcp = ev->userdata;
+	struct fyai_mcp *mc = mcp_owner(mcp);
+	struct fyai_event_loop *el = fyai_loop_get(mc->loop);
+	int status;
+
+	mcp->restart_timer = NULL;
+	if (mc->stopping || mcp->removed)
+		return FYAIEA_CONTINUE;
+	/* What is left of the last start. */
+	if (mcp->startup) {
+		if (mcp->startup->timer)
+			fyai_event_source_remove(mcp->startup->timer);
+		jsonrpc_request_destroy(mcp->startup->req);
+		free(mcp->startup->cursor);
+		free(mcp->startup);
+		mcp->startup = NULL;
+	}
+	if (mcp->event_relist) {
+		jsonrpc_request_destroy(mcp->event_relist);
+		mcp->event_relist = NULL;
+	}
+	/* An event that waits for its decision is sent again after the
+	 * cursor; the ids that were seen drop what was taken already. */
+	mcp_decisions_release(mcp);
+	jsonrpc_conn_destroy(mcp->conn);
+	mcp->conn = NULL;
+	if (mcp->stdin_fd >= 0)
+		close(mcp->stdin_fd);
+	if (mcp->stdout_fd >= 0)
+		close(mcp->stdout_fd);
+	mcp->stdin_fd = mcp->stdout_fd = -1;
+	/* The process ended, or it closed its output and is told to end. */
+	if (mcp->pid > 0 && el &&
+	    fyai_event_child_terminate_group(el, mcp->pid, 1000, 500, NULL)) {
+		kill(-mcp->pid, SIGKILL);
+		while (waitpid(mcp->pid, &status, 0) < 0 && errno == EINTR)
+			;
+	}
+	mcp->pid = -1;
+
+	mcp->restarts++;
+	mcp->state = MCP_SRV_CONNECTING;
+	mcp->events_supported = false;
+	mcp->events_listed = false;
+	/* The tools come again with the startup; until then a call fails. */
+	mcp->tools = fy_seq_empty;
+	mcp->tools_raw = fy_invalid;
+	if (mcp_stdio_spawn(mc, mcp, mcp->spawn_config) ||
+	    !(mcp->conn = mcp_stdio_conn(mc, mcp))) {
+		mcp->state = MCP_SRV_FAILED;
+		mcp_source_restart_schedule(mcp);
+		mcp_sources_publish(mc);
+		return FYAIEA_CONTINUE;
+	}
+	mcp_sources_publish(mc);
+	mcp_startup_begin(mcp);
+	return FYAIEA_CONTINUE;
+}
+
 static int mcp_create_server(struct fyai_mcp *mc, const char *server_name,
 			     fy_generic config)
 {
@@ -3839,11 +3988,14 @@ static int mcp_create_server(struct fyai_mcp *mc, const char *server_name,
 			 "MCP stdio server '%s' could not start", server_name);
 
 	if (mcp->transport == MCP_TRANSPORT_STDIO) {
-		mcp->conn = jsonrpc_conn_stdio(fyai_mcp_state_ctx(mc), mcp->stdin_fd,
-				mcp->stdout_fd, mcp->timeout, mcp->name, "mcp");
-		/* Events, their kinds and ping arrive unasked. */
-		if (mcp->conn)
-			(void)jsonrpc_conn_serve(mcp->conn, mcp_serve, mcp);
+		/* A configured source starts again when its process ends. */
+		if (mcp->events_wanted && !mcp->by_model) {
+			mcp->spawn_config = fy_gb_internalize(mc->cfg->gb, config);
+			fyai_diag_check(mc->diag, fy_is_mapping(mcp->spawn_config),
+					err_out, "MCP server '%s' could not keep "
+					"its configuration", server_name);
+		}
+		mcp->conn = mcp_stdio_conn(mc, mcp);
 	} else {
 		struct jsonrpc_http_hooks hooks = {
 			.userdata = mcp,
@@ -4014,6 +4166,8 @@ static const char *mcp_source_state(const struct fyai_mcp_ctx *mcp)
 		return "starting";
 	if (mcp->state == MCP_SRV_FAILED)
 		return "failed";
+	if (mcp->restart_timer)
+		return "restarting";
 	if (!mcp->conn || jsonrpc_conn_closed(mcp->conn))
 		return "down";
 	if (!mcp->events_supported)
@@ -4074,7 +4228,8 @@ bool fyai_mcp_source_up(struct fyai_mcp *mc, const char *name)
 
 	if (!mcp || !mcp->events_wanted)
 		return false;
-	return mcp->state == MCP_SRV_CONNECTING ||
+	/* Event waits stay active while the source reconnects. */
+	return mcp->state == MCP_SRV_CONNECTING || mcp->restart_timer ||
 	       !strcmp(mcp_source_state(mcp), "up");
 }
 
@@ -4095,6 +4250,9 @@ fy_generic fyai_mcp_live_rows(struct fyai_mcp *mc,
 		if (mcp->state == MCP_SRV_CONNECTING) {
 			mark = "running";
 			last = "starting";
+		} else if (!strcmp(state, "restarting")) {
+			mark = "running";
+			last = fy_sprintfa("restarting in %lld ms", mcp->restart_ms);
 		} else if (!strcmp(state, "failed") || !strcmp(state, "down")) {
 			mark = "failed";
 			last = mcp->last_error ?
@@ -5104,6 +5262,10 @@ int fyai_mcp_stop(struct fyai_mcp *mc)
 	/* Cancel any in-flight startup, then fire every server's teardown so
 	 * they drain concurrently. */
 	for (mcp = mc->conns; mcp; mcp = mcp->next) {
+		if (mcp->restart_timer) {
+			fyai_event_source_remove(mcp->restart_timer);
+			mcp->restart_timer = NULL;
+		}
 		if (mcp->oauth_refresh_timer) {
 			fyai_event_source_remove(mcp->oauth_refresh_timer);
 			mcp->oauth_refresh_timer = NULL;
