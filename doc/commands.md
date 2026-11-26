@@ -558,6 +558,8 @@ A decision model answers an integer argument with `minimum` and
 `maximum` 2 to 10 apart with a score question (`x-levels` names the
 levels). `--image FILE` shows an image to each decision; the decider's
 `images: KEY` takes the data URLs of that key of the input.
+In a session, use `/decide NAME --input JSON` for one decision.
+Use `/decide --list` to show the available deciders.
 
 
 ### Arguments
@@ -4696,6 +4698,70 @@ one provider.
 | `-h`, `--help` | show this help |
 
 **See also:** `/help config-paths`
+
+## /decide
+
+let a model choose one option for each input
+
+**Usage:** `/decide [--options FILE] [--instructions TEXT] [--input JSON] [--image FILE] [--list] [NAME]`
+
+For each JSON value on standard input, one per line, or for `--input`,
+ask the model to choose one option of a decider and give its arguments,
+and write one JSON line: `{"decision": NAME, "arguments": {...}}`, or
+`{"error": TEXT}`. A decider is `decisions/NAME` of the configuration,
+or a canned one (`--list` shows them), or `--options FILE`, a JSON
+mapping of option names to `{description, schema}` or a list of canned
+option names, with `--instructions`. A decider of the configuration
+may extend another with `use`, list canned options by name, or take a
+canned option with `{use: NAME}` and change its description or
+schema. The model must call one tool whose
+arguments the schema of the option checks; a call that fails it is
+answered with the problems, and the model tries again. Each input is a
+conversation of its own, and nothing is stored. The input is framed as
+data, not as instructions.
+
+A decider whose `model` is a decision model, such as
+`typesafe/jev-latest` or, from the catalogue, `openrouter/typesafe/jev-1.14`,
+sends one System One request for each input
+instead: the options are a choice, and an argument with an enum or a
+boolean is a question of its own. The line adds `probability`,
+`confidence` and `probabilities`. What it cannot decide (too unsure for
+`min_probability`, or an option that needs text) goes to `fallback`.
+
+An option with `then: NAME` hands the input on to the decider NAME,
+which decides on `{"input": ..., "steps": [...]}`, the decisions so
+far; an option without it ends the chain, and the line adds `steps`.
+`max_steps` of the first decider bounds the chain (8).
+
+An option with `tool: NAME` runs that tool with the arguments of the
+decision, as a model's tool call runs: through the tool gate, the
+allow list and the sandbox. The step records the result, and the
+decider of `then`, else the same one, decides again.
+
+A decision model answers an integer argument with `minimum` and
+`maximum` 2 to 10 apart with a score question (`x-levels` names the
+levels). `--image FILE` shows an image to each decision; the decider's
+`images: KEY` takes the data URLs of that key of the input.
+In a session, use `/decide NAME --input JSON` for one decision.
+Use `/decide --list` to show the available deciders.
+
+
+### Arguments
+
+| Argument | Description |
+| --- | --- |
+| `NAME` | the decider, a key of decisions |
+
+### Options
+
+| Option | Description |
+| --- | --- |
+| `--options FILE` | the options, a JSON mapping of name to description and schema |
+| `--instructions TEXT` | how to choose, in place of those of the decider |
+| `--input JSON` | decide on this one JSON value, not on standard input |
+| `--image FILE` | show this image file with each decision |
+| `--list` | list the deciders, canned and configured |
+| `-h`, `--help` | show this help |
 
 ## /reset
 
