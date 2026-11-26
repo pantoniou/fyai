@@ -11,7 +11,8 @@ fyai_test_setup
 
 # Wait for the last row of the resized generation on the screen: the program
 # paints its rows in order, so that row stands once the differential repaint
-# is whole.
+# is whole. The pane height depends on the footer, so the rows are read from
+# the size that the program reports.
 export PYTHON
 pty_run "$TEST_DIR/pty.out" \
     "$FYAI_BIN" -k test-key --theme dark \
@@ -22,10 +23,10 @@ timeout: 40
 wait_timeout: 20
 steps:
   - type: "!env LINES=30 COLUMNS=98 ${PYTHON} ${TESTS_DIR}/resize_curses.py"
-  - wait: "E29G1:"
+  - wait: "ENDG1:"
     timeout: session
   - resize: 52
-  - wait-screen: "E19G2:"
+  - wait-screen: "ENDG2:"
   - snapshot: "${TEST_DIR}/curses.out"
   - write: "\x1d"
 PTY
@@ -44,9 +45,15 @@ if clear in data:
 s = Screen(30, 52)
 s.feed(data)
 lines = s.lines()
-if not any("SIZE 20x50 GEN" in line for line in lines):
+import re
+rows = 0
+for line in lines:
+    m = re.search(r"SIZE (\d+)x50 GEN 2", line)
+    if m:
+        rows = int(m.group(1))
+if not rows:
     raise SystemExit("the resized ncurses generation is not visible")
-for row in range(2, 19):
+for row in range(2, rows - 1):
     token = "R%02d:" % row
     matches = [line.strip() for line in lines if token in line]
     if not matches:

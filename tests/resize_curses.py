@@ -23,7 +23,7 @@ def paint(screen, generation):
             token = "W%dG%d:" % (cols, generation)
             text = token + "#" * (cols - len(token))
         elif row == rows - 1:
-            token = "E%dG%d:" % (row, generation)
+            token = "ENDG%d:" % generation
             text = token + chr(ord("A") + row % 26) * (cols - len(token))
         else:
             token = "R%02d:" % row
