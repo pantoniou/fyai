@@ -223,6 +223,26 @@ source_start {name, command, workdir}
 
 It lives for the session, as a terminal session does, and `cancel` stops it.
 
+**As built.** `source_start {name, command, workdir}` runs `/bin/sh -c
+COMMAND` as a stdio MCP server with `events: true`, in a session with or
+without configured servers.
+
+- Its command comes from the model, so it runs under the tool sandbox of
+  the shell commands (`fyai_tools_confine` in the child), not unconfined as
+  a configured server does. It pins the scope of the exchange while it
+  lives, so `sandbox_scope: exchange` does not end it.
+- Its bound actions become tools when it is up: the tools are published
+  and the request state rebuilt when its startup settles.
+- `list` with kind `sources` marks it `by: model`. `cancel` (kind `source`)
+  stops it: what waits on its connection fails
+  (`jsonrpc_conn_shutdown`), its events waiting for a decision are
+  dropped (the source sends them again if it restarts), its process group
+  gets the stop ladder, and its tools go. The entry stays, out of every
+  lookup, until the session ends, so a later `source_start` can take the
+  name. `cancel` does not stop a configured source.
+- It is not offered to a sub-agent. A source that dies is shown `down`;
+  nothing restarts it.
+
 When no session runs, nobody consumes. The source keeps its backlog, and the
 next session resumes from the stored cursor. Hosting sources in the fleet or
 `serve` process, with a durable branch inbox, is the later step described in
@@ -873,7 +893,7 @@ polling for liveness, and the token loading in every reply go away.
    on it; then the decision step of a route and `fyai source decide`. Verify
    `tool_choice` support per grammar, including the Claude Code backend.
 8. Automatic compaction that keeps open records; record archive and stubs.
-9. `source_start`.
+9. `source_start` (built).
 10. Branch per conversation, with idle close.
 11. Sampling requests from a source.
 12. GC beside a live session; durable hosting in `serve` or the fleet.
