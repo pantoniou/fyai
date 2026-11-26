@@ -1,0 +1,58 @@
+{
+  "steps": [
+    {
+      "response": {
+        "choices": [
+          {
+            "message": {
+              "role": "assistant",
+              "content": null,
+              "tool_calls": [
+                {
+                  "id": "call_write",
+                  "type": "function",
+                  "function": {
+                    "name": "exec_command",
+                    "arguments": "{\"command\": \"printf '%s\\\\n' '{\\\"n\\\":1}' '{\\\"n\\\":\\\"bad\\\"}' > events.fifo\"}"
+                  }
+                },
+                {
+                  "id": "call_wait",
+                  "type": "function",
+                  "function": {
+                    "name": "wait",
+                    "arguments": "{\"for\": \"logs\", \"seconds\": 20}"
+                  }
+                }
+              ]
+            },
+            "finish_reason": "tool_calls"
+          }
+        ],
+        "usage": {
+          "prompt_tokens": 10,
+          "completion_tokens": 5,
+          "total_tokens": 15
+        }
+      }
+    },
+    {
+      "response": {
+        "choices": [
+          {
+            "message": {
+              "role": "assistant",
+              "content": "Lines seen."
+            },
+            "finish_reason": "stop"
+          }
+        ],
+        "usage": {
+          "prompt_tokens": 20,
+          "completion_tokens": 5,
+          "total_tokens": 25
+        }
+      }
+    }
+  ]
+}
