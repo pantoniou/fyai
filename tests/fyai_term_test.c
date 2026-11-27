@@ -16,11 +16,13 @@
 #include "fyai_test_registry.h"
 
 #include "fyai.h"
+#include <libfytimui.h>
 #include "fyai_terminal_view.h"
 #include "utils.h"
 
 FYAI_TEST_ENTRY(term, view_cells, term_view_cells)
 FYAI_TEST_ENTRY(term, view_palette, term_view_palette)
+FYAI_TEST_ENTRY(term, color_downgrade, term_color_downgrade)
 FYAI_TEST_ENTRY(term, view_damage, term_view_damage)
 FYAI_TEST_ENTRY(term, view_cursor, term_view_cursor)
 FYAI_TEST_ENTRY(term, view_cooked, term_view_cooked)
@@ -44,7 +46,8 @@ static void feed(struct fyai_terminal_view *view, const char *bytes)
 int term_view_palette(void)
 {
 	struct fyai_cfg cfg = { .terminal_probed = true };
-	struct fyai_ctx ctx = { .cfg = &cfg };
+	struct fyai_screen screen = {};
+	struct fyai_ctx ctx = { .cfg = &cfg, .screen = &screen };
 	struct fyai_terminal_view *view;
 	struct fyai_term_cell cell;
 
@@ -69,6 +72,32 @@ int term_view_palette(void)
 	FYAI_TCHECK(fyai_terminal_view_cell(view, 0, 3, &cell));
 	FYAI_TCHECK(cell.bg.r == 0x11 && cell.bg.g == 0x22 && cell.bg.b == 0x33);
 	fyai_terminal_view_destroy(view);
+	return 0;
+}
+
+/*
+ * A terminal without 24-bit colour gets an index: the entry of its own palette
+ * for an ANSI colour, the nearest of the 256 colours for any other.
+ */
+int term_color_downgrade(void)
+{
+	struct fyai_term_color c = { .r = 1, .g = 2, .b = 3 };
+
+	/* The corners of the cube, the ramp of greys and a colour between. */
+	FYAI_TCHECK(fyai_term_nearest_256(0, 0, 0) == 16);
+	FYAI_TCHECK(fyai_term_nearest_256(255, 255, 255) == 231);
+	FYAI_TCHECK(fyai_term_nearest_256(255, 0, 0) == 196);
+	FYAI_TCHECK(fyai_term_nearest_256(0, 0, 255) == 21);
+	FYAI_TCHECK(fyai_term_nearest_256(128, 128, 128) == 244);
+	FYAI_TCHECK(fyai_term_nearest_256(10, 10, 10) == 232);
+	FYAI_TCHECK(fyai_term_nearest_256(95, 135, 175) == 67);
+
+	FYAI_TCHECK(fyai_term_color_value(&c) == 0x010203);
+	c.indexed = true;
+	c.index = 9;
+	FYAI_TCHECK(fyai_term_color_value(&c) == (FYTIM_COLOR_INDEXED | 9));
+	c.is_default = true;
+	FYAI_TCHECK(fyai_term_color_value(&c) == FYTIM_COLOR_DEFAULT);
 	return 0;
 }
 
