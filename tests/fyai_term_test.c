@@ -15,10 +15,12 @@
 #include "fyai_test.h"
 #include "fyai_test_registry.h"
 
+#include "fyai.h"
 #include "fyai_terminal_view.h"
 #include "utils.h"
 
 FYAI_TEST_ENTRY(term, view_cells, term_view_cells)
+FYAI_TEST_ENTRY(term, view_palette, term_view_palette)
 FYAI_TEST_ENTRY(term, view_damage, term_view_damage)
 FYAI_TEST_ENTRY(term, view_cursor, term_view_cursor)
 FYAI_TEST_ENTRY(term, view_cooked, term_view_cooked)
@@ -32,6 +34,42 @@ FYAI_TEST_ENTRY(term, view_screen_phase, term_view_screen_phase)
 static void feed(struct fyai_terminal_view *view, const char *bytes)
 {
 	FYAI_TCHECK(!fyai_terminal_view_feed(view, bytes, strlen(bytes)));
+}
+
+/*
+ * The view starts with the colours that the probe read from the terminal: an
+ * ANSI colour a program picks resolves to the palette of that terminal, and a
+ * colour the probe missed keeps the emulator default.
+ */
+int term_view_palette(void)
+{
+	struct fyai_cfg cfg = { .terminal_probed = true };
+	struct fyai_ctx ctx = { .cfg = &cfg };
+	struct fyai_terminal_view *view;
+	struct fyai_term_cell cell;
+
+	cfg.terminal.flags = FYPAL_TERM_FOREGROUND | FYPAL_TERM_BACKGROUND;
+	cfg.terminal.foreground = 0xc0c0c0;
+	cfg.terminal.background = 0x101820;
+	cfg.terminal.ansi[1] = 0x112233;
+	cfg.terminal.ansi[12] = 0x445566;
+	cfg.terminal.ansi_known = (1U << 1) | (1U << 12);
+
+	view = fyai_terminal_view_create(&ctx, 4, 20, 0);
+	FYAI_TCHECK(view != NULL);
+	feed(view, "\033[31ma\033[94mb\033[32mc\033[41md");
+
+	FYAI_TCHECK(fyai_terminal_view_cell(view, 0, 0, &cell));
+	FYAI_TCHECK(cell.fg.r == 0x11 && cell.fg.g == 0x22 && cell.fg.b == 0x33);
+	FYAI_TCHECK(fyai_terminal_view_cell(view, 0, 1, &cell));
+	FYAI_TCHECK(cell.fg.r == 0x44 && cell.fg.g == 0x55 && cell.fg.b == 0x66);
+	/* Green is not known: the emulator default stays. */
+	FYAI_TCHECK(fyai_terminal_view_cell(view, 0, 2, &cell));
+	FYAI_TCHECK(cell.fg.r == 0 && cell.fg.g == 224 && cell.fg.b == 0);
+	FYAI_TCHECK(fyai_terminal_view_cell(view, 0, 3, &cell));
+	FYAI_TCHECK(cell.bg.r == 0x11 && cell.bg.g == 0x22 && cell.bg.b == 0x33);
+	fyai_terminal_view_destroy(view);
+	return 0;
 }
 
 int term_view_cells(void)
