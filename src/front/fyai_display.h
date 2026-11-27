@@ -74,6 +74,9 @@ void fyai_render_tool_exchange(struct fyai_ctx *ctx, fy_generic tool_call,
 int fyai_display_recorded_result(struct fyai_ctx *ctx, const char *md,
 				 size_t len, const char *lang,
 				 const char *tool);
+/* Draw the recorded diff of a tool group as a local session draws it. */
+int fyai_display_recorded_diff(struct fyai_ctx *ctx, const char *diff,
+			       size_t len);
 void fyai_render_tool_result_exchange(struct fyai_ctx *ctx,
 				      fy_generic tool_call,
 				      fy_generic tool_result);

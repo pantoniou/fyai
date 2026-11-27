@@ -98,7 +98,7 @@ static void uidraw_results(struct fyai_ctx *ctx, struct fyai_uidraw *d,
 {
 	fy_generic frags = fy_get(live, "fragments", fy_seq_empty), frag, range;
 	size_t n = fy_len(frags), start, end, rs, re;
-	bool covered;
+	bool covered, diff;
 	int rc;
 
 	for (; d->frag_next < n; d->frag_next++) {
@@ -107,7 +107,9 @@ static void uidraw_results(struct fyai_ctx *ctx, struct fyai_uidraw *d,
 		end = fy_get(frag, "end", (size_t)0);
 		if (end > len)
 			return;
-		if (!fy_equal(fy_get(frag, "kind", ""), "tool_result"))
+		diff = fy_equal(fy_get(frag, "kind", ""), "tool_text") &&
+		       fy_equal(fy_get(frag, "tool", ""), "diff");
+		if (!diff && !fy_equal(fy_get(frag, "kind", ""), "tool_result"))
 			continue;
 		covered = false;
 		fy_foreach(range, fy_get(live, "recorded", fy_seq_empty)) {
@@ -117,9 +119,15 @@ static void uidraw_results(struct fyai_ctx *ctx, struct fyai_uidraw *d,
 		}
 		if (!covered)
 			continue;
-		rc = fyai_display_recorded_result(ctx, text + start, end - start,
-				fy_get(frag, "lang", ""), fy_get(frag, "tool", ""));
-		uidraw_warn_check(ctx, !rc, "a tool result");
+		if (diff)
+			rc = fyai_display_recorded_diff(ctx, text + start,
+							end - start);
+		else
+			rc = fyai_display_recorded_result(ctx, text + start,
+				end - start, fy_get(frag, "lang", ""),
+				fy_get(frag, "tool", ""));
+		uidraw_warn_check(ctx, !rc, diff ? "a tool diff" :
+				  "a tool result");
 	}
 }
 

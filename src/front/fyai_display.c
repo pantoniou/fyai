@@ -3169,6 +3169,16 @@ err:
 	return -1;
 }
 
+int fyai_display_recorded_diff(struct fyai_ctx *ctx, const char *diff,
+			       size_t len)
+{
+	int lines = fyai_tool_preview_lines(ctx->cfg, "diff");
+
+	if (!len)
+		return 0;
+	return fyai_diff_draw(ctx, diff, len, lines);
+}
+
 int fyai_present_hosted_call(struct fyai_ctx *ctx, const char *name,
 			     fy_generic args, bool ok, const char *cause)
 {
