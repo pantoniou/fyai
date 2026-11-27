@@ -1640,6 +1640,36 @@ static void config_cli_forget(struct fyai_cfg *cfg, const char *key)
 	}
 }
 
+int fyai_cfg_ignore_path(struct fyai_cfg *cfg, const char *path)
+{
+	char dir[PATH_MAX], real[PATH_MAX], full[PATH_MAX];
+	const char *slash, *name;
+	fy_generic paths;
+	int n;
+
+	slash = strrchr(path, '/');
+	name = slash ? slash + 1 : path;
+	n = snprintf(dir, sizeof(dir), "%.*s", slash ? (int)(slash - path) + 1 : 1,
+		     slash ? path : ".");
+	fyai_cfg_error_check(cfg, n > 0 && (size_t)n < sizeof(dir), err,
+			     "ignore: path too long: %s", path);
+	/* The file may not exist yet: resolve its directory. */
+	fyai_cfg_error_check(cfg, realpath(dir, real), err,
+			     "ignore: cannot resolve %s: %s", dir, strerror(errno));
+	n = snprintf(full, sizeof(full), "%s%s%s", real,
+		     strcmp(real, "/") ? "/" : "", name);
+	fyai_cfg_error_check(cfg, n > 0 && (size_t)n < sizeof(full), err,
+			     "ignore: path too long: %s", path);
+	paths = fy_is_sequence(cfg->ignore_paths) ? cfg->ignore_paths : fy_seq_empty;
+	paths = fy_append(cfg->gb, paths, fy_value(cfg->gb, full));
+	fyai_cfg_error_check(cfg, fy_is_valid(paths), err,
+			     "ignore: cannot keep %s", full);
+	cfg->ignore_paths = paths;
+	return 0;
+err:
+	return -1;
+}
+
 int fyai_config_set(struct fyai_ctx *ctx, const char *key, const char *value)
 {
 	struct fy_generic_builder *gb = ctx->arena->gb;
@@ -4159,6 +4189,8 @@ static int config_parse_cli_options(struct fyai_cfg *cfg, int argc, char *argv[]
 			break;
 		case OPT_CAST:
 			cfg->cast_path = fy_gb_intern_string(cfg->gb, optarg);
+			if (fyai_cfg_ignore_path(cfg, optarg))
+				return -1;
 			break;
 		case OPT_THEME:
 			if (config_queue_set_quoted(cfg, "display/theme", optarg,

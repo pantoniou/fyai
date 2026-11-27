@@ -99,9 +99,12 @@ struct fyai_ignore_spec {
 /*
  * The record that a view stores, built from the `view` section of the
  * configuration document: {gitignore, patterns}. The view keeps it, so the capture
- * of its result ignores what the capture of its baseline did.
+ * of its result ignores what the capture of its baseline did. @paths is a
+ * sequence of absolute paths that rank as rules too (none when @root is NULL); those under @root become
+ * rules anchored at it, the others are left out.
  */
-fy_generic fyai_ignore_record(struct fy_generic_builder *gb, fy_generic config);
+fy_generic fyai_ignore_record(struct fy_generic_builder *gb, fy_generic config,
+			      const char *root, fy_generic paths);
 
 /*
  * Load a record into a spec. A record that is not a mapping, such as the one of a

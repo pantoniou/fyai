@@ -479,6 +479,7 @@ struct fyai_cfg {
 	enum fyai_scope_kind sandbox_scope_kind; /* the same, derived from sandbox_scope */
 	const char *cast_path;		/* --cast: the file that records the screen, or NULL */
 	bool cast_compat;		/* --cast-compat: write plain asciicast, nothing of ours */
+	fy_generic ignore_paths;	/* absolute paths that capture and diffs leave out (cfg->gb) */
 	bool interactive;
 	int debug;
 	bool pretty;

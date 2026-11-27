@@ -19,6 +19,8 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
+#include <libfyaml/libfyaml-allocator.h>
+
 #include "fyai_ignore.h"
 #include "fyai_scratch.h"
 
@@ -265,13 +267,51 @@ struct fyai_ignore_scope *fyai_ignore_parse_lines(struct fyai_scratch *scratch,
 	return scope;
 }
 
-fy_generic fyai_ignore_record(struct fy_generic_builder *gb, fy_generic config)
+/* Add to @out the rule that names the file @rel exactly, anchored at the root. */
+static fy_generic ignore_path_rule(struct fy_generic_builder *gb, fy_generic out, const char *rel)
+{
+	char *rule, *w;
+	const char *r;
+
+	rule = malloc(strlen(rel) * 2 + 2);
+	if (!rule)
+		return fy_invalid;
+	w = rule;
+	*w++ = '/';
+	for (r = rel; *r; r++) {
+		if (strchr("*?[]\\ !#", *r))
+			*w++ = '\\';
+		*w++ = *r;
+	}
+	*w = '\0';
+	out = fy_append(gb, out, fy_value(gb, rule));
+	free(rule);
+	return out;
+}
+
+fy_generic fyai_ignore_record(struct fy_generic_builder *gb, fy_generic config,
+			      const char *root, fy_generic paths)
 {
 	fy_generic section = fy_get(config, "view", fy_invalid);
 	fy_generic patterns = fy_get(section, "ignore", fy_seq_empty);
+	const char *path;
+	size_t rl = root ? strlen(root) : 0;
 
+	if (!fy_is_sequence(patterns))
+		patterns = fy_seq_empty;
+	if (rl && root[rl - 1] == '/')
+		rl--;
+	if (rl && fy_is_sequence(paths)) {
+		fy_foreach(path, paths) {
+			if (strncmp(path, root, rl) || path[rl] != '/' || !path[rl + 1])
+				continue;
+			patterns = ignore_path_rule(gb, patterns, path + rl + 1);
+			if (fy_is_invalid(patterns))
+				return fy_invalid;
+		}
+	}
 	return fy_mapping(gb, "gitignore", (bool)fy_get(section, "gitignore", true),
-			  "patterns", fy_is_sequence(patterns) ? patterns : fy_seq_empty);
+			  "patterns", patterns);
 }
 
 void fyai_ignore_spec_load(struct fyai_ignore_spec *spec, fy_generic record)

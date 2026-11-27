@@ -1089,7 +1089,7 @@ static struct fyai_ignore_tree *view_ignore_tree(struct fyai_ctx *ctx, struct fy
 
 	if (fy_str_empty(project))
 		return NULL;
-	fyai_ignore_spec_load(spec, fyai_ignore_record(gb, ctx->cfg->config_doc));
+	fyai_ignore_spec_load(spec, fyai_ignore_record(gb, ctx->cfg->config_doc, NULL, fy_invalid));
 	root = open(project, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
 	if (root < 0)
 		return NULL;
@@ -4426,11 +4426,12 @@ int fyai_project_state_capture(struct fyai_ctx *ctx, fy_generic *ref)
 		errno = E2BIG;
 		return -1;
 	}
-	fyai_ignore_spec_load(&ignore, fyai_ignore_record(ctx->arena->gb, ctx->cfg->config_doc));
-	opts.ignore = &ignore;
 	root = project_state_root(ctx);
 	if (!root)
 		return 0;
+	fyai_ignore_spec_load(&ignore, fyai_ignore_record(ctx->arena->gb, ctx->cfg->config_doc, root,
+							  ctx->cfg->ignore_paths));
+	opts.ignore = &ignore;
 	rc = tool_diff_storage(ctx, root, &storage, &objects, &views);
 	if (rc)
 		goto out;

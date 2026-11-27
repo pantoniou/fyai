@@ -313,4 +313,11 @@ enum fyai_model_access fyai_config_model_access_tree(const char *path);
 /* The node of the configuration schema at the slash path @path. */
 fy_generic fyai_config_schema_node(const char *path);
 
+/*
+ * Keep @path out of the project capture and the diffs of tool calls, as a
+ * view/ignore rule does. A relative path is taken from the working directory;
+ * the file need not exist. Return 0, or -1 with the cause in the diagnostics.
+ */
+int fyai_cfg_ignore_path(struct fyai_cfg *cfg, const char *path);
+
 #endif
