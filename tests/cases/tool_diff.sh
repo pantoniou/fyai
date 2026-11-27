@@ -46,6 +46,15 @@ assert_stdout_not_contains 'ignored.log'
 assert_stdout_not_contains 'requests.jsonl'
 assert_stdout_contains 'All done.'
 
+# The file that --cast records is not the project: a change to it is not shown.
+reset_project
+mock_start tool_diff.json
+run_with --cast made.txt --set view/tool_diff=true "edit the files"
+assert_status 0
+assert_stdout_contains 'diff --git a/existing.txt b/existing.txt'
+assert_stdout_not_contains 'made.txt'
+assert_stdout_contains 'All done.'
+
 # The diff is part of the record, and the history draws it again.
 run_fyai history
 assert_status 0
