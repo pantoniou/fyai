@@ -2680,6 +2680,7 @@ void fyai_cleanup(struct fyai_ctx *ctx)
 	fyai_waits_release(ctx->waitq);
 	fyai_waiters_release(ctx);
 	fyai_tool_gate_relays_drop(ctx);
+	fyai_session_btw_close(ctx);
 	fyai_agent_background_close(ctx);
 	fyai_monitor_close(ctx);
 	/* Detach fleet state watchers without stopping member sessions. */
@@ -3151,6 +3152,7 @@ void fyai_background_reset(struct fyai_ctx *ctx)
 {
 	if (!ctx)
 		return;
+	fyai_session_btw_close(ctx);
 	fyai_agent_background_close(ctx);
 	fyai_monitor_close(ctx);
 	fyai_asks_release(ctx->askq);
