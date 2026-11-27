@@ -38,6 +38,9 @@ void fyai_ui_config_reassert(struct fyai_ctx *ctx);
 /* Re-read the display configuration a live session holds. */
 void fyai_ui_config_changed(struct fyai_ctx *ctx);
 bool fyai_ui_active(const struct fyai_ctx *ctx);
+
+/* Whether the terminal takes 24-bit colour. True without a display. */
+bool fyai_ui_truecolor(const struct fyai_ctx *ctx);
 /* Whether the UI stands on the alternate screen with a fullscreen page. */
 bool fyai_ui_fullscreen(const struct fyai_ctx *ctx);
 char *fyai_ui_readline(struct fyai_ctx *ctx);

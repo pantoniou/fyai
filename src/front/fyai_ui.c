@@ -6348,6 +6348,13 @@ void fyai_ui_tool_end(struct fyai_ctx *ctx, bool ok, const char *cause)
 	ui_tool_text_free(ui);
 }
 
+bool fyai_ui_truecolor(const struct fyai_ctx *ctx)
+{
+	if (!fyai_ui_active(ctx) || !ctx->screen->ui->ft)
+		return true;
+	return fytim_truecolor(ctx->screen->ui->ft);
+}
+
 /* ---- surfaces ----------------------------------------------------------- */
 
 /* Convert one view cell to the display library's cell format. */
@@ -6359,12 +6366,8 @@ static void surface_cell(const struct fyai_term_cell *src,
 	memset(dst, 0, sizeof(*dst));
 	for (i = 0; i < FYAI_TERM_CELL_CHARS && i < FYTIM_CELL_CHARS; i++)
 		dst->chars[i] = src->chars[i];
-	dst->fg = src->fg.is_default ? FYTIM_COLOR_DEFAULT
-		: ((uint32_t)src->fg.r << 16) | ((uint32_t)src->fg.g << 8) |
-		  (uint32_t)src->fg.b;
-	dst->bg = src->bg.is_default ? FYTIM_COLOR_DEFAULT
-		: ((uint32_t)src->bg.r << 16) | ((uint32_t)src->bg.g << 8) |
-		  (uint32_t)src->bg.b;
+	dst->fg = fyai_term_color_value(&src->fg);
+	dst->bg = fyai_term_color_value(&src->bg);
 	if (src->bold)
 		dst->attrs |= FYTIM_ATTR_BOLD;
 	if (src->italic)

@@ -24,6 +24,8 @@
 #include "fyai.h"
 #include <libfypalette.h>
 #include "fyai_markdown.h"
+#include "fyai_ui.h"
+#include <libfytimui.h>
 #include "fyai_terminal_view.h"
 #include "utils.h"
 #include "fyai_shell_capture.h"
@@ -991,19 +993,74 @@ char *fyai_terminal_view_read(struct fyai_terminal_view *view,
 	return NULL;
 }
 
+/* The xterm 256-colour entry that is nearest to the colour: the 6x6x6 cube or
+ * the grey ramp. The first 16 entries are the palette of the terminal, which
+ * an RGB value does not name. */
+unsigned char fyai_term_nearest_256(unsigned char r, unsigned char g, unsigned char b)
+{
+	static const unsigned char level[6] = { 0, 95, 135, 175, 215, 255 };
+	int ci[3] = { 0, 0, 0 }, rgb[3] = { r, g, b };
+	int i, k, d, best, cdist = 0, gdist, gi, grey;
+
+	for (i = 0; i < 3; i++) {
+		best = 1 << 30;
+		for (k = 0; k < 6; k++) {
+			d = abs(rgb[i] - level[k]);
+			if (d < best) {
+				best = d;
+				ci[i] = k;
+			}
+		}
+		cdist += (rgb[i] - level[ci[i]]) * (rgb[i] - level[ci[i]]);
+	}
+	/* The grey ramp is 8, 18, ... 238. */
+	grey = (r + g + b) / 3;
+	gi = (grey - 8 + 5) / 10;
+	if (gi < 0)
+		gi = 0;
+	if (gi > 23)
+		gi = 23;
+	gdist = 0;
+	for (i = 0; i < 3; i++)
+		gdist += (rgb[i] - (8 + gi * 10)) * (rgb[i] - (8 + gi * 10));
+	if (gdist < cdist)
+		return (unsigned char)(232 + gi);
+	return (unsigned char)(16 + 36 * ci[0] + 6 * ci[1] + ci[2]);
+}
+
+uint32_t fyai_term_color_value(const struct fyai_term_color *c)
+{
+	if (c->is_default)
+		return FYTIM_COLOR_DEFAULT;
+	if (c->indexed)
+		return FYTIM_COLOR_INDEXED | c->index;
+	return ((uint32_t)c->r << 16) | ((uint32_t)c->g << 8) | c->b;
+}
+
 static void tty_cell_color(const struct fyai_terminal_view *view,
 			   const union fyvt_color *src, struct fyai_term_color *dst,
 			   bool background)
 {
 	union fyvt_color col = *src;
+	bool palette;
 
 	dst->is_default = background ? FYVT_COLOR_IS_DEFAULT_BG(&col)
 				     : FYVT_COLOR_IS_DEFAULT_FG(&col);
+	dst->indexed = false;
+	palette = FYVT_COLOR_IS_INDEXED(&col);
+	dst->index = palette ? col.indexed.idx : 0;
 	/* An indexed colour means nothing to another terminal: resolve it. */
 	fyvt_screen_convert_color_to_rgb(view->screen, &col);
 	dst->r = col.rgb.red;
 	dst->g = col.rgb.green;
 	dst->b = col.rgb.blue;
+	/* A terminal that cannot show the RGB value gets an index: the entry of
+	 * its own palette for an ANSI colour, the nearest else. */
+	if (dst->is_default || fyai_ui_truecolor(fyai_terminal_view_ctx(view)))
+		return;
+	dst->indexed = true;
+	if (!palette || dst->index >= 16)
+		dst->index = fyai_term_nearest_256(dst->r, dst->g, dst->b);
 }
 
 bool fyai_terminal_view_cell(const struct fyai_terminal_view *view, int row,

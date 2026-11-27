@@ -94,8 +94,18 @@ bool fyai_terminal_sniff(struct fyai_terminal_sniff *sniff, const char *data,
 
 struct fyai_term_color {
 	bool is_default;	/* the colour of the terminal, not one chosen */
+	/* A terminal without 24-bit colour gets a palette index: the entry of
+	 * its own palette for 0 to 15, the nearest of the 256 colours else. */
+	bool indexed;
+	unsigned char index;
 	unsigned char r, g, b;
 };
+
+/* The xterm 256-colour entry nearest to an RGB colour, from 16 to 255. */
+unsigned char fyai_term_nearest_256(unsigned char r, unsigned char g, unsigned char b);
+
+/* The value of @c as a cell colour of the display library. */
+uint32_t fyai_term_color_value(const struct fyai_term_color *c);
 
 struct fyai_term_cell {
 	uint32_t chars[FYAI_TERM_CELL_CHARS];	/* base then combining */
