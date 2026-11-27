@@ -21,6 +21,9 @@
 
 #include <libfyvterm.h>
 #include "fyai_diag.h"
+#include "fyai.h"
+#include <libfypalette.h>
+#include "fyai_markdown.h"
 #include "fyai_terminal_view.h"
 #include "utils.h"
 #include "fyai_shell_capture.h"
@@ -593,6 +596,44 @@ static void tty_cb_output(const char *s, size_t len, void *user)
 	view->reply_cb(s, len, view->reply_data);
 }
 
+/*
+ * Give the emulator the colours of the terminal that this run draws on: the
+ * default colours and the ANSI palette that the probe read. A program in the
+ * view then reads and draws the same colours as one outside it, and an
+ * indexed colour resolves to what the host terminal shows. A colour that the
+ * probe did not get keeps the emulator default.
+ */
+static void tty_view_adopt_palette(struct fyai_terminal_view *view)
+{
+	const struct fypal_term *term;
+	struct fyvt_state *state = fyvt_obtain_state(view->vt);
+	struct fyai_ctx *ctx = fyai_terminal_view_ctx(view);
+	union fyvt_color fg, bg, col;
+	bool has_fg, has_bg;
+	int i;
+
+	if (!ctx || !ctx->cfg)
+		return;
+	term = fyai_terminal_probe(ctx->cfg);
+	has_fg = term->flags & FYPAL_TERM_FOREGROUND;
+	has_bg = term->flags & FYPAL_TERM_BACKGROUND;
+	if (has_fg)
+		fyvt_color_rgb(&fg, term->foreground >> 16,
+			       term->foreground >> 8, term->foreground);
+	if (has_bg)
+		fyvt_color_rgb(&bg, term->background >> 16,
+			       term->background >> 8, term->background);
+	fyvt_screen_set_default_colors(view->screen, has_fg ? &fg : NULL,
+				       has_bg ? &bg : NULL);
+	for (i = 0; i < 16; i++) {
+		if (!(term->ansi_known & (1U << i)))
+			continue;
+		fyvt_color_rgb(&col, term->ansi[i] >> 16, term->ansi[i] >> 8,
+			       term->ansi[i]);
+		fyvt_state_set_palette_color(state, i, &col);
+	}
+}
+
 struct fyai_terminal_view *fyai_terminal_view_create(struct fyai_ctx *ctx,
 						     int rows, int cols,
 						     size_t max_bytes)
@@ -647,6 +688,7 @@ struct fyai_terminal_view *fyai_terminal_view_create(struct fyai_ctx *ctx,
 	 */
 	fyvt_screen_set_damage_merge(view->screen, FYVT_DAMAGE_ROW);
 	fyvt_screen_reset(view->screen, 1);
+	tty_view_adopt_palette(view);
 	/* The reset damages the screen; a first paint draws all of it. */
 	fyai_terminal_view_damage_all(view);
 	return view;
